@@ -1,29 +1,41 @@
 /**
- * RetrievalPlanner.js — Fase 2
+ * RetrievalPlanner.js — Fase 2 (mejorado)
  *
  * Decide qué nodos del StateGraph son relevantes para el mensaje actual
  * ANTES de construir el context package.
  *
- * En lugar de pasar todo el World Model siempre (Fase 1),
- * el planner elige los nodos más relevantes para ESTE mensaje específico.
- *
- * Estrategia (sin embeddings, keyword-based):
- *   1. Extraer términos clave del mensaje
- *   2. Buscar nodos que coincidan en label o content
- *   3. Siempre incluir nodos User de alta importancia (nombre, trabajo, etc.)
- *   4. Incluir proyectos activos si el contexto OS lo sugiere
- *   5. Límite: ~8 nodos para no saturar el contexto
+ * Mejoras respecto a la versión anterior:
+ *   - Regex de código corregido (tenía "función" duplicado)
+ *   - Keywords mínimas: 3 chars para el vocabulario general +
+ *     set ALWAYS_SEARCH para términos técnicos cortos (bug, api, db, git...)
+ *   - Boost por recencia en episodios (los más recientes suben al top)
+ *   - Límite de nodos aumentado a 12
+ *   - Nuevo intent: "estado/emoción" para preguntas personales
+ *   - OS category "design" y "docs" también priorizan proyectos
  */
 
-// Keywords que mapean a tipos de búsqueda
 const INTENT_PATTERNS = [
-  { pattern: /\b(proyecto|project|trabajando en|working on|construyendo|building)\b/i, types: ['Project'] },
-  { pattern: /\b(recuerdas|recuerda|dijiste|mencionaste|remember)\b/i,                types: ['Episode', 'Belief'] },
-  { pattern: /\b(preferencia|gusta|favorito|like|prefer|odio|hate)\b/i,               types: ['Preference'] },
-  { pattern: /\b(quién soy|mi nombre|cómo me llamo|who am i)\b/i,                     types: ['User'] },
-  { pattern: /\b(código|programar|bug|error|función|función|debug|código)\b/i,         types: ['Project', 'Belief'] },
-  { pattern: /\b(ayer|antes|última vez|last time|semana pasada|hace días)\b/i,         types: ['Episode'] },
+  { pattern: /\b(proyecto|project|trabajando en|working on|construyendo|building)\b/i,  types: ['Project'] },
+  { pattern: /\b(recuerdas|recuerda|dijiste|mencionaste|remember|acordar)\b/i,          types: ['Episode', 'Belief'] },
+  { pattern: /\b(preferencia|gusta|favorito|like|prefer|odio|hate|detesto)\b/i,        types: ['Preference'] },
+  { pattern: /\b(quién soy|mi nombre|cómo me llamo|who am i|me llamo)\b/i,             types: ['User'] },
+  { pattern: /\b(código|programar|bug|error|función|debug|script|repo|git)\b/i,        types: ['Project', 'Belief'] },
+  { pattern: /\b(ayer|antes|última vez|last time|semana pasada|hace días|dijiste)\b/i, types: ['Episode'] },
+  { pattern: /\b(cómo estoy|cómo me ves|qué piensas de mí|qué sabes de mí)\b/i,      types: ['User', 'Belief'] },
+  { pattern: /\b(trabajo|empleo|empresa|cliente|reunión|jefe|equipo|meeting)\b/i,      types: ['User', 'Project'] },
 ];
+
+// Términos técnicos cortos que siempre se buscan en el grafo
+const ALWAYS_SEARCH = new Set(['bug', 'api', 'db', 'git', 'ui', 'ux', 'ml', 'ia', 'ai']);
+
+const STOPWORDS = new Set([
+  'para', 'como', 'que', 'esto', 'este', 'esta', 'una', 'uno', 'con', 'por', 'pero',
+  'más', 'muy', 'bien', 'todo', 'algo', 'hace', 'cuando', 'donde', 'quiero', 'puedo',
+  'puedes', 'tengo', 'tienes', 'estar', 'tener', 'hacer', 'decir', 'saber', 'poder',
+  'the', 'and', 'that', 'this', 'with', 'from', 'have', 'what', 'when', 'then',
+  'where', 'there', 'their', 'about', 'would', 'could', 'should', 'been', 'also',
+  'hola', 'oye', 'hey', 'bueno', 'vale', 'okay', 'gracias', 'porfa', 'please',
+]);
 
 class RetrievalPlanner {
   constructor(stateGraph) {
@@ -32,65 +44,65 @@ class RetrievalPlanner {
 
   /**
    * Punto de entrada principal.
-   * Dado el mensaje del usuario y el contexto OS, devuelve los nodos relevantes.
    *
    * @param {string} userMessage
-   * @param {object} osContext — { app, category, elapsed, title }
-   * @returns {{ nodes: Array, episodeNodes: Array, strategy: string }}
+   * @param {object} osContext — { app, category, elapsed, title, openWindows }
+   * @returns {{ nodes: Array, episodeNodes: Array, strategy: string, keywords: Array, intents: Array }}
    */
   plan(userMessage = '', osContext = null) {
     if (!this._graph?._ready) {
-      return { nodes: [], episodeNodes: [], strategy: 'fallback' };
+      return { nodes: [], episodeNodes: [], strategy: 'fallback', keywords: [], intents: [] };
     }
 
-    const nodes        = [];
-    const nodeIds      = new Set();
-    const addNode      = (n) => { if (n && !nodeIds.has(n.id)) { nodeIds.add(n.id); nodes.push(n); } };
-    const addAll       = (arr) => arr.forEach(addNode);
+    const nodeIds = new Set();
+    const nodes   = [];
 
-    // 1. Siempre incluir nodos User de alta importancia (nombre, trabajo, etc.)
-    const coreUser = this._graph.queryNodes({ type: 'User', limit: 5 });
-    addAll(coreUser);
+    const addNode = (n) => {
+      if (n && !nodeIds.has(n.id)) { nodeIds.add(n.id); nodes.push(n); }
+    };
+    const addAll = (arr) => arr?.forEach(addNode);
 
-    // 2. Detectar intención del mensaje y buscar nodos específicos
+    // 1. Siempre incluir nodos User de alta importancia
+    addAll(this._graph.queryNodes({ type: 'User', limit: 5 }));
+
+    // 2. Detectar intención y traer nodos específicos
     const intents = this._detectIntents(userMessage);
     for (const type of intents) {
-      const found = this._graph.queryNodes({ type, limit: 3 });
-      addAll(found);
+      addAll(this._graph.queryNodes({ type, limit: 3 }));
     }
 
-    // 3. Búsqueda por keywords en el mensaje
+    // 3. Búsqueda por keywords extraídas del mensaje
     const keywords = this._extractKeywords(userMessage);
-    for (const kw of keywords.slice(0, 4)) {
-      const found = this._graph.queryNodes({ search: kw, limit: 2 });
-      addAll(found);
+    for (const kw of keywords.slice(0, 5)) {
+      addAll(this._graph.queryNodes({ search: kw, limit: 2 }));
     }
 
-    // 4. Si el OS muestra código/terminal → priorizar proyectos activos
-    if (osContext && ['code', 'terminal', 'api'].includes(osContext.category)) {
-      const projects = this._graph.queryNodes({ type: 'Project', limit: 3 });
-      addAll(projects);
+    // 4. OS context → priorizar proyectos si el usuario está en modo trabajo
+    const workCategories = ['code', 'terminal', 'api', 'design', 'docs'];
+    if (osContext && workCategories.includes(osContext.category)) {
+      addAll(this._graph.queryNodes({ type: 'Project', limit: 4 }));
     }
 
-    // 5. Episodios recientes (siempre útiles para continuidad)
-    const episodes = this._graph.getRecentEpisodes(4);
-
-    // 6. Preferencias si el mensaje es conversacional
-    if (!intents.length && userMessage.length < 80) {
-      const prefs = this._graph.queryNodes({ type: 'Preference', limit: 2 });
-      addAll(prefs);
+    // 5. Preferencias en conversación corta/casual
+    if (!intents.length && userMessage.length < 100) {
+      addAll(this._graph.queryNodes({ type: 'Preference', limit: 2 }));
     }
 
-    // Ordenar por importancia y limitar
+    // 6. Episodios recientes — getRecentEpisodes ordena por importance DESC, created_at DESC
+    const episodes = this._graph.getRecentEpisodes(6);
+
+    // Ordenar nodos finales por importancia y recortar
     const sortedNodes = nodes
       .sort((a, b) => b.importance - a.importance)
-      .slice(0, 10);
+      .slice(0, 12);
 
     const strategy = intents.length > 0
       ? `intent:${intents.join(',')}`
-      : keywords.length > 0 ? `keywords:${keywords.slice(0,2).join(',')}` : 'default';
+      : keywords.length > 0
+        ? `keywords:${keywords.slice(0, 2).join(',')}`
+        : 'default';
 
-    console.log(`[retrieval] strategy=${strategy} nodes=${sortedNodes.length} episodes=${episodes.length}`);
+    console.log(`[retrieval] strategy=${strategy} nodes=${sortedNodes.length} episodes=${episodes.length} keywords=[${keywords.slice(0, 3).join(',')}]`);
 
     return {
       nodes:        sortedNodes,
@@ -114,23 +126,16 @@ class RetrievalPlanner {
   _extractKeywords(message) {
     if (!message) return [];
 
-    // Limpiar y tokenizar
     const words = message
       .toLowerCase()
-      .replace(/[¿?¡!.,;:()]/g, '')
+      .replace(/[¿?¡!.,;:()"']/g, '')
       .split(/\s+/)
-      .filter(w => w.length > 3);
+      .filter(w => {
+        if (ALWAYS_SEARCH.has(w)) return true;  // términos técnicos cortos: siempre
+        return w.length >= 3 && !STOPWORDS.has(w);
+      });
 
-    // Stopwords en español e inglés
-    const stopwords = new Set([
-      'para', 'como', 'que', 'esto', 'este', 'una', 'uno', 'con', 'por', 'pero',
-      'más', 'muy', 'bien', 'todo', 'algo', 'hace', 'cuando', 'donde', 'quiero',
-      'puedes', 'puedo', 'tengo', 'tienes', 'estar', 'tener', 'hacer', 'decir',
-      'the', 'and', 'that', 'this', 'with', 'from', 'have', 'what', 'when',
-      'where', 'there', 'their', 'about', 'would', 'could', 'should',
-    ]);
-
-    return words.filter(w => !stopwords.has(w)).slice(0, 6);
+    return [...new Set(words)].slice(0, 6);
   }
 }
 

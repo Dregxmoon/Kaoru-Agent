@@ -9,8 +9,6 @@ const { URL } = require('url');
 
 const MarchCore = require('./core/MarchCore.js');
 
-// Fase 2: EventBus ya está dentro de MarchCore, no necesita import separado
-
 // ── Python executable ─────────────────────────────────────────────────────────
 const PYTHON_BIN = 'C:/Users/lukal/AppData/Local/Programs/Python/Python311/python.exe';
 
@@ -188,17 +186,12 @@ function createChatWindow() {
 
   if (mainWindow && !mainWindow.isDestroyed()) mainWindow.hide();
 
-  // Iniciar sesión de memoria cuando se abre el chat
   MarchCore.startSession().catch(e => console.error('[session] error:', e.message));
-
-  // Notificar al InitiativeEngine que el chat está abierto
   MarchCore.setChatOpen(true);
 
   chatWindow.on('closed', () => {
-    // Cerrar sesión y guardar memoria al cerrar el chat
     MarchCore.closeSession().catch(e => console.error('[session] close error:', e.message));
-    MarchCore.setChatOpen(false);  // ← NUEVO
-
+    MarchCore.setChatOpen(false);
     chatWindow = null;
     if (mainWindow && !mainWindow.isDestroyed()) mainWindow.show();
     if (tray) tray.setContextMenu(buildTrayMenu());
@@ -304,7 +297,6 @@ ipcMain.on('chat-close', () => {
 ipcMain.on('chat-theme-changed', (e, theme) => { chatTheme = theme; saveConfig({ chatTheme: theme }); });
 
 // ── IPC: memoria ──────────────────────────────────────────────────────────────
-// Registrados UNA SOLA VEZ al arrancar, nunca dentro de callbacks.
 ipcMain.on('memory-add-turn', (e, { role, content }) => {
   MarchCore.addTurn(role, content);
   if (role === 'user') MarchCore.detectInstant(content);
@@ -312,21 +304,15 @@ ipcMain.on('memory-add-turn', (e, { role, content }) => {
 
 ipcMain.handle('memory-stats', () => MarchCore.getStats());
 
-// ── IPC: grounding (FIX Bug 1 + 2) ───────────────────────────────────────────
-// El renderer NO puede instanciar GroundingEngine ni StateGraph directamente
-// porque la DB SQLite solo existe en el proceso main. Este handler es el
-// único punto de acceso: el renderer invoca, main responde con el context package.
+// ── IPC: grounding ────────────────────────────────────────────────────────────
 ipcMain.handle('grounding-build-context', (e, { sessionHistory, activeProvider }) => {
-  // activeProvider se recibe por compatibilidad; MarchCore.buildContext ya
-  // resuelve internamente el provider activo y el serializer correspondiente.
-  
-  const ctx = MarchCore.buildContext(sessionHistory);
-  console.log('[grounding-ipc] context generado, systemPrompt length:', ctx?.systemPrompt?.length);
+  // Pasar activeProvider al buildContext para usar el serializer correcto
+  const ctx = MarchCore.buildContext(sessionHistory, activeProvider);
+  console.log('[grounding-ipc] provider:', activeProvider, '| systemPrompt:', ctx?.systemPrompt?.length, 'chars');
   return ctx;
 });
 
-// ── IPC: Fase 2 — OS Sensor y estadísticas ───────────────────────────────────
-
+// ── IPC: OS Sensor ────────────────────────────────────────────────────────────
 ipcMain.handle('os-get-context', () => {
   return MarchCore.getOSSensor()?.getCurrentContext() ?? null;
 });
@@ -345,10 +331,20 @@ ipcMain.handle('march-get-stats', () => {
 
 // ── IPC: config y keys ────────────────────────────────────────────────────────
 ipcMain.handle('get-config', () => loadConfig());
+
 ipcMain.handle('save-llm-keys', (e, { groq, gemini, openai }) => {
   saveConfig({ llm: { primary: 'groq', apiKeys: { groq, gemini, openai }, fallback: ['gemini', 'openai'] } });
   console.log('[config] keys LLM actualizadas');
+  // FIX: recargar LLMProvider en memoria para que los cambios surtan efecto inmediatamente
+  MarchCore.reloadLLMConfig();
   return true;
+});
+
+// ── IPC: testing proactivo ────────────────────────────────────────────────────
+ipcMain.handle('force-proactive', async (e, triggerType) => {
+  console.log('[main] force-proactive:', triggerType);
+  const msg = await MarchCore.forceProactive(triggerType || 'long_silence');
+  return msg || null;
 });
 
 // ── Servidor HTTP local ───────────────────────────────────────────────────────
@@ -385,8 +381,13 @@ function startControlServer() {
     if (url.pathname === '/chat') {
       const action = (url.searchParams.get('action') || '').toLowerCase();
       if (action === 'open') createChatWindow();
-      else if (action === 'close') { if (chatWindow && !chatWindow.isDestroyed()) { chatWindow.hide(); if (mainWindow && !mainWindow.isDestroyed()) mainWindow.show(); MarchCore.setChatOpen(false); } }
-      else toggleChatWindow();
+      else if (action === 'close') {
+        if (chatWindow && !chatWindow.isDestroyed()) {
+          chatWindow.hide();
+          if (mainWindow && !mainWindow.isDestroyed()) mainWindow.show();
+          MarchCore.setChatOpen(false);
+        }
+      } else toggleChatWindow();
       res.writeHead(200); res.end(`ok: chat ${action || 'toggled'}`); return;
     }
     if (url.pathname === '/mic') {
@@ -559,13 +560,37 @@ app.whenReady().then(() => {
 
   MarchCore.init(app);
 
-  // Fase 2: registrar callback para iniciativas proactivas de March
+  // Registrar callback para iniciativas proactivas de March (ProactiveEngine + InitiativeEngine)
   MarchCore.onInitiative((payload) => {
-    // Enviar mensaje proactivo al chat si está abierto
-    if (chatWindow && !chatWindow.isDestroyed() && chatWindow.isVisible()) {
+    const chatVisible = chatWindow && !chatWindow.isDestroyed() && chatWindow.isVisible();
+    if (chatVisible) {
+      // Chat ya abierto → enviar directamente
       chatWindow.webContents.send('march-initiative', payload);
+      return;
+    }
+    // Chat cerrado — ¿debe abrirse?
+    if (payload.openChat) {
+      // Abrir el chat y esperar a que cargue antes de enviar el mensaje
+      createChatWindow();
+      const sendWhenReady = () => {
+        if (chatWindow && !chatWindow.isDestroyed()) {
+          // Pequeño delay para que el renderer esté listo
+          setTimeout(() => {
+            if (chatWindow && !chatWindow.isDestroyed()) {
+              chatWindow.webContents.send('march-initiative', payload);
+            }
+          }, 800);
+        }
+      };
+      if (chatWindow && !chatWindow.isDestroyed()) {
+        // El chatWindow ya existía (estaba oculto) — enviar después de mostrarlo
+        chatWindow.webContents.once('did-finish-load', sendWhenReady);
+        // Si ya terminó de cargar, did-finish-load no volverá a disparar
+        // Usamos un fallback con timeout
+        setTimeout(sendWhenReady, 1000);
+      }
     } else {
-      // Si el chat no está abierto, mostrar en el overlay (speak)
+      // No abrir el chat — hablar por el overlay
       if (mainWindow && !mainWindow.isDestroyed()) {
         mainWindow.webContents.send('speak', payload.suggestion);
       }
@@ -576,7 +601,11 @@ app.whenReady().then(() => {
   createTray();
   startControlServer();
   startVoiceListener(selectedMicIndex);
-  createChatWindow();         // ← startSession() se llama dentro de aquí
+
+  // El chat NO se abre automáticamente al arrancar.
+  // Se abre cuando el usuario lo pide (doble click, tray, o voz).
+  // Mantener comentado a menos que sea comportamiento deseado:
+   createChatWindow();
 
   screen.on('display-metrics-changed', () => {
     if (!mainWindow || mainWindow.isDestroyed()) return;
@@ -585,7 +614,6 @@ app.whenReady().then(() => {
 });
 
 app.on('before-quit', async () => {
-  // Esperar que el análisis LLM termine antes de cerrar (Fix SessionManager)
   await MarchCore.closeSession().catch(() => {});
   if (voiceProc) { voiceProc.kill(); voiceProc = null; }
 });

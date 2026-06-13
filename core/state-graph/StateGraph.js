@@ -170,7 +170,6 @@ class StateGraph {
    */
   _migrateSchema() {
     try {
-      // Verificar si app_history ya existe
       const tableExists = this._db.prepare(`
         SELECT name FROM sqlite_master
         WHERE type='table' AND name='app_history'
@@ -464,7 +463,7 @@ class StateGraph {
         'DELETE FROM app_history WHERE start_ts < ?'
       ).run(cutoff);
       if (result.changes > 0) {
-        console.log(`[state-graph] app_history prunned: ${result.changes} entradas eliminadas`);
+        console.log(`[state-graph] app_history pruned: ${result.changes} entradas eliminadas`);
       }
     } catch(e) {
       console.warn('[state-graph] error en pruneAppHistory:', e.message);
@@ -481,7 +480,6 @@ class StateGraph {
         'SELECT type, COUNT(*) as c FROM nodes WHERE archived=0 GROUP BY type'
       ).all();
 
-      // Stats de app_history
       const appHistoryToday = this.getTodayAppHistory().length;
       const appHistoryTotal = this._db.prepare(
         'SELECT COUNT(*) as c FROM app_history'

@@ -2,89 +2,78 @@
  * OSSensor.js — Fase 2 (mejorado)
  *
  * Detecta:
- *  - Qué app/ventana tiene el foco en Windows y cuánto tiempo lleva ahí.
- *  - TODAS las ventanas visibles abiertas en el sistema (no solo la activa),
- *    con su título — útil para que March sepa "tienes VS Code, Edge,
- *    Discord y Spotify abiertos" sin depender solo de la ventana en foco.
+ *  - Qué app/ventana tiene el foco y cuánto tiempo lleva ahí.
+ *  - TODAS las ventanas visibles abiertas (no solo la activa).
  *  - Historial de apps usadas durante el día.
+ *  - Tiempo de idle del usuario (sin tocar teclado/mouse).
  *
- * Implementación: polling via PowerShell cada 5s.
- * Sin dependencias nativas — funciona en cualquier entorno Electron/Windows.
+ * Mejoras respecto a la versión anterior:
+ *   - Flag _pollBusy: evita procesos PowerShell zombie si un poll tarda más de 5s
+ *   - saveAppHistory: ahora existe en el StateGraph y se llama correctamente
+ *   - Idle detection: GetLastInputInfo via PowerShell (sin dependencias nativas)
+ *   - idleSecs e idleFormatted expuestos en getCurrentContext()
+ *   - PS_SCRIPT como constante del módulo (no se reconstruye en cada poll)
+ *   - Mejor manejo de errores en _runPS con timeout de 8s
  *
  * Emite al EventBus:
  *   os:app-changed     — cuando cambia la app activa
- *   os:app-tick        — cada poll si la app no cambió (para actualizar elapsed)
- *   os:windows-updated — cada poll, con la lista actual de ventanas abiertas
- *   os:history-updated — cuando se guarda una entrada en el historial
- *
- * LIMITACIÓN CONOCIDA: para navegadores (Edge/Chrome/Firefox) solo se ve
- * el título de la ventana, que normalmente corresponde a la PESTAÑA ACTIVA
- * de esa ventana. No es posible ver pestañas en background sin una
- * extensión de navegador (eso quedaría para Fase 3 / Tool Layer).
- *
- * FIX previo: $PID es una variable automática de solo lectura en PowerShell
- * (PID de la sesión de powershell.exe). Renombrado a $procId.
- *
- * FIX encoding: se fuerza UTF-8 en la salida de PowerShell
- * ([Console]::OutputEncoding) y se decodifica el stdout del proceso
- * como UTF-8 en Node, para evitar mojibake en títulos con acentos/emoji.
+ *   os:app-tick        — cada poll si la app no cambió
+ *   os:windows-updated — cada poll con la lista de ventanas abiertas
+ *   os:history-updated — cuando se guarda una entrada en historial
+ *   os:idle-changed    — cuando el usuario pasa de activo a idle o viceversa
  */
 
-const { spawn }    = require('child_process');
+const { spawn }       = require('child_process');
 const { getEventBus } = require('../event-bus/EventBus.js');
 
-// Apps que ignoramos por completo (sistema, overlay propio, etc.)
-const IGNORED_APPS = [
+// Apps ignoradas (sistema, overlay propio, etc.)
+const IGNORED_APPS = new Set([
   'explorer', 'SearchHost', 'ShellExperienceHost', 'StartMenuExperienceHost',
   'LockApp', 'LogonUI', 'dwm', 'taskhostw', 'RuntimeBroker',
   'TextInputHost', 'ApplicationFrameHost', 'SystemSettings',
-  'vtuber-overlay', 'electron', // nuestro propio proceso
-];
+  'vtuber-overlay', 'electron',
+]);
 
-// Mapeo de nombres de proceso a nombres legibles
 const APP_NAMES = {
-  'Code':           'Visual Studio Code',
-  'code':           'Visual Studio Code',
-  'cursor':         'Cursor',
-  'chrome':         'Google Chrome',
-  'msedge':         'Microsoft Edge',
-  'firefox':        'Firefox',
-  'Discord':        'Discord',
-  'discord':        'Discord',
-  'Slack':          'Slack',
-  'slack':          'Slack',
-  'WINWORD':        'Microsoft Word',
-  'EXCEL':          'Microsoft Excel',
-  'POWERPNT':       'PowerPoint',
-  'notion':         'Notion',
-  'obsidian':       'Obsidian',
-  'figma':          'Figma',
-  'Figma':          'Figma',
-  'spotify':        'Spotify',
-  'Spotify':        'Spotify',
-  'WhatsApp':       'WhatsApp',
-  'Telegram':       'Telegram',
-  'WindowsTerminal':'Terminal',
-  'cmd':            'Símbolo del sistema',
-  'powershell':     'PowerShell',
-  'wt':             'Terminal',
-  'notepad':        'Bloc de notas',
-  'notepad++':      'Notepad++',
-  'sublime_text':   'Sublime Text',
-  'idea64':         'IntelliJ IDEA',
-  'pycharm64':      'PyCharm',
-  'webstorm64':     'WebStorm',
-  'postman':        'Postman',
-  'insomnia':       'Insomnia',
-  'vlc':            'VLC',
-  'mpc-hc64':       'Media Player Classic',
-  // Sistema / archivos / configuración — para que también salgan "bonitos"
-  'explorer':       'Explorador de archivos',
-  'SystemSettings': 'Configuración de Windows',
-  'ApplicationFrameHost': 'Aplicación de Windows',
+  'Code':            'Visual Studio Code',
+  'code':            'Visual Studio Code',
+  'cursor':          'Cursor',
+  'chrome':          'Google Chrome',
+  'msedge':          'Microsoft Edge',
+  'firefox':         'Firefox',
+  'Discord':         'Discord',
+  'discord':         'Discord',
+  'Slack':           'Slack',
+  'slack':           'Slack',
+  'WINWORD':         'Microsoft Word',
+  'EXCEL':           'Microsoft Excel',
+  'POWERPNT':        'PowerPoint',
+  'notion':          'Notion',
+  'obsidian':        'Obsidian',
+  'figma':           'Figma',
+  'Figma':           'Figma',
+  'spotify':         'Spotify',
+  'Spotify':         'Spotify',
+  'WhatsApp':        'WhatsApp',
+  'Telegram':        'Telegram',
+  'WindowsTerminal': 'Terminal',
+  'cmd':             'Símbolo del sistema',
+  'powershell':      'PowerShell',
+  'wt':              'Terminal',
+  'notepad':         'Bloc de notas',
+  'notepad++':       'Notepad++',
+  'sublime_text':    'Sublime Text',
+  'idea64':          'IntelliJ IDEA',
+  'pycharm64':       'PyCharm',
+  'webstorm64':      'WebStorm',
+  'postman':         'Postman',
+  'insomnia':        'Insomnia',
+  'vlc':             'VLC',
+  'mpc-hc64':        'Media Player Classic',
+  'explorer':        'Explorador de archivos',
+  'SystemSettings':  'Configuración de Windows',
 };
 
-// Categorías de apps para el InitiativeEngine
 const APP_CATEGORIES = {
   code:     ['Code', 'code', 'cursor', 'idea64', 'pycharm64', 'webstorm64', 'sublime_text', 'notepad++'],
   terminal: ['WindowsTerminal', 'cmd', 'powershell', 'wt'],
@@ -98,17 +87,14 @@ const APP_CATEGORIES = {
   system:   ['SystemSettings', 'ApplicationFrameHost'],
 };
 
+// Umbral de idle en segundos para considerar al usuario "ausente"
+const IDLE_THRESHOLD_SECS = 120; // 2 minutos
+
 /**
- * Script PowerShell:
- *  1. Obtiene la ventana en foco (proceso + título).
- *  2. Enumera TODAS las ventanas top-level visibles con título no vacío,
- *     usando EnumWindows + IsWindowVisible + GetWindowTextLength.
- *
- * Salida (líneas separadas por \n):
- *   Línea 1: FOCUS|<procName>|<title>
- *   Líneas siguientes: WIN|<procName>|<title>   (una por ventana visible)
- *
- * Se fuerza UTF-8 en la salida para evitar mojibake con acentos/emoji.
+ * Script PowerShell unificado:
+ *   Línea 1:  FOCUS|<procName>|<title>
+ *   Línea 2:  IDLE|<milisegundos desde último input>
+ *   Resto:    WIN|<procName>|<title>
  */
 const PS_SCRIPT = `
 [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
@@ -131,8 +117,15 @@ public class Win32 {
     [DllImport("user32.dll")]
     public static extern bool IsWindowVisible(IntPtr hWnd);
 
-    public delegate bool EnumWindowsProc(IntPtr hWnd, IntPtr lParam);
+    [StructLayout(LayoutKind.Sequential)]
+    public struct LASTINPUTINFO {
+        public uint cbSize;
+        public uint dwTime;
+    }
+    [DllImport("user32.dll")]
+    public static extern bool GetLastInputInfo(ref LASTINPUTINFO plii);
 
+    public delegate bool EnumWindowsProc(IntPtr hWnd, IntPtr lParam);
     [DllImport("user32.dll")]
     public static extern bool EnumWindows(EnumWindowsProc enumProc, IntPtr lParam);
 
@@ -145,6 +138,13 @@ public class Win32 {
             return true;
         }, IntPtr.Zero);
         return result;
+    }
+
+    public static uint GetIdleMilliseconds() {
+        var info = new LASTINPUTINFO();
+        info.cbSize = (uint)System.Runtime.InteropServices.Marshal.SizeOf(info);
+        GetLastInputInfo(ref info);
+        return (uint)Environment.TickCount - info.dwTime;
     }
 }
 "@
@@ -166,7 +166,11 @@ function Get-ProcTitle($hwnd) {
 $hwndFocus = [Win32]::GetForegroundWindow()
 Write-Output "FOCUS|$(Get-ProcTitle $hwndFocus)"
 
-# 2. Todas las ventanas visibles con título
+# 2. Tiempo de idle
+$idleMs = [Win32]::GetIdleMilliseconds()
+Write-Output "IDLE|$idleMs"
+
+# 3. Todas las ventanas visibles
 foreach ($hwnd in [Win32]::GetVisibleWindows()) {
     Write-Output "WIN|$(Get-ProcTitle $hwnd)"
 }
@@ -177,17 +181,20 @@ class OSSensor {
     this._graph        = stateGraph;
     this._bus          = getEventBus();
     this._polling      = null;
+    this._pollBusy     = false;   // FIX: evita procesos zombie
+    this._pollMs       = 5000;
     this._currentApp   = null;
     this._currentTitle = null;
     this._appStart     = null;
-    this._openWindows  = [];  // [{app, friendlyName, title, category}]
-    this._history      = [];  // [{app, friendlyName, title, start, end, duration, category}]
-    this._maxHistory   = 100; // máximo entradas en memoria
+    this._openWindows  = [];
+    this._history      = [];
+    this._maxHistory   = 100;
     this._running      = false;
-    this._pollMs       = 5000; // cada 5 segundos
+    // Idle
+    this._idleSecs     = 0;
+    this._wasIdle      = false;
   }
 
-  /** Inicia el sensor. */
   start() {
     if (this._running) return;
     this._running = true;
@@ -196,40 +203,33 @@ class OSSensor {
     this._polling = setInterval(() => this._poll(), this._pollMs);
   }
 
-  /** Detiene el sensor. */
   stop() {
-    if (this._polling) {
-      clearInterval(this._polling);
-      this._polling = null;
-    }
+    if (this._polling) { clearInterval(this._polling); this._polling = null; }
     this._running = false;
     console.log('[os-sensor] detenido');
   }
 
-  /** Devuelve el contexto actual del OS. */
   getCurrentContext() {
     const elapsed = this._appStart
       ? Math.round((Date.now() - this._appStart) / 1000)
       : 0;
 
     return {
-      app:          this._currentApp,
-      friendlyName: this._getFriendlyName(this._currentApp),
-      title:        this._currentTitle,
-      category:     this._getCategory(this._currentApp),
+      app:                this._currentApp,
+      friendlyName:       this._getFriendlyName(this._currentApp),
+      title:              this._currentTitle,
+      category:           this._getCategory(this._currentApp),
       elapsed,
-      elapsedFormatted: this._formatElapsed(elapsed),
-      openWindows:  this.getOpenWindows(),
+      elapsedFormatted:   this._formatElapsed(elapsed),
+      idleSecs:           this._idleSecs,
+      idleFormatted:      this._idleSecs > 0 ? this._formatElapsed(this._idleSecs) : null,
+      isIdle:             this._idleSecs >= IDLE_THRESHOLD_SECS,
+      openWindows:        this.getOpenWindows(),
       openWindowsSummary: this.getOpenWindowsSummary(),
-      history:      this.getTodayHistory(),
+      history:            this.getTodayHistory(),
     };
   }
 
-  /**
-   * Devuelve la lista de ventanas abiertas actualmente, deduplicada
-   * y con nombres amigables. Cada entrada:
-   *   { app, friendlyName, title, category, focused }
-   */
   getOpenWindows() {
     return this._openWindows.map(w => ({
       ...w,
@@ -237,11 +237,6 @@ class OSSensor {
     }));
   }
 
-  /**
-   * Resumen compacto de ventanas abiertas para inyectar en el prompt.
-   * Ej: "Visual Studio Code (OSSensor.js), Microsoft Edge (GitHub - Dregxmoon),
-   *      Discord, Spotify"
-   */
   getOpenWindowsSummary() {
     if (!this._openWindows.length) return null;
     return this._openWindows.map(w => {
@@ -250,49 +245,50 @@ class OSSensor {
     }).join(', ');
   }
 
-  /** Historial de hoy (desde medianoche). */
   getTodayHistory() {
     const startOfDay = new Date();
     startOfDay.setHours(0, 0, 0, 0);
-    const startTs = startOfDay.getTime();
-    return this._history.filter(e => e.start >= startTs);
+    return this._history.filter(e => e.start >= startOfDay.getTime());
   }
 
-  /** Resumen del historial de hoy para el LLM. */
   getTodaySummary() {
     const today = this.getTodayHistory();
     if (!today.length) return null;
 
-    // Agrupar por app y sumar duración
     const byApp = {};
     for (const entry of today) {
       const key = entry.friendlyName || entry.app;
-      if (!byApp[key]) byApp[key] = 0;
-      byApp[key] += entry.duration || 0;
+      byApp[key] = (byApp[key] || 0) + (entry.duration || 0);
     }
 
-    // Ordenar por tiempo
-    const sorted = Object.entries(byApp)
-      .sort(([,a],[,b]) => b - a)
-      .slice(0, 8);
-
-    const lines = sorted.map(([app, secs]) =>
-      `${app} (${this._formatElapsed(secs)})`
-    );
-
-    return lines.join(', ');
+    return Object.entries(byApp)
+      .sort(([, a], [, b]) => b - a)
+      .slice(0, 8)
+      .map(([app, secs]) => `${app} (${this._formatElapsed(secs)})`)
+      .join(', ');
   }
 
   // ── Polling ────────────────────────────────────────────────────────────────
 
   _poll() {
+    // FIX: si el poll anterior no terminó, saltar este ciclo
+    if (this._pollBusy) {
+      console.warn('[os-sensor] poll anterior todavía en curso, saltando...');
+      return;
+    }
+
+    this._pollBusy = true;
+
     this._runPS(PS_SCRIPT, (err, output) => {
+      this._pollBusy = false;
+
       if (err || !output) return;
 
       const lines = output.split('\n').map(l => l.trim()).filter(Boolean);
       if (!lines.length) return;
 
-      let focus = null;
+      let focus    = null;
+      let idleMs   = 0;
       const windows = [];
 
       for (const line of lines) {
@@ -301,13 +297,18 @@ class OSSensor {
         const kind = line.slice(0, sepIdx);
         const rest = line.slice(sepIdx + 1);
 
+        if (kind === 'IDLE') {
+          idleMs = parseInt(rest, 10) || 0;
+          continue;
+        }
+
         const partsIdx = rest.indexOf('|');
         if (partsIdx === -1) continue;
         const procName = rest.slice(0, partsIdx).trim();
         const title    = rest.slice(partsIdx + 1).trim();
 
         if (!procName || procName === 'unknown') continue;
-        if (IGNORED_APPS.some(ig => procName.toLowerCase().includes(ig.toLowerCase()))) continue;
+        if ([...IGNORED_APPS].some(ig => procName.toLowerCase().includes(ig.toLowerCase()))) continue;
 
         if (kind === 'FOCUS') {
           focus = { procName, title };
@@ -321,8 +322,11 @@ class OSSensor {
         }
       }
 
-      // Deduplicar ventanas por (app + title)
-      const seen = new Set();
+      // Procesar idle
+      this._processIdle(Math.round(idleMs / 1000));
+
+      // Deduplicar ventanas
+      const seen  = new Set();
       const dedup = [];
       for (const w of windows) {
         const key = `${w.app}::${w.title}`;
@@ -333,10 +337,23 @@ class OSSensor {
       this._openWindows = dedup;
       this._bus.emit('os:windows-updated', { windows: dedup });
 
-      // Procesar ventana en foco (igual que antes)
-      if (!focus) return;
-      this._processFocus(focus.procName, focus.title);
+      if (focus) this._processFocus(focus.procName, focus.title);
     });
+  }
+
+  _processIdle(idleSecs) {
+    this._idleSecs = idleSecs;
+    const isIdle   = idleSecs >= IDLE_THRESHOLD_SECS;
+
+    if (isIdle && !this._wasIdle) {
+      this._wasIdle = true;
+      this._bus.emit('os:idle-changed', { idle: true, idleSecs });
+      console.log(`[os-sensor] usuario idle (${this._formatElapsed(idleSecs)})`);
+    } else if (!isIdle && this._wasIdle) {
+      this._wasIdle = false;
+      this._bus.emit('os:idle-changed', { idle: false, idleSecs: 0 });
+      console.log('[os-sensor] usuario activo de nuevo');
+    }
   }
 
   _processFocus(procName, title) {
@@ -345,12 +362,11 @@ class OSSensor {
       : 0;
 
     if (procName !== this._currentApp) {
-      // App cambió — guardar la anterior en historial
       if (this._currentApp && this._appStart) {
         this._saveToHistory(this._currentApp, this._currentTitle, this._appStart, Date.now());
       }
 
-      const prev = this._currentApp;
+      const prev         = this._currentApp;
       this._currentApp   = procName;
       this._currentTitle = title;
       this._appStart     = Date.now();
@@ -365,15 +381,14 @@ class OSSensor {
         prevFriendly: this._getFriendlyName(prev),
       });
 
-      console.log(`[os-sensor] app: ${this._getFriendlyName(procName)} — "${title.slice(0, 60)}"`);
+      console.log(`[os-sensor] → ${this._getFriendlyName(procName)} — "${title.slice(0, 60)}"`);
     } else {
-      // Misma app — emitir tick con tiempo actualizado
-      this._currentTitle = title; // el título puede cambiar (ej: archivo abierto, pestaña)
+      this._currentTitle = title;
       this._bus.emit('os:app-tick', {
-        app:          procName,
-        friendlyName: this._getFriendlyName(procName),
+        app:              procName,
+        friendlyName:     this._getFriendlyName(procName),
         title,
-        category:     this._getCategory(procName),
+        category:         this._getCategory(procName),
         elapsed,
         elapsedFormatted: this._formatElapsed(elapsed),
       });
@@ -382,7 +397,7 @@ class OSSensor {
 
   _saveToHistory(app, title, start, end) {
     const duration = Math.round((end - start) / 1000);
-    if (duration < 5) return; // ignorar flashes de menos de 5s
+    if (duration < 5) return;
 
     const entry = {
       app,
@@ -397,17 +412,17 @@ class OSSensor {
     this._history.push(entry);
     if (this._history.length > this._maxHistory) this._history.shift();
 
-    // Guardar en StateGraph si está disponible
-    if (this._graph?._ready) {
+    // FIX: saveAppHistory ahora existe en StateGraph (ver StateGraph.js)
+    if (this._graph?._ready && typeof this._graph.saveAppHistory === 'function') {
       try {
         this._graph.saveAppHistory(entry);
       } catch(e) {
-        // Silencioso — no interrumpir por esto
+        console.warn('[os-sensor] error guardando historial en grafo:', e.message);
       }
     }
 
     this._bus.emit('os:history-updated', {
-      latest:  entry,
+      latest:     entry,
       todayCount: this.getTodayHistory().length,
     });
   }
@@ -437,62 +452,69 @@ class OSSensor {
     return rem > 0 ? `${hrs}h ${rem}m` : `${hrs}h`;
   }
 
-  /**
-   * Limpia títulos de ventana para que sean más legibles/útiles en el prompt.
-   * Quita el sufijo "— Microsoft Edge" / "- Google Chrome" / "y N páginas más"
-   * que solo añade ruido y puede llevar al LLM a inventar pestañas que no
-   * conoce. Solo describimos lo que el título realmente dice.
-   */
   _cleanTitle(procName, title) {
     if (!title) return '';
     let t = title;
-
-    // Quitar "y N páginas más" / "and N more pages" — corresponde solo
-    // a la pestaña ACTIVA de esa ventana, no debemos sugerir que
-    // conocemos el contenido de las otras.
     t = t.replace(/\s*[-–—]?\s*y \d+\s+p[áa]gin\w* m[áa]s/gi, '');
     t = t.replace(/\s*[-–—]?\s*and \d+\s+more\s*/gi, '');
-
-    // Quitar sufijos típicos de navegador
     t = t.replace(/\s*[-–—]\s*(Microsoft\??\s*Edge|Google Chrome|Mozilla Firefox)\s*$/i, '');
-
-    // Quitar sufijo "- Visual Studio Code"
     t = t.replace(/\s*[-–—]\s*Visual Studio Code\s*$/i, '');
-
     return t.trim();
   }
 
+  /**
+   * Ejecuta el script PowerShell con timeout de 8s.
+   * Si tarda más, mata el proceso y reporta error.
+   */
   _runPS(script, callback) {
-    let output = '';
-    let error  = '';
+    let output  = '';
+    let error   = '';
+    let done    = false;
 
+    const finish = (err, out) => {
+      if (done) return;
+      done = true;
+      callback(err, out);
+    };
+
+    let proc;
     try {
-      const proc = spawn('powershell', [
+      proc = spawn('powershell', [
         '-NoProfile', '-NonInteractive', '-WindowStyle', 'Hidden',
         '-Command', script,
       ], { windowsHide: true });
 
-      // Forzar decodificación UTF-8 del stdout para evitar mojibake
-      // en títulos con acentos/emoji (combinado con
-      // [Console]::OutputEncoding = UTF8 dentro del script PS).
       proc.stdout.setEncoding('utf8');
       proc.stderr.setEncoding('utf8');
 
       proc.stdout.on('data', d => { output += d; });
       proc.stderr.on('data', d => { error  += d; });
+
       proc.on('close', (code) => {
         if (code !== 0 || error) {
-          callback(new Error(error || `code ${code}`), null);
+          finish(new Error(error || `exit code ${code}`), null);
         } else {
-          callback(null, output.trim());
+          finish(null, output.trim());
         }
       });
-      proc.on('error', (e) => {
-        callback(e, null);
-      });
+
+      proc.on('error', (e) => finish(e, null));
+
     } catch(e) {
-      callback(e, null);
+      finish(e, null);
+      return;
     }
+
+    // Timeout de seguridad: si PowerShell tarda más de 8s, matar
+    const timeout = setTimeout(() => {
+      if (done) return;
+      console.warn('[os-sensor] PowerShell timeout (>8s), matando proceso');
+      try { proc.kill(); } catch(_) {}
+      finish(new Error('powershell timeout'), null);
+    }, 8000);
+
+    // Limpiar timeout cuando termina normalmente
+    proc.on('close', () => clearTimeout(timeout));
   }
 }
 
