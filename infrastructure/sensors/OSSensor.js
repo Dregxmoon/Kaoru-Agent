@@ -32,6 +32,8 @@ const IGNORED_APPS = new Set([
   'LockApp', 'LogonUI', 'dwm', 'taskhostw', 'RuntimeBroker',
   'TextInputHost', 'ApplicationFrameHost', 'SystemSettings',
   'vtuber-overlay', 'electron',
+  'RazerAppEngine', 'RazerCentralService', 'RazerIngameEngine',
+  'rzsd', 'Razer Synapse', 'RzSDKService',
 ]);
 
 const APP_NAMES = {
@@ -69,6 +71,7 @@ const APP_NAMES = {
   'postman':         'Postman',
   'insomnia':        'Insomnia',
   'vlc':             'VLC',
+  'warp': 'Warp Terminal',
   'mpc-hc64':        'Media Player Classic',
   'explorer':        'Explorador de archivos',
   'SystemSettings':  'Configuración de Windows',
@@ -76,7 +79,7 @@ const APP_NAMES = {
 
 const APP_CATEGORIES = {
   code:     ['Code', 'code', 'cursor', 'idea64', 'pycharm64', 'webstorm64', 'sublime_text', 'notepad++'],
-  terminal: ['WindowsTerminal', 'cmd', 'powershell', 'wt'],
+  terminal: ['WindowsTerminal', 'cmd', 'powershell', 'wt', 'warp'],
   browser:  ['chrome', 'msedge', 'firefox'],
   design:   ['figma', 'Figma'],
   docs:     ['WINWORD', 'EXCEL', 'POWERPNT', 'notion', 'obsidian', 'notepad'],
@@ -453,14 +456,18 @@ class OSSensor {
   }
 
   _cleanTitle(procName, title) {
-    if (!title) return '';
-    let t = title;
-    t = t.replace(/\s*[-–—]?\s*y \d+\s+p[áa]gin\w* m[áa]s/gi, '');
-    t = t.replace(/\s*[-–—]?\s*and \d+\s+more\s*/gi, '');
-    t = t.replace(/\s*[-–—]\s*(Microsoft\??\s*Edge|Google Chrome|Mozilla Firefox)\s*$/i, '');
-    t = t.replace(/\s*[-–—]\s*Visual Studio Code\s*$/i, '');
-    return t.trim();
-  }
+  if (!title) return '';
+  let t = title;
+  // Limpiar rutas de sistema que aparecen como título en terminales
+  if (t.match(/^[A-Z]:\\Windows\\system32\\/i)) return '';
+  if (t.match(/^[A-Z]:\\/i) && t.endsWith('.exe')) return '';
+  // Limpiar ruido de browsers
+  t = t.replace(/\s*[-–—]?\s*y \d+\s+p[áa]gin\w* m[áa]s/gi, '');
+  t = t.replace(/\s*[-–—]?\s*and \d+\s+more\s*/gi, '');
+  t = t.replace(/\s*[-–—]\s*(Microsoft\??\s*Edge|Google Chrome|Mozilla Firefox)\s*$/i, '');
+  t = t.replace(/\s*[-–—]\s*Visual Studio Code\s*$/i, '');
+  return t.trim();
+}
 
   /**
    * Ejecuta el script PowerShell con timeout de 8s.

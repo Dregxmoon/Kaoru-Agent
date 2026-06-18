@@ -1,7 +1,13 @@
 /**
- * MarchCore.js — Fase 2.5
+ * MarchCore.js — Fase 3
  *
- * Agrega ProactiveEngine al stack de subsistemas.
+ * Agrega al stack de Fase 2.5:
+ *   - BehaviorModel  → decide tono y comportamiento por turno
+ *   - Planner        → descompone acciones en pasos ejecutables
+ *   - OpenClawBridge → ejecuta herramientas via HTTP en localhost:18789
+ *
+ * La separación de responsabilidades se mantiene:
+ *   March decide qué hacer  →  Planner descompone  →  OpenClaw ejecuta
  */
 
 const path = require('path');
@@ -15,18 +21,24 @@ const { OSSensor }         = require('../infrastructure/sensors/OSSensor.js');
 const { getEventBus }      = require('../infrastructure/event-bus/EventBus.js');
 const { InitiativeEngine } = require('./behavior/InitiativeEngine.js');
 const { ProactiveEngine }  = require('./behavior/ProactiveEngine.js');
-const LLMProvider          = require('./llm/LLMProvider.js');
+const { BehaviorModel }    = require('./behavior/BehaviorModel.js');
+const { getPlanner }       = require('./planner/Planner.js');
+const { getOpenClawBridge } = require('./planner/OpenClawBridge.js');
+const LLMProvider           = require('./llm/LLMProvider.js');
 
-let _graph      = null;
-let _grounding  = null;
-let _session    = null;
-let _updater    = null;
-let _osSensor   = null;
-let _initiative = null;
-let _proactive  = null;
-let _bus        = null;
-let _app        = null;
-let _configPath = null;
+let _graph       = null;
+let _grounding   = null;
+let _session     = null;
+let _updater     = null;
+let _osSensor    = null;
+let _initiative  = null;
+let _proactive   = null;
+let _behavior    = null;
+let _planner     = null;
+let _bridge      = null;
+let _bus         = null;
+let _app         = null;
+let _configPath  = null;
 
 let _onInitiative = null;
 
@@ -42,7 +54,7 @@ function init(app) {
     ? path.join(app.getPath('userData'), 'config.json')
     : null;
 
-  // Subsistemas base
+  // Subsistemas base (Fases 0-1)
   _graph     = getStateGraph(dbPath);
   _grounding = new GroundingEngine(_graph);
   _session   = new SessionManager(_graph, _grounding);
@@ -55,7 +67,12 @@ function init(app) {
   // Subsistema Fase 2.5
   _proactive = new ProactiveEngine(_graph);
 
-  // Conectar OSSensor
+  // ── Subsistemas Fase 3 ────────────────────────────────────────────────────
+  _behavior = new BehaviorModel(_graph);
+  _planner  = getPlanner();
+  _bridge   = getOpenClawBridge();
+
+  // Conectar OSSensor a todos los subsistemas que lo necesitan
   _grounding.setOSSensor(_osSensor);
   if (typeof _initiative.setOSSensor === 'function') _initiative.setOSSensor(_osSensor);
   _proactive.setOSSensor(_osSensor);
@@ -68,21 +85,32 @@ function init(app) {
     console.log('[march-core] OSSensor no disponible (no es Windows)');
   }
 
-  // Escuchar iniciativas (de InitiativeEngine Y ProactiveEngine)
+  // Escuchar iniciativas (InitiativeEngine y ProactiveEngine)
   _bus.on('initiative:trigger', (payload) => {
     console.log(`[march-core] initiative: "${payload.suggestion?.slice(0, 60)}"`);
     if (_onInitiative) _onInitiative(payload);
   });
 
-  // Prune diario
+  // Prune diario de historial de apps
   _scheduleDailyPrune();
 
+  // Cargar configuración LLM
   _loadLLMConfig();
 
   // Arrancar ProactiveEngine después de que LLMProvider esté configurado
   _proactive.start();
 
-  console.log('[march-core] inicializado (Fase 2.5)');
+  // Verificar disponibilidad de OpenClaw al arrancar (sin bloquear)
+  _bridge.isAvailable().then(available => {
+    if (available) {
+      console.log('[march-core] OpenClaw disponible — Fase 3 activa');
+      _bus.emit('openclaw:available', { available: true });
+    } else {
+      console.log('[march-core] OpenClaw no detectado — herramientas desactivadas');
+    }
+  }).catch(() => {});
+
+  console.log('[march-core] inicializado (Fase 3)');
   return { graph: _graph, grounding: _grounding, session: _session };
 }
 
@@ -142,11 +170,135 @@ function detectInstant(userMessage) {
 
 // ── Context ───────────────────────────────────────────────────────────────────
 
+/**
+ * buildContext — Fase 3:
+ * Ahora incluye el BehaviorContext serializado en el system prompt.
+ *
+ * @param {Array}  sessionHistory
+ * @param {string} activeProvider
+ * @returns {{ systemPrompt: string, messages: Array, behaviorCtx: object }}
+ */
 function buildContext(sessionHistory, activeProvider) {
   const provider = activeProvider || LLMProvider.getActiveProvider() || 'groq';
-  if (_grounding) return _grounding.buildContext(sessionHistory, provider);
-  const Fallback = require('./llm/GroundingMinimo.js');
-  return Fallback.buildContext(sessionHistory);
+
+  // Último mensaje del usuario para el BehaviorModel
+  const lastUserMsg = [...sessionHistory].reverse().find(m => m.role === 'user');
+  const userText    = lastUserMsg?.content || '';
+
+  // Obtener contexto OS
+  const osCtx = _osSensor?.getCurrentContext() ?? null;
+
+  // Evaluar comportamiento para este turno
+  let behaviorCtx = null;
+  if (_behavior) {
+    try {
+      behaviorCtx = _behavior.evaluate(userText, osCtx, sessionHistory);
+    } catch(e) {
+      console.warn('[march-core] error en BehaviorModel:', e.message);
+    }
+  }
+
+  // Construir contexto base
+  let result;
+  if (_grounding) {
+    result = _grounding.buildContext(sessionHistory, provider);
+  } else {
+    const Fallback = require('./llm/GroundingMinimo.js');
+    result = Fallback.buildContext(sessionHistory);
+  }
+
+  // Inyectar BehaviorContext en el system prompt
+  if (behaviorCtx) {
+    const behaviorSection = BehaviorModel.serialize(behaviorCtx);
+    if (behaviorSection) {
+      result.systemPrompt = result.systemPrompt + '\n\n' + behaviorSection;
+    }
+  }
+
+  // Inyectar estado de OpenClaw si está disponible
+  if (_bridge?.getStats()?.available) {
+    result.systemPrompt +=
+      '\n\n# HERRAMIENTAS DISPONIBLES\n' +
+      'Tienes acceso a OpenClaw (localhost:18789). Puedes ejecutar acciones reales en el PC.\n' +
+      'Cuando el usuario pida una acción, anuncia lo que vas a hacer antes de hacerlo.\n' +
+      'Usa frases como "Voy a buscar eso", "Ejecutando el comando", "Leyendo el archivo".\n' +
+      'Tras ejecutar, reporta el resultado de forma natural.';
+  }
+
+  return { ...result, behaviorCtx };
+}
+
+// ── Fase 3: Planner y OpenClaw ────────────────────────────────────────────────
+
+/**
+ * Verifica si OpenClaw está disponible.
+ * @returns {Promise<boolean>}
+ */
+async function isOpenClawAvailable() {
+  if (!_bridge) return false;
+  return _bridge.isAvailable();
+}
+
+/**
+ * Parsea una respuesta del LLM buscando acciones y construye un plan.
+ * Retorna null si no hay acciones detectadas.
+ *
+ * @param {string} llmResponse
+ * @param {string} userGoal
+ * @returns {object|null} Plan
+ */
+function parsePlanFromResponse(llmResponse, userGoal) {
+  if (!_planner) return null;
+  return _planner.planFromLLMResponse(llmResponse, userGoal);
+}
+
+/**
+ * Ejecuta un plan.
+ * Emite eventos al EventBus para que main.js pueda notificar al renderer.
+ *
+ * @param {object}   plan
+ * @param {object}   [opts]
+ * @param {Function} [opts.onApprovalNeeded]  — async (step) → boolean
+ * @param {Function} [opts.onStepStart]       — (step) → void
+ * @param {Function} [opts.onStepDone]        — (step, result) → void
+ * @returns {Promise<object>} Plan ejecutado
+ */
+async function executePlan(plan, opts = {}) {
+  if (!_planner) throw new Error('Planner no inicializado');
+
+  _bus.emit('plan:started', { planId: plan.id, goal: plan.goal, steps: plan.steps.length });
+
+  const onStepStart = (step) => {
+    _bus.emit('plan:step-start', { planId: plan.id, step });
+    opts.onStepStart?.(step);
+  };
+
+  const onStepDone = (step, result) => {
+    _bus.emit('plan:step-done', { planId: plan.id, step, result });
+    opts.onStepDone?.(step, result);
+  };
+
+  const result = await _planner.execute(plan, {
+    ...opts,
+    onStepStart,
+    onStepDone,
+  });
+
+  _bus.emit('plan:finished', { planId: plan.id, status: result.status, result: result.result });
+  return result;
+}
+
+/**
+ * Ejecuta una herramienta directamente (sin plan multi-paso).
+ * Para acciones simples y rápidas.
+ *
+ * @param {string} tool
+ * @param {object} params
+ * @returns {Promise<object>} resultado del bridge
+ */
+async function executeTool(tool, params) {
+  if (!_bridge) throw new Error('OpenClawBridge no inicializado');
+  return _bridge.execute(tool, params);
 }
 
 // ── Stats ─────────────────────────────────────────────────────────────────────
@@ -165,10 +317,12 @@ function getStats() {
   } catch(_) {}
 
   return {
-    session:    _session?.getStats()           ?? { error: 'no inicializado' },
-    osSensor:   _osSensor?.getCurrentContext() ?? null,
-    initiative: _initiative?.getStats()        ?? null,
-    proactive:  _proactive?.getStats()         ?? null,
+    session:    _session?.getStats()            ?? { error: 'no inicializado' },
+    osSensor:   _osSensor?.getCurrentContext()  ?? null,
+    initiative: _initiative?.getStats()         ?? null,
+    proactive:  _proactive?.getStats()          ?? null,
+    planner:    _planner?.getStats()            ?? null,
+    openclaw:   _bridge?.getStats()             ?? null,
     eventBus:   busEvents,
     provider:   LLMProvider.getActiveProvider() ?? 'groq',
   };
@@ -176,10 +330,6 @@ function getStats() {
 
 // ── Testing ───────────────────────────────────────────────────────────────────
 
-/**
- * Forzar un mensaje proactivo manualmente — para testing.
- * @param {string} triggerType — 'long_silence' | 'late_night' | 'special_date'
- */
 async function forceProactive(triggerType = 'long_silence') {
   return _proactive?.forceEvaluate(triggerType);
 }
@@ -198,10 +348,13 @@ function _scheduleDailyPrune() {
 
 // ── Getters ───────────────────────────────────────────────────────────────────
 
-function getGraph()      { return _graph;     }
-function getOSSensor()   { return _osSensor;  }
-function getGrounding()  { return _grounding; }
-function getEventBus_()  { return _bus;       }
+function getGraph()         { return _graph;     }
+function getOSSensor()      { return _osSensor;  }
+function getGrounding()     { return _grounding; }
+function getEventBus_()     { return _bus;       }
+function getBehaviorModel() { return _behavior;  }
+function getPlanner_()      { return _planner;   }
+function getBridge()        { return _bridge;    }
 
 module.exports = {
   init,
@@ -214,9 +367,17 @@ module.exports = {
   getGraph,
   getOSSensor,
   getGrounding,
-  getEventBus: getEventBus_,
+  getEventBus:      getEventBus_,
+  getBehaviorModel,
+  getPlanner:       getPlanner_,
+  getBridge,
   onInitiative,
   setChatOpen,
   reloadLLMConfig,
   forceProactive,
+  // Fase 3
+  isOpenClawAvailable,
+  parsePlanFromResponse,
+  executePlan,
+  executeTool,
 };

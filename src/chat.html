@@ -5,6 +5,7 @@
 <title>March 7th — Chat</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Share+Tech+Mono&family=Zen+Kaku+Gothic+New:wght@300;400;700&family=Kaisei+Decol:wght@400;700&display=swap" rel="stylesheet">
+<script src="https://cdn.jsdelivr.net/npm/marked@9.1.6/marked.min.js"></script>
 <style>
 :root { --transition-theme: 0.5s cubic-bezier(0.4, 0, 0.2, 1); }
 
@@ -62,6 +63,10 @@ body::before { content:''; position:fixed; inset:0; background:var(--grain); poi
 #close-btn { -webkit-app-region:no-drag; width:28px; height:28px; border-radius:50%; border:1px solid var(--border); background:transparent; color:var(--text-secondary); cursor:pointer; display:flex; align-items:center; justify-content:center; font-size:14px; transition:all .2s; margin-left:4px; }
 #close-btn:hover { background:var(--bg-msg-user); color:var(--text-primary); border-color:var(--border-accent); }
 
+/* Badge OpenClaw */
+.openclaw-badge { display:inline-flex; align-items:center; gap:4px; font-family:var(--font-mono); font-size:9px; color:#10b981; background:rgba(16,185,129,.1); border:1px solid rgba(16,185,129,.3); border-radius:3px; padding:1px 6px; -webkit-app-region:no-drag; }
+.openclaw-badge.offline { color:var(--text-secondary); background:var(--tag-bg); border-color:var(--border); }
+
 #keys-banner { display:none; align-items:center; gap:10px; padding:8px 14px; background:rgba(245,158,11,0.08); border-bottom:1px solid rgba(245,158,11,0.25); font-family:var(--font-mono); font-size:11px; color:#f59e0b; flex-shrink:0; z-index:2; }
 #keys-banner.visible { display:flex; }
 #keys-banner svg { width:14px; height:14px; flex-shrink:0; }
@@ -114,6 +119,36 @@ body::before { content:''; position:fixed; inset:0; background:var(--grain); poi
 .msg.march .msg-bubble { border-color:var(--border-accent); }
 .msg-time { font-family:var(--font-mono); font-size:9px; color:var(--text-secondary); margin-top:4px; opacity:.6; }
 .msg.user .msg-time { text-align:right; }
+
+/* ── Markdown dentro de burbujas ─────────────────────────────────────────── */
+.msg-bubble.markdown p { margin:0 0 8px 0; }
+.msg-bubble.markdown p:last-child { margin-bottom:0; }
+.msg-bubble.markdown ul,
+.msg-bubble.markdown ol { margin:6px 0 8px 18px; padding:0; }
+.msg-bubble.markdown li { margin-bottom:3px; line-height:1.55; }
+.msg-bubble.markdown strong { color:var(--text-primary); font-weight:700; }
+.msg-bubble.markdown em { color:var(--text-march); font-style:italic; }
+.msg-bubble.markdown h1,
+.msg-bubble.markdown h2,
+.msg-bubble.markdown h3 { font-family:var(--font-display); color:var(--text-primary); margin:10px 0 6px 0; }
+.msg-bubble.markdown h1 { font-size:1.1em; border-bottom:1px solid var(--border); padding-bottom:4px; }
+.msg-bubble.markdown h2 { font-size:1.05em; }
+.msg-bubble.markdown h3 { font-size:1em; color:var(--accent); }
+.msg-bubble.markdown code { font-family:var(--font-mono); font-size:11.5px; background:var(--bg-base); border:1px solid var(--border); border-radius:3px; padding:1px 5px; color:var(--accent2); }
+.msg-bubble.markdown pre { background:var(--bg-base); border:1px solid var(--border); border-radius:6px; padding:10px 12px; overflow-x:auto; margin:8px 0; }
+.msg-bubble.markdown pre code { background:none; border:none; padding:0; font-size:11px; color:var(--text-primary); line-height:1.6; }
+.msg-bubble.markdown blockquote { border-left:3px solid var(--accent); margin:6px 0; padding:4px 10px; color:var(--text-secondary); font-style:italic; }
+.msg-bubble.markdown a { color:var(--accent); text-decoration:none; }
+.msg-bubble.markdown a:hover { text-decoration:underline; }
+.msg-bubble.markdown hr { border:none; border-top:1px solid var(--border); margin:8px 0; }
+.msg-bubble.markdown table { border-collapse:collapse; width:100%; margin:8px 0; font-size:12px; }
+.msg-bubble.markdown th,
+.msg-bubble.markdown td { border:1px solid var(--border); padding:5px 8px; text-align:left; }
+.msg-bubble.markdown th { background:var(--bg-input); font-family:var(--font-mono); font-size:10px; letter-spacing:.04em; color:var(--text-secondary); }
+
+/* Cursor typewriter */
+.typewriter-cursor::after { content:'▋'; color:var(--accent); animation:cursorBlink .7s step-end infinite; font-size:.85em; margin-left:1px; }
+@keyframes cursorBlink { 0%,100%{opacity:1;} 50%{opacity:0;} }
 
 .file-chip { display:inline-flex; align-items:center; gap:6px; background:var(--file-bg); border:1px solid var(--file-border); border-radius:6px; padding:5px 10px; font-family:var(--font-mono); font-size:10px; color:var(--text-secondary); margin-top:6px; max-width:100%; overflow:hidden; }
 .file-chip svg { width:13px; height:13px; flex-shrink:0; color:var(--accent); }
@@ -179,6 +214,27 @@ body::before { content:''; position:fixed; inset:0; background:var(--grain); poi
 .corner-deco.tr { top:6px; right:6px; border-top:1.5px solid var(--accent); border-right:1.5px solid var(--accent); }
 .corner-deco.bl { bottom:6px; left:6px; border-bottom:1.5px solid var(--accent); border-left:1.5px solid var(--accent); }
 .corner-deco.br { bottom:6px; right:6px; border-bottom:1.5px solid var(--accent); border-right:1.5px solid var(--accent); }
+
+/* ── Fase 3: Plan cards ──────────────────────────────────────────────────── */
+.plan-card { background:var(--bg-input); border:1px solid var(--border-accent); border-radius:8px; padding:10px 14px; margin-top:8px; font-family:var(--font-mono); font-size:11px; }
+.plan-header { color:var(--accent); font-size:10px; letter-spacing:.06em; margin-bottom:6px; display:flex; align-items:center; gap:6px; }
+.plan-header .plan-dot { width:6px; height:6px; border-radius:50%; background:var(--accent); animation:pulse 1s ease-in-out infinite; }
+.plan-step { display:flex; align-items:center; gap:8px; padding:3px 0; color:var(--text-secondary); font-size:10px; transition:color .2s; }
+.plan-step.running { color:var(--accent); }
+.plan-step.done { color:#10b981; }
+.plan-step.failed { color:#ef4444; }
+.plan-step.skipped { opacity:.4; }
+.plan-step .step-icon { width:14px; flex-shrink:0; text-align:center; }
+.plan-result { margin-top:8px; padding:8px; background:var(--bg-base); border-radius:4px; color:var(--text-primary); font-size:11px; white-space:pre-wrap; word-break:break-word; max-height:200px; overflow-y:auto; font-family:var(--font-mono); }
+.approval-card { background:rgba(245,158,11,0.08); border:1px solid rgba(245,158,11,0.35); border-radius:8px; padding:12px 14px; margin-top:8px; font-family:var(--font-mono); font-size:11px; }
+.approval-title { color:#f59e0b; font-size:10px; letter-spacing:.06em; margin-bottom:6px; }
+.approval-cmd { background:var(--bg-base); border-radius:4px; padding:6px 8px; color:var(--text-primary); font-size:11px; margin-bottom:10px; word-break:break-all; }
+.approval-actions { display:flex; gap:8px; }
+.btn-approve { padding:5px 14px; border-radius:5px; border:1px solid #10b981; background:rgba(16,185,129,.12); color:#10b981; font-family:var(--font-mono); font-size:10px; cursor:pointer; transition:all .2s; }
+.btn-approve:hover { background:rgba(16,185,129,.25); }
+.btn-deny { padding:5px 14px; border-radius:5px; border:1px solid var(--border); background:transparent; color:var(--text-secondary); font-family:var(--font-mono); font-size:10px; cursor:pointer; transition:all .2s; }
+.btn-deny:hover { border-color:#ef4444; color:#ef4444; }
+
 ::-webkit-scrollbar { width:4px; height:4px; }
 ::-webkit-scrollbar-thumb { background:var(--scrollbar); border-radius:2px; }
 </style>
@@ -191,6 +247,7 @@ body::before { content:''; position:fixed; inset:0; background:var(--grain); poi
     <span class="header-title">March 7th</span>
     <span class="header-tag">v0.1 · AGENTE</span>
     <div class="header-spacer"></div>
+    <span id="openclaw-badge" class="openclaw-badge offline" title="OpenClaw no disponible">NO TOOLS</span>
     <span class="theme-label" id="theme-label">DARK</span>
     <div id="theme-toggle" title="Cambiar tema"></div>
     <button id="close-btn" title="Cerrar">✕</button>
@@ -223,7 +280,7 @@ body::before { content:''; position:fixed; inset:0; background:var(--grain); poi
 
     <div id="input-area">
       <div id="input-row">
-        <button class="input-btn" id="voice-btn" title="Hablar (1 clic = activar · 1 clic = detener)">
+        <button class="input-btn" id="voice-btn" title="Hablar">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
             <path d="M12 1a3 3 0 00-3 3v8a3 3 0 006 0V4a3 3 0 00-3-3z"/>
             <path d="M19 10v2a7 7 0 01-14 0v-2"/>
@@ -306,12 +363,10 @@ const cp   = require('child_process');
 
 window.PIXI = PIXI;
 
-// ── Python executable ─────────────────────────────────────────────────────────
 const PYTHON_BIN = 'C:/Users/lukal/AppData/Local/Programs/Python/Python311/python.exe';
-
-// ── Constantes ────────────────────────────────────────────────────────────────
 const MODEL_PATH = path.join(__dirname, '..', 'models', 'March 7th', 'march 7th.model3.json');
 const TTS_VOICE  = 'ja-JP-NanamiNeural';
+
 const VIEW = {
   full: { sr: 0.85, ax: 0.5, ay: 1.00, py: 1.00 },
   half: { sr: 1.55, ax: 0.5, ay: 0.72, py: 1.08 },
@@ -322,14 +377,7 @@ const VIEW_PERSONALITY = {
   duration: { full:{min:30,max:80}, half:{min:18,max:45}, head:{min:10,max:25} },
 };
 
-// ── LLM — imports limpios (UNA sola vez cada uno) ────────────────────────────
-// El StateGraph vive en main.js. Aquí solo usamos buildContext como función,
-// que internamente accede al grafo via el path de userData si está disponible.
-// No instanciamos StateGraph en el renderer para no abrir la DB dos veces.
 const LLMProvider = require('../core/llm/LLMProvider.js');
-const Grounding   = require('../core/grounding/GroundingEngine.js');
-// Grounding.buildContext() está disponible como función standalone con fallback.
-// Si better-sqlite3 no está o el grafo no está listo, usa solo GroundingMinimo.
 
 // ── Estado global ─────────────────────────────────────────────────────────────
 let pixiApp, model, modelNaturalH;
@@ -339,6 +387,10 @@ let isListening  = false;
 let audioCtx     = null;
 let pendingFiles = [];
 
+// Fase 3
+let openclawAvailable = false;
+let activePlanId      = null;
+
 const sessionHistory      = [];
 const MAX_SESSION_HISTORY = 20;
 
@@ -346,6 +398,23 @@ function pushToSession(role, content) {
   sessionHistory.push({ role, content });
   if (sessionHistory.length > MAX_SESSION_HISTORY)
     sessionHistory.splice(0, sessionHistory.length - MAX_SESSION_HISTORY);
+}
+
+// ── Markdown ──────────────────────────────────────────────────────────────────
+if (typeof marked !== 'undefined') {
+  marked.setOptions({ breaks: true, gfm: true });
+}
+
+function renderMarkdown(text) {
+  if (typeof marked === 'undefined') return escapeHtml(text);
+  try { return marked.parse(text || ''); }
+  catch(e) { return escapeHtml(text); }
+}
+
+function escapeHtml(text) {
+  return (text || '')
+    .replace(/&/g,'&amp;').replace(/</g,'&lt;')
+    .replace(/>/g,'&gt;').replace(/"/g,'&quot;');
 }
 
 // ── Tema ──────────────────────────────────────────────────────────────────────
@@ -396,12 +465,20 @@ function addMessage(role, text, files = []) {
   const name   = document.createElement('div'); name.className = 'msg-name';
   name.textContent = role === 'march' ? 'MARCH 7TH' : 'TÚ';
   const bubble = document.createElement('div'); bubble.className = 'msg-bubble';
-  bubble.textContent = text;
+
+  if (role === 'march' && text) {
+    bubble.classList.add('markdown');
+    bubble.innerHTML = renderMarkdown(text);
+  } else {
+    bubble.textContent = text;
+  }
+
   files.forEach(f => {
     const chip = document.createElement('div'); chip.className = 'file-chip';
     chip.innerHTML = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21.44 11.05l-9.19 9.19a6 6 0 01-8.49-8.49l9.19-9.19a4 4 0 015.66 5.66L9.41 17.41a2 2 0 01-2.83-2.83l8.49-8.48"/></svg><span>${f.name}</span>`;
     bubble.appendChild(chip);
   });
+
   const time = document.createElement('div'); time.className = 'msg-time';
   time.textContent = now();
   body.appendChild(name); body.appendChild(bubble); body.appendChild(time);
@@ -409,6 +486,24 @@ function addMessage(role, text, files = []) {
   messagesEl.appendChild(div);
   messagesEl.scrollTop = messagesEl.scrollHeight;
   return { div, bubble };
+}
+
+// Typewriter que termina renderizando markdown
+async function typewriterMarkdown(bubble, text, delay = 14) {
+  bubble.classList.remove('markdown');
+  bubble.classList.add('typewriter-cursor');
+  bubble.textContent = '';
+  let buffer = '';
+  for (const char of text) {
+    buffer += char;
+    bubble.textContent = buffer;
+    messagesEl.scrollTop = messagesEl.scrollHeight;
+    await new Promise(r => setTimeout(r, delay + Math.random() * 8));
+  }
+  bubble.classList.remove('typewriter-cursor');
+  bubble.classList.add('markdown');
+  bubble.innerHTML = renderMarkdown(text);
+  messagesEl.scrollTop = messagesEl.scrollHeight;
 }
 
 function showThinking() {
@@ -451,7 +546,6 @@ function openSettings() {
     document.getElementById('key-gemini').value = keys.gemini || '';
     document.getElementById('key-openai').value = keys.openai || '';
     settingsStatus.textContent = '';
-    settingsStatus.style.color = '';
   });
   settingsModal.classList.add('visible');
 }
@@ -468,8 +562,7 @@ document.getElementById('save-settings').addEventListener('click', async () => {
   const openai = document.getElementById('key-openai').value.trim();
   if (!groq && !gemini && !openai) {
     settingsStatus.textContent = 'Necesitas al menos una key.';
-    settingsStatus.style.color = '#f59e0b';
-    return;
+    settingsStatus.style.color = '#f59e0b'; return;
   }
   settingsStatus.textContent = 'Guardando...';
   settingsStatus.style.color = 'var(--text-secondary)';
@@ -485,6 +578,31 @@ document.getElementById('save-settings').addEventListener('click', async () => {
   }
 });
 
+// ── OpenClaw badge ────────────────────────────────────────────────────────────
+function updateOpenClawBadge(available) {
+  openclawAvailable = available;
+  const badge = document.getElementById('openclaw-badge');
+  if (!badge) return;
+  if (available) {
+    badge.className = 'openclaw-badge';
+    badge.textContent = '⚡ TOOLS';
+    badge.title = 'OpenClaw disponible — herramientas activas';
+  } else {
+    badge.className = 'openclaw-badge offline';
+    badge.textContent = 'NO TOOLS';
+    badge.title = 'OpenClaw no disponible';
+  }
+}
+
+async function checkOpenClaw() {
+  try {
+    const available = await ipcRenderer.invoke('openclaw-available');
+    updateOpenClawBadge(available);
+  } catch(e) {
+    updateOpenClawBadge(false);
+  }
+}
+
 // ── processMessage ────────────────────────────────────────────────────────────
 async function processMessage(text, files = []) {
   const trimmed = text.trim();
@@ -494,7 +612,6 @@ async function processMessage(text, files = []) {
 
   if (trimmed) {
     pushToSession('user', trimmed);
-    // Registrar turno del usuario en memoria persistente (main.js lo guarda en SQLite)
     ipcRenderer.send('memory-add-turn', { role: 'user', content: trimmed });
   }
 
@@ -502,42 +619,137 @@ async function processMessage(text, files = []) {
   triggerMotion();
 
   let response;
-try {
-  const context = await ipcRenderer.invoke('grounding-build-context', {
-    sessionHistory: [...sessionHistory],
-    activeProvider: LLMProvider.getActiveProvider()
-  });
-  
-  // Debug temporal — borrar después de confirmar que funciona
-  if (!context || !context.messages || !context.systemPrompt) {
-    console.error('[chat] context inválido:', JSON.stringify(context));
-    throw new Error('context inválido recibido del main process');
+  try {
+    const context = await ipcRenderer.invoke('grounding-build-context', {
+      sessionHistory: [...sessionHistory],
+      activeProvider: LLMProvider.getActiveProvider(),
+    });
+    if (!context || !context.messages || !context.systemPrompt) {
+      throw new Error('context inválido');
+    }
+    response = await LLMProvider.complete(context.messages, context.systemPrompt);
+  } catch(err) {
+    console.error('[chat] error LLM:', err.message);
+    response = LLMProvider.getActiveProvider()
+      ? 'Algo falló al conectar. Revisa tu conexión o la key.'
+      : 'Sin API keys. Usa el botón ⚙ para configurarlas.';
   }
-  
-  response = await LLMProvider.complete(context.messages, context.systemPrompt);
-} catch(err) {
-  console.error('[chat] error LLM:', err.message);
-  response = LLMProvider.getActiveProvider()
-    ? 'Algo falló al conectar. Revisa tu conexión o la key.'
-    : 'Sin API keys. Usa el botón ⚙ para configurarlas.';
-}
 
   removeThinking();
-  pushToSession('assistant', response);
-  // Registrar respuesta de March en memoria persistente
-  ipcRenderer.send('memory-add-turn', { role: 'assistant', content: response });
 
-  const { bubble } = addMessage('march', '');
-  bubble.textContent = '';
-  for (const char of response) {
-    bubble.textContent += char;
-    messagesEl.scrollTop = messagesEl.scrollHeight;
-    await new Promise(r => setTimeout(r, 15 + Math.random() * 10));
+  // ── Fase 3: detectar acciones ─────────────────────────────────────────────
+  if (openclawAvailable && response && !response.startsWith('Algo falló')) {
+    try {
+      const plan = await ipcRenderer.invoke('openclaw-parse-plan', {
+        llmResponse: response,
+        userGoal: trimmed,
+      });
+      if (plan && plan.steps?.length) {
+        pushToSession('assistant', response);
+        ipcRenderer.send('memory-add-turn', { role: 'assistant', content: response });
+        const { bubble } = addMessage('march', '');
+        await typewriterMarkdown(bubble, response, 12);
+        await _executePlanWithUI(plan, bubble.parentElement.parentElement);
+        speak(response);
+        return;
+      }
+    } catch(e) {
+      console.warn('[chat] error parseando plan:', e.message);
+    }
   }
+
+  // Respuesta normal
+  pushToSession('assistant', response);
+  ipcRenderer.send('memory-add-turn', { role: 'assistant', content: response });
+  const { bubble } = addMessage('march', '');
+  await typewriterMarkdown(bubble, response, 15);
   speak(response);
 }
 
-// ── Input texto ───────────────────────────────────────────────────────────────
+// ── Plan UI ───────────────────────────────────────────────────────────────────
+async function _executePlanWithUI(plan, msgDiv) {
+  activePlanId = plan.id;
+  const card = document.createElement('div');
+  card.className = 'plan-card'; card.id = `plan-${plan.id}`;
+  card.innerHTML = `<div class="plan-header"><div class="plan-dot"></div>EJECUTANDO — ${plan.steps.length} PASO${plan.steps.length !== 1 ? 'S' : ''}</div><div class="plan-steps"></div><div class="plan-result" style="display:none"></div>`;
+  const stepsEl  = card.querySelector('.plan-steps');
+  const resultEl = card.querySelector('.plan-result');
+  for (const step of plan.steps) {
+    const el = document.createElement('div');
+    el.className = 'plan-step'; el.id = `step-${step.id}`;
+    el.innerHTML = `<span class="step-icon">⏳</span><span>${step.description}</span>${step.requiresApproval ? '<span style="color:#f59e0b;margin-left:4px">[requiere aprobación]</span>' : ''}`;
+    stepsEl.appendChild(el);
+  }
+  const bodyEl = msgDiv.querySelector('.msg-body');
+  if (bodyEl) bodyEl.appendChild(card);
+  messagesEl.scrollTop = messagesEl.scrollHeight;
+
+  const result = await ipcRenderer.invoke('openclaw-execute-plan', { plan });
+
+  const dot = card.querySelector('.plan-dot');
+  if (dot) { dot.style.animation = 'none'; dot.style.background = result.ok ? '#10b981' : '#ef4444'; }
+  const header = card.querySelector('.plan-header');
+  if (header) header.style.color = result.ok ? '#10b981' : '#ef4444';
+  const headerText = card.querySelector('.plan-header');
+  if (headerText) headerText.innerHTML = `<div class="plan-dot" style="background:${result.ok ? '#10b981' : '#ef4444'};animation:none"></div>${result.ok ? '✓ COMPLETADO' : '✗ ERROR'} — ${plan.steps.length} PASO${plan.steps.length !== 1 ? 'S' : ''}`;
+
+  if (result.result) {
+    const txt = typeof result.result === 'string' ? result.result : JSON.stringify(result.result, null, 2);
+    if (txt?.trim()) {
+      resultEl.textContent = txt.slice(0, 2000) + (txt.length > 2000 ? '\n...[truncado]' : '');
+      resultEl.style.display = 'block';
+      setTimeout(() => _summarizePlanResult(plan.goal, txt), 400);
+    }
+  }
+  if (!result.ok && result.error) {
+    resultEl.textContent = `Error: ${result.error}`;
+    resultEl.style.color = '#ef4444';
+    resultEl.style.display = 'block';
+  }
+  messagesEl.scrollTop = messagesEl.scrollHeight;
+  activePlanId = null;
+}
+
+async function _summarizePlanResult(goal, rawResult) {
+  try {
+    const truncated = rawResult.length > 1500
+      ? rawResult.slice(0, 1500) + '\n...[truncado]'
+      : rawResult;
+    const summaryHistory = [
+      ...sessionHistory,
+      { role: 'user', content: `Resultado de ejecutar "${goal}":\n\n${truncated}\n\nResume lo más relevante en tu voz. Sé directa y breve.` },
+    ];
+    const context = await ipcRenderer.invoke('grounding-build-context', {
+      sessionHistory: summaryHistory,
+      activeProvider: LLMProvider.getActiveProvider(),
+    });
+    const summary = await LLMProvider.complete(context.messages, context.systemPrompt);
+    if (summary?.trim()) {
+      pushToSession('assistant', summary);
+      ipcRenderer.send('memory-add-turn', { role: 'assistant', content: summary });
+      const { bubble } = addMessage('march', '');
+      await typewriterMarkdown(bubble, summary, 14);
+      speak(summary);
+    }
+  } catch(e) { console.warn('[chat] error resumiendo:', e.message); }
+}
+
+function _showApprovalCard({ planId, stepId, description, tool, params }) {
+  const card = document.createElement('div'); card.className = 'approval-card';
+  card.innerHTML = `<div class="approval-title">⚠ ACCIÓN DE ALTO IMPACTO — APROBACIÓN REQUERIDA</div><div class="approval-cmd">${description}</div><div style="font-size:10px;color:var(--text-secondary);margin-bottom:10px">Herramienta: <b>${tool}</b>${params.command ? ` · <code>${params.command}</code>` : ''}${params.path ? ` · <code>${params.path}</code>` : ''}</div><div class="approval-actions"><button class="btn-approve" id="approve-${stepId}">✓ Ejecutar</button><button class="btn-deny" id="deny-${stepId}">✗ Cancelar</button></div>`;
+  messagesEl.appendChild(card);
+  messagesEl.scrollTop = messagesEl.scrollHeight;
+  document.getElementById(`approve-${stepId}`)?.addEventListener('click', () => {
+    ipcRenderer.send('plan-approval-response', { stepId, approved: true });
+    card.style.opacity = '.5'; card.style.pointerEvents = 'none';
+  });
+  document.getElementById(`deny-${stepId}`)?.addEventListener('click', () => {
+    ipcRenderer.send('plan-approval-response', { stepId, approved: false });
+    card.style.opacity = '.5'; card.style.pointerEvents = 'none';
+  });
+}
+
+// ── Input ─────────────────────────────────────────────────────────────────────
 const input     = document.getElementById('msg-input');
 const sendBtn   = document.getElementById('send-btn');
 const charCount = document.getElementById('char-count');
@@ -577,11 +789,8 @@ attachBtn.addEventListener('click', () => fileInput.click());
 fileInput.addEventListener('change', (e) => addFiles(Array.from(e.target.files)));
 
 function addFiles(files) {
-  files.forEach(f => {
-    if (!pendingFiles.find(p => p.name === f.name && p.size === f.size)) pendingFiles.push(f);
-  });
-  renderAttachBar();
-  fileInput.value = '';
+  files.forEach(f => { if (!pendingFiles.find(p => p.name === f.name && p.size === f.size)) pendingFiles.push(f); });
+  renderAttachBar(); fileInput.value = '';
 }
 function renderAttachBar() {
   attachBar.innerHTML = '';
@@ -598,7 +807,6 @@ function renderAttachBar() {
 }
 function clearAttachments() { pendingFiles = []; renderAttachBar(); }
 
-// Drag & drop
 const chatPanel   = document.getElementById('chat-panel');
 const dropOverlay = document.getElementById('drop-overlay');
 let dragCounter   = 0;
@@ -614,9 +822,7 @@ function setListeningState(active) {
   isListening = active;
   voiceBtn.classList.toggle('active', active);
   input.placeholder = active ? '🎙 Grabando... clic para detener' : 'Escribe algo a March 7th...';
-  hintEl.textContent = active
-    ? '🎙 Habla ahora · clic para detener y transcribir'
-    : 'Enter ↵ enviar · Shift+Enter nueva línea · arrastra archivos aquí';
+  hintEl.textContent = active ? '🎙 Habla ahora · clic para detener' : 'Enter ↵ enviar · Shift+Enter nueva línea · arrastra archivos aquí';
   if (!active) input.focus();
 }
 
@@ -631,13 +837,11 @@ function startSTT() {
   voiceBtn.disabled = true;
   input.placeholder = '⏳ Cargando modelo de voz...';
 }
-
 function stopSTT() {
   if (!isListening) return;
   ipcRenderer.send('stt-stop');
   voiceBtn.disabled = true;
   input.placeholder = '⏳ Transcribiendo...';
-  hintEl.textContent = '⏳ Procesando audio con Vosk...';
 }
 
 voiceBtn.addEventListener('click', () => { if (isListening) stopSTT(); else startSTT(); });
@@ -658,20 +862,18 @@ ipcRenderer.on('stt-sentence', (e, text) => {
 });
 ipcRenderer.on('stt-result', (e, text) => {
   isListening = false; voiceBtn.disabled = false; setListeningState(false);
-  if (text && text.trim()) {
+  if (text?.trim()) {
     input.value = text.trim(); charCount.textContent = input.value.length;
     input.style.height = 'auto'; input.style.height = Math.min(input.scrollHeight, 120) + 'px';
     input.focus();
-  } else {
-    input.value = ''; input.placeholder = 'Escribe algo a March 7th...';
-  }
+  } else { input.value = ''; input.placeholder = 'Escribe algo a March 7th...'; }
 });
 ipcRenderer.on('stt-error', (e, msg) => {
   isListening = false; voiceBtn.disabled = false; setListeningState(false);
   addMessage('march', `Error de micrófono: ${msg}`);
 });
 
-// ── Selector de micrófono ─────────────────────────────────────────────────────
+// ── Micrófono ─────────────────────────────────────────────────────────────────
 const micSelect      = document.getElementById('mic-select');
 let micDevicesLoaded = false;
 
@@ -682,8 +884,7 @@ async function loadMicDevices() {
     const devices = await navigator.mediaDevices.enumerateDevices();
     const mics    = devices.filter(d => d.kind === 'audioinput');
     micSelect.innerHTML = '';
-    const def = document.createElement('option');
-    def.value = ''; def.textContent = 'Micrófono por defecto';
+    const def = document.createElement('option'); def.value = ''; def.textContent = 'Micrófono por defecto';
     micSelect.appendChild(def);
     mics.forEach((d, i) => {
       const opt = document.createElement('option');
@@ -692,7 +893,7 @@ async function loadMicDevices() {
       micSelect.appendChild(opt);
     });
     micDevicesLoaded = true;
-  } catch(e) { console.error('[mic] error cargando dispositivos:', e); }
+  } catch(e) { console.error('[mic] error:', e); }
 }
 
 ipcRenderer.on('restore-mic', (e, { index, label }) => {
@@ -706,9 +907,7 @@ ipcRenderer.on('restore-mic', (e, { index, label }) => {
 
 micSelect.addEventListener('change', () => {
   const idx = micSelect.value === '' ? null : Number(micSelect.value);
-  const lbl = micSelect.value === ''
-    ? 'default'
-    : (micSelect.options[micSelect.selectedIndex]?.dataset.label || `Micrófono ${idx+1}`);
+  const lbl = micSelect.value === '' ? 'default' : (micSelect.options[micSelect.selectedIndex]?.dataset.label || `Micrófono ${idx+1}`);
   ipcRenderer.send('set-mic-index', { index: idx ?? -1, label: lbl });
 });
 
@@ -718,7 +917,14 @@ function getAudioCtx() {
   return audioCtx;
 }
 function cleanForTTS(text) {
-  return text.replace(/[\u{1F300}-\u{1FAFF}\u{2600}-\u{27BF}]/gu,'').replace(/\s{2,}/g,' ').trim();
+  return text
+    .replace(/#{1,6}\s+/g, '')          // quitar headers markdown
+    .replace(/\*\*(.+?)\*\*/g, '$1')    // quitar negritas
+    .replace(/\*(.+?)\*/g, '$1')        // quitar cursivas
+    .replace(/`{1,3}[^`]*`{1,3}/g, '') // quitar código
+    .replace(/\[(.+?)\]\(.+?\)/g, '$1') // quitar links, dejar texto
+    .replace(/[\u{1F300}-\u{1FAFF}\u{2600}-\u{27BF}]/gu,'')
+    .replace(/\s{2,}/g, ' ').trim();
 }
 async function speak(text) {
   if (isSpeaking) return;
@@ -758,6 +964,7 @@ const viewIndicator = document.getElementById('view-indicator');
 async function loadModel() {
   await loadLLMConfig();
   loadMicDevices();
+  checkOpenClaw();
 
   if (!fs.existsSync(MODEL_PATH)) { showWelcome(); return; }
 
@@ -781,43 +988,31 @@ async function loadModel() {
     setTimeout(triggerMotion, 600);
     setInterval(triggerMotion, 8000);
     startAutonomousView();
-    console.log('[chat] modelo cargado');
   } catch(e) { console.error('[chat] model error:', e); }
 
   showWelcome();
 }
 
 async function showWelcome() {
-  // Obtener contexto OS para personalizar el saludo
   let osCtx = null;
-  try {
-    osCtx = await ipcRenderer.invoke('os-get-context');
-  } catch(e) {}
+  try { osCtx = await ipcRenderer.invoke('os-get-context'); } catch(e) {}
 
   let text;
-
   if (osCtx?.app && osCtx?.elapsed > 300) {
-    // Ha estado más de 5 minutos en alguna app — saludo contextual
     const appName = osCtx.friendlyName || osCtx.app;
-    const contextualGreetings = [
+    const opts = [
       `Aquí estoy. Veo que llevas rato en ${appName}.`,
       `${appName} de nuevo. ¿Qué hay?`,
       `Online. Tienes ${appName} abierto.`,
     ];
-    text = contextualGreetings[Math.floor(Math.random() * contextualGreetings.length)];
+    text = opts[Math.floor(Math.random() * opts.length)];
   } else {
-    // Saludo normal
-    const greetings = ['Aquí estoy.', 'March online.', 'Buenas. ¿Qué hay?', 'Encendida y escuchando.'];
-    text = greetings[Math.floor(Math.random() * greetings.length)];
+    const opts = ['Aquí estoy.', 'March online.', 'Buenas. ¿Qué hay?', 'Encendida y escuchando.'];
+    text = opts[Math.floor(Math.random() * opts.length)];
   }
 
   const { bubble } = addMessage('march', '');
-  bubble.textContent = '';
-  for (const char of text) {
-    bubble.textContent += char;
-    messagesEl.scrollTop = messagesEl.scrollHeight;
-    await new Promise(r => setTimeout(r, 20 + Math.random() * 12));
-  }
+  await typewriterMarkdown(bubble, text, 20);
   speak(text);
 }
 
@@ -835,18 +1030,27 @@ function applyView(view, animate = false) {
     currentView = view; return;
   }
   const dur = 700, start = performance.now();
-  const fs = model.scale.x, fx = model.x, fy = model.y;
+  const fs2 = model.scale.x, fx = model.x, fy = model.y;
   const fax = model.anchor.x, fay = model.anchor.y;
   const ease = t => t < 0.5 ? 2*t*t : -1+(4-2*t)*t;
   const tick = (n) => {
     const t = Math.min((n - start)/dur, 1), e = ease(t);
-    model.scale.set(fs+(ts-fs)*e);
+    model.scale.set(fs2+(ts-fs2)*e);
     model.anchor.set(fax+(cfg.ax-fax)*e, fay+(cfg.ay-fay)*e);
     model.position.set(fx+(tx-fx)*e, fy+(ty-fy)*e);
     if (t < 1) requestAnimationFrame(tick);
     else { currentView = view; triggerMotion(); }
   };
   requestAnimationFrame(tick);
+}
+
+function triggerMotion() {
+  try {
+    const defs = model?.internalModel?.motionManager?.definitions;
+    if (!defs) return;
+    const groups = Object.keys(defs);
+    if (groups.length) model.motion(groups[Math.floor(Math.random()*groups.length)]);
+  } catch(_) {}
 }
 
 function pickNextView() {
@@ -867,14 +1071,6 @@ function startAutonomousView() {
   };
   setTimeout(schedule, 12000 + Math.random()*8000);
 }
-function triggerMotion() {
-  try {
-    const defs = model?.internalModel?.motionManager?.definitions;
-    if (!defs) return;
-    const groups = Object.keys(defs);
-    if (groups.length) model.motion(groups[Math.floor(Math.random()*groups.length)]);
-  } catch(_) {}
-}
 
 window.addEventListener('resize', () => {
   if (!pixiApp || !model) return;
@@ -883,51 +1079,67 @@ window.addEventListener('resize', () => {
   applyView(currentView, false);
 });
 
-// ── IPC ───────────────────────────────────────────────────────────────────────
+// ── IPC listeners ─────────────────────────────────────────────────────────────
 document.getElementById('close-btn').addEventListener('click', () => ipcRenderer.send('chat-close'));
 ipcRenderer.on('init-theme',   (e, theme) => setTheme(theme));
 ipcRenderer.on('chat-speak',   (e, text)  => speak(text));
 ipcRenderer.on('chat-message', (e, text)  => processMessage(text));
 
+// Fase 3
+ipcRenderer.on('openclaw-status', (e, { available }) => updateOpenClawBadge(available));
+
+ipcRenderer.on('plan-step-start', (e, { planId, stepId }) => {
+  if (planId !== activePlanId) return;
+  const el = document.getElementById(`step-${stepId}`);
+  if (!el) return;
+  el.className = 'plan-step running';
+  el.querySelector('.step-icon').textContent = '⚙';
+});
+
+ipcRenderer.on('plan-step-done', (e, { planId, stepId, status }) => {
+  if (planId !== activePlanId) return;
+  const el = document.getElementById(`step-${stepId}`);
+  if (!el) return;
+  el.className = `plan-step ${status}`;
+  el.querySelector('.step-icon').textContent = { done:'✓', failed:'✗', skipped:'○' }[status] || '?';
+  messagesEl.scrollTop = messagesEl.scrollHeight;
+});
+
+ipcRenderer.on('plan-approval-needed', (e, payload) => _showApprovalCard(payload));
+
+ipcRenderer.on('plan-finished', (e, { planId }) => {
+  const card = document.getElementById(`plan-${planId}`);
+  if (card) { const dot = card.querySelector('.plan-dot'); if (dot) dot.style.animation = 'none'; }
+});
+
 ipcRenderer.on('march-initiative', (e, payload) => {
-  // March manda un mensaje proactivo basado en lo que detectó del OS
-  // Aparece como mensaje de March en el chat, con indicador especial
-  const { bubble } = addMessage('march', '');
-  bubble.textContent = '';
-
-  // Indicador visual de que es un mensaje proactivo
-  const badge = document.createElement('span');
-  badge.style.cssText = `
-    display: inline-block;
-    font-family: var(--font-mono);
-    font-size: 9px;
-    color: var(--accent);
-    border: 1px solid var(--border-accent);
-    border-radius: 3px;
-    padding: 1px 5px;
-    margin-right: 6px;
-    opacity: 0.7;
-    vertical-align: middle;
-  `;
-  badge.textContent = '⚡ MARCH';
-  bubble.appendChild(badge);
-
-  const textNode = document.createElement('span');
-  bubble.appendChild(textNode);
-
-  // Animar el texto
   (async () => {
+    const { bubble } = addMessage('march', '');
+    const badge = document.createElement('span');
+    badge.style.cssText = 'display:inline-block;font-family:var(--font-mono);font-size:9px;color:var(--accent);border:1px solid var(--border-accent);border-radius:3px;padding:1px 5px;margin-right:6px;opacity:.7;vertical-align:middle;';
+    badge.textContent = '⚡ MARCH';
+    bubble.classList.add('markdown');
+    bubble.appendChild(badge);
+    const textSpan = document.createElement('span');
+    bubble.appendChild(textSpan);
+    // Escribir el texto en el span
+    bubble.classList.remove('markdown');
+    bubble.classList.add('typewriter-cursor');
+    let buf = '';
     for (const char of payload.suggestion) {
-      textNode.textContent += char;
+      buf += char;
+      textSpan.textContent = buf;
       messagesEl.scrollTop = messagesEl.scrollHeight;
-      await new Promise(r => setTimeout(r, 18 + Math.random() * 10));
+      await new Promise(r => setTimeout(r, 18 + Math.random() * 8));
     }
+    bubble.classList.remove('typewriter-cursor');
+    // Renderizar markdown en el span de texto
+    textSpan.outerHTML = `<span class="md-inline">${renderMarkdown(payload.suggestion)}</span>`;
+    messagesEl.scrollTop = messagesEl.scrollHeight;
     speak(payload.suggestion);
+    pushToSession('assistant', payload.suggestion);
+    ipcRenderer.send('memory-add-turn', { role: 'assistant', content: payload.suggestion });
   })();
-
-  // Registrar en historial de sesión y memoria
-  pushToSession('assistant', payload.suggestion);
-  ipcRenderer.send('memory-add-turn', { role: 'assistant', content: payload.suggestion });
 });
 
 // ── Init ──────────────────────────────────────────────────────────────────────

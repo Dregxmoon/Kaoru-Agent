@@ -296,6 +296,14 @@ ipcMain.on('chat-close', () => {
 
 ipcMain.on('chat-theme-changed', (e, theme) => { chatTheme = theme; saveConfig({ chatTheme: theme }); });
 
+// ── IPC: aprobación de planes (Fase 3) ───────────────────────────────────────
+// Este listener va aquí arriba porque puede llegarnos desde el renderer
+// en cualquier momento durante la ejecución de un plan.
+ipcMain.on('plan-approval-response', () => {
+  // El handler real se registra dinámicamente dentro de openclaw-execute-plan.
+  // Este registro vacío evita warnings de "no handler" en Electron.
+});
+
 // ── IPC: memoria ──────────────────────────────────────────────────────────────
 ipcMain.on('memory-add-turn', (e, { role, content }) => {
   MarchCore.addTurn(role, content);
@@ -306,7 +314,6 @@ ipcMain.handle('memory-stats', () => MarchCore.getStats());
 
 // ── IPC: grounding ────────────────────────────────────────────────────────────
 ipcMain.handle('grounding-build-context', (e, { sessionHistory, activeProvider }) => {
-  // Pasar activeProvider al buildContext para usar el serializer correcto
   const ctx = MarchCore.buildContext(sessionHistory, activeProvider);
   console.log('[grounding-ipc] provider:', activeProvider, '| systemPrompt:', ctx?.systemPrompt?.length, 'chars');
   return ctx;
@@ -335,7 +342,6 @@ ipcMain.handle('get-config', () => loadConfig());
 ipcMain.handle('save-llm-keys', (e, { groq, gemini, openai }) => {
   saveConfig({ llm: { primary: 'groq', apiKeys: { groq, gemini, openai }, fallback: ['gemini', 'openai'] } });
   console.log('[config] keys LLM actualizadas');
-  // FIX: recargar LLMProvider en memoria para que los cambios surtan efecto inmediatamente
   MarchCore.reloadLLMConfig();
   return true;
 });
@@ -346,6 +352,152 @@ ipcMain.handle('force-proactive', async (e, triggerType) => {
   const msg = await MarchCore.forceProactive(triggerType || 'long_silence');
   return msg || null;
 });
+
+// ── IPC: Fase 3 — OpenClaw ────────────────────────────────────────────────────
+
+// Verificar disponibilidad de OpenClaw
+ipcMain.handle('openclaw-available', async () => {
+  return MarchCore.isOpenClawAvailable();
+});
+
+// Ejecutar herramienta directa (sin plan multi-paso)
+ipcMain.handle('openclaw-execute-tool', async (e, { tool, params }) => {
+  console.log(`[main] openclaw-execute-tool: ${tool}`);
+  try {
+    const result = await MarchCore.executeTool(tool, params);
+    return result;
+  } catch (err) {
+    console.error('[main] error en executeTool:', err.message);
+    return { ok: false, error: err.message, tool, result: null, elapsed: 0 };
+  }
+});
+
+// Parsear respuesta del LLM buscando acciones
+ipcMain.handle('openclaw-parse-plan', (e, { llmResponse, userGoal }) => {
+  try {
+    const plan = MarchCore.parsePlanFromResponse(llmResponse, userGoal);
+    return plan ?? null;
+  } catch (err) {
+    console.error('[main] error en parsePlanFromResponse:', err.message);
+    return null;
+  }
+});
+
+// Ejecutar un plan paso a paso
+ipcMain.handle('openclaw-execute-plan', async (e, { plan }) => {
+  console.log(`[main] ejecutando plan: ${plan?.id} (${plan?.steps?.length} pasos)`);
+
+  if (!plan || !plan.steps?.length) {
+    return { ok: false, error: 'Plan inválido o sin pasos', plan };
+  }
+
+  try {
+    const executedPlan = await MarchCore.executePlan(plan, {
+
+      onStepStart: (step) => {
+        if (chatWindow && !chatWindow.isDestroyed()) {
+          chatWindow.webContents.send('plan-step-start', {
+            planId:      plan.id,
+            stepId:      step.id,
+            description: step.description,
+            tool:        step.tool,
+          });
+        }
+      },
+
+      onStepDone: (step, result) => {
+        if (chatWindow && !chatWindow.isDestroyed()) {
+          chatWindow.webContents.send('plan-step-done', {
+            planId:      plan.id,
+            stepId:      step.id,
+            description: step.description,
+            tool:        step.tool,
+            status:      step.status,
+            result:      _serializeResult(result),
+            error:       step.error,
+          });
+        }
+      },
+
+      onApprovalNeeded: (step) => {
+        return new Promise((resolve) => {
+          if (!chatWindow || chatWindow.isDestroyed()) {
+            resolve(false);
+            return;
+          }
+
+          chatWindow.webContents.send('plan-approval-needed', {
+            planId:      plan.id,
+            stepId:      step.id,
+            description: step.description,
+            tool:        step.tool,
+            params:      step.params,
+          });
+
+          const handler = (e2, { stepId, approved }) => {
+            if (stepId === step.id) {
+              ipcMain.removeListener('plan-approval-response', handler);
+              resolve(approved);
+            }
+          };
+          ipcMain.on('plan-approval-response', handler);
+
+          // Timeout de 60s si el usuario no responde
+          setTimeout(() => {
+            ipcMain.removeListener('plan-approval-response', handler);
+            resolve(false);
+          }, 60_000);
+        });
+      },
+    });
+
+    return {
+      ok:     executedPlan.status === 'done',
+      plan:   executedPlan,
+      result: _serializeResult(executedPlan.result),
+      error:  executedPlan.error,
+    };
+
+  } catch (err) {
+    console.error('[main] error ejecutando plan:', err.message);
+    return { ok: false, error: err.message, plan };
+  }
+});
+
+// Historial de planes ejecutados
+ipcMain.handle('openclaw-plan-history', () => {
+  return MarchCore.getPlanner()?.getHistory(20) ?? [];
+});
+
+// Stats Fase 3
+ipcMain.handle('fase3-stats', () => {
+  const stats = MarchCore.getStats();
+  return {
+    openclaw: stats.openclaw,
+    planner:  stats.planner,
+    provider: stats.provider,
+  };
+});
+
+// ── Helper: serializar resultados para IPC ────────────────────────────────────
+function _serializeResult(result) {
+  if (!result) return null;
+  if (typeof result === 'string') {
+    return result.length > 4000 ? result.slice(0, 4000) + '\n... [truncado]' : result;
+  }
+  if (typeof result === 'object') {
+    try {
+      const str = JSON.stringify(result);
+      if (str.length > 4000) {
+        return { _truncated: true, preview: str.slice(0, 4000) };
+      }
+      return result;
+    } catch {
+      return String(result);
+    }
+  }
+  return result;
+}
 
 // ── Servidor HTTP local ───────────────────────────────────────────────────────
 const VALID_EMOTIONS = ['happy','excited','sad','tired','gentle','default'];
@@ -558,23 +710,44 @@ app.whenReady().then(() => {
   ensureLLMConfig();
   setupMicPermissions();
 
+  // MarchCore.init() debe ser lo primero — inicializa _bus y todos los subsistemas
   MarchCore.init(app);
 
-  // Registrar callback para iniciativas proactivas de March (ProactiveEngine + InitiativeEngine)
+  // ── Registrar listeners del EventBus DESPUÉS de init() ─────────────────────
+  // IMPORTANTE: estos listeners usan MarchCore.getEventBus() que solo existe
+  // después de init(). Nunca moverlos fuera de whenReady().
+
+  // Reenviar estado de OpenClaw al renderer cuando cambie
+  MarchCore.getEventBus().on('openclaw:available', (payload) => {
+    if (chatWindow && !chatWindow.isDestroyed()) {
+      chatWindow.webContents.send('openclaw-status', payload);
+    }
+  });
+
+  // Reenviar eventos de plan al renderer
+  MarchCore.getEventBus().on('plan:started', (payload) => {
+    if (chatWindow && !chatWindow.isDestroyed()) {
+      chatWindow.webContents.send('plan-started', payload);
+    }
+  });
+
+  MarchCore.getEventBus().on('plan:finished', (payload) => {
+    if (chatWindow && !chatWindow.isDestroyed()) {
+      chatWindow.webContents.send('plan-finished', payload);
+    }
+  });
+
+  // ── Iniciativas proactivas (ProactiveEngine + InitiativeEngine) ────────────
   MarchCore.onInitiative((payload) => {
     const chatVisible = chatWindow && !chatWindow.isDestroyed() && chatWindow.isVisible();
     if (chatVisible) {
-      // Chat ya abierto → enviar directamente
       chatWindow.webContents.send('march-initiative', payload);
       return;
     }
-    // Chat cerrado — ¿debe abrirse?
     if (payload.openChat) {
-      // Abrir el chat y esperar a que cargue antes de enviar el mensaje
       createChatWindow();
       const sendWhenReady = () => {
         if (chatWindow && !chatWindow.isDestroyed()) {
-          // Pequeño delay para que el renderer esté listo
           setTimeout(() => {
             if (chatWindow && !chatWindow.isDestroyed()) {
               chatWindow.webContents.send('march-initiative', payload);
@@ -583,29 +756,22 @@ app.whenReady().then(() => {
         }
       };
       if (chatWindow && !chatWindow.isDestroyed()) {
-        // El chatWindow ya existía (estaba oculto) — enviar después de mostrarlo
         chatWindow.webContents.once('did-finish-load', sendWhenReady);
-        // Si ya terminó de cargar, did-finish-load no volverá a disparar
-        // Usamos un fallback con timeout
         setTimeout(sendWhenReady, 1000);
       }
     } else {
-      // No abrir el chat — hablar por el overlay
       if (mainWindow && !mainWindow.isDestroyed()) {
         mainWindow.webContents.send('speak', payload.suggestion);
       }
     }
   });
 
+  // ── Arrancar ventanas y servicios ──────────────────────────────────────────
   createWindow();
   createTray();
   startControlServer();
   startVoiceListener(selectedMicIndex);
-
-  // El chat NO se abre automáticamente al arrancar.
-  // Se abre cuando el usuario lo pide (doble click, tray, o voz).
-  // Mantener comentado a menos que sea comportamiento deseado:
-   createChatWindow();
+  createChatWindow();
 
   screen.on('display-metrics-changed', () => {
     if (!mainWindow || mainWindow.isDestroyed()) return;
