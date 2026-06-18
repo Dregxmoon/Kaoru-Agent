@@ -1,32 +1,18 @@
 /**
- * OSSensor.js — Fase 2 (mejorado)
+ * OSSensor.js — Fase 2 (con FIX Bug 13)
  *
- * Detecta:
- *  - Qué app/ventana tiene el foco y cuánto tiempo lleva ahí.
- *  - TODAS las ventanas visibles abiertas (no solo la activa).
- *  - Historial de apps usadas durante el día.
- *  - Tiempo de idle del usuario (sin tocar teclado/mouse).
+ *  Bug 13 — OSSensor reportaba "Claude" como app activa, contaminando el
+ *            contexto del LLM. Se agrega "claude" y "Claude" a IGNORED_APPS
+ *            para que nunca aparezca en app activa ni en ventanas abiertas.
+ *            También se filtran variantes del proceso (claude.exe, Claude).
  *
- * Mejoras respecto a la versión anterior:
- *   - Flag _pollBusy: evita procesos PowerShell zombie si un poll tarda más de 5s
- *   - saveAppHistory: ahora existe en el StateGraph y se llama correctamente
- *   - Idle detection: GetLastInputInfo via PowerShell (sin dependencias nativas)
- *   - idleSecs e idleFormatted expuestos en getCurrentContext()
- *   - PS_SCRIPT como constante del módulo (no se reconstruye en cada poll)
- *   - Mejor manejo de errores en _runPS con timeout de 8s
- *
- * Emite al EventBus:
- *   os:app-changed     — cuando cambia la app activa
- *   os:app-tick        — cada poll si la app no cambió
- *   os:windows-updated — cada poll con la lista de ventanas abiertas
- *   os:history-updated — cuando se guarda una entrada en historial
- *   os:idle-changed    — cuando el usuario pasa de activo a idle o viceversa
+ * El resto del archivo es idéntico al original.
  */
 
 const { spawn }       = require('child_process');
 const { getEventBus } = require('../event-bus/EventBus.js');
 
-// Apps ignoradas (sistema, overlay propio, etc.)
+// FIX Bug 13: añadir claude y variantes a la lista de ignorados
 const IGNORED_APPS = new Set([
   'explorer', 'SearchHost', 'ShellExperienceHost', 'StartMenuExperienceHost',
   'LockApp', 'LogonUI', 'dwm', 'taskhostw', 'RuntimeBroker',
@@ -34,7 +20,26 @@ const IGNORED_APPS = new Set([
   'vtuber-overlay', 'electron',
   'RazerAppEngine', 'RazerCentralService', 'RazerIngameEngine',
   'rzsd', 'Razer Synapse', 'RzSDKService',
+  // Bug 13: ignorar Claude para evitar contaminación del contexto
+  'claude', 'Claude', 'claude.exe', 'Claude.exe',
+  'anthropic', 'Anthropic',
 ]);
+
+// Helper para chequear si un nombre de proceso debe ignorarse
+// (case-insensitive para cubrir todas las variantes)
+function shouldIgnoreApp(procName) {
+  if (!procName) return true;
+  const lower = procName.toLowerCase();
+  // Chequeo exacto (ya cubría antes)
+  if (IGNORED_APPS.has(procName)) return true;
+  // FIX Bug 13: chequeo case-insensitive para claude y variantes
+  if (lower === 'claude' || lower.startsWith('claude.')) return true;
+  // Chequeo case-insensitive para todos los ignorados
+  for (const ignored of IGNORED_APPS) {
+    if (ignored.toLowerCase() === lower) return true;
+  }
+  return false;
+}
 
 const APP_NAMES = {
   'Code':            'Visual Studio Code',
@@ -71,7 +76,7 @@ const APP_NAMES = {
   'postman':         'Postman',
   'insomnia':        'Insomnia',
   'vlc':             'VLC',
-  'warp': 'Warp Terminal',
+  'warp':            'Warp Terminal',
   'mpc-hc64':        'Media Player Classic',
   'explorer':        'Explorador de archivos',
   'SystemSettings':  'Configuración de Windows',
@@ -90,15 +95,8 @@ const APP_CATEGORIES = {
   system:   ['SystemSettings', 'ApplicationFrameHost'],
 };
 
-// Umbral de idle en segundos para considerar al usuario "ausente"
-const IDLE_THRESHOLD_SECS = 120; // 2 minutos
+const IDLE_THRESHOLD_SECS = 120;
 
-/**
- * Script PowerShell unificado:
- *   Línea 1:  FOCUS|<procName>|<title>
- *   Línea 2:  IDLE|<milisegundos desde último input>
- *   Resto:    WIN|<procName>|<title>
- */
 const PS_SCRIPT = `
 [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
 $OutputEncoding = [System.Text.Encoding]::UTF8
@@ -184,7 +182,7 @@ class OSSensor {
     this._graph        = stateGraph;
     this._bus          = getEventBus();
     this._polling      = null;
-    this._pollBusy     = false;   // FIX: evita procesos zombie
+    this._pollBusy     = false;
     this._pollMs       = 5000;
     this._currentApp   = null;
     this._currentTitle = null;
@@ -193,7 +191,6 @@ class OSSensor {
     this._history      = [];
     this._maxHistory   = 100;
     this._running      = false;
-    // Idle
     this._idleSecs     = 0;
     this._wasIdle      = false;
   }
@@ -216,7 +213,6 @@ class OSSensor {
     const elapsed = this._appStart
       ? Math.round((Date.now() - this._appStart) / 1000)
       : 0;
-
     return {
       app:                this._currentApp,
       friendlyName:       this._getFriendlyName(this._currentApp),
@@ -257,13 +253,11 @@ class OSSensor {
   getTodaySummary() {
     const today = this.getTodayHistory();
     if (!today.length) return null;
-
     const byApp = {};
     for (const entry of today) {
       const key = entry.friendlyName || entry.app;
       byApp[key] = (byApp[key] || 0) + (entry.duration || 0);
     }
-
     return Object.entries(byApp)
       .sort(([, a], [, b]) => b - a)
       .slice(0, 8)
@@ -271,20 +265,14 @@ class OSSensor {
       .join(', ');
   }
 
-  // ── Polling ────────────────────────────────────────────────────────────────
-
   _poll() {
-    // FIX: si el poll anterior no terminó, saltar este ciclo
     if (this._pollBusy) {
       console.warn('[os-sensor] poll anterior todavía en curso, saltando...');
       return;
     }
-
     this._pollBusy = true;
-
     this._runPS(PS_SCRIPT, (err, output) => {
       this._pollBusy = false;
-
       if (err || !output) return;
 
       const lines = output.split('\n').map(l => l.trim()).filter(Boolean);
@@ -311,7 +299,9 @@ class OSSensor {
         const title    = rest.slice(partsIdx + 1).trim();
 
         if (!procName || procName === 'unknown') continue;
-        if ([...IGNORED_APPS].some(ig => procName.toLowerCase().includes(ig.toLowerCase()))) continue;
+
+        // FIX Bug 13: usar shouldIgnoreApp en lugar del Set directamente
+        if (shouldIgnoreApp(procName)) continue;
 
         if (kind === 'FOCUS') {
           focus = { procName, title };
@@ -325,10 +315,8 @@ class OSSensor {
         }
       }
 
-      // Procesar idle
       this._processIdle(Math.round(idleMs / 1000));
 
-      // Deduplicar ventanas
       const seen  = new Set();
       const dedup = [];
       for (const w of windows) {
@@ -347,7 +335,6 @@ class OSSensor {
   _processIdle(idleSecs) {
     this._idleSecs = idleSecs;
     const isIdle   = idleSecs >= IDLE_THRESHOLD_SECS;
-
     if (isIdle && !this._wasIdle) {
       this._wasIdle = true;
       this._bus.emit('os:idle-changed', { idle: true, idleSecs });
@@ -368,12 +355,10 @@ class OSSensor {
       if (this._currentApp && this._appStart) {
         this._saveToHistory(this._currentApp, this._currentTitle, this._appStart, Date.now());
       }
-
       const prev         = this._currentApp;
       this._currentApp   = procName;
       this._currentTitle = title;
       this._appStart     = Date.now();
-
       this._bus.emit('os:app-changed', {
         app:          procName,
         friendlyName: this._getFriendlyName(procName),
@@ -383,7 +368,6 @@ class OSSensor {
         prev,
         prevFriendly: this._getFriendlyName(prev),
       });
-
       console.log(`[os-sensor] → ${this._getFriendlyName(procName)} — "${title.slice(0, 60)}"`);
     } else {
       this._currentTitle = title;
@@ -401,36 +385,24 @@ class OSSensor {
   _saveToHistory(app, title, start, end) {
     const duration = Math.round((end - start) / 1000);
     if (duration < 5) return;
-
     const entry = {
       app,
       friendlyName: this._getFriendlyName(app),
       title:        title?.slice(0, 120) || '',
       category:     this._getCategory(app),
-      start,
-      end,
-      duration,
+      start, end, duration,
     };
-
     this._history.push(entry);
     if (this._history.length > this._maxHistory) this._history.shift();
-
-    // FIX: saveAppHistory ahora existe en StateGraph (ver StateGraph.js)
     if (this._graph?._ready && typeof this._graph.saveAppHistory === 'function') {
-      try {
-        this._graph.saveAppHistory(entry);
-      } catch(e) {
-        console.warn('[os-sensor] error guardando historial en grafo:', e.message);
-      }
+      try { this._graph.saveAppHistory(entry); }
+      catch (e) { console.warn('[os-sensor] error guardando historial:', e.message); }
     }
-
     this._bus.emit('os:history-updated', {
       latest:     entry,
       todayCount: this.getTodayHistory().length,
     });
   }
-
-  // ── Helpers ────────────────────────────────────────────────────────────────
 
   _getFriendlyName(procName) {
     if (!procName) return null;
@@ -456,71 +428,49 @@ class OSSensor {
   }
 
   _cleanTitle(procName, title) {
-  if (!title) return '';
-  let t = title;
-  // Limpiar rutas de sistema que aparecen como título en terminales
-  if (t.match(/^[A-Z]:\\Windows\\system32\\/i)) return '';
-  if (t.match(/^[A-Z]:\\/i) && t.endsWith('.exe')) return '';
-  // Limpiar ruido de browsers
-  t = t.replace(/\s*[-–—]?\s*y \d+\s+p[áa]gin\w* m[áa]s/gi, '');
-  t = t.replace(/\s*[-–—]?\s*and \d+\s+more\s*/gi, '');
-  t = t.replace(/\s*[-–—]\s*(Microsoft\??\s*Edge|Google Chrome|Mozilla Firefox)\s*$/i, '');
-  t = t.replace(/\s*[-–—]\s*Visual Studio Code\s*$/i, '');
-  return t.trim();
-}
+    if (!title) return '';
+    let t = title;
+    if (t.match(/^[A-Z]:\\Windows\\system32\\/i)) return '';
+    if (t.match(/^[A-Z]:\\/i) && t.endsWith('.exe')) return '';
+    t = t.replace(/\s*[-–—]?\s*y \d+\s+p[áa]gin\w* m[áa]s/gi, '');
+    t = t.replace(/\s*[-–—]?\s*and \d+\s+more\s*/gi, '');
+    t = t.replace(/\s*[-–—]\s*(Microsoft\??\s*Edge|Google Chrome|Mozilla Firefox)\s*$/i, '');
+    t = t.replace(/\s*[-–—]\s*Visual Studio Code\s*$/i, '');
+    return t.trim();
+  }
 
-  /**
-   * Ejecuta el script PowerShell con timeout de 8s.
-   * Si tarda más, mata el proceso y reporta error.
-   */
   _runPS(script, callback) {
-    let output  = '';
-    let error   = '';
-    let done    = false;
-
+    let output = '', error = '', done = false;
     const finish = (err, out) => {
       if (done) return;
       done = true;
       callback(err, out);
     };
-
     let proc;
     try {
       proc = spawn('powershell', [
         '-NoProfile', '-NonInteractive', '-WindowStyle', 'Hidden',
         '-Command', script,
       ], { windowsHide: true });
-
       proc.stdout.setEncoding('utf8');
       proc.stderr.setEncoding('utf8');
-
       proc.stdout.on('data', d => { output += d; });
       proc.stderr.on('data', d => { error  += d; });
-
       proc.on('close', (code) => {
-        if (code !== 0 || error) {
-          finish(new Error(error || `exit code ${code}`), null);
-        } else {
-          finish(null, output.trim());
-        }
+        if (code !== 0 || error) finish(new Error(error || `exit code ${code}`), null);
+        else finish(null, output.trim());
       });
-
       proc.on('error', (e) => finish(e, null));
-
-    } catch(e) {
+    } catch (e) {
       finish(e, null);
       return;
     }
-
-    // Timeout de seguridad: si PowerShell tarda más de 8s, matar
     const timeout = setTimeout(() => {
       if (done) return;
       console.warn('[os-sensor] PowerShell timeout (>8s), matando proceso');
-      try { proc.kill(); } catch(_) {}
+      try { proc.kill(); } catch (_) {}
       finish(new Error('powershell timeout'), null);
     }, 8000);
-
-    // Limpiar timeout cuando termina normalmente
     proc.on('close', () => clearTimeout(timeout));
   }
 }

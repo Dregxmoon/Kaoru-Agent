@@ -22,7 +22,7 @@ const { getEventBus }      = require('../infrastructure/event-bus/EventBus.js');
 const { InitiativeEngine } = require('./behavior/InitiativeEngine.js');
 const { ProactiveEngine }  = require('./behavior/ProactiveEngine.js');
 const { BehaviorModel }    = require('./behavior/BehaviorModel.js');
-const { getPlanner }       = require('./planner/Planner.js');
+const { getPlanner, setProjectCWD } = require('./planner/Planner.js');
 const { getOpenClawBridge } = require('./planner/OpenClawBridge.js');
 const LLMProvider           = require('./llm/LLMProvider.js');
 
@@ -71,6 +71,11 @@ function init(app) {
   _behavior = new BehaviorModel(_graph);
   _planner  = getPlanner();
   _bridge   = getOpenClawBridge();
+
+  // Bug 1, 12: fijar el CWD al directorio raíz del proyecto Electron
+  // app.getAppPath() devuelve la carpeta donde está main.js
+  const projectCWD = app ? app.getAppPath() : process.cwd();
+  setProjectCWD(projectCWD);
 
   // Conectar OSSensor a todos los subsistemas que lo necesitan
   _grounding.setOSSensor(_osSensor);
@@ -218,11 +223,24 @@ function buildContext(sessionHistory, activeProvider) {
   // Inyectar estado de OpenClaw si está disponible
   if (_bridge?.getStats()?.available) {
     result.systemPrompt +=
-      '\n\n# HERRAMIENTAS DISPONIBLES\n' +
-      'Tienes acceso a OpenClaw (localhost:18789). Puedes ejecutar acciones reales en el PC.\n' +
-      'Cuando el usuario pida una acción, anuncia lo que vas a hacer antes de hacerlo.\n' +
-      'Usa frases como "Voy a buscar eso", "Ejecutando el comando", "Leyendo el archivo".\n' +
-      'Tras ejecutar, reporta el resultado de forma natural.';
+  '\n\n# HERRAMIENTAS DISPONIBLES — REGLAS ESTRICTAS\n' +
+  'Tienes acceso a OpenClaw para ejecutar acciones reales en el PC del usuario.\n\n' +
+  'REGLA 1 — ANUNCIA, NO EJECUTES EN PROSA:\n' +
+  'Para ejecutar un comando di EXACTAMENTE: "Ejecutar: git status"\n' +
+  'Para leer un archivo di EXACTAMENTE: "Voy a leer el archivo README.md"\n' +
+  'Para editar un archivo di EXACTAMENTE: "Voy a escribir el archivo README.md"\n\n' +
+  'REGLA 2 — NUNCA INVENTES RESULTADOS:\n' +
+  'JAMÁS describas el resultado de un comando antes de ejecutarlo.\n' +
+  'JAMÁS escribas output de comandos inventado (hashes de commit, listas de archivos, etc).\n' +
+  'Si el usuario pide git add + git commit, anuncia cada comando por separado.\n' +
+  'El sistema ejecutará los comandos y tú recibirás el resultado real.\n\n' +
+  'REGLA 3 — SECUENCIA DE COMANDOS:\n' +
+  'Si el usuario pide varios comandos en orden, anúncialos TODOS en la misma respuesta, uno por línea.\n' +
+  'Formato exacto para múltiples comandos:\n' +
+  'Ejecutar: git add .\n' +
+  'Ejecutar: git commit -m "mensaje"\n' +
+  'Ejecutar: git push origin 7March\n' +
+  'El sistema los ejecutará en orden automáticamente.';
   }
 
   return { ...result, behaviorCtx };

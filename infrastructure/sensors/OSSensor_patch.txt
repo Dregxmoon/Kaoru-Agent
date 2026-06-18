@@ -1,0 +1,22 @@
+BUG 13 FIX — OSSensor.js
+
+Localiza en infrastructure/sensors/OSSensor.js la constante IGNORED_APPS
+(alrededor de la línea 40) y añade 'claude' y 'Claude':
+
+ANTES:
+const IGNORED_APPS = new Set([
+  'explorer', 'SearchHost', 'ShellExperienceHost', 'StartMenuExperienceHost',
+  'LockApp', 'LogonUI', 'dwm', 'taskhostw', 'RuntimeBroker',
+  'TextInputHost', 'ApplicationFrameHost', 'SystemSettings',
+  'vtuber-overlay', 'electron',
+]);
+
+DESPUÉS:
+const IGNORED_APPS = new Set([
+  'explorer', 'SearchHost', 'ShellExperienceHost', 'StartMenuExperienceHost',
+  'LockApp', 'LogonUI', 'dwm', 'taskhostw', 'RuntimeBroker',
+  'TextInputHost', 'ApplicationFrameHost', 'SystemSettings',
+  'vtuber-overlay', 'electron',
+  'claude',   // Bug 13: March no debe saber que usas Claude
+  'Claude',   // variante con mayúscula según cómo lo detecta Windows
+]);

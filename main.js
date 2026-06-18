@@ -479,23 +479,34 @@ ipcMain.handle('fase3-stats', () => {
   };
 });
 
-// ── Helper: serializar resultados para IPC ────────────────────────────────────
+// Límite de serialización para IPC.
+// Electron IPC soporta hasta ~64MB. 512KB es más que suficiente para
+// cualquier archivo de código o resultado de herramienta, y nunca causará
+// truncado en edit_file (los README / source files rara vez superan los 100KB).
+const IPC_RESULT_LIMIT = 512 * 1024; // 512 KB
+
 function _serializeResult(result) {
   if (!result) return null;
+
   if (typeof result === 'string') {
-    return result.length > 4000 ? result.slice(0, 4000) + '\n... [truncado]' : result;
+    // Nunca truncar strings — el contenido de archivos debe pasar completo
+    return result;
   }
+
   if (typeof result === 'object') {
     try {
       const str = JSON.stringify(result);
-      if (str.length > 4000) {
-        return { _truncated: true, preview: str.slice(0, 4000) };
+      // Solo truncar si supera 512KB (prácticamente imposible en uso normal)
+      if (str.length > IPC_RESULT_LIMIT) {
+        console.warn(`[main] resultado muy grande (${str.length} chars), truncando para IPC`);
+        return { _truncated: true, preview: str.slice(0, IPC_RESULT_LIMIT), totalLength: str.length };
       }
       return result;
     } catch {
       return String(result);
     }
   }
+
   return result;
 }
 

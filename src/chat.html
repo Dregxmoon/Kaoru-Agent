@@ -696,7 +696,8 @@ async function _executePlanWithUI(plan, msgDiv) {
   if (result.result) {
     const txt = typeof result.result === 'string' ? result.result : JSON.stringify(result.result, null, 2);
     if (txt?.trim()) {
-      resultEl.textContent = txt.slice(0, 2000) + (txt.length > 2000 ? '\n...[truncado]' : '');
+      resultEl.textContent = txt;
+
       resultEl.style.display = 'block';
       setTimeout(() => _summarizePlanResult(plan.goal, txt), 400);
     }
@@ -712,13 +713,10 @@ async function _executePlanWithUI(plan, msgDiv) {
 
 async function _summarizePlanResult(goal, rawResult) {
   try {
-    const truncated = rawResult.length > 1500
-      ? rawResult.slice(0, 1500) + '\n...[truncado]'
-      : rawResult;
     const summaryHistory = [
-      ...sessionHistory,
-      { role: 'user', content: `Resultado de ejecutar "${goal}":\n\n${truncated}\n\nResume lo más relevante en tu voz. Sé directa y breve.` },
-    ];
+  ...sessionHistory,
+  { role: 'user', content: `Resultado de ejecutar "${goal}":\n\n${rawResult}\n\nResume lo más relevante en tu voz. Sé directa y breve.` },
+];
     const context = await ipcRenderer.invoke('grounding-build-context', {
       sessionHistory: summaryHistory,
       activeProvider: LLMProvider.getActiveProvider(),
