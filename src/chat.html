@@ -695,12 +695,11 @@ async function _executePlanWithUI(plan, msgDiv) {
 
   if (result.result) {
     const txt = typeof result.result === 'string' ? result.result : JSON.stringify(result.result, null, 2);
-    if (txt?.trim()) {
-      resultEl.textContent = txt;
-
-      resultEl.style.display = 'block';
-      setTimeout(() => _summarizePlanResult(plan.goal, txt), 400);
-    }
+if (txt?.trim()) {
+  resultEl.textContent = txt;
+  resultEl.style.display = 'block';
+  setTimeout(() => _summarizePlanResult(plan.goal, txt), 10000); // 10s — evita chocar con el rate limit TPM de Groq
+}
   }
   if (!result.ok && result.error) {
     resultEl.textContent = `Error: ${result.error}`;
@@ -711,12 +710,41 @@ async function _executePlanWithUI(plan, msgDiv) {
   activePlanId = null;
 }
 
+function _extractSummaryInput(rawResult) {
+  try {
+    const parsed = JSON.parse(rawResult);
+    const compact = {};
+    for (const [key, val] of Object.entries(parsed)) {
+      if (val && typeof val === 'object' && (val.status === 'success' || val.status === 'written_unverified')) {
+        // No mandar originalContent/newContent/verifiedContent completos —
+        // son el mismo archivo 3 veces y eso es lo que inflaba el contexto.
+        compact[key] = {
+          status:   val.status,
+          path:     val.path,
+          verified: val.verified ?? null,
+          chars:    val.newContent?.length ?? 0,
+        };
+      } else if (typeof val === 'string') {
+        compact[key] = val.length > 500 ? val.slice(0, 500) + '...' : val;
+      } else {
+        compact[key] = val;
+      }
+    }
+    return JSON.stringify(compact, null, 2);
+  } catch {
+    // No era JSON — es output de texto plano (exec, etc), limitar tamaño razonable
+    return rawResult.length > 1500 ? rawResult.slice(0, 1500) + '\n...[truncado]' : rawResult;
+  }
+}
+
 async function _summarizePlanResult(goal, rawResult) {
   try {
+    const compactResult = _extractSummaryInput(rawResult);
+
     const summaryHistory = [
-  ...sessionHistory,
-  { role: 'user', content: `Resultado de ejecutar "${goal}":\n\n${rawResult}\n\nResume lo más relevante en tu voz. Sé directa y breve.` },
-];
+      ...sessionHistory,
+      { role: 'user', content: `Resultado de ejecutar "${goal}":\n\n${compactResult}\n\nResume lo más relevante en tu voz. Sé directa y breve.` },
+    ];
     const context = await ipcRenderer.invoke('grounding-build-context', {
       sessionHistory: summaryHistory,
       activeProvider: LLMProvider.getActiveProvider(),

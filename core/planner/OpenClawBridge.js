@@ -1,51 +1,52 @@
 /**
- * OpenClawBridge.js — Fase 3
+ * OpenClawBridge.js — Fase 3 v2
  *
- * Interfaz HTTP entre March y OpenClaw (localhost:18789).
+ * Fix v1 → v2:
+ *   browser y web_search ahora se ejecutan con BrowserBridge.js
+ *   (Playwright real, headless) en lugar de pasar por el mock HTTP.
+ *   El resto de herramientas (exec, read, write, edit, apply_patch,
+ *   code_execution) siguen yendo a OpenClaw/mock vía HTTP.
  *
- * March decide QUÉ hacer. OpenClaw lo ejecuta. Esta separación es no negociable.
- * El Bridge solo traduce entre el mundo de March y la API de OpenClaw.
+ * Interfaz HTTP entre March y OpenClaw (localhost:18789), más
+ * BrowserBridge para navegación real.
  *
- * Herramientas disponibles en OpenClaw:
- *   exec        — ejecutar comandos shell, gestionar procesos
- *   browser     — controlar navegador (navegar, clic, screenshots)
- *   web_search  — buscar en la web, obtener contenido de páginas
- *   read        — leer archivos del workspace
- *   write       — escribir archivos del workspace
- *   edit        — modificar archivos existentes
- *   apply_patch — modificar código con parches multi-bloque
- *   code_execution — ejecutar Python en sandbox
- *   tts         — texto a voz (independiente del TTS de March)
- *   cron        — tareas programadas
+ * March decide QUÉ hacer. OpenClaw/BrowserBridge lo ejecutan.
+ *
+ * Herramientas disponibles:
+ *   exec           — comandos shell (vía OpenClaw/mock)
+ *   browser        — navegación real (vía BrowserBridge / Playwright)
+ *   web_search     — búsqueda real (vía BrowserBridge / Playwright)
+ *   read           — leer archivos (vía OpenClaw/mock)
+ *   write          — escribir archivos (vía OpenClaw/mock)
+ *   edit           — modificar archivos (vía OpenClaw/mock)
+ *   apply_patch    — parches multi-bloque (vía OpenClaw/mock)
+ *   code_execution — ejecutar Python (vía OpenClaw/mock)
  *
  * Contrato de respuesta de execute():
  * {
- *   ok:      boolean   — la herramienta respondió sin error HTTP
- *   result:  any       — resultado crudo de OpenClaw
- *   error:   string    — mensaje de error si !ok
- *   tool:    string    — herramienta que se usó
- *   elapsed: number    — ms que tardó la llamada
+ *   ok:      boolean
+ *   result:  any
+ *   error:   string
+ *   tool:    string
+ *   elapsed: number
  * }
  */
 
 'use strict';
 
 const http = require('http');
+const BrowserBridge = require('./BrowserBridge.js');
 
 const OPENCLAW_BASE   = 'http://127.0.0.1:18789';
-const DEFAULT_TIMEOUT = 30_000; // 30s — comandos shell pueden tardar
+const DEFAULT_TIMEOUT = 30_000;
 
-// ── Tipos de herramientas y sus schemas ───────────────────────────────────────
+// Herramientas que se resuelven con el navegador propio de March,
+// no con el servidor HTTP de OpenClaw/mock.
+const BROWSER_TOOLS = new Set(['browser', 'web_search']);
 
-/**
- * Mapa de herramienta → cómo construir el body para OpenClaw.
- * Cada entrada es una función (params) → body para POST /v1/tool.
- */
+// ── Tipos de herramientas y sus schemas (para las que sí van por HTTP) ────────
+
 const TOOL_SCHEMAS = {
-  /**
-   * exec — ejecutar un comando shell.
-   * params: { command: string, cwd?: string, timeout?: number }
-   */
   exec: (params) => ({
     tool: 'exec',
     input: {
@@ -55,87 +56,29 @@ const TOOL_SCHEMAS = {
     },
   }),
 
-  /**
-   * web_search — buscar en la web.
-   * params: { query: string, max_results?: number }
-   */
-  web_search: (params) => ({
-    tool: 'web_search',
-    input: {
-      query:       params.query,
-      max_results: params.max_results || 5,
-    },
-  }),
-
-  /**
-   * browser — controlar el navegador.
-   * params: { action: 'navigate'|'click'|'screenshot'|'get_text', url?: string, selector?: string }
-   */
-  browser: (params) => ({
-    tool: 'browser',
-    input: params,
-  }),
-
-  /**
-   * read — leer un archivo.
-   * params: { path: string, encoding?: string }
-   */
   read: (params) => ({
     tool: 'read',
-    input: {
-      path:     params.path,
-      encoding: params.encoding || 'utf-8',
-    },
+    input: { path: params.path, encoding: params.encoding || 'utf-8' },
   }),
 
-  /**
-   * write — escribir un archivo.
-   * params: { path: string, content: string, encoding?: string }
-   */
   write: (params) => ({
     tool: 'write',
-    input: {
-      path:     params.path,
-      content:  params.content,
-      encoding: params.encoding || 'utf-8',
-    },
+    input: { path: params.path, content: params.content, encoding: params.encoding || 'utf-8' },
   }),
 
-  /**
-   * edit — modificar parte de un archivo existente.
-   * params: { path: string, old_text: string, new_text: string }
-   */
   edit: (params) => ({
     tool: 'edit',
-    input: {
-      path:     params.path,
-      old_text: params.old_text,
-      new_text: params.new_text,
-    },
+    input: { path: params.path, old_text: params.old_text, new_text: params.new_text },
   }),
 
-  /**
-   * apply_patch — parche multi-bloque estilo diff.
-   * params: { path: string, patch: string }
-   */
   apply_patch: (params) => ({
     tool: 'apply_patch',
-    input: {
-      path:  params.path,
-      patch: params.patch,
-    },
+    input: { path: params.path, patch: params.patch },
   }),
 
-  /**
-   * code_execution — ejecutar Python en sandbox.
-   * params: { code: string, timeout?: number }
-   */
   code_execution: (params) => ({
     tool: 'code_execution',
-    input: {
-      code:    params.code,
-      timeout: params.timeout || 10,
-    },
+    input: { code: params.code, timeout: params.timeout || 10 },
   }),
 };
 
@@ -164,7 +107,6 @@ function postJSON(url, body, timeoutMs = DEFAULT_TIMEOUT) {
         try {
           resolve({ status: res.statusCode, body: JSON.parse(data) });
         } catch {
-          // OpenClaw puede devolver texto plano en errores
           resolve({ status: res.statusCode, body: { result: data, raw: true } });
         }
       });
@@ -210,20 +152,15 @@ function getJSON(url, timeoutMs = 5000) {
 
 class OpenClawBridge {
   constructor() {
-    this._available    = null;  // null = no chequeado aún
+    this._available    = null;
     this._lastPing     = 0;
-    this._pingInterval = 60_000; // re-chequear disponibilidad cada 60s
-    this._actionLog    = [];    // registro inmutable de acciones ejecutadas
+    this._pingInterval = 60_000;
+    this._actionLog    = [];
     this._maxLog       = 200;
   }
 
   // ── Disponibilidad ──────────────────────────────────────────────────────────
 
-  /**
-   * Chequea si OpenClaw está corriendo.
-   * Cachea el resultado por _pingInterval ms para no saturar.
-   * @returns {Promise<boolean>}
-   */
   async isAvailable() {
     const now = Date.now();
     if (this._available !== null && (now - this._lastPing) < this._pingInterval) {
@@ -248,9 +185,6 @@ class OpenClawBridge {
     return this._available;
   }
 
-  /**
-   * Fuerza re-chequeo en el próximo isAvailable().
-   */
   resetAvailabilityCache() {
     this._available = null;
     this._lastPing  = 0;
@@ -259,32 +193,41 @@ class OpenClawBridge {
   // ── Ejecución principal ─────────────────────────────────────────────────────
 
   /**
-   * Ejecuta una herramienta de OpenClaw.
-   *
-   * @param {string} tool     — nombre de la herramienta (exec, web_search, browser...)
-   * @param {object} params   — parámetros específicos de la herramienta
-   * @param {object} [opts]
-   * @param {number} [opts.timeout]       — ms máximo de espera (default: 30000)
-   * @param {boolean} [opts.requireConfirm] — si true, el caller debe confirmar antes de llamar aquí
-   *
-   * @returns {Promise<{ok, result, error, tool, elapsed}>}
+   * Ejecuta una herramienta. Despacha a BrowserBridge (Playwright) para
+   * browser/web_search, o al servidor HTTP de OpenClaw/mock para el resto.
    */
   async execute(tool, params = {}, opts = {}) {
     const t0 = Date.now();
 
-    // Validar herramienta
+    // ── browser / web_search → BrowserBridge (Playwright real) ───────────────
+    if (BROWSER_TOOLS.has(tool)) {
+      try {
+        console.log(`[openclaw] ejecutando vía BrowserBridge: ${tool}`, JSON.stringify(params).slice(0, 120));
+        const browserResult = tool === 'web_search'
+          ? await BrowserBridge.executeWebSearch(params)
+          : await BrowserBridge.executeBrowserAction(params);
+
+        const elapsed = Date.now() - t0;
+        this._log({ tool, params, ok: true, result: browserResult.result, elapsed });
+        console.log(`[openclaw] ${tool} completado en ${elapsed}ms (BrowserBridge)`);
+
+        return { ok: true, result: browserResult.result, error: browserResult.error || null, tool, elapsed };
+      } catch (e) {
+        return this._err(tool, e.message, t0);
+      }
+    }
+
+    // ── resto de herramientas → servidor HTTP de OpenClaw/mock ────────────────
     const builder = TOOL_SCHEMAS[tool];
     if (!builder) {
       return this._err(tool, `Herramienta desconocida: ${tool}`, t0);
     }
 
-    // Chequear disponibilidad
     const available = await this.isAvailable();
     if (!available) {
       return this._err(tool, 'OpenClaw no está corriendo. Inícialo en localhost:18789.', t0);
     }
 
-    // Construir body
     let body;
     try {
       body = builder(params);
@@ -294,12 +237,11 @@ class OpenClawBridge {
 
     console.log(`[openclaw] ejecutando: ${tool}`, JSON.stringify(params).slice(0, 120));
 
-    // Llamar a OpenClaw
     let res;
     try {
       res = await postJSON(`${OPENCLAW_BASE}/v1/tool`, body, opts.timeout || DEFAULT_TIMEOUT);
     } catch(e) {
-      this._available = false; // marcar como no disponible
+      this._available = false;
       return this._err(tool, `Error de red: ${e.message}`, t0);
     }
 
@@ -321,47 +263,31 @@ class OpenClawBridge {
 
   // ── Atajos de herramientas ──────────────────────────────────────────────────
 
-  /**
-   * Ejecutar un comando shell.
-   * @param {string} command
-   * @param {object} [opts] — { cwd, timeout }
-   */
   async exec(command, opts = {}) {
     return this.execute('exec', { command, ...opts });
   }
 
-  /**
-   * Buscar en la web.
-   * @param {string} query
-   * @param {number} [maxResults]
-   */
   async webSearch(query, maxResults = 5) {
     return this.execute('web_search', { query, max_results: maxResults });
   }
 
-  /**
-   * Navegar a una URL.
-   * @param {string} url
-   */
   async navigate(url) {
     return this.execute('browser', { action: 'navigate', url });
   }
 
-  /**
-   * Leer un archivo.
-   * @param {string} filePath
-   */
   async readFile(filePath) {
     return this.execute('read', { path: filePath });
   }
 
-  /**
-   * Escribir un archivo.
-   * @param {string} filePath
-   * @param {string} content
-   */
   async writeFile(filePath, content) {
     return this.execute('write', { path: filePath, content });
+  }
+
+  /**
+   * Cierra el navegador de BrowserBridge. Llamar al cerrar la app.
+   */
+  async closeBrowser() {
+    await BrowserBridge.closeBrowser();
   }
 
   // ── Registro de acciones ────────────────────────────────────────────────────
@@ -378,10 +304,6 @@ class OpenClawBridge {
     return { ok: false, result: null, error, tool, elapsed };
   }
 
-  /**
-   * Retorna el log de acciones ejecutadas (últimas N).
-   * @param {number} [n]
-   */
   getActionLog(n = 20) {
     return this._actionLog.slice(-n);
   }
@@ -395,7 +317,6 @@ class OpenClawBridge {
   }
 }
 
-// Singleton — un solo bridge por proceso
 let _instance = null;
 function getOpenClawBridge() {
   if (!_instance) _instance = new OpenClawBridge();

@@ -1,21 +1,26 @@
 /**
- * Planner.js — Fase 3 v5
+ * Planner.js — Fase 3 v7
  *
- * Fix v4 → v5:
- *   _llmTransform ya NO llama a Anthropic directamente.
- *   Usa LLMProvider.complete() — el mismo cliente Groq/Gemini/OpenAI
- *   que usa el resto del proyecto.
+ * Fix v6 → v7:
+ *   code_execution — nuevo patrón en ActionParser: detecta instrucciones
+ *                    como "ejecuta este código: `print('hola')`" y las
+ *                    despacha a la herramienta code_execution.
  *
- *   setAnthropicConfig() eliminado — reemplazado por setLLMProvider(fn)
- *   que acepta cualquier función compatible con LLMProvider.complete().
+ *   apply_patch — nuevo patrón: "aplica este patch a app.js: ```...```"
+ *                 despacha a apply_patch con el contenido del diff.
  *
- * Cambios respecto a v3 (mantenidos):
- *   edit_file detection — dos estrategias:
- *     A) verbos de edición clásicos + archivo.ext
- *     B) verbos de escritura (escribir, poner, guardar…) con archivo
- *        en cualquier posición de la oración
- *   userGoal como fuente de verdad para la instrucción de edit_file
- *   _executeEditFile: read → llm_transform → write → verify (real, sin simulación)
+ *   isHighImpact — code_execution y apply_patch ahora requieren
+ *                  aprobación del usuario, igual que edit_file/create_file.
+ *
+ *   web_search/browser — sin cambios en Planner.js; la implementación
+ *   real (Playwright headless) vive en BrowserBridge.js, conectado vía
+ *   OpenClawBridge.js. Planner solo detecta la intención y construye el plan.
+ *
+ * Cambios mantenidos de v6:
+ *   _executeStep única definición (antes había una duplicada — bug crítico).
+ *   create_file — llm → write → verify para archivos nuevos.
+ *   edit_file   — read → llm_transform → write → verify para archivos existentes.
+ *   Chunking dinámico para archivos grandes según el proveedor LLM activo.
  */
 
 'use strict';
@@ -34,14 +39,15 @@ function setProjectCWD(cwd) {
 }
 
 // ── LLM Provider ──────────────────────────────────────────────────────────────
-// Por defecto intenta cargar LLMProvider del proyecto.
-// Se puede sobreescribir con setLLMProvider(fn) para tests.
 let _llmComplete = null;
 
 function _getLLMComplete() {
   if (_llmComplete) return _llmComplete;
   try {
     const LLMProvider = require('../llm/LLMProvider.js');
+    if (typeof LLMProvider.completeTask === 'function') {
+      return LLMProvider.completeTask.bind(LLMProvider);
+    }
     return LLMProvider.complete.bind(LLMProvider);
   } catch (e) {
     throw new Error(
@@ -51,60 +57,192 @@ function _getLLMComplete() {
   }
 }
 
-/**
- * Inyecta una función LLM personalizada para tests o entornos especiales.
- * La función debe tener la misma firma que LLMProvider.complete:
- *   async (messages: Array<{role, content}>, systemPrompt: string) => string
- */
 function setLLMProvider(fn) {
   if (typeof fn !== 'function') throw new Error('setLLMProvider: se esperaba una función');
   _llmComplete = fn;
   console.log('[planner] LLMProvider personalizado configurado');
 }
 
-/**
- * Llama al LLM del proyecto para transformar el contenido de un archivo.
- * Usa Groq/Gemini/OpenAI según la configuración activa — nunca Anthropic.
- *
- * @param {string} originalContent  — contenido actual del archivo
- * @param {string} instruction      — instrucción completa del usuario
- * @param {string} filePath         — ruta del archivo (contexto)
- * @returns {Promise<string>}       — nuevo contenido completo del archivo
- */
+// ── Límites de contexto por proveedor (chars de INPUT seguros) ────────────────
+const PROVIDER_LIMITS = {
+  groq:    8_000,
+  gemini: 100_000,
+  openai:  80_000,
+  default:  8_000,
+};
+
+function _getProviderLimit() {
+  try {
+    const LLMProvider = require('../llm/LLMProvider.js');
+    const provider    = LLMProvider.getActiveProvider() || 'default';
+    return PROVIDER_LIMITS[provider] ?? PROVIDER_LIMITS.default;
+  } catch {
+    return PROVIDER_LIMITS.default;
+  }
+}
+
+function _splitIntoSections(content, filePath) {
+  const ext   = filePath.split('.').pop().toLowerCase();
+  const lines = content.split('\n');
+
+  if (['md', 'markdown', 'txt', 'rst'].includes(ext)) {
+    const sections = [];
+    let current    = [];
+    for (const line of lines) {
+      if (/^#\s/.test(line) && current.length > 0) {
+        sections.push(current.join('\n'));
+        current = [];
+      }
+      current.push(line);
+    }
+    if (current.length) sections.push(current.join('\n'));
+    return sections.length > 1 ? sections : [content];
+  }
+
+  if (['js', 'ts', 'jsx', 'tsx', 'py', 'java', 'cs', 'go', 'rs', 'cpp', 'c'].includes(ext)) {
+    const SECTION_START = /^(?:function\s|class\s|const\s+\w+\s*=\s*(?:async\s+)?(?:function|\()|async\s+function\s|def\s|public\s|private\s|protected\s|export\s)/;
+    const sections = [];
+    let current    = [];
+    for (const line of lines) {
+      if (SECTION_START.test(line) && current.length > 5) {
+        sections.push(current.join('\n'));
+        current = [];
+      }
+      current.push(line);
+    }
+    if (current.length) sections.push(current.join('\n'));
+    return sections.length > 1 ? sections : [content];
+  }
+
+  const sections = [];
+  for (let i = 0; i < lines.length; i += 200) {
+    sections.push(lines.slice(i, i + 200).join('\n'));
+  }
+  return sections;
+}
+
+function _findRelevantSection(sections, instruction) {
+  const STOPWORDS = new Set(['el','la','los','las','un','una','en','de','que','y','a','con','por','para','al','del']);
+  const keywords  = instruction
+    .toLowerCase()
+    .replace(/[^\w\s]/g, ' ')
+    .split(/\s+/)
+    .filter(w => w.length > 3 && !STOPWORDS.has(w));
+
+  if (!keywords.length) return sections.length - 1;
+
+  let bestIdx   = 0;
+  let bestScore = -1;
+
+  for (let i = 0; i < sections.length; i++) {
+    const sectionLower = sections[i].toLowerCase();
+    const score = keywords.filter(kw => sectionLower.includes(kw)).length;
+    if (score > bestScore) { bestScore = score; bestIdx = i; }
+  }
+
+  return bestIdx;
+}
+
 async function _llmTransform(originalContent, instruction, filePath) {
   const complete = _getLLMComplete();
+  const limit    = _getProviderLimit();
 
   const systemPrompt = [
     'Eres un editor de archivos de texto.',
-    'Recibirás el contenido actual de un archivo y una instrucción del usuario.',
-    'Devuelve ÚNICAMENTE el nuevo contenido completo del archivo.',
-    'Sin explicaciones, sin bloques markdown (no uses ```), sin comentarios.',
-    'El output es exactamente el texto que debe quedar escrito en el archivo.',
-    'No agregues nada antes ni después del contenido del archivo.',
+    'Recibirás el contenido de un archivo (completo o en sección) y una instrucción.',
+    'Devuelve ÚNICAMENTE el contenido modificado, sin explicaciones,',
+    'sin bloques markdown (no uses ```), sin comentarios adicionales.',
+    'El output es exactamente el texto que debe quedar en el archivo.',
+    'No agregues nada antes ni después del contenido.',
   ].join(' ');
+
+  if (originalContent.length <= limit) {
+    console.log(`[planner] _llmTransform: modo completo (${originalContent.length} chars, límite ${limit})`);
+
+    const userMessage = [
+      `Archivo: ${filePath}`,
+      '',
+      '--- CONTENIDO ACTUAL ---',
+      originalContent,
+      '--- FIN CONTENIDO ---',
+      '',
+      `Instrucción: ${instruction}`,
+      '',
+      'Devuelve el nuevo contenido completo del archivo.',
+    ].join('\n');
+
+    const newContent = await complete(
+      [{ role: 'user', content: userMessage }],
+      systemPrompt
+    );
+
+    if (!newContent || !newContent.trim()) {
+      throw new Error('El LLM devolvió contenido vacío (modo completo).');
+    }
+
+    return newContent;
+  }
+
+  console.log(`[planner] _llmTransform: modo chunking (${originalContent.length} chars > límite ${limit})`);
+
+  const sections    = _splitIntoSections(originalContent, filePath);
+  const relevantIdx = _findRelevantSection(sections, instruction);
+
+  console.log(`[planner] chunking: ${sections.length} secciones, relevante: #${relevantIdx}`);
+
+  const CONTEXT_SECTIONS = [
+    relevantIdx > 0             ? sections[relevantIdx - 1] : null,
+    sections[relevantIdx],
+    relevantIdx < sections.length - 1 ? sections[relevantIdx + 1] : null,
+  ].filter(Boolean);
+
+  const contextContent = CONTEXT_SECTIONS.join('\n');
+
+  const chunkContent = contextContent.length <= limit
+    ? contextContent
+    : sections[relevantIdx].slice(0, limit);
+
+  const isPartial   = sections.length > 1;
+  const sectionInfo = isPartial
+    ? `Esta es la sección ${relevantIdx + 1} de ${sections.length} del archivo.`
+    : '';
 
   const userMessage = [
     `Archivo: ${filePath}`,
+    sectionInfo,
     '',
-    '--- CONTENIDO ACTUAL ---',
-    originalContent,
+    '--- CONTENIDO A MODIFICAR ---',
+    chunkContent,
     '--- FIN CONTENIDO ---',
     '',
-    `Instrucción del usuario: ${instruction}`,
+    `Instrucción: ${instruction}`,
     '',
-    'Devuelve el nuevo contenido completo del archivo.',
-  ].join('\n');
+    isPartial
+      ? 'Devuelve ÚNICAMENTE esta sección modificada. No incluyas otras partes del archivo.'
+      : 'Devuelve el nuevo contenido completo del archivo.',
+  ].filter(Boolean).join('\n');
 
-  const newContent = await complete(
+  const modifiedChunk = await complete(
     [{ role: 'user', content: userMessage }],
     systemPrompt
   );
 
-  if (!newContent || !newContent.trim()) {
-    throw new Error('El LLM devolvió contenido vacío.');
+  if (!modifiedChunk || !modifiedChunk.trim()) {
+    throw new Error('El LLM devolvió contenido vacío (modo chunking).');
   }
 
-  return newContent;
+  if (!isPartial) return modifiedChunk;
+
+  const startIdx = Math.max(0, relevantIdx - 1);
+  const endIdx   = Math.min(sections.length - 1, relevantIdx + 1);
+
+  const rebuiltSections = [
+    ...sections.slice(0, startIdx),
+    modifiedChunk,
+    ...sections.slice(endIdx + 1),
+  ];
+
+  return rebuiltSections.join('\n');
 }
 
 // ── Clasificación de impacto ──────────────────────────────────────────────────
@@ -120,8 +258,10 @@ function isHighImpact(tool, params) {
     return HIGH_IMPACT_PATTERNS.some(p => p.test(params.command));
   if (tool === 'write' && params.path)
     return HIGH_IMPACT_PATTERNS.some(p => p.test(params.path));
-  if (tool === 'edit_file')   return true;
-  if (tool === 'apply_patch') return true;
+  if (tool === 'edit_file')      return true;
+  if (tool === 'create_file')    return true;
+  if (tool === 'apply_patch')    return true;
+  if (tool === 'code_execution') return true;
   return false;
 }
 
@@ -133,7 +273,7 @@ function stepId() { return `step_${Date.now()}_${++_stepCounter}`; }
 // ── Helpers de limpieza ───────────────────────────────────────────────────────
 function _cleanPath(raw) {
   return (raw || '').trim()
-    .replace(/^["'`]|["'`]$/g, '')
+    .replace(/^["'\`]|["'\`]$/g, '')
     .replace(/[.,;:!?]+$/, '');
 }
 
@@ -141,8 +281,31 @@ function _cleanCommand(raw) {
   if (!raw) return '';
   let cmd = raw.trim();
 
-  // Quitar backticks, comillas y espacios envolventes
-  cmd = cmd.replace(/^["'`]+|["'`]+$/g, '').trim();
+  // FIX — el replace anterior `/^["'`]+|["'`]+$/g` quitaba CUALQUIER
+  // comilla suelta al inicio o al final, incluso si pertenecía al
+  // contenido real del comando (ej. `git commit -m "texto"` termina
+  // legítimamente en comilla doble, que es el cierre de -m, no un
+  // envoltorio accidental). Eso dejaba el comando con comillas
+  // desbalanceadas, y _trimNarrativeOutsideQuotes ya no podía proteger
+  // el contenido citado correctamente.
+  //
+  // Ahora solo se quita el envoltorio si el MISMO carácter de comilla
+  // rodea el comando completo en ambos extremos (ej. todo el comando
+  // viene entre backticks: `git status`). Si el primer y último
+  // carácter no son la misma comilla, se asume que son parte del
+  // contenido real y no se tocan.
+  if (cmd.length >= 2) {
+    const first = cmd[0];
+    const last  = cmd[cmd.length - 1];
+    if ((first === '`' || first === '"' || first === "'") && first === last) {
+      cmd = cmd.slice(1, -1).trim();
+    } else if (first === '`') {
+      // backtick suelto al inicio sin su par exacto al final — quitar
+      // solo backticks sueltos (nunca comillas reales, que sí pueden
+      // ser parte del contenido).
+      cmd = cmd.replace(/^`+/, '').trim();
+    }
+  }
 
   const NARRATIVE_STARTS = [
     /^el\s+comando(?!\s+(?:git|npm|pip|node|python|cd|ls|dir|echo|curl|yarn|npx))\s*/i,
@@ -151,28 +314,106 @@ function _cleanCommand(raw) {
   ];
   for (const p of NARRATIVE_STARTS) { if (p.test(cmd)) return ''; }
 
-  cmd = cmd.replace(/\.\s+[A-ZÁÉÍÓÚ][a-z].*$/, '');
-  cmd = cmd.replace(/\s+para\s+(?:ver|listar|asegurar|verificar|comprobar|ejecutar).*/i, '');
-  cmd = cmd.replace(/\s+y\s+(?:ver|ejecutar|listar).*/i, '');
+  // Cortar en el primer salto de línea real ANTES de tocar nada más,
+  // y también si aparece otra instrucción "Ejecutar:" pegada en la
+  // misma línea (lista multi-comando aplanada). Esto evita que un
+  // comando se trague el siguiente cuando vienen varios en una sola
+  // respuesta del LLM tipo "Ejecutar: X\nEjecutar: Y\nEjecutar: Z".
+  const firstNewline = cmd.search(/\r?\n/);
+  if (firstNewline !== -1) cmd = cmd.slice(0, firstNewline);
+  cmd = cmd.replace(/\s+ejecutar:\s*.*$/i, '');
+
+  cmd = cmd.replace(/\t+/g, ' ');
+  cmd = cmd.replace(/\s{2,}/g, ' ').trim();
+
+  // Las siguientes 3 reglas recortan narrativa que el LLM pudo haber
+  // pegado después del comando real ("... . Ahora voy a verificar",
+  // "... para asegurar que funciona", "... y ejecutar el siguiente").
+  // Se aplican SOLO fuera de comillas — ver _trimNarrativeOutsideQuotes
+  // — para no truncar mensajes de commit legítimos que contengan esas
+  // mismas palabras dentro de su texto citado (ej. "usando git para
+  // versionar").
+  cmd = _trimNarrativeOutsideQuotes(cmd);
+
   cmd = cmd.replace(/[,;:!?]+$/, '').trim();
 
-  // Quitar backticks residuales
   cmd = cmd.replace(/`/g, '').trim();
 
-  // Cerrar comillas abiertas — git commit -m "mensaje sin cerrar → agregar "
   const doubleQuotes = (cmd.match(/"/g) || []).length;
   if (doubleQuotes % 2 !== 0) cmd = cmd + '"';
 
   return cmd.length < 2 ? '' : cmd;
 }
 
+/**
+ * Aplica las reglas de recorte de narrativa residual ("Ahora voy a...",
+ * "para verificar...", "y ejecutar...") únicamente sobre los tramos de
+ * `cmd` que están FUERA de comillas dobles o simples. Los tramos entre
+ * comillas se preservan exactamente como están, sin importar qué
+ * palabras contengan — porque ahí vive contenido literal del usuario
+ * (mensajes de commit, texto a escribir en un archivo, etc.), no
+ * narrativa generada por el LLM que haya que limpiar.
+ *
+ * Estrategia: dividir `cmd` en tramos alternando "fuera de comillas" /
+ * "dentro de comillas" (igual que parseArgs en mock-openclaw.js, pero
+ * sin tokenizar — aquí solo se necesita saber qué partes proteger).
+ * Las reglas de recorte se aplican solo a los tramos "fuera".
+ */
+function _trimNarrativeOutsideQuotes(cmd) {
+  const QUOTE_SPLIT = /("[^"]*"|'[^']*')/g;
+  const segments = cmd.split(QUOTE_SPLIT).filter(s => s !== undefined);
+
+  const NARRATIVE_TAIL_RULES = [
+    /\.\s+[A-ZÁÉÍÓÚ][a-z].*$/,
+    /\s+para\s+(?:ver|listar|asegurar|verificar|comprobar|ejecutar).*$/i,
+    /\s+y\s+(?:ver|ejecutar|listar).*$/i,
+  ];
+
+  for (let i = 0; i < segments.length; i++) {
+    const seg = segments[i];
+    const isQuoted = /^"[^"]*"$/.test(seg) || /^'[^']*'$/.test(seg);
+    if (isQuoted) continue; // preservar intacto
+
+    let cleaned = seg;
+    for (const rule of NARRATIVE_TAIL_RULES) {
+      const before = cleaned;
+      cleaned = cleaned.replace(rule, '');
+      // Si esta regla cortó algo Y había más segmentos después (un
+      // tramo citado más adelante en el comando), detenemos el corte
+      // en este segmento — el resto del comando, incluida la siguiente
+      // parte citada, ya no debería existir si el LLM realmente quiso
+      // terminar la frase aquí. Esto reproduce el comportamiento
+      // original para el caso normal (sin comillas de por medio).
+      if (cleaned !== before) break;
+    }
+    segments[i] = cleaned;
+
+    // Si este segmento se vació completamente por el recorte, y NO es
+    // el último segmento del comando, detener el procesamiento de los
+    // segmentos siguientes — significa que la narrativa cortó el
+    // comando real aquí mismo, así que todo lo posterior (aunque sea
+    // una porción citada) pertenece a la narrativa descartada, no al
+    // comando. Esto solo aplica cuando el corte ocurrió ANTES de la
+    // primera comilla real del comando (ej. "ejecuta esto para ver
+    // `git status`" — raro, pero se maneja de forma segura).
+    if (cleaned.length < seg.length && i < segments.length - 1) {
+      // Solo truncar el resto si el segmento quedó vacío Y el corte
+      // sucedió real mente — si solo se acortó pero no se vació, no
+      // hay ambigüedad y seguimos procesando con normalidad.
+      if (cleaned.trim() === '') {
+        return segments.slice(0, i + 1).join('').trim();
+      }
+    }
+  }
+
+  return segments.join('').trim();
+}
+
 function _isValidCommand(cmd) {
   if (!cmd || cmd.length < 2) return false;
 
-  // Rechazar narrativa española — artículos, pronombres, frases inventadas
   if (/^(?:los|las|el|la|un|una|esto|estos|estas|lo|le|les|se|su|sus)\s/i.test(cmd)) return false;
 
-  // Comandos conocidos — siempre válidos
   const VALID = [
     /^git\s/i, /^npm\s/i, /^pip3?\s/i, /^node\s/i, /^python\s/i,
     /^cd\s/i,  /^ls\b/i,  /^dir\b/i,   /^echo\b/i, /^cat\s/i,
@@ -182,14 +423,15 @@ function _isValidCommand(cmd) {
   ];
   if (VALID.some(p => p.test(cmd))) return true;
 
-  // Comandos encadenados — válidos si tienen operadores shell
   if (/&&|\|\||[|>]/.test(cmd)) return true;
 
-  // Rechazar si contiene prosa española obvia
-  if (/\b(voy|ahora|listo|correcto|asegurarme|verificar|antes|después|durante|luego|entonces|siguientes|comandos|archivos|cambios)\b/i.test(cmd))
+  // Solo evaluar palabras narrativas FUERA de comillas, para no
+  // rechazar comandos git commit válidos cuyo mensaje contenga
+  // palabras como "verificar", "antes", "luego", etc.
+  const outsideQuotes = cmd.replace(/"[^"]*"/g, '').replace(/'[^']*'/g, '');
+  if (/\b(voy|ahora|listo|correcto|asegurarme|verificar|antes|después|durante|luego|entonces|siguientes|comandos|archivos|cambios)\b/i.test(outsideQuotes))
     return false;
 
-  // Fallback: solo aceptar si parece un ejecutable (empieza con palabra sin espacios largos)
   return /^[a-zA-Z0-9_\-./\\]{2,30}(\s|$)/.test(cmd) && cmd.length < 40;
 }
 
@@ -198,12 +440,133 @@ function _isValidPath(p) {
   return !p.includes(' ') || /\.\w{1,5}$/.test(p);
 }
 
-// ── Detección de intención de edición ────────────────────────────────────────
+/**
+ * Separa un comando git capturado por el regex principal en varios
+ * comandos independientes, cuando vienen unidos por "y git" SIN coma
+ * (ej. "git commit y git push" capturado como un solo match porque
+ * el regex de captura es deliberadamente simple/permisivo).
+ *
+ * A diferencia de intentarlo con lookaheads dentro del regex (que
+ * resultó frágil contra comillas — ver historial de fixes arriba),
+ * esto escanea el string carácter por carácter respetando comillas
+ * dobles y simples, igual que parseArgs() en mock-openclaw.js. Solo
+ * se considera "siguiente comando" la secuencia " y git " cuando
+ * aparece FUERA de cualquier comilla abierta — así un mensaje de
+ * commit como `git commit -m "usando git para versionar"` nunca se
+ * corta, porque el "git" ahí vive dentro de comillas.
+ *
+ * @param {string} raw — el comando capturado completo (puede tener 1+ comandos git)
+ * @returns {string[]} — array de 1 o más comandos git independientes
+ */
+function _splitChainedGitCommand(raw) {
+  if (!raw) return [raw];
+
+  const SPLIT_TOKEN = /\by\s+(?=git\b)/i;
+  const parts  = [];
+  let current  = '';
+  let inDouble = false;
+  let inSingle = false;
+  let i = 0;
+
+  while (i < raw.length) {
+    const ch = raw[i];
+
+    if (ch === '"' && !inSingle) { inDouble = !inDouble; current += ch; i++; continue; }
+    if (ch === "'" && !inDouble) { inSingle = !inSingle; current += ch; i++; continue; }
+
+    if (!inDouble && !inSingle) {
+      const rest  = raw.slice(i);
+      const match = SPLIT_TOKEN.exec(rest);
+      // Solo partir si el "y git" aparece justo en esta posición
+      // (match.index === 0), no en cualquier parte más adelante —
+      // así no cortamos de más por una coincidencia lejana.
+      if (match && match.index === 0) {
+        parts.push(current.trim());
+        current = '';
+        i += match[0].length;
+        continue;
+      }
+    }
+
+    current += ch;
+    i++;
+  }
+
+  if (current.trim()) parts.push(current.trim());
+
+  return parts.length > 0 ? parts : [raw];
+}
+
+// ── Carpetas especiales reconocidas (deben coincidir con mock-openclaw.js) ────
+const SPECIAL_FOLDER_WORDS = [
+  'descargas', 'downloads',
+  'escritorio', 'desktop',
+  'documentos', 'documents',
+  'imagenes', 'imágenes', 'pictures',
+  'musica', 'música', 'music',
+  'videos', 'video',
+];
+const SPECIAL_FOLDER_RE = new RegExp(`\\b(${SPECIAL_FOLDER_WORDS.join('|')})\\b`, 'i');
+
+// Delimitadores de acción — marcan dónde termina la frase de la acción
+// actual y probablemente empieza otra acción independiente. Se usan
+// SOLO para acotar la ventana de búsqueda semántica de carpeta en
+// create_file, nunca para tocar el regex principal de detección de
+// acciones (ACTION_PATTERNS), que sigue funcionando como antes.
+const ACTION_DELIMITER_RE = /(?:\s*,\s*|\s+y\s+luego\s+|\s+y\s+entonces\s+|\s+luego\s+|\s+despu[eé]s\s+|\s+entonces\s+|\s+y\s+(?!el\s|la\s|los\s|las\s)|;|\.\s|$)/i;
 
 /**
- * Estrategia A — verbos de edición clásicos con archivo después.
- * "modifica README.md", "añade línea en src/index.js"
+ * FASE SEMÁNTICA SEPARADA para detección de carpeta especial en
+ * create_file. No es parte del regex principal — se ejecuta DESPUÉS
+ * de que CREATE_FILE_PATTERN ya capturó el nombre de archivo, sobre
+ * el fragmento de texto que sigue inmediatamente a ese match.
+ *
+ * Pasos:
+ *   1. Tomar todo el texto que sigue al match del nombre de archivo.
+ *   2. Cortar esa porción en el primer delimitador de acción
+ *      ("y luego", "después", coma, punto, etc.) — todo lo que esté
+ *      después de ese delimitador pertenece a OTRA acción y nunca se
+ *      inspecciona.
+ *   3. Dentro de esa ventana ya acotada, buscar "en <carpeta>" o
+ *      "dentro de <carpeta>".
+ *   4. Validar que la palabra capturada sea una carpeta especial
+ *      conocida (SPECIAL_FOLDER_RE) — si no lo es, no se asume nada;
+ *      el archivo se crea relativo al proyecto como comportamiento
+ *      por defecto (compatibilidad hacia atrás total).
+ *
+ * Esto garantiza que "crea nota.txt en Descargas y luego ábrelo"
+ * jamás capture "Descargas y luego ábrelo" como nombre de carpeta —
+ * el delimitador "y luego" corta la ventana ANTES de que eso ocurra.
  */
+function _detectFolderForCreateFile(fullText, matchEndIndex) {
+  const remainder = fullText.slice(matchEndIndex);
+
+  const delimMatch = ACTION_DELIMITER_RE.exec(remainder);
+  const windowEnd   = delimMatch ? delimMatch.index : remainder.length;
+  const window       = remainder.slice(0, windowEnd);
+
+  const folderMatch = /^\s*(?:en|dentro\s+de)\s+(?:la\s+carpeta\s+|el\s+directorio\s+)?([A-Za-zÁÉÍÓÚáéíóúñÑ]+)/i.exec(window);
+  if (!folderMatch) return null;
+
+  const candidate = folderMatch[1];
+  if (!SPECIAL_FOLDER_RE.test(candidate)) return null;
+
+  return candidate;
+}
+
+/**
+ * Combina un nombre de archivo con una carpeta especial detectada,
+ * sin duplicar la carpeta si el path ya la incluye.
+ */
+function _withSpecialFolder(filename, folder) {
+  if (!folder) return filename;
+  const already = new RegExp(`^${folder}[\\\\/]`, 'i');
+  if (already.test(filename)) return filename;
+  return `${folder}/${filename}`;
+}
+
+// ── Detección de intención de edición ────────────────────────────────────────
+
 const EDIT_VERBS_A =
   '(?:modifica(?:r)?|edita(?:r)?|cambia(?:r)?|inserta(?:r)?|' +
   'añad(?:e|ir)?|agreg(?:a|ar)?|reemplaz(?:a|ar)?|' +
@@ -215,24 +578,16 @@ const EDIT_PATTERN_A = new RegExp(
   'i'
 );
 
-/**
- * Estrategia B — verbos de escritura con archivo en cualquier posición.
- * "puedes escribir en README.md la frase X"
- * "escribe esto al final de README.md"
- * "pon este contenido en config.json"
- */
 const WRITE_INTENT_B = /(?:escrib(?:e|ir|o|iendo)|pon(?:er|e|ga|go)|coloca(?:r)?|guarda(?:r)?)\b/i;
 const FILE_ANYWHERE  = /\b([\w][\w./\\-]{0,150}\.\w{2,10})\b/g;
 
 function _detectEditIntent(text) {
-  // A: verbo de edición + archivo después
   const mA = EDIT_PATTERN_A.exec(text);
   if (mA) {
     const p = _cleanPath(mA[1]);
     if (_isValidPath(p)) return { path: p, strategy: 'A', match: mA[0] };
   }
 
-  // B: verbo de escritura + archivo en cualquier posición
   if (WRITE_INTENT_B.test(text)) {
     FILE_ANYWHERE.lastIndex = 0;
     let fm;
@@ -248,21 +603,32 @@ function _detectEditIntent(text) {
 // ── ActionParser ──────────────────────────────────────────────────────────────
 
 const ACTION_PATTERNS = [
-  // búsqueda web
+  // git — multi: true permite detectar VARIOS comandos git en una sola
+  // respuesta (ej. "git status, git add, git commit y git push"). Sin
+  // esto, solo se planeaba el primer comando y el resto se perdía.
+  // Requiere flag global (g) para que el while en parse() encuentre
+  // todas las repeticiones, no solo la primera.
+  //
+  // El regex de captura en sí es deliberadamente simple — igual de
+  // permisivo que en v7 — porque intentar resolver "dónde empieza el
+  // siguiente comando" dentro del propio regex (con lookaheads) resultó
+  // frágil contra comandos con comillas (ej. mensajes de commit que
+  // contienen la palabra "git"). En su lugar, la separación de comandos
+  // unidos por "y" sin coma se resuelve en _splitChainedGitCommand(),
+  // una fase de post-procesamiento simple sobre el texto ya capturado,
+  // que SÍ respeta comillas correctamente porque opera línea por línea
+  // en vez de con lookaheads regex anidados.
   {
-    pattern: /(?:busca(?:r|me)?\s+en\s+(?:la\s+)?(?:web|internet|google)|voy\s+a\s+buscar\s+en\s+(?:la\s+)?web)\s*[:\-]?\s*(.+?)(?:\.|$)/i,
-    tool: 'web_search',
-    buildParams: (m) => ({ query: m[1].trim() }),
-    description: (m) => `Buscar en la web: "${m[1].trim()}"`,
-  },
-
-  // git
-  {
-    pattern: /\b(git\s+(?:add|commit|push|pull|status|log|diff|branch|checkout|merge|stash|clone|init|remote|fetch|reset|rebase)(?:\s+[^\n]{1,120})?)/i,
+    pattern: /\b(git\s+(?:add|commit|push|pull|status|log|diff|branch|checkout|merge|stash|clone|init|remote|fetch|reset|rebase)(?:\s+[^\n,;]{1,200})?)/gi,
     tool: 'exec',
-    buildParams: (m) => ({ command: _cleanCommand(m[1]), cwd: PROJECT_CWD }),
-    description: (m) => `Ejecutar: ${_cleanCommand(m[1])}`,
-    validate: (m) => _isValidCommand(_cleanCommand(m[1])),
+    buildParams: (m) => ({ command: _cleanCommand(_splitChainedGitCommand(m[1])[0]), cwd: PROJECT_CWD }),
+    description: (m) => `Ejecutar: ${_cleanCommand(_splitChainedGitCommand(m[1])[0])}`,
+    validate: (m) => _isValidCommand(_cleanCommand(_splitChainedGitCommand(m[1])[0])),
+    multi: true,
+    // postMatches: si el match capturado en realidad contiene MÁS de un
+    // comando git unido por "y" (sin coma), genera acciones adicionales
+    // para los comandos sobrantes. Ver _splitChainedGitCommand más abajo.
+    postMatches: (m) => _splitChainedGitCommand(m[1]).slice(1),
   },
 
   // npm / pip / yarn
@@ -274,10 +640,9 @@ const ACTION_PATTERNS = [
     validate: (m) => _isValidCommand(_cleanCommand(m[1])),
   },
 
-  // exec genérico
+  // exec genérico — requiere backticks para evitar capturar narrativa libre
   {
     pattern: /(?:ejecuta(?:r|ndo)?|corre(?:r)?|lanza(?:r)?)\s+(?:el\s+comando\s+)?[:\-]?\s*`([^`\n]{2,120})`/i,
-
     tool: 'exec',
     buildParams: (m) => ({ command: _cleanCommand(m[1]), cwd: PROJECT_CWD }),
     description: (m) => `Ejecutar: ${_cleanCommand(m[1])}`,
@@ -293,13 +658,56 @@ const ACTION_PATTERNS = [
     validate: (m) => _isValidPath(_cleanPath(m[1])),
   },
 
-  // crear archivo nuevo (sin contenido previo — no es edit_file)
+  // crear archivo nuevo — REGEX PRINCIPAL SIN CAMBIOS respecto a v7:
+  // exige extensión real, permite "llamado"/"named" como relleno
+  // opcional. El grupo de captura del nombre de archivo es idéntico
+  // al original; la detección de carpeta especial ("en Descargas",
+  // "dentro de Escritorio") ocurre en _detectFolderForCreateFile,
+  // una FASE SEMÁNTICA SEPARADA que se ejecuta sobre el fragmento ya
+  // aislado por este mismo match, nunca ampliando este regex.
   {
-    pattern: /crea(?:r)?\s+(?:un\s+)?(?:nuevo\s+)?(?:archivo|fichero)\s*[:\-]?\s*`?([^\s`\n]{2,200})`?/i,
-    tool: 'write',
-    buildParams: (m) => ({ path: _cleanPath(m[1]), content: '' }),
-    description: (m) => `Crear archivo: ${_cleanPath(m[1])}`,
+    pattern: /crea(?:r)?\s+(?:un\s+)?(?:nuevo\s+)?(?:archivo|fichero)(?:\s+llamado|\s+named)?\s*[:\-]?\s*`?([\w./\\-]+\.\w{1,10})`?/i,
+    tool: 'create_file',
+    buildParams: (m, fullText) => {
+      const filename  = _cleanPath(m[1]);
+      const matchEnd   = m.index + m[0].length;
+      const folder     = _detectFolderForCreateFile(fullText, matchEnd);
+      const fullPath   = _withSpecialFolder(filename, folder);
+      return { path: fullPath, instruction: fullText };
+    },
+    description: (m, fullText) => {
+      const filename = _cleanPath(m[1]);
+      const matchEnd  = m.index + m[0].length;
+      const folder    = _detectFolderForCreateFile(fullText, matchEnd);
+      return `Crear archivo: ${_withSpecialFolder(filename, folder)}`;
+    },
     validate: (m) => _isValidPath(_cleanPath(m[1])),
+  },
+
+  // code_execution — ejecutar código Python con backticks
+  {
+    pattern: /(?:ejecuta(?:r)?|corre(?:r)?)\s+(?:este\s+|el\s+)?c[oó]digo(?:\s+python)?\s*[:\-]?\s*`([^`\n]{2,2000})`/i,
+    tool: 'code_execution',
+    buildParams: (m) => ({ code: m[1] }),
+    description: () => `Ejecutar código Python`,
+    validate: (m) => m[1] && m[1].trim().length > 0,
+  },
+
+  // apply_patch — aplicar parche unified diff a un archivo
+  {
+    pattern: /aplica(?:r)?\s+(?:este\s+|el\s+)?patch\s+a\s+([\w./\\-]+\.\w{1,10})\s*[:\-]?\s*```([\s\S]{2,5000}?)```/i,
+    tool: 'apply_patch',
+    buildParams: (m) => ({ path: _cleanPath(m[1]), patch: m[2] }),
+    description: (m) => `Aplicar patch a: ${_cleanPath(m[1])}`,
+    validate: (m) => _isValidPath(_cleanPath(m[1])) && m[2] && m[2].trim().length > 0,
+  },
+
+  // web_search — búsqueda real
+  {
+    pattern: /(?:busca(?:r|me)?\s+en\s+(?:la\s+)?(?:web|internet|google)|voy\s+a\s+buscar\s+en\s+(?:la\s+)?web)\s*[:\-]?\s*(.+?)(?:\.|$)/i,
+    tool: 'web_search',
+    buildParams: (m) => ({ query: m[1].trim() }),
+    description: (m) => `Buscar en la web: "${m[1].trim()}"`,
   },
 
   // navegar URL
@@ -312,21 +720,11 @@ const ACTION_PATTERNS = [
 ];
 
 class ActionParser {
-  /**
-   * Parsea texto buscando acciones ejecutables.
-   *
-   * IMPORTANTE: edit_file se detecta sobre userGoal (mensaje real del usuario),
-   * no sobre llmResponse (narrativa inventada del LLM).
-   *
-   * @param {string} llmResponse — respuesta del LLM (para detectar comandos shell/git/etc)
-   * @param {string} [userGoal]  — mensaje original del usuario (fuente de verdad para edición)
-   */
   static parse(llmResponse, userGoal) {
     const actions = [];
     const seen    = new Set();
     const text    = llmResponse || '';
 
-    // ── edit_file: detectar sobre userGoal, no sobre llmResponse ─────────────
     const editSource = userGoal || text;
     const editIntent = _detectEditIntent(editSource);
 
@@ -343,29 +741,62 @@ class ActionParser {
       }
     }
 
-    // ── resto de patrones (comandos shell, búsqueda, navegación…) ─────────────
-    for (const { pattern, tool, buildParams, description, validate } of ACTION_PATTERNS) {
+    for (const { pattern, tool, buildParams, description, validate, multi, postMatches } of ACTION_PATTERNS) {
+      const sourceText = (tool === 'create_file' && userGoal) ? userGoal : text;
+
       let match;
-      const flags = pattern.flags.includes('g') ? pattern.flags : pattern.flags + 'g';
-      const re = new RegExp(pattern.source, flags);
-      while ((match = re.exec(text)) !== null) {
-  if (validate && !validate(match)) break;
-  try {
-    const contextText = (tool === 'edit_file' && userGoal) ? userGoal : text;
-    const params = buildParams(match, contextText);
+      const re = new RegExp(pattern.source, pattern.flags);
+      while ((match = re.exec(sourceText)) !== null) {
+        if (validate && !validate(match)) {
+          if (multi) continue;
+          break;
+        }
+        try {
+          const params = buildParams(match, sourceText);
+          if (tool === 'exec' && (!params.command || params.command.trim().length < 2)) {
+            if (multi) continue;
+            break;
+          }
 
-    if (tool === 'exec' && (!params.command || params.command.trim().length < 2)) break;
+          const key = `${tool}:${params.command || params.path || params.query || ''}`;
+          if (seen.has(key)) {
+            if (multi) continue;
+            break;
+          }
+          seen.add(key);
 
-    const key = `${tool}:${params.command || params.path || params.query || ''}`;
-    if (seen.has(key)) break;
-    seen.add(key);
+          actions.push({ tool, params, description: description(match, sourceText), rawMatch: match[0] });
 
-    actions.push({ tool, params, description: description(match), rawMatch: match[0] });
-  } catch (e) {
-    console.warn('[action-parser] error:', e.message);
-  }
-  // ← sin break: continúa buscando más matches del mismo patrón
-}
+          // postMatches: el match capturado puede contener varios
+          // comandos encadenados (ej. "git commit y git push" detectado
+          // como un solo bloque por el regex principal, deliberadamente
+          // simple). Aquí se expanden los comandos sobrantes como
+          // acciones independientes adicionales, en el mismo orden en
+          // que aparecen en el texto original.
+          if (postMatches) {
+            const extras = postMatches(match, sourceText) || [];
+            for (const rawExtra of extras) {
+              const extraCmd = _cleanCommand(rawExtra);
+              if (!extraCmd || extraCmd.trim().length < 2) continue;
+              if (!_isValidCommand(extraCmd)) continue;
+
+              const extraKey = `${tool}:${extraCmd}`;
+              if (seen.has(extraKey)) continue;
+              seen.add(extraKey);
+
+              actions.push({
+                tool,
+                params:      { command: extraCmd, cwd: PROJECT_CWD },
+                description: `Ejecutar: ${extraCmd}`,
+                rawMatch:    rawExtra,
+              });
+            }
+          }
+        } catch (e) {
+          console.warn('[action-parser] error:', e.message);
+        }
+        if (!multi) break;
+      }
     }
 
     return actions;
@@ -420,10 +851,6 @@ class Planner {
     };
   }
 
-  /**
-   * Construye un plan desde la respuesta del LLM.
-   * userGoal siempre debe pasarse — es la fuente de verdad para edit_file.
-   */
   planFromLLMResponse(llmResponse, userGoal) {
     const actions = ActionParser.parse(llmResponse, userGoal);
     if (!actions.length) return null;
@@ -433,8 +860,6 @@ class Planner {
     }
     return this.planMultiStep(userGoal, actions);
   }
-
-  // ── Ejecución ───────────────────────────────────────────────────────────────
 
   async execute(plan, opts = {}) {
     if (this._activePlan) {
@@ -514,33 +939,15 @@ class Planner {
     return plan;
   }
 
-  /**
-   * Despacha la ejecución según el tipo de herramienta.
-   * edit_file se expande en el flujo read → llm → write → verify.
-   * El resto va directamente al bridge.
-   */
   async _executeStep(tool, params) {
-    if (tool === 'edit_file') {
-      return this._executeEditFile(params);
-    }
+    if (tool === 'edit_file')   return this._executeEditFile(params);
+    if (tool === 'create_file') return this._executeCreateFile(params);
     return this._bridge.execute(tool, params);
   }
 
-  /**
-   * Flujo completo de edición de archivo.
-   *
-   * Paso 1 — read    : lee el contenido actual del archivo via OpenClaw
-   * Paso 2 — llm     : genera el nuevo contenido con LLMProvider (Groq/etc)
-   * Paso 3 — write   : escribe el nuevo contenido via OpenClaw
-   * Paso 4 — verify  : re-lee para confirmar que la escritura fue exitosa
-   *
-   * La respuesta final usa SOLO resultados reales de las herramientas.
-   * Si cualquier paso falla → { ok: false, error } sin inventar éxito.
-   */
   async _executeEditFile({ path: filePath, instruction }) {
     const start = Date.now();
 
-    // ── Paso 1: leer el archivo ───────────────────────────────────────────────
     console.log(`[planner] paso 1: Leer ${filePath}`);
     const readResult = await this._bridge.execute('read', { path: filePath });
 
@@ -558,7 +965,6 @@ class Planner {
       ? readResult.result
       : JSON.stringify(readResult.result);
 
-    // ── Paso 2: generar nuevo contenido con el LLM del proyecto ──────────────
     console.log(`[planner] paso 2: Generar contenido actualizado para ${filePath}`);
     let newContent;
     try {
@@ -573,7 +979,6 @@ class Planner {
       };
     }
 
-    // ── Paso 3: escribir el archivo ───────────────────────────────────────────
     console.log(`[planner] paso 3: Escribir ${filePath}`);
     const writeResult = await this._bridge.execute('write', {
       path:    filePath,
@@ -590,12 +995,10 @@ class Planner {
       };
     }
 
-    // ── Paso 4: verificar la escritura ────────────────────────────────────────
     console.log(`[planner] paso 4: Verificar escritura de ${filePath}`);
     const verifyResult = await this._bridge.execute('read', { path: filePath });
 
     if (!verifyResult.ok) {
-      // Escritura realizada pero no se puede verificar — éxito con advertencia
       return {
         ok:     true,
         result: {
@@ -630,7 +1033,78 @@ class Planner {
     };
   }
 
-  // ── Utilidades ───────────────────────────────────────────────────────────────
+  async _executeCreateFile({ path: filePath, instruction }) {
+    const start = Date.now();
+
+    console.log(`[planner] paso 1: Generar contenido para ${filePath}`);
+
+    const complete = _getLLMComplete();
+    const systemPrompt = [
+      'Eres un generador de archivos de texto.',
+      'Recibirás una instrucción que describe qué archivo crear y con qué contenido.',
+      'Devuelve ÚNICAMENTE el contenido que debe tener el archivo nuevo.',
+      'Sin explicaciones, sin bloques markdown (no uses ```), sin comentarios.',
+      'Si la instrucción incluye texto literal a escribir, usa exactamente ese texto.',
+    ].join(' ');
+
+    const userMessage = [
+      `Archivo a crear: ${filePath}`,
+      '',
+      `Instrucción: ${instruction}`,
+      '',
+      'Devuelve el contenido completo del archivo nuevo.',
+    ].join('\n');
+
+    let content;
+    try {
+      content = await complete([{ role: 'user', content: userMessage }], systemPrompt);
+    } catch (e) {
+      return {
+        ok:      false,
+        error:   `Error generando contenido para "${filePath}": ${e.message}`,
+        result:  null,
+        tool:    'create_file',
+        elapsed: Date.now() - start,
+      };
+    }
+
+    if (!content || !content.trim()) {
+      return {
+        ok:      false,
+        error:   'El LLM devolvió contenido vacío.',
+        result:  null,
+        tool:    'create_file',
+        elapsed: Date.now() - start,
+      };
+    }
+
+    console.log(`[planner] paso 2: Escribir ${filePath}`);
+    const writeResult = await this._bridge.execute('write', { path: filePath, content });
+
+    if (!writeResult.ok) {
+      return {
+        ok:      false,
+        error:   `No se pudo escribir "${filePath}": ${writeResult.error}`,
+        result:  null,
+        tool:    'create_file',
+        elapsed: Date.now() - start,
+      };
+    }
+
+    console.log(`[planner] paso 3: Verificar ${filePath}`);
+    const verifyResult = await this._bridge.execute('read', { path: filePath });
+
+    const verified = verifyResult.ok && verifyResult.result === content;
+
+    console.log(`[planner] plan completado — ${filePath} creado correctamente`);
+
+    return {
+      ok:     true,
+      result: { status: 'success', path: filePath, content, verified },
+      tool:    'create_file',
+      elapsed: Date.now() - start,
+    };
+  }
 
   cancel() {
     if (!this._activePlan) return;
@@ -697,10 +1171,13 @@ function getPlanner() {
 }
 
 module.exports = {
+  _debug_cleanCommand: _cleanCommand,
+  _debug_trimNarrative: _trimNarrativeOutsideQuotes,
+  _debug_splitChained: _splitChainedGitCommand,
   Planner,
   ActionParser,
   getPlanner,
   isHighImpact,
   setProjectCWD,
-  setLLMProvider,   // inyectar LLM personalizado (tests / entornos especiales)
+  setLLMProvider,
 };
