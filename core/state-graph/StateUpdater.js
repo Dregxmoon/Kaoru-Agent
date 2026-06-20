@@ -1,8 +1,16 @@
 /**
- * StateUpdater.js — con ContradictionResolver integrado
+ * StateUpdater.js — con ContradictionResolver integrado + validación de labels
  *
- * Ahora todo guardado pasa por el resolver — nunca directo a upsertNode.
+ * Todo guardado pasa por el resolver — nunca directo a upsertNode.
  * El resolver decide si overwrite, archive_and_replace, o append.
+ *
+ * Validación de labels (nuevo):
+ *   - Los labels FIJOS (lista cerrada) deben coincidir EXACTO para poder
+ *     reconciliarse (overwrite / archive_and_replace).
+ *   - Los labels dinámicos (proyecto_*, preferencia_*) se permiten libres,
+ *     para que March pueda "aprender" cosas nuevas del usuario sin romper
+ *     la reconciliación de los hechos fijos.
+ *   - Cualquier otro label inventado por el LLM se descarta y se loggea.
  */
 
 const LLMProvider              = require('../llm/LLMProvider.js');
@@ -28,6 +36,7 @@ REGLAS CRÍTICAS:
 - El valor nuevo REEMPLAZA al viejo — no los combines
 - Guarda SOLO info explícita, nunca inferida
 - Si no hay nada memorable: nodes:[]
+- USA EXACTAMENTE los labels de la lista — no inventes variantes (ej: NO "edad_luka", usa "edad_usuario")
 
 JSON válido únicamente, sin texto extra ni backticks:
 {
@@ -44,7 +53,28 @@ JSON válido únicamente, sin texto extra ni backticks:
   ]
 }`;
 
+// ── Validación de labels ──────────────────────────────────────────────────────
+// Labels fijos: deben coincidir exacto para que el resolver pueda reconciliar
+// (overwrite / archive_and_replace). Si el LLM inventa una variante de estos
+// (ej. "edad_luka" en vez de "edad_usuario"), se descarta.
+const FIXED_LABELS = new Set([
+  'nombre_usuario', 'edad_usuario', 'cumpleanos_usuario', 'ubicacion_usuario',
+  'trabajo_usuario', 'proyecto_principal', 'color_favorito', 'musica_favorita',
+  'comida_favorita', 'personalidad_observada',
+]);
+
+// Prefijos dinámicos permitidos: el LLM SÍ puede crear labels nuevos aquí,
+// a propósito, para ir "aprendiendo" cosas del usuario sin tocar los hechos fijos.
+const DYNAMIC_PREFIXES = ['proyecto_', 'preferencia_'];
+
+function isValidLabel(label) {
+  if (FIXED_LABELS.has(label)) return true;
+  return DYNAMIC_PREFIXES.some(prefix => label.startsWith(prefix));
+}
+
 // Patrones de guardado inmediato — sin LLM
+// (orden importa: el de "en realidad/ahora" va antes del genérico — si ambos
+//  matchean el mismo mensaje, gana el más específico gracias al guard de abajo)
 const INSTANT_PATTERNS = [
   {
     regex: /(?:me llamo|mi nombre es)\s+([A-Za-záéíóúÁÉÍÓÚñÑ]{2,20})\b/i,
@@ -62,12 +92,13 @@ const INSTANT_PATTERNS = [
     },
   },
   {
-    regex: /(?:mi\s+)?colou?r(?:es)?\s+favorito(?:s)?\s+(?:es|son|:)\s*(.{3,50})/i,
-    node: (m) => ({ type: 'Preference', label: 'color_favorito', content: `Colores favoritos: ${m[1].trim()}`, importance: 0.75, tags: ['color'] }),
-  },
-  {
+    // Patrón de corrección — va antes del genérico a propósito
     regex: /(?:en realidad|ahora)\s+(?:mis?\s+colou?r(?:es)?\s+(?:favorito(?:s)?\s+)?(?:son|es|me gustan?)|(?:no\s+)?me\s+gusta(?:n)?\s+(?:el\s+|los\s+)?(?:azul|rojo|verde|amarillo|negro|blanco|morado|rosa|naranja|café|gris))\s*(?:,?\s*(?:sino|si no|pero sí|y)?\s*(?:son|es)?\s*)?(.{3,50})/i,
     node: (m) => ({ type: 'Preference', label: 'color_favorito', content: `Colores favoritos: ${m[1].trim()}`, importance: 0.88, tags: ['color'] }),
+  },
+  {
+    regex: /(?:mi\s+)?colou?r(?:es)?\s+favorito(?:s)?\s+(?:es|son|:)\s*(.{3,50})/i,
+    node: (m) => ({ type: 'Preference', label: 'color_favorito', content: `Colores favoritos: ${m[1].trim()}`, importance: 0.75, tags: ['color'] }),
   },
   {
     regex: /(?:trabajo como|me dedico a|soy\s+(?:un\s+|una\s+)?(?:desarrollador|programador|diseñador|ingeniero|doctor|maestro|estudiante))/i,
@@ -96,18 +127,27 @@ class StateUpdater {
   /**
    * Guardado inmediato por regex — sin LLM, sin tokens.
    * Todo pasa por el resolver para manejar contradicciones.
+   *
+   * Guard: si dos patrones distintos matchean el mismo label en el mismo
+   * mensaje (ej. "en realidad mi color favorito es rojo" matchea el genérico
+   * Y el de corrección), solo se procesa el primero que aparezca — evita
+   * doble resolve()/doble escritura para el mismo hecho.
    */
   detectAndSaveInstant(userMessage) {
     if (!userMessage || !this._graph?._ready) return 0;
     let saved = 0;
     const text = userMessage.trim();
+    const labelsHandled = new Set();
 
     for (const pattern of INSTANT_PATTERNS) {
       try {
         const match = text.match(pattern.regex);
         if (match) {
           const nodeData = pattern.node(match);
-          this._resolver.resolve(nodeData); // resolver en lugar de upsertNode
+          if (labelsHandled.has(nodeData.label)) continue;
+          labelsHandled.add(nodeData.label);
+
+          this._resolver.resolve(nodeData);
           saved++;
           console.log(`[state-updater] inmediato: ${nodeData.label}`);
         }
@@ -120,7 +160,9 @@ class StateUpdater {
 
   /**
    * Análisis LLM al cierre de sesión.
-   * Todo pasa por el resolver.
+   * Todo pasa por el resolver, y los labels se validan antes — si el LLM
+   * inventa una variante de un label fijo, se descarta en vez de crear
+   * un duplicado que nunca se reconcilia con el hecho canónico.
    */
   async processSession(sessionId, history, turnCount) {
     if (!history || history.length < 2) {
@@ -140,13 +182,22 @@ class StateUpdater {
       return { saved: 0, error: e.message };
     }
 
-    let saved = 0;
+    let saved = 0, discarded = 0;
     for (const node of (extracted.nodes || [])) {
       try {
         if (!node.type || !node.label || !node.content) continue;
+
+        const label = node.label.toLowerCase().replace(/\s+/g, '_').slice(0, 80);
+
+        if (!isValidLabel(label)) {
+          console.warn(`[state-updater] label inválido descartado: ${label}`);
+          discarded++;
+          continue;
+        }
+
         this._resolver.resolve({
           type:       node.type,
-          label:      node.label.toLowerCase().replace(/\s+/g, '_').slice(0, 80),
+          label,
           content:    node.content,
           importance: Math.min(1.0, Math.max(0.1, node.importance ?? 0.6)),
           tags:       Array.isArray(node.tags) ? node.tags : [],
@@ -169,8 +220,8 @@ class StateUpdater {
     }
 
     this._graph.endSession(sessionId, { turnCount, summary: extracted.episode_summary, episodeId });
-    console.log(`[state-updater] guardados: ${saved} nodos, episodio: ${episodeId ? 'sí' : 'no'}`);
-    return { saved, episodeId };
+    console.log(`[state-updater] guardados: ${saved} nodos, descartados: ${discarded}, episodio: ${episodeId ? 'sí' : 'no'}`);
+    return { saved, discarded, episodeId };
   }
 
   async _extractMemories(history) {
@@ -197,4 +248,4 @@ class StateUpdater {
   runDecay() { this._graph.applyDecay(); }
 }
 
-module.exports = { StateUpdater };
+module.exports = { StateUpdater, isValidLabel, FIXED_LABELS, DYNAMIC_PREFIXES };
