@@ -6,7 +6,7 @@
  *
  * Estrategias:
  *   OVERWRITE  — el nuevo valor reemplaza al viejo (hechos concretos: edad, nombre)
- *   APPEND     — ambos valores coexisten (preferencias que evolucionan)
+ *   APPEND     — ambos valores coexisten (preferencias que evolucionan), con cap
  *   ARCHIVE    — el viejo se archiva, el nuevo es el activo
  *   TENSION    — se guarda la contradicción sin resolver (creencias complejas)
  *
@@ -34,6 +34,14 @@ const RECONCILIATION_POLICY = {
   // Todo lo demás — append por defecto (no destruir info)
   default:              'append',
 };
+
+// ── Cap para la política append ───────────────────────────────────────────────
+// Evita que un nodo (típicamente proyecto_*/preferencia_*) crezca sin límite
+// a lo largo de meses de "Actualizado: X | Actualizado: Y | ...". Se conserva
+// solo lo más reciente — esto NO afecta al mensaje del usuario ni al historial
+// de sesión, solo a los nodos de memoria persistente.
+const APPEND_SEPARATOR     = ' | Actualizado: ';
+const MAX_APPEND_SEGMENTS  = 3;
 
 class ContradictionResolver {
   constructor(stateGraph) {
@@ -102,12 +110,17 @@ class ContradictionResolver {
       }
 
       case 'append': {
-        // Fusionar el contenido viejo y nuevo en el mismo nodo
-        const merged = `${existing.content} | Actualizado: ${content}`;
+        // Fusionar el contenido viejo y nuevo, pero con tope — se conservan
+        // solo los últimos MAX_APPEND_SEGMENTS fragmentos, nunca crece infinito.
+        const segments = existing.content.split(APPEND_SEPARATOR);
+        segments.push(content);
+        const trimmed = segments.slice(-MAX_APPEND_SEGMENTS);
+        const merged  = trimmed.join(APPEND_SEPARATOR);
+
         this._graph._db.prepare(
           'UPDATE nodes SET content=?, importance=?, updated_at=?, last_accessed_at=? WHERE id=?'
         ).run(merged, Math.max(importance, existing.importance), Date.now(), Date.now(), existing.id);
-        console.log(`[resolver] append: ${label}`);
+        console.log(`[resolver] append: ${label} (${trimmed.length}/${segments.length} fragmentos conservados)`);
         return existing.id;
       }
 
@@ -159,4 +172,4 @@ class ContradictionResolver {
   }
 }
 
-module.exports = { ContradictionResolver };
+module.exports = { ContradictionResolver, MAX_APPEND_SEGMENTS, APPEND_SEPARATOR };

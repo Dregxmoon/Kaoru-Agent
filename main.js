@@ -790,9 +790,25 @@ app.whenReady().then(() => {
   });
 });
 
-app.on('before-quit', async () => {
-  await MarchCore.closeSession().catch(() => {});
-  if (voiceProc) { voiceProc.kill(); voiceProc = null; }
+// ── Cierre limpio ─────────────────────────────────────────────────────────────
+function withTimeout(promise, ms) {
+  return Promise.race([
+    promise,
+    new Promise(resolve => setTimeout(resolve, ms)),
+  ]);
+}
+
+let _quitting = false;
+
+app.on('before-quit', (event) => {
+  if (_quitting) return;       // ya hicimos cleanup, deja salir de verdad
+  event.preventDefault();
+  (async () => {
+    try { await withTimeout(MarchCore.closeSession(), 8000); } catch(_) {}
+    if (voiceProc) { voiceProc.kill(); voiceProc = null; }
+    _quitting = true;
+    app.quit();                // ahora sí, sin que before-quit se cuelgue en loop
+  })();
 });
 
 app.on('window-all-closed', () => { if (process.platform !== 'darwin') app.quit(); });
