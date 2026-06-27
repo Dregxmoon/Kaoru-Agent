@@ -1,20 +1,58 @@
 /**
- * Planner.js — Fase 3 v7
+ * Planner.js — Fase 3 v9
  *
- * Fix v6 → v7:
- *   code_execution — nuevo patrón en ActionParser: detecta instrucciones
- *                    como "ejecuta este código: `print('hola')`" y las
- *                    despacha a la herramienta code_execution.
+ * Fix v8 → v9:
+ *   _cleanPath() solo quitaba UN carácter de comilla/backtick en cada
+ *   extremo, y esa clase de caracteres ni siquiera incluía asterisco o
+ *   guion bajo. Cuando el LLM anunciaba una acción con el nombre de
+ *   archivo en negrita markdown ("Voy a leer el archivo **main.js**."),
+ *   el path capturado por el regex de "leer archivo" quedaba como
+ *   "**main.js**" literal — OpenClaw intentaba resolver ese path
+ *   inexistente y la herramienta fallaba o devolvía contenido vacío,
+ *   sin que el usuario tuviera ninguna señal visible de qué pasó (el
+ *   plan se marcaba "✓ COMPLETADO" igual, porque el paso en sí no
+ *   lanzaba excepción — solo no encontraba nada que leer).
  *
- *   apply_patch — nuevo patrón: "aplica este patch a app.js: ```...```"
- *                 despacha a apply_patch con el contenido del diff.
+ *   Este bug era intermitente por diseño: solo aparecía cuando el LLM
+ *   decidía formatear el nombre de archivo en negrita/cursiva/código en
+ *   su anuncio narrativo, lo cual no es determinístico turno a turno.
  *
- *   isHighImpact — code_execution y apply_patch ahora requieren
- *                  aprobación del usuario, igual que edit_file/create_file.
+ *   Fix: _cleanPath() ahora quita TODOS los caracteres de envoltorio
+ *   markdown (*, _, `, comillas) en cualquier cantidad en ambos
+ *   extremos, no solo un carácter. La puntuación final (.,;:!?) se
+ *   limpia en la MISMA pasada que el envoltorio de cierre, porque
+ *   pueden venir intercalados (ej. "**main.js**." tiene el punto
+ *   DESPUÉS de los asteriscos de cierre — limpiarlos en pasadas
+ *   separadas en el orden equivocado dejaría basura pegada al nombre).
  *
- *   web_search/browser — sin cambios en Planner.js; la implementación
- *   real (Playwright headless) vive en BrowserBridge.js, conectado vía
- *   OpenClawBridge.js. Planner solo detecta la intención y construye el plan.
+ *   Esto afecta a TODOS los puntos que usan _cleanPath(): el patrón de
+ *   "leer archivo", "crear archivo", "aplicar patch", y _detectEditIntent
+ *   (estrategias A y B) — se corrige en un solo lugar para los cuatro.
+ *
+ * Cambios v7 → v8 (mantenidos):
+ *   _llmTransform (modo chunking) — antes solo identificaba UNA sección
+ *   relevante (mejor puntaje de keywords) y transformaba solo esa. Si la
+ *   instrucción aplicaba a varias secciones dispersas en el archivo
+ *   (ej. "renombra la función X a Y en todo el archivo" y X aparece en
+ *   varias funciones distintas), solo se editaba la primera coincidencia
+ *   y el resto del archivo quedaba intacto SIN avisar al usuario.
+ *
+ *   Ahora _findRelevantSections (plural) devuelve TODAS las secciones
+ *   con al menos un keyword-match, no solo la de mejor puntaje. Si hay
+ *   una sola sección relevante, el comportamiento es idéntico al de v7
+ *   (incluye contexto de secciones vecinas). Si hay varias, cada una se
+ *   procesa con su propia llamada al LLM y se reemplaza individualmente
+ *   — el resto del archivo se conserva exactamente igual.
+ *
+ * Cambios mantenidos de v7:
+ *   code_execution — patrón en ActionParser para "ejecuta este código: `...`".
+ *   apply_patch — patrón para "aplica este patch a app.js: ```...```".
+ *   isHighImpact — code_execution y apply_patch requieren aprobación,
+ *                  igual que edit_file/create_file.
+ *   exec (comandos de shell) — requiere aprobación SOLO si matchea
+ *                  HIGH_IMPACT_PATTERNS. Esto es intencional — no tocar.
+ *   web_search/browser — implementación real en BrowserBridge.js, vía
+ *                  OpenClawBridge.js. Planner solo detecta intención.
  *
  * Cambios mantenidos de v6:
  *   _executeStep única definición (antes había una duplicada — bug crítico).
@@ -121,7 +159,19 @@ function _splitIntoSections(content, filePath) {
   return sections;
 }
 
-function _findRelevantSection(sections, instruction) {
+/**
+ * FIX v8: antes _findRelevantSection (singular) devolvía solo el índice
+ * de la sección con mejor puntaje de keywords. Ahora devuelve TODAS las
+ * secciones que tengan al menos un keyword-match, así una instrucción
+ * que aplica a varias partes dispersas del archivo no se queda corta.
+ *
+ * Si ninguna sección matchea ningún keyword (instrucción muy genérica,
+ * ej. "arregla el bug"), cae al comportamiento anterior: devuelve solo
+ * la de mejor puntaje (aunque sea 0), para no romper el caso ambiguo.
+ *
+ * @returns {number[]} índices de secciones relevantes, en orden original
+ */
+function _findRelevantSections(sections, instruction) {
   const STOPWORDS = new Set(['el','la','los','las','un','una','en','de','que','y','a','con','por','para','al','del']);
   const keywords  = instruction
     .toLowerCase()
@@ -129,18 +179,25 @@ function _findRelevantSection(sections, instruction) {
     .split(/\s+/)
     .filter(w => w.length > 3 && !STOPWORDS.has(w));
 
-  if (!keywords.length) return sections.length - 1;
+  if (!keywords.length) return [0];
 
-  let bestIdx   = 0;
-  let bestScore = -1;
-
-  for (let i = 0; i < sections.length; i++) {
-    const sectionLower = sections[i].toLowerCase();
+  const scored = sections.map((section, i) => {
+    const sectionLower = section.toLowerCase();
     const score = keywords.filter(kw => sectionLower.includes(kw)).length;
-    if (score > bestScore) { bestScore = score; bestIdx = i; }
-  }
+    return { i, score };
+  });
 
-  return bestIdx;
+  const matched = scored.filter(s => s.score > 0).map(s => s.i);
+  if (matched.length > 0) return matched;
+
+  // Sin matches en ninguna sección — fallback al comportamiento anterior:
+  // una sola sección, la de mejor puntaje (puede ser 0 en todas, en cuyo
+  // caso se queda con la primera por orden de iteración).
+  let bestIdx = 0, bestScore = -1;
+  for (const s of scored) {
+    if (s.score > bestScore) { bestScore = s.score; bestIdx = s.i; }
+  }
+  return [bestIdx];
 }
 
 async function _llmTransform(originalContent, instruction, filePath) {
@@ -185,64 +242,110 @@ async function _llmTransform(originalContent, instruction, filePath) {
 
   console.log(`[planner] _llmTransform: modo chunking (${originalContent.length} chars > límite ${limit})`);
 
-  const sections    = _splitIntoSections(originalContent, filePath);
-  const relevantIdx = _findRelevantSection(sections, instruction);
+  const sections         = _splitIntoSections(originalContent, filePath);
+  const relevantIndices  = _findRelevantSections(sections, instruction);
 
-  console.log(`[planner] chunking: ${sections.length} secciones, relevante: #${relevantIdx}`);
+  console.log(`[planner] chunking: ${sections.length} secciones, relevantes: [${relevantIndices.join(', ')}]`);
 
-  const CONTEXT_SECTIONS = [
-    relevantIdx > 0             ? sections[relevantIdx - 1] : null,
-    sections[relevantIdx],
-    relevantIdx < sections.length - 1 ? sections[relevantIdx + 1] : null,
-  ].filter(Boolean);
+  // ── Caso simple: una sola sección relevante ─────────────────────────────
+  // Comportamiento idéntico a v7 — incluye secciones vecinas como contexto
+  // para que el LLM no pierda continuidad con lo que viene antes/después.
+  if (relevantIndices.length === 1) {
+    const relevantIdx = relevantIndices[0];
 
-  const contextContent = CONTEXT_SECTIONS.join('\n');
+    const CONTEXT_SECTIONS = [
+      relevantIdx > 0             ? sections[relevantIdx - 1] : null,
+      sections[relevantIdx],
+      relevantIdx < sections.length - 1 ? sections[relevantIdx + 1] : null,
+    ].filter(Boolean);
 
-  const chunkContent = contextContent.length <= limit
-    ? contextContent
-    : sections[relevantIdx].slice(0, limit);
+    const contextContent = CONTEXT_SECTIONS.join('\n');
 
-  const isPartial   = sections.length > 1;
-  const sectionInfo = isPartial
-    ? `Esta es la sección ${relevantIdx + 1} de ${sections.length} del archivo.`
-    : '';
+    const chunkContent = contextContent.length <= limit
+      ? contextContent
+      : sections[relevantIdx].slice(0, limit);
 
-  const userMessage = [
-    `Archivo: ${filePath}`,
-    sectionInfo,
-    '',
-    '--- CONTENIDO A MODIFICAR ---',
-    chunkContent,
-    '--- FIN CONTENIDO ---',
-    '',
-    `Instrucción: ${instruction}`,
-    '',
-    isPartial
-      ? 'Devuelve ÚNICAMENTE esta sección modificada. No incluyas otras partes del archivo.'
-      : 'Devuelve el nuevo contenido completo del archivo.',
-  ].filter(Boolean).join('\n');
+    const isPartial   = sections.length > 1;
+    const sectionInfo = isPartial
+      ? `Esta es la sección ${relevantIdx + 1} de ${sections.length} del archivo.`
+      : '';
 
-  const modifiedChunk = await complete(
-    [{ role: 'user', content: userMessage }],
-    systemPrompt
-  );
+    const userMessage = [
+      `Archivo: ${filePath}`,
+      sectionInfo,
+      '',
+      '--- CONTENIDO A MODIFICAR ---',
+      chunkContent,
+      '--- FIN CONTENIDO ---',
+      '',
+      `Instrucción: ${instruction}`,
+      '',
+      isPartial
+        ? 'Devuelve ÚNICAMENTE esta sección modificada. No incluyas otras partes del archivo.'
+        : 'Devuelve el nuevo contenido completo del archivo.',
+    ].filter(Boolean).join('\n');
 
-  if (!modifiedChunk || !modifiedChunk.trim()) {
-    throw new Error('El LLM devolvió contenido vacío (modo chunking).');
+    const modifiedChunk = await complete(
+      [{ role: 'user', content: userMessage }],
+      systemPrompt
+    );
+
+    if (!modifiedChunk || !modifiedChunk.trim()) {
+      throw new Error('El LLM devolvió contenido vacío (modo chunking).');
+    }
+
+    if (!isPartial) return modifiedChunk;
+
+    const startIdx = Math.max(0, relevantIdx - 1);
+    const endIdx   = Math.min(sections.length - 1, relevantIdx + 1);
+
+    const rebuiltSections = [
+      ...sections.slice(0, startIdx),
+      modifiedChunk,
+      ...sections.slice(endIdx + 1),
+    ];
+
+    return rebuiltSections.join('\n');
   }
 
-  if (!isPartial) return modifiedChunk;
+  // ── Caso múltiple: varias secciones dispersas matchean la instrucción ──
+  // FIX v8: antes esto ni existía — solo se procesaba la mejor sección y
+  // el resto del archivo quedaba intacto sin avisar. Ahora se procesa
+  // CADA sección relevante con su propia llamada al LLM, y solo esas se
+  // reemplazan; las demás secciones se conservan exactamente igual.
+  console.log(`[planner] _llmTransform: ${relevantIndices.length} secciones afectadas, procesando cada una por separado`);
 
-  const startIdx = Math.max(0, relevantIdx - 1);
-  const endIdx   = Math.min(sections.length - 1, relevantIdx + 1);
+  const resultSections = [...sections];
 
-  const rebuiltSections = [
-    ...sections.slice(0, startIdx),
-    modifiedChunk,
-    ...sections.slice(endIdx + 1),
-  ];
+  for (const idx of relevantIndices) {
+    const sectionInfo = `Esta es la sección ${idx + 1} de ${sections.length} del archivo. Aplica la instrucción solo si corresponde a esta sección — si no aplica aquí, devuelve la sección sin cambios.`;
 
-  return rebuiltSections.join('\n');
+    const userMessage = [
+      `Archivo: ${filePath}`,
+      sectionInfo,
+      '',
+      '--- CONTENIDO A MODIFICAR ---',
+      sections[idx],
+      '--- FIN CONTENIDO ---',
+      '',
+      `Instrucción: ${instruction}`,
+      '',
+      'Devuelve ÚNICAMENTE esta sección (modificada o sin cambios). No incluyas otras partes del archivo.',
+    ].join('\n');
+
+    const modifiedChunk = await complete(
+      [{ role: 'user', content: userMessage }],
+      systemPrompt
+    );
+
+    if (!modifiedChunk || !modifiedChunk.trim()) {
+      throw new Error(`El LLM devolvió contenido vacío (sección ${idx + 1}/${sections.length}).`);
+    }
+
+    resultSections[idx] = modifiedChunk;
+  }
+
+  return resultSections.join('\n');
 }
 
 // ── Clasificación de impacto ──────────────────────────────────────────────────
@@ -271,10 +374,26 @@ function planId() { return `plan_${Date.now()}_${++_planCounter}`; }
 function stepId() { return `step_${Date.now()}_${++_stepCounter}`; }
 
 // ── Helpers de limpieza ───────────────────────────────────────────────────────
+
+/**
+ * FIX v9: antes solo quitaba UN carácter de comilla/backtick en cada
+ * extremo (la clase ni siquiera incluía asterisco o guion bajo). Ahora
+ * quita TODOS los caracteres de envoltorio markdown (*, _, `, comillas)
+ * en cualquier cantidad en ambos extremos. La puntuación final se limpia
+ * en la MISMA pasada que el envoltorio de cierre porque pueden venir
+ * intercalados — ej. "**main.js**." tiene el punto DESPUÉS de los
+ * asteriscos de cierre; limpiarlos en pasadas separadas en el orden
+ * equivocado dejaría el punto pegado al nombre real del archivo.
+ *
+ * Ver cabecera del archivo para el caso real que motivó este fix:
+ * "Voy a leer el archivo **main.js**." capturaba el path literal
+ * "**main.js**", que OpenClaw no podía resolver — y fallaba en silencio.
+ */
 function _cleanPath(raw) {
   return (raw || '').trim()
-    .replace(/^["'\`]|["'\`]$/g, '')
-    .replace(/[.,;:!?]+$/, '');
+    .replace(/^[*_`"']+/, '')
+    .replace(/[*_`"'.,;:!?]+$/, '')
+    .trim();
 }
 
 function _cleanCommand(raw) {
@@ -995,7 +1114,7 @@ class Planner {
       };
     }
 
-    console.log(`[planner] paso 4: Verificar escritura de ${filePath}`);
+    console.log(`[planner] paso 4: Verificar ${filePath}`);
     const verifyResult = await this._bridge.execute('read', { path: filePath });
 
     if (!verifyResult.ok) {
@@ -1172,6 +1291,7 @@ function getPlanner() {
 
 module.exports = {
   _debug_cleanCommand: _cleanCommand,
+  _debug_cleanPath: _cleanPath,
   _debug_trimNarrative: _trimNarrativeOutsideQuotes,
   _debug_splitChained: _splitChainedGitCommand,
   Planner,

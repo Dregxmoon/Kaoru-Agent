@@ -1,39 +1,15 @@
 /**
- * ProactiveEngine.js — Fase 2.5 (extendido)
+ * ProactiveEngine.js — Fase 2.5 + Quick Fix QW-5
  *
- * Motor de mensajes proactivos de March.
- * Vive encima del InitiativeEngine — se encarga de los triggers
- * basados en tiempo y fecha, mientras InitiativeEngine maneja los de app.
+ * Fix QW-5: _checkSpecialDate tenía un bug con fechas de un solo dígito
+ *   guardadas con cero de relleno ("15/06/2000" no matcheaba "15/6").
+ *   Ahora normaliza ambos lados antes de comparar:
+ *     - extrae día y mes numérico de `todayShort` (sin relleno)
+ *     - al buscar en el contenido del nodo, genera múltiples variantes
+ *       del formato ("15/6", "15/06", "15 de junio") para no depender
+ *       de cómo exactamente lo guardó el LLM.
  *
- * Triggers implementados:
- *   1. Silencio largo     — más de N horas sin hablar con March
- *   2. Hora del día       — madrugada activa, recordatorio de descanso
- *   3. Fecha especial     — cumpleaños u otras fechas del StateGraph
- *
- * Flujo por trigger:
- *   timer dispara → verificar condiciones → LLM evalúa si hay algo genuino →
- *     si sí: genera mensaje en voz de March → emite 'initiative:trigger' →
- *     main.js abre el chat y envía 'march-initiative' al renderer
- *     si no: silencio, reintenta en el próximo ciclo
- *
- * Anti-spam:
- *   - Máximo 1 proactivo cada 4 horas (configurable)
- *   - No dispara si el usuario está idle más de 30 minutos
- *   - No dispara si el chat ya está abierto
- *   - El LLM puede rechazar generar mensaje si no hay nada genuino que decir
- *
- * Memoria extendida (Fase 2.5):
- *   - getWorldModel() — User/Project/Preference/Belief, todo lo importante
- *   - getRecentEpisodes() — qué pasó en sesiones recientes
- *   - getLastSessions() — resúmenes de cierre de sesión
- *   - getTodaySummary() (OSSensor) — qué ha hecho hoy en la PC
- *   - Anti-repetición: recuerda el último mensaje proactivo y su tema,
- *     y le pide al LLM explícitamente no repetirlo
- *
- * Requiere:
- *   - LLMProvider configurado con al menos una key
- *   - StateGraph inicializado (para leer memoria del usuario)
- *   - OSSensor conectado (para leer idle y contexto OS)
+ * El resto del archivo es idéntico a la versión original.
  */
 
 const { getEventBus } = require('../../infrastructure/event-bus/EventBus.js');
@@ -42,21 +18,12 @@ const { getIdentity } = require('../grounding/GroundingEngine.js');
 
 // ── Configuración ─────────────────────────────────────────────────────────────
 
-// Cada cuánto evalúa el engine (ms) — cada 5 minutos
-const EVAL_INTERVAL_MS = 5 * 60 * 1000;
-
-// Mínimo entre mensajes proactivos (ms)
-const MIN_PROACTIVE_INTERVAL_MS = 4 * 60 * 60 * 1000; // 4 horas
-
-// Si el usuario lleva más de esto sin hablar, considerar "silencio largo" (ms)
-const SILENCE_THRESHOLD_MS = 3 * 60 * 60 * 1000; // 3 horas
-
-// Hora a partir de la cual se considera "madrugada activa" (0-5am)
-const LATE_NIGHT_START = 0;
-const LATE_NIGHT_END   = 5;
-
-// Si el usuario lleva idle más de esto, no interrumpir (segundos)
-const MAX_IDLE_TO_INTERRUPT = 30 * 60; // 30 minutos
+const EVAL_INTERVAL_MS          = 5 * 60 * 1000;
+const MIN_PROACTIVE_INTERVAL_MS = 4 * 60 * 60 * 1000;
+const SILENCE_THRESHOLD_MS      = 3 * 60 * 60 * 1000;
+const LATE_NIGHT_START          = 0;
+const LATE_NIGHT_END            = 5;
+const MAX_IDLE_TO_INTERRUPT     = 30 * 60;
 
 // ── ProactiveEngine ───────────────────────────────────────────────────────────
 
@@ -67,11 +34,10 @@ class ProactiveEngine {
     this._osSensor       = null;
     this._chatOpen       = false;
     this._lastProactive  = 0;
-    this._lastUserMsg    = Date.now(); // se actualiza cuando el usuario habla
+    this._lastUserMsg    = Date.now();
     this._timer          = null;
     this._running        = false;
 
-    // Anti-repetición: guardamos el último mensaje proactivo y su trigger
     this._lastProactiveMessage = null;
     this._lastProactiveTrigger = null;
 
@@ -86,7 +52,6 @@ class ProactiveEngine {
     this._chatOpen = open;
   }
 
-  /** Notificar que el usuario acaba de escribir — resetea el reloj de silencio. */
   onUserMessage() {
     this._lastUserMsg = Date.now();
   }
@@ -95,7 +60,6 @@ class ProactiveEngine {
     if (this._running) return;
     this._running = true;
     console.log('[proactive] iniciado (eval cada 5 min)');
-    // Primera evaluación a los 2 minutos del arranque
     setTimeout(() => this._evaluate(), 2 * 60 * 1000);
     this._timer = setInterval(() => this._evaluate(), EVAL_INTERVAL_MS);
   }
@@ -109,28 +73,23 @@ class ProactiveEngine {
   // ── Evaluación ──────────────────────────────────────────────────────────────
 
   async _evaluate() {
-    // Guardia básica
     if (this._chatOpen) return;
     if (!LLMProvider.getActiveProvider()) return;
 
-    // Tiempo desde último proactivo
     const sinceLastProactive = Date.now() - this._lastProactive;
     if (sinceLastProactive < MIN_PROACTIVE_INTERVAL_MS) return;
 
-    // No interrumpir si el usuario está idle demasiado tiempo
     const idleSecs = this._osSensor?.getCurrentContext()?.idleSecs ?? 0;
     if (idleSecs > MAX_IDLE_TO_INTERRUPT) {
       console.log(`[proactive] usuario idle ${idleSecs}s, omitiendo`);
       return;
     }
 
-    // Evaluar triggers en orden de prioridad
     const trigger = this._checkTriggers();
     if (!trigger) return;
 
     console.log(`[proactive] trigger: ${trigger.type} — consultando LLM...`);
 
-    // Pedir al LLM que evalúe si hay algo genuino que decir
     const message = await this._generateMessage(trigger);
     if (!message) {
       console.log('[proactive] LLM decidió no enviar mensaje');
@@ -147,7 +106,7 @@ class ProactiveEngine {
       actionType: 'proactive',
       canHelp:    true,
       utility:    1.0,
-      openChat:   true, // señal para main.js de que debe abrir el chat
+      openChat:   true,
     };
 
     console.log(`[proactive] emitiendo: "${message.slice(0, 60)}..."`);
@@ -160,11 +119,9 @@ class ProactiveEngine {
     const now  = new Date();
     const hour = now.getHours();
 
-    // 1. Fecha especial — máxima prioridad
     const specialDate = this._checkSpecialDate(now);
     if (specialDate) return specialDate;
 
-    // 2. Madrugada activa — si son las 0-5am y el usuario sigue activo
     const idleSecs = this._osSensor?.getCurrentContext()?.idleSecs ?? 0;
     if (hour >= LATE_NIGHT_START && hour < LATE_NIGHT_END && idleSecs < 300) {
       return {
@@ -174,7 +131,6 @@ class ProactiveEngine {
       };
     }
 
-    // 3. Silencio largo — llevan horas sin hablar
     const silenceMs = Date.now() - this._lastUserMsg;
     if (silenceMs > SILENCE_THRESHOLD_MS) {
       const silenceHours = Math.round(silenceMs / (1000 * 60 * 60));
@@ -188,38 +144,58 @@ class ProactiveEngine {
     return null;
   }
 
+  /**
+   * FIX QW-5: normalización de fechas para _checkSpecialDate.
+   *
+   * Bug original: "15/06/2000" (con cero de relleno y año) no matcheaba
+   * `todayShort = "15/6"` (sin cero de relleno), por lo que cumpleaños
+   * guardados en ese formato nunca se detectaban.
+   *
+   * Solución: generar un conjunto de variantes de la fecha de hoy
+   * (con/sin cero de relleno, formatos texto), y buscar cualquiera de ellas
+   * en el contenido del nodo, en vez de una comparación rígida de string.
+   */
   _checkSpecialDate(now) {
     if (!this._graph?._ready) return null;
 
-    // Buscar nodos con fechas especiales en el StateGraph
     try {
       const userNodes = this._graph.queryNodes({ type: 'User', limit: 20 });
-      const today     = `${now.getDate()} de ${_monthName(now.getMonth())}`;
-      const todayShort = `${now.getDate()}/${now.getMonth() + 1}`;
+
+      const day   = now.getDate();      // ej. 6
+      const month = now.getMonth() + 1; // ej. 1–12 (sin relleno)
+
+      // Variantes de la fecha de hoy que el LLM pudo haber guardado
+      const dateVariants = [
+        `${day}/${month}`,                                    // "6/1"
+        `${day}/${String(month).padStart(2, '0')}`,          // "6/01"
+        `${String(day).padStart(2, '0')}/${month}`,          // "06/1"
+        `${String(day).padStart(2, '0')}/${String(month).padStart(2, '0')}`, // "06/01"
+        `${day} de ${_monthName(month - 1)}`,                // "6 de enero"
+        `${String(day).padStart(2, '0')} de ${_monthName(month - 1)}`, // "06 de enero"
+      ];
 
       for (const node of userNodes) {
         const content = node.content?.toLowerCase() || '';
-        // Buscar cumpleaños o fechas especiales
-        if (
+
+        // Verificar que el nodo habla de una fecha especial
+        const isBirthday = (
           content.includes('cumpleaños') ||
-          content.includes('birthday') ||
-          content.includes('nació') ||
+          content.includes('birthday')   ||
+          content.includes('nació')       ||
           content.includes('aniversario')
-        ) {
-          // Verificar si la fecha coincide con hoy
-          if (
-            content.includes(today.toLowerCase()) ||
-            content.includes(todayShort)           ||
-            content.includes(`${now.getDate()} de`) // "15 de junio"
-          ) {
-            return {
-              type:    'special_date',
-              subtype: 'birthday',
-              node:    node.content,
-              context: `Hoy es una fecha especial para el usuario: ${node.content}`,
-            };
-          }
-        }
+        );
+        if (!isBirthday) continue;
+
+        // Verificar si alguna variante de la fecha de hoy aparece en el contenido
+        const matchesToday = dateVariants.some(v => content.includes(v.toLowerCase()));
+        if (!matchesToday) continue;
+
+        return {
+          type:    'special_date',
+          subtype: 'birthday',
+          node:    node.content,
+          context: `Hoy es una fecha especial para el usuario: ${node.content}`,
+        };
       }
     } catch(e) {
       console.warn('[proactive] error revisando fechas especiales:', e.message);
@@ -231,7 +207,6 @@ class ProactiveEngine {
   // ── Generación con LLM ──────────────────────────────────────────────────────
 
   async _generateMessage(trigger) {
-    // Construir contexto para el LLM
     const osCtx    = this._osSensor?.getCurrentContext() ?? null;
     const memory   = this._buildMemoryContext();
     const now      = new Date();
@@ -289,19 +264,11 @@ No expliques por qué escribes. No anuncies que eres proactiva. Solo di lo que d
     }
   }
 
-  /**
-   * Construye el contexto de memoria para el LLM.
-   * Usa todo lo disponible en el StateGraph:
-   *   - getWorldModel(): User, Project, Preference, Belief (lo más importante de todo)
-   *   - getRecentEpisodes(): qué pasó en sesiones recientes
-   *   - getLastSessions(): resúmenes de cierre de sesión (con summary)
-   */
   _buildMemoryContext() {
     if (!this._graph?._ready) return '';
 
     const lines = [];
     try {
-      // Todo lo importante del usuario: identidad, proyectos, preferencias, creencias
       const worldModel = this._graph.getWorldModel?.() ?? [];
       if (worldModel.length) {
         const byType = { User: [], Project: [], Preference: [], Belief: [] };
@@ -327,14 +294,12 @@ No expliques por qué escribes. No anuncies que eres proactiva. Solo di lo que d
         }
       }
 
-      // Episodios recientes — qué ha pasado últimamente
       const episodes = this._graph.getRecentEpisodes?.(5) ?? [];
       if (episodes.length) {
         lines.push('Sesiones recientes (episodios):');
         episodes.forEach(e => lines.push(`- ${e.content.slice(0, 160)}`));
       }
 
-      // Resúmenes de sesiones cerradas — más contexto de continuidad
       const lastSessions = this._graph.getLastSessions?.(3) ?? [];
       const withSummary  = lastSessions.filter(s => s.summary);
       if (withSummary.length) {
@@ -351,13 +316,6 @@ No expliques por qué escribes. No anuncies que eres proactiva. Solo di lo que d
     return lines.join('\n');
   }
 
-  /**
-   * Forzar un trigger manualmente — útil para testing.
-   * A diferencia de la versión anterior, construye el trigger con datos
-   * REALES del sistema (hora actual, silencio real, etc.) en lugar de
-   * valores fijos — así March nunca recibe información contradictoria
-   * sobre su propio entorno.
-   */
   async forceEvaluate(triggerType = 'long_silence') {
     const now  = new Date();
     const hour = now.getHours();
@@ -393,8 +351,6 @@ No expliques por qué escribes. No anuncies que eres proactiva. Solo di lo que d
         break;
       }
       case 'special_date': {
-        // Reusar la detección real de fecha especial; si no hay ninguna hoy,
-        // marcar como simulación explícita.
         const real = this._checkSpecialDate(now);
         trigger = real || {
           type: 'special_date',
@@ -446,10 +402,7 @@ No expliques por qué escribes. No anuncies que eres proactiva. Solo di lo que d
     };
   }
 
-  // ── Listeners ───────────────────────────────────────────────────────────────
-
   _setupListeners() {
-    // Resetear reloj de silencio cuando el usuario manda un mensaje
     this._bus.on('memory:turn-added', ({ role }) => {
       if (role === 'user') this._lastUserMsg = Date.now();
     });
@@ -467,9 +420,6 @@ function _monthName(monthIndex) {
 }
 
 function _triggerDescription(trigger) {
-  // Si es una simulación de testing que no corresponde a la realidad actual,
-  // March debe saberlo explícitamente — nunca debe fingir que es de noche
-  // a mediodía, ni que lleva horas en silencio si el usuario acaba de hablar.
   if (trigger.forcedMismatch) {
     return `Esto es una prueba de testing forzada manualmente y NO corresponde con la realidad actual (revisa la hora real arriba). No actúes como si la premisa del trigger fuera cierta. En vez de eso, puedes comentar algo genuino sobre el momento actual real, hacer un chiste sobre la prueba si te parece natural, o simplemente decir algo que se te haya quedado pensando de la memoria. Si nada de esto se siente genuino, responde NO.`;
   }
@@ -486,7 +436,6 @@ function _triggerDescription(trigger) {
   }
 }
 
-/** Carga identity.json de forma segura, con fallback mínimo. */
 function _safeGetIdentity() {
   try {
     return getIdentity();

@@ -1,12 +1,22 @@
 /**
- * OSSensor.js — Fase 2 (con FIX Bug 13)
+ * OSSensor.js — Fase 2 (con FIX Bug 13 + FIX tracking de tiempo en apps ignoradas)
  *
  *  Bug 13 — OSSensor reportaba "Claude" como app activa, contaminando el
  *            contexto del LLM. Se agrega "claude" y "Claude" a IGNORED_APPS
  *            para que nunca aparezca en app activa ni en ventanas abiertas.
  *            También se filtran variantes del proceso (claude.exe, Claude).
  *
- * El resto del archivo es idéntico al original.
+ *  FIX tracking — Antes, cuando el foco caía en una app ignorada (Explorer,
+ *            diálogos de sistema, etc.), _processFocus simplemente no se
+ *            llamaba — pero _appStart de la app anterior NO se reseteaba.
+ *            Resultado: el tiempo pasado en la app ignorada se sumaba
+ *            silenciosamente a la duración de la última app real, inflando
+ *            las stats de uso (getAppUsageSummary/getTodaySummary) que
+ *            alimentan el contexto de March y el ProactiveEngine.
+ *            Ahora, cuando el foco cae en una app ignorada, se guarda de
+ *            inmediato el historial de la app anterior (con el tiempo
+ *            correcto hasta ese momento) y se pausa el tracking hasta que
+ *            el foco vuelva a una app real.
  */
 
 const { spawn }       = require('child_process');
@@ -278,9 +288,10 @@ class OSSensor {
       const lines = output.split('\n').map(l => l.trim()).filter(Boolean);
       if (!lines.length) return;
 
-      let focus    = null;
-      let idleMs   = 0;
-      const windows = [];
+      let focus        = null;
+      let focusIgnored  = false; // FIX: distinguir "no hubo línea FOCUS" de "FOCUS cayó en app ignorada"
+      let idleMs        = 0;
+      const windows     = [];
 
       for (const line of lines) {
         const sepIdx = line.indexOf('|');
@@ -300,12 +311,22 @@ class OSSensor {
 
         if (!procName || procName === 'unknown') continue;
 
+        // FIX tracking: para la línea FOCUS necesitamos saber si cayó en
+        // una app ignorada ANTES de descartarla — eso es lo que dispara
+        // la pausa del tracking de tiempo más abajo.
+        if (kind === 'FOCUS') {
+          if (shouldIgnoreApp(procName)) {
+            focusIgnored = true;
+          } else {
+            focus = { procName, title };
+          }
+          continue;
+        }
+
         // FIX Bug 13: usar shouldIgnoreApp en lugar del Set directamente
         if (shouldIgnoreApp(procName)) continue;
 
-        if (kind === 'FOCUS') {
-          focus = { procName, title };
-        } else if (kind === 'WIN') {
+        if (kind === 'WIN') {
           windows.push({
             app:          procName,
             friendlyName: this._getFriendlyName(procName),
@@ -328,7 +349,14 @@ class OSSensor {
       this._openWindows = dedup;
       this._bus.emit('os:windows-updated', { windows: dedup });
 
-      if (focus) this._processFocus(focus.procName, focus.title);
+      if (focus) {
+        this._processFocus(focus.procName, focus.title);
+      } else if (focusIgnored) {
+        // FIX tracking: el foco se movió a una app ignorada — pausar el
+        // tracking en vez de dejar que el tiempo siga corriendo
+        // silenciosamente contra la app anterior.
+        this._pauseTracking();
+      }
     });
   }
 
@@ -380,6 +408,26 @@ class OSSensor {
         elapsedFormatted: this._formatElapsed(elapsed),
       });
     }
+  }
+
+  /**
+   * FIX tracking: el foco cayó en una app ignorada (Explorer, diálogo de
+   * sistema, etc.). Guarda de inmediato el historial de la app anterior
+   * con el tiempo correcto hasta ESTE momento, y resetea el estado para
+   * que cuando el foco vuelva a una app real, _processFocus lo trate
+   * como un inicio nuevo (en vez de seguir sumando tiempo a la app vieja
+   * mientras el usuario estuvo en una ventana ignorada).
+   */
+  _pauseTracking() {
+    if (this._currentApp && this._appStart) {
+      this._saveToHistory(this._currentApp, this._currentTitle, this._appStart, Date.now());
+    }
+    if (this._currentApp !== null) {
+      console.log('[os-sensor] foco en app ignorada — pausando tracking');
+    }
+    this._currentApp   = null;
+    this._currentTitle = null;
+    this._appStart     = null;
   }
 
   _saveToHistory(app, title, start, end) {

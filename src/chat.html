@@ -35,7 +35,7 @@
   --font-mono:'Share Tech Mono',monospace;
   --font-body:'Zen Kaku Gothic New',sans-serif;
   --font-display:'Kaisei Decol',serif;
-  --grain:url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.025'/%3E%3C/svg%3E");
+  --grain:url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.025'/%3E%3C/svg%3E");
   --header-bg:rgba(245,238,248,0.95);
   --divider:linear-gradient(90deg,transparent,#e8a0c8 30%,#e8a0c8 70%,transparent);
   --file-bg:#fdeaf5;--file-border:#f0c8e0;
@@ -67,11 +67,26 @@ body::before { content:''; position:fixed; inset:0; background:var(--grain); poi
 .openclaw-badge { display:inline-flex; align-items:center; gap:4px; font-family:var(--font-mono); font-size:9px; color:#10b981; background:rgba(16,185,129,.1); border:1px solid rgba(16,185,129,.3); border-radius:3px; padding:1px 6px; -webkit-app-region:no-drag; }
 .openclaw-badge.offline { color:var(--text-secondary); background:var(--tag-bg); border-color:var(--border); }
 
+/* Toggle de modo: conversación (Groq fast) vs tareas (Kimi K2 vía Groq smart) */
+.mode-toggle { display:inline-flex; align-items:center; gap:5px; font-family:var(--font-mono); font-size:9px; color:var(--text-secondary); background:var(--tag-bg); border:1px solid var(--border); border-radius:3px; padding:2px 8px; cursor:pointer; -webkit-app-region:no-drag; transition:all .2s; }
+.mode-toggle:hover { border-color:var(--accent); color:var(--accent); }
+.mode-toggle.task { color:#f59e0b; background:rgba(245,158,11,.1); border-color:rgba(245,158,11,.35); }
+.mode-toggle.task:hover { border-color:#f59e0b; color:#f59e0b; }
+
 #keys-banner { display:none; align-items:center; gap:10px; padding:8px 14px; background:rgba(245,158,11,0.08); border-bottom:1px solid rgba(245,158,11,0.25); font-family:var(--font-mono); font-size:11px; color:#f59e0b; flex-shrink:0; z-index:2; }
 #keys-banner.visible { display:flex; }
 #keys-banner svg { width:14px; height:14px; flex-shrink:0; }
 #open-settings-btn { margin-left:auto; padding:3px 10px; border-radius:4px; border:1px solid rgba(245,158,11,0.5); background:transparent; color:#f59e0b; font-family:var(--font-mono); font-size:10px; cursor:pointer; transition:all .2s; }
 #open-settings-btn:hover { background:rgba(245,158,11,0.15); }
+
+/* FIX QW-1 (UI) — banner de memoria no persistente (MemoryDB / fallback).
+   Mismo patrón visual que #keys-banner pero en rojo, porque la severidad
+   es distinta: faltan keys = no puede responder todavía (recuperable al
+   configurar); fallback de memoria = todo lo que se hable HOY se pierde
+   al cerrar la app, sin aviso previo si no fuera por este banner. */
+#memory-banner { display:none; align-items:center; gap:10px; padding:8px 14px; background:rgba(239,68,68,0.08); border-bottom:1px solid rgba(239,68,68,0.3); font-family:var(--font-mono); font-size:11px; color:#ef4444; flex-shrink:0; z-index:2; }
+#memory-banner.visible { display:flex; }
+#memory-banner svg { width:14px; height:14px; flex-shrink:0; }
 
 #settings-modal { display:none; position:fixed; inset:0; z-index:1000; background:rgba(0,0,0,0.6); backdrop-filter:blur(4px); align-items:center; justify-content:center; }
 #settings-modal.visible { display:flex; }
@@ -248,6 +263,9 @@ body::before { content:''; position:fixed; inset:0; background:var(--grain); poi
     <span class="header-tag">v0.1 · AGENTE</span>
     <div class="header-spacer"></div>
     <span id="openclaw-badge" class="openclaw-badge offline" title="OpenClaw no disponible">NO TOOLS</span>
+    <button id="mode-toggle" class="mode-toggle" title="Modo conversación: rápido y económico. Clic para pasar a modo tareas (GPT-OSS 120B).">
+      <span class="mode-icon">💬</span><span class="mode-label">Conversación</span>
+    </button>
     <span class="theme-label" id="theme-label">DARK</span>
     <div id="theme-toggle" title="Cambiar tema"></div>
     <button id="close-btn" title="Cerrar">✕</button>
@@ -256,6 +274,15 @@ body::before { content:''; position:fixed; inset:0; background:var(--grain); poi
   <section id="chat-panel">
     <div class="corner-deco tl"></div>
     <div class="corner-deco bl"></div>
+
+    <!-- FIX QW-1 (UI): banner de memoria no persistente. Lo controla
+         el listener 'memory-status' más abajo, vía ipcRenderer. -->
+    <div id="memory-banner">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+        <path d="M12 9v4m0 4h.01M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/>
+      </svg>
+      Memoria no persistente — better-sqlite3 no cargó. Lo que hablen hoy se perderá al cerrar la app.
+    </div>
 
     <div id="keys-banner">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
@@ -390,6 +417,31 @@ let pendingFiles = [];
 // Fase 3
 let openclawAvailable = false;
 let activePlanId      = null;
+
+// Modo de chat: 'conversational' (Groq fast) o 'task' (Kimi K2, modo smart de
+// LLMProvider — ver LLMProvider.js v5). main.js envía el valor guardado vía
+// 'init-mode' cuando esta ventana termina de cargar.
+let chatMode = 'conversational';
+
+function applyModeUI(mode) {
+  chatMode = (mode === 'task') ? 'task' : 'conversational';
+  const btn = document.getElementById('mode-toggle');
+  if (!btn) return;
+  const isTask = chatMode === 'task';
+  btn.classList.toggle('task', isTask);
+  btn.querySelector('.mode-icon').textContent  = isTask ? '🛠️' : '💬';
+  btn.querySelector('.mode-label').textContent = isTask ? 'Tareas (GPT-OSS)' : 'Conversación';
+  btn.title = isTask
+    ? 'Modo tareas: usa GPT-OSS 120B vía Groq — más lento, mejor para programar, leer documentación y usar herramientas. Clic para volver a conversación.'
+    : 'Modo conversación: rápido y económico. Clic para pasar a modo tareas (GPT-OSS 120B).';
+}
+
+document.getElementById('mode-toggle').addEventListener('click', () => {
+  const next = chatMode === 'task' ? 'conversational' : 'task';
+  applyModeUI(next);
+  ipcRenderer.send('chat-mode-changed', next);
+  console.log('[chat] modo cambiado a:', next);
+});
 
 const sessionHistory      = [];
 const MAX_SESSION_HISTORY = 20;
@@ -535,6 +587,19 @@ function updateKeysBanner(activeProvider) {
   document.getElementById('keys-banner').classList.toggle('visible', !activeProvider);
 }
 
+// FIX QW-1 (UI): muestra/oculta el banner de memoria no persistente.
+// main.js envía esto una sola vez, justo cuando esta ventana termina de
+// cargar (ver did-finish-load de chatWindow en main.js), leyendo el flag
+// usingFallback directamente de StateGraph.
+ipcRenderer.on('memory-status', (e, { usingFallback }) => {
+  const banner = document.getElementById('memory-banner');
+  if (!banner) return;
+  banner.classList.toggle('visible', !!usingFallback);
+  if (usingFallback) {
+    console.warn('[march7th] ⚠ memoria no persistente — better-sqlite3 no cargó, usando MemoryDB');
+  }
+});
+
 // ── Settings modal ────────────────────────────────────────────────────────────
 const settingsModal  = document.getElementById('settings-modal');
 const settingsStatus = document.getElementById('settings-status');
@@ -627,7 +692,10 @@ async function processMessage(text, files = []) {
     if (!context || !context.messages || !context.systemPrompt) {
       throw new Error('context inválido');
     }
-    response = await LLMProvider.complete(context.messages, context.systemPrompt);
+    console.log('[chat] generando respuesta en modo:', chatMode);
+    response = chatMode === 'task'
+      ? await LLMProvider.completeTask(context.messages, context.systemPrompt)
+      : await LLMProvider.complete(context.messages, context.systemPrompt);
   } catch(err) {
     console.error('[chat] error LLM:', err.message);
     response = LLMProvider.getActiveProvider()
@@ -698,7 +766,7 @@ async function _executePlanWithUI(plan, msgDiv) {
 if (txt?.trim()) {
   resultEl.textContent = txt;
   resultEl.style.display = 'block';
-  setTimeout(() => _summarizePlanResult(plan.goal, txt), 10000); // 10s — evita chocar con el rate limit TPM de Groq
+  setTimeout(() => _summarizePlanResult(plan, txt), 10000); // 10s — evita chocar con el rate limit TPM de Groq
 }
   }
   if (!result.ok && result.error) {
@@ -737,13 +805,48 @@ function _extractSummaryInput(rawResult) {
   }
 }
 
-async function _summarizePlanResult(goal, rawResult) {
+// FIX — _summarizePlanResult recibía solo `goal` (texto del usuario) y
+// `rawResult`, y le pedía al LLM "Resume lo más relevante. Sé directa y
+// breve." sin más contexto. Para acciones de SOLO LECTURA (read_file), el
+// usuario YA tiene el contenido completo visible en el bloque de resultado
+// justo arriba — pedirle al modelo que "resuma" un dump de código gigante
+// con una instrucción vaga es una tarea ambigua, y la salida típica de un
+// modelo rápido/económico ante ambigüedad es esquivar con una pregunta de
+// aclaración ("¿qué específico te gustaría saber?") en vez de aportar algo.
+// Eso es lo que se veía: una respuesta genérica e inútil después de leer
+// main.js con éxito.
+//
+// Fix: además de pasar el contenido real (ya se hacía), ahora se construye
+// una instrucción EXPLÍCITA y distinta según el tipo de acción ejecutada:
+//   - Si TODOS los pasos del plan fueron de solo lectura (`read`/`read_file`):
+//     se le aclara al modelo que el contenido YA es visible para el usuario,
+//     se le pide una descripción breve y directa (no un resumen exhaustivo),
+//     y se le prohíbe explícitamente pedir aclaraciones o negarse.
+//   - Para cualquier otro caso (exec, git, escritura de archivos, etc.):
+//     se mantiene la instrucción de resumen genérica, pero también se agrega
+//     la prohibición de pedir aclaraciones, porque el mismo problema de fondo
+//     (modelo ambiguo → pregunta en vez de responder) aplica igual ahí.
+//
+// Se recibe `plan` completo (antes solo `plan.goal`) para poder inspeccionar
+// `plan.steps[].tool` y decidir qué instrucción usar.
+async function _summarizePlanResult(plan, rawResult) {
   try {
     const compactResult = _extractSummaryInput(rawResult);
 
+    const READ_TOOLS = new Set(['read', 'read_file']);
+    const isReadOnly  = plan.steps.length > 0 && plan.steps.every(s => READ_TOOLS.has(s.tool));
+
+    const instruction = isReadOnly
+      ? 'El usuario YA está viendo el contenido completo del archivo en un bloque arriba de este mensaje — no lo repitas ni lo resumas línea por línea. ' +
+        'Da una descripción breve y directa (2-4 frases) de qué hace este archivo o qué contiene, en tu voz habitual. ' +
+        'NO preguntes qué parte le interesa, NO digas que no puedes resumir un archivo grande, NO pidas que especifique qué quiere saber. ' +
+        'Si de verdad el contenido es muy largo para detallarlo todo, simplemente menciona los puntos más importantes que puedas identificar y omite el resto — eso es preferible a no responder.'
+      : 'Resume lo más relevante en tu voz. Sé directa y breve. ' +
+        'NO preguntes qué parte le interesa ni pidas que especifique — si quiere más detalle, ya te lo va a decir después.';
+
     const summaryHistory = [
       ...sessionHistory,
-      { role: 'user', content: `Resultado de ejecutar "${goal}":\n\n${compactResult}\n\nResume lo más relevante en tu voz. Sé directa y breve.` },
+      { role: 'user', content: `Resultado de ejecutar "${plan.goal}":\n\n${compactResult}\n\n${instruction}` },
     ];
     const context = await ipcRenderer.invoke('grounding-build-context', {
       sessionHistory: summaryHistory,
@@ -1108,6 +1211,7 @@ window.addEventListener('resize', () => {
 // ── IPC listeners ─────────────────────────────────────────────────────────────
 document.getElementById('close-btn').addEventListener('click', () => ipcRenderer.send('chat-close'));
 ipcRenderer.on('init-theme',   (e, theme) => setTheme(theme));
+ipcRenderer.on('init-mode',    (e, mode)  => applyModeUI(mode || 'conversational'));
 ipcRenderer.on('chat-speak',   (e, text)  => speak(text));
 ipcRenderer.on('chat-message', (e, text)  => processMessage(text));
 

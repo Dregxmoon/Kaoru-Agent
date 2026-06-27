@@ -1,30 +1,32 @@
 /**
- * MarchCore.js — Fase 3
+ * MarchCore.js — Fase 3 + Quick Fixes
  *
- * Agrega al stack de Fase 2.5:
- *   - BehaviorModel  → decide tono y comportamiento por turno
- *   - Planner        → descompone acciones en pasos ejecutables
- *   - OpenClawBridge → ejecuta herramientas via HTTP en localhost:18789
+ * Fix QW-1: propaga graph.usingFallback al renderer vía IPC.
+ * Fix QW-4: init() idempotente.
+ * Fase 3 — IntentDetector: buildContext() es async, detecta intención
+ *   semántica con embeddings locales e inyecta en el system prompt.
  *
- * La separación de responsabilidades se mantiene:
- *   March decide qué hacer  →  Planner descompone  →  OpenClaw ejecuta
+ * FIX Fase 3b: sqlite-vec se carga en la misma conexión del StateGraph
+ *   antes de instanciar el IntentDetector, para que la tabla virtual
+ *   intent_vectors sea visible desde esa conexión.
  */
 
 const path = require('path');
 const fs   = require('fs');
 
-const { getStateGraph }    = require('./state-graph/StateGraph.js');
-const { GroundingEngine }  = require('./grounding/GroundingEngine.js');
-const { SessionManager }   = require('./state-graph/SessionManager.js');
-const { StateUpdater }     = require('./state-graph/StateUpdater.js');
-const { OSSensor }         = require('../infrastructure/sensors/OSSensor.js');
-const { getEventBus }      = require('../infrastructure/event-bus/EventBus.js');
-const { InitiativeEngine } = require('./behavior/InitiativeEngine.js');
-const { ProactiveEngine }  = require('./behavior/ProactiveEngine.js');
-const { BehaviorModel }    = require('./behavior/BehaviorModel.js');
-const { getPlanner, setProjectCWD } = require('./planner/Planner.js');
-const { getOpenClawBridge } = require('./planner/OpenClawBridge.js');
-const LLMProvider           = require('./llm/LLMProvider.js');
+const { getIntentDetector }            = require('./grounding/IntentDetector.js');
+const { getStateGraph }                = require('./state-graph/StateGraph.js');
+const { GroundingEngine }              = require('./grounding/GroundingEngine.js');
+const { SessionManager }               = require('./state-graph/SessionManager.js');
+const { StateUpdater }                 = require('./state-graph/StateUpdater.js');
+const { OSSensor }                     = require('../infrastructure/sensors/OSSensor.js');
+const { getEventBus }                  = require('../infrastructure/event-bus/EventBus.js');
+const { InitiativeEngine }             = require('./behavior/InitiativeEngine.js');
+const { ProactiveEngine }              = require('./behavior/ProactiveEngine.js');
+const { BehaviorModel }                = require('./behavior/BehaviorModel.js');
+const { getPlanner, setProjectCWD }    = require('./planner/Planner.js');
+const { getOpenClawBridge }            = require('./planner/OpenClawBridge.js');
+const LLMProvider                      = require('./llm/LLMProvider.js');
 
 let _graph       = null;
 let _grounding   = null;
@@ -39,10 +41,18 @@ let _bridge      = null;
 let _bus         = null;
 let _app         = null;
 let _configPath  = null;
+let _detector    = null;
 
+let _initialized  = false;
 let _onInitiative = null;
 
 function init(app) {
+  if (_initialized) {
+    console.warn('[march-core] init() llamado más de una vez — ignorando');
+    return { graph: _graph, grounding: _grounding, session: _session };
+  }
+  _initialized = true;
+
   _app = app;
   _bus = getEventBus();
 
@@ -54,35 +64,27 @@ function init(app) {
     ? path.join(app.getPath('userData'), 'config.json')
     : null;
 
-  // Subsistemas base (Fases 0-1)
-  _graph     = getStateGraph(dbPath);
+  _graph = getStateGraph(dbPath);
+console.log('[march-core] DEBUG graph.usingFallback:', _graph.usingFallback, '| _graph._db:', !!_graph._db);
   _grounding = new GroundingEngine(_graph);
   _session   = new SessionManager(_graph, _grounding);
   _updater   = new StateUpdater(_graph);
 
-  // Subsistemas Fase 2
   _osSensor   = new OSSensor(_graph);
   _initiative = new InitiativeEngine(_graph);
+  _proactive  = new ProactiveEngine(_graph);
 
-  // Subsistema Fase 2.5
-  _proactive = new ProactiveEngine(_graph);
-
-  // ── Subsistemas Fase 3 ────────────────────────────────────────────────────
   _behavior = new BehaviorModel(_graph);
   _planner  = getPlanner();
   _bridge   = getOpenClawBridge();
 
-  // Bug 1, 12: fijar el CWD al directorio raíz del proyecto Electron
-  // app.getAppPath() devuelve la carpeta donde está main.js
   const projectCWD = app ? app.getAppPath() : process.cwd();
   setProjectCWD(projectCWD);
 
-  // Conectar OSSensor a todos los subsistemas que lo necesitan
   _grounding.setOSSensor(_osSensor);
   if (typeof _initiative.setOSSensor === 'function') _initiative.setOSSensor(_osSensor);
   _proactive.setOSSensor(_osSensor);
 
-  // Arrancar OSSensor solo en Windows
   if (process.platform === 'win32') {
     _osSensor.start();
     console.log('[march-core] OSSensor iniciado');
@@ -90,22 +92,39 @@ function init(app) {
     console.log('[march-core] OSSensor no disponible (no es Windows)');
   }
 
-  // Escuchar iniciativas (InitiativeEngine y ProactiveEngine)
+  // ── IntentDetector ────────────────────────────────────────────────────────
+  // FIX Fase 3b: cargar sqlite-vec en la misma conexión del StateGraph
+  // ANTES de instanciar el IntentDetector. Sin esto, intent_vectors no
+  // existe para esa conexión y el detector falla silenciosamente.
+  if (!_graph.usingFallback && _graph._db) {
+    try {
+      const sqliteVec = require('sqlite-vec');
+      sqliteVec.load(_graph._db);
+      console.log('[march-core] sqlite-vec cargado en StateGraph DB');
+
+      _detector = getIntentDetector(_graph._db);
+      _detector.warmup().then(() => {
+        console.log('[march-core] IntentDetector listo');
+      }).catch(e => {
+        console.warn('[march-core] IntentDetector warmup falló:', e.message);
+      });
+    } catch(e) {
+      console.warn('[march-core] IntentDetector no disponible:', e.message);
+      _detector = null;
+    }
+  } else {
+    console.warn('[march-core] IntentDetector desactivado (DB no disponible)');
+  }
+
   _bus.on('initiative:trigger', (payload) => {
     console.log(`[march-core] initiative: "${payload.suggestion?.slice(0, 60)}"`);
     if (_onInitiative) _onInitiative(payload);
   });
 
-  // Prune diario de historial de apps
   _scheduleDailyPrune();
-
-  // Cargar configuración LLM
   _loadLLMConfig();
-
-  // Arrancar ProactiveEngine después de que LLMProvider esté configurado
   _proactive.start();
 
-  // Verificar disponibilidad de OpenClaw al arrancar (sin bloquear)
   _bridge.isAvailable().then(available => {
     if (available) {
       console.log('[march-core] OpenClaw disponible — Fase 3 activa');
@@ -115,13 +134,26 @@ function init(app) {
     }
   }).catch(() => {});
 
+  if (_graph.usingFallback) {
+    console.error('');
+    console.error('╔══════════════════════════════════════════════════════════╗');
+    console.error('║  ⚠  ADVERTENCIA CRÍTICA — MEMORIA NO PERSISTENTE        ║');
+    console.error('║                                                          ║');
+    console.error('║  better-sqlite3 no pudo inicializarse.                  ║');
+    console.error('║  March está usando MemoryDB (RAM temporal).             ║');
+    console.error('║  Todo lo aprendido esta sesión se perderá al cerrar.    ║');
+    console.error('║                                                          ║');
+    console.error('║  Solución: npx electron-rebuild -f -w better-sqlite3    ║');
+    console.error('╚══════════════════════════════════════════════════════════╝');
+    console.error('');
+    _bus.emit('march:memory-status', { usingFallback: true });
+  }
+
   console.log('[march-core] inicializado (Fase 3)');
   return { graph: _graph, grounding: _grounding, session: _session };
 }
 
-function onInitiative(cb) {
-  _onInitiative = cb;
-}
+function onInitiative(cb) { _onInitiative = cb; }
 
 function setChatOpen(open) {
   _initiative?.setChatOpen(open);
@@ -143,9 +175,7 @@ function _loadLLMConfig() {
   }
 }
 
-function reloadLLMConfig() {
-  _loadLLMConfig();
-}
+function reloadLLMConfig() { _loadLLMConfig(); }
 
 // ── Sesión ────────────────────────────────────────────────────────────────────
 
@@ -175,25 +205,15 @@ function detectInstant(userMessage) {
 
 // ── Context ───────────────────────────────────────────────────────────────────
 
-/**
- * buildContext — Fase 3:
- * Ahora incluye el BehaviorContext serializado en el system prompt.
- *
- * @param {Array}  sessionHistory
- * @param {string} activeProvider
- * @returns {{ systemPrompt: string, messages: Array, behaviorCtx: object }}
- */
-function buildContext(sessionHistory, activeProvider) {
+async function buildContext(sessionHistory, activeProvider) {
   const provider = activeProvider || LLMProvider.getActiveProvider() || 'groq';
 
-  // Último mensaje del usuario para el BehaviorModel
   const lastUserMsg = [...sessionHistory].reverse().find(m => m.role === 'user');
   const userText    = lastUserMsg?.content || '';
 
-  // Obtener contexto OS
   const osCtx = _osSensor?.getCurrentContext() ?? null;
 
-  // Evaluar comportamiento para este turno
+  // BehaviorModel
   let behaviorCtx = null;
   if (_behavior) {
     try {
@@ -203,16 +223,32 @@ function buildContext(sessionHistory, activeProvider) {
     }
   }
 
-  // Construir contexto base
+  // IntentDetector
+  let toolIntent = null;
+  if (_detector) {
+    try {
+      toolIntent = await _detector.detect(userText);
+      if (toolIntent.detected) {
+        console.log(
+          `[march-core] toolIntent: ${toolIntent.action}` +
+          ` (${(toolIntent.confidence * 100).toFixed(0)}%, ${toolIntent.level})`
+        );
+      }
+    } catch(e) {
+      console.warn('[march-core] IntentDetector error:', e.message);
+    }
+  }
+
+  // GroundingEngine
   let result;
   if (_grounding) {
-    result = _grounding.buildContext(sessionHistory, provider);
+    result = _grounding.buildContext(sessionHistory, provider, toolIntent);
   } else {
     const Fallback = require('./llm/GroundingMinimo.js');
     result = Fallback.buildContext(sessionHistory);
   }
 
-  // Inyectar BehaviorContext en el system prompt
+  // BehaviorModel — inyectar sección
   if (behaviorCtx) {
     const behaviorSection = BehaviorModel.serialize(behaviorCtx);
     if (behaviorSection) {
@@ -220,67 +256,44 @@ function buildContext(sessionHistory, activeProvider) {
     }
   }
 
-  // Inyectar estado de OpenClaw si está disponible
-  if (_bridge?.getStats()?.available) {
+  // OpenClaw — solo si no hay toolIntent detectado
+  if (_bridge?.getStats()?.available && !toolIntent?.detected) {
     result.systemPrompt +=
-  '\n\n# HERRAMIENTAS DISPONIBLES — REGLAS ESTRICTAS\n' +
-  'Tienes acceso a OpenClaw para ejecutar acciones reales en el PC del usuario.\n\n' +
-  'REGLA 1 — ANUNCIA, NO EJECUTES EN PROSA:\n' +
-  'Para ejecutar un comando di EXACTAMENTE: "Ejecutar: git status"\n' +
-  'Para leer un archivo di EXACTAMENTE: "Voy a leer el archivo README.md"\n' +
-  'Para editar un archivo di EXACTAMENTE: "Voy a escribir el archivo README.md"\n\n' +
-  'REGLA 2 — NUNCA INVENTES RESULTADOS:\n' +
-  'JAMÁS describas el resultado de un comando antes de ejecutarlo.\n' +
-  'JAMÁS escribas output de comandos inventado (hashes de commit, listas de archivos, etc).\n' +
-  'Si el usuario pide git add + git commit, anuncia cada comando por separado.\n' +
-  'El sistema ejecutará los comandos y tú recibirás el resultado real.\n\n' +
-  'REGLA 3 — SECUENCIA DE COMANDOS:\n' +
-  'Si el usuario pide varios comandos en orden, anúncialos TODOS en la misma respuesta, uno por línea.\n' +
-  'Formato exacto para múltiples comandos:\n' +
-  'Ejecutar: git add .\n' +
-  'Ejecutar: git commit -m "mensaje"\n' +
-  'Ejecutar: git push origin 7March\n' +
-  'El sistema los ejecutará en orden automáticamente.';
+      '\n\n# HERRAMIENTAS DISPONIBLES — REGLAS ESTRICTAS\n' +
+      'Tienes acceso a OpenClaw para ejecutar acciones reales en el PC del usuario.\n\n' +
+      'REGLA 1 — ANUNCIA, NO EJECUTES EN PROSA:\n' +
+      'Para ejecutar un comando di EXACTAMENTE: "Ejecutar: git status"\n' +
+      'Para leer un archivo di EXACTAMENTE: "Voy a leer el archivo README.md"\n' +
+      'Para editar un archivo di EXACTAMENTE: "Voy a escribir el archivo README.md"\n\n' +
+      'REGLA 2 — NUNCA INVENTES RESULTADOS:\n' +
+      'JAMÁS describas el resultado de un comando antes de ejecutarlo.\n' +
+      'JAMÁS escribas output de comandos inventado (hashes de commit, listas de archivos, etc).\n' +
+      'Si el usuario pide git add + git commit, anuncia cada comando por separado.\n' +
+      'El sistema ejecutará los comandos y tú recibirás el resultado real.\n\n' +
+      'REGLA 3 — SECUENCIA DE COMANDOS:\n' +
+      'Si el usuario pide varios comandos en orden, anúncialos TODOS en la misma respuesta, uno por línea.\n' +
+      'Formato exacto para múltiples comandos:\n' +
+      'Ejecutar: git add .\n' +
+      'Ejecutar: git commit -m "mensaje"\n' +
+      'Ejecutar: git push origin 7March\n' +
+      'El sistema los ejecutará en orden automáticamente.';
   }
 
-  return { ...result, behaviorCtx };
+  return { ...result, behaviorCtx, toolIntent };
 }
 
 // ── Fase 3: Planner y OpenClaw ────────────────────────────────────────────────
 
-/**
- * Verifica si OpenClaw está disponible.
- * @returns {Promise<boolean>}
- */
 async function isOpenClawAvailable() {
   if (!_bridge) return false;
   return _bridge.isAvailable();
 }
 
-/**
- * Parsea una respuesta del LLM buscando acciones y construye un plan.
- * Retorna null si no hay acciones detectadas.
- *
- * @param {string} llmResponse
- * @param {string} userGoal
- * @returns {object|null} Plan
- */
 function parsePlanFromResponse(llmResponse, userGoal) {
   if (!_planner) return null;
   return _planner.planFromLLMResponse(llmResponse, userGoal);
 }
 
-/**
- * Ejecuta un plan.
- * Emite eventos al EventBus para que main.js pueda notificar al renderer.
- *
- * @param {object}   plan
- * @param {object}   [opts]
- * @param {Function} [opts.onApprovalNeeded]  — async (step) → boolean
- * @param {Function} [opts.onStepStart]       — (step) → void
- * @param {Function} [opts.onStepDone]        — (step, result) → void
- * @returns {Promise<object>} Plan ejecutado
- */
 async function executePlan(plan, opts = {}) {
   if (!_planner) throw new Error('Planner no inicializado');
 
@@ -296,24 +309,12 @@ async function executePlan(plan, opts = {}) {
     opts.onStepDone?.(step, result);
   };
 
-  const result = await _planner.execute(plan, {
-    ...opts,
-    onStepStart,
-    onStepDone,
-  });
+  const result = await _planner.execute(plan, { ...opts, onStepStart, onStepDone });
 
   _bus.emit('plan:finished', { planId: plan.id, status: result.status, result: result.result });
   return result;
 }
 
-/**
- * Ejecuta una herramienta directamente (sin plan multi-paso).
- * Para acciones simples y rápidas.
- *
- * @param {string} tool
- * @param {object} params
- * @returns {Promise<object>} resultado del bridge
- */
 async function executeTool(tool, params) {
   if (!_bridge) throw new Error('OpenClawBridge no inicializado');
   return _bridge.execute(tool, params);
@@ -335,24 +336,22 @@ function getStats() {
   } catch(_) {}
 
   return {
-    session:    _session?.getStats()            ?? { error: 'no inicializado' },
-    osSensor:   _osSensor?.getCurrentContext()  ?? null,
-    initiative: _initiative?.getStats()         ?? null,
-    proactive:  _proactive?.getStats()          ?? null,
-    planner:    _planner?.getStats()            ?? null,
-    openclaw:   _bridge?.getStats()             ?? null,
-    eventBus:   busEvents,
-    provider:   LLMProvider.getActiveProvider() ?? 'groq',
+    session:        _session?.getStats()            ?? { error: 'no inicializado' },
+    osSensor:       _osSensor?.getCurrentContext()  ?? null,
+    initiative:     _initiative?.getStats()         ?? null,
+    proactive:      _proactive?.getStats()          ?? null,
+    planner:        _planner?.getStats()            ?? null,
+    openclaw:       _bridge?.getStats()             ?? null,
+    intentDetector: _detector ? { ready: _detector._ready } : null,
+    eventBus:       busEvents,
+    provider:       LLMProvider.getActiveProvider() ?? 'groq',
+    usingFallback:  _graph?.usingFallback           ?? false,
   };
 }
-
-// ── Testing ───────────────────────────────────────────────────────────────────
 
 async function forceProactive(triggerType = 'long_silence') {
   return _proactive?.forceEvaluate(triggerType);
 }
-
-// ── Prune diario ──────────────────────────────────────────────────────────────
 
 function _scheduleDailyPrune() {
   const run = () => {
@@ -393,7 +392,6 @@ module.exports = {
   setChatOpen,
   reloadLLMConfig,
   forceProactive,
-  // Fase 3
   isOpenClawAvailable,
   parsePlanFromResponse,
   executePlan,

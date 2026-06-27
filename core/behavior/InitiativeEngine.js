@@ -1,20 +1,21 @@
 /**
- * InitiativeEngine.js — Fase 2
+ * InitiativeEngine.js — Fase 2 (v2 — FIX #3 árbitro global)
  *
- * Decide cuándo March interrumpe proactivamente al usuario.
+ * CAMBIOS RESPECTO A v1:
  *
- * Fórmula de utilidad: U = Relevance - InterruptionCost
- *   - Relevance: qué tan relevante es el contexto actual para March
- *   - InterruptionCost: coste de interrumpir (tiempo reciente, sesión activa, etc.)
+ *   FIX #3 — Árbitro global entre InitiativeEngine y ProactiveEngine.
+ *     Antes ambos engines emitían initiative:trigger sin coordinarse.
+ *     Ahora InitiativeEngine escucha TODOS los eventos initiative:trigger
+ *     (incluyendo los de ProactiveEngine) y actualiza _lastAnyInitiative.
+ *     Antes de disparar, verifica que nadie más haya hablado recientemente.
  *
- * Reglas estrictas anti-spam:
- *   - Mínimo 20 minutos entre iniciativas
- *   - Mínimo 5 minutos en la misma app antes de comentar
- *   - Máximo 2 iniciativas por sesión de chat abierta
- *   - No interrumpir si el chat ya está activo (el usuario ya está hablando)
+ *     La guardia nueva es más estricta que MIN_INITIATIVE_INTERVAL_MS
+ *     (que solo medía el tiempo desde la ÚLTIMA iniciativa de ESTE engine).
+ *     Con el árbitro, si ProactiveEngine disparó hace 10 minutos,
+ *     InitiativeEngine no dispara aunque su propio contador diga que puede.
  *
- * Emite al EventBus:
- *   initiative:trigger — { reason, app, suggestion, actionType, canHelp }
+ *   Sin otros cambios funcionales — toda la lógica de detección de apps,
+ *   scoring de utilidad y reglas INITIATIVE_RULES se mantiene igual.
  */
 
 const { getEventBus } = require('../../infrastructure/event-bus/EventBus.js');
@@ -22,8 +23,13 @@ const { getEventBus } = require('../../infrastructure/event-bus/EventBus.js');
 // Tiempo mínimo en una app antes de que March comente (segundos)
 const MIN_APP_TIME_SEC = 5 * 60;      // 5 minutos
 
-// Tiempo mínimo entre iniciativas (ms)
+// Tiempo mínimo entre iniciativas DE ESTE engine (ms)
 const MIN_INITIATIVE_INTERVAL_MS = 20 * 60 * 1000; // 20 minutos
+
+// FIX #3: tiempo mínimo entre CUALQUIER iniciativa (árbitro global, ms)
+// Más corto que MIN_INITIATIVE_INTERVAL_MS porque ProactiveEngine ya tiene
+// su propio límite de 4 horas — aquí solo evitamos colisiones inmediatas.
+const MIN_ANY_INITIATIVE_MS = 8 * 60 * 1000; // 8 minutos
 
 // Máximo iniciativas por sesión de chat abierta
 const MAX_INITIATIVES_PER_SESSION = 2;
@@ -44,7 +50,7 @@ const INITIATIVE_RULES = [
   },
   {
     category: 'terminal',
-    minTime:  3 * 60, // 3 minutos en terminal ya es sospechoso
+    minTime:  3 * 60,
     score:    0.85,
     messages: [
       () => 'Llevas un rato en la terminal. ¿Algo que no está saliendo?',
@@ -88,12 +94,16 @@ const INITIATIVE_RULES = [
 
 class InitiativeEngine {
   constructor(stateGraph) {
-    this._graph            = stateGraph;
-    this._bus              = getEventBus();
-    this._lastInitiative   = 0;
-    this._initiativeCount  = 0;
-    this._chatOpen         = false;
-    this._sessionActive    = false;
+    this._graph           = stateGraph;
+    this._bus             = getEventBus();
+    this._lastInitiative  = 0;
+
+    // FIX #3: timestamp de CUALQUIER iniciativa de cualquier engine
+    this._lastAnyInitiative = 0;
+
+    this._initiativeCount = 0;
+    this._chatOpen        = false;
+    this._sessionActive   = false;
 
     this._setupListeners();
   }
@@ -113,8 +123,14 @@ class InitiativeEngine {
       this._initiativeCount = 0;
     });
     this._bus.on('session:closed', () => {
-      this._sessionActive  = false;
-      this._chatOpen       = false;
+      this._sessionActive = false;
+      this._chatOpen      = false;
+    });
+
+    // FIX #3: escuchar TODAS las iniciativas (incluso las de ProactiveEngine)
+    // para actualizar el árbitro global _lastAnyInitiative
+    this._bus.on('initiative:trigger', () => {
+      this._lastAnyInitiative = Date.now();
     });
   }
 
@@ -133,9 +149,13 @@ class InitiativeEngine {
     // No evaluar si se superó el límite de iniciativas por sesión
     if (this._initiativeCount >= MAX_INITIATIVES_PER_SESSION) return false;
 
-    // No evaluar si no pasó el tiempo mínimo desde la última iniciativa
-    const timeSinceLast = Date.now() - this._lastInitiative;
-    if (timeSinceLast < MIN_INITIATIVE_INTERVAL_MS) return false;
+    // No evaluar si no pasó el tiempo mínimo desde la última iniciativa DE ESTE engine
+    const timeSinceOwn = Date.now() - this._lastInitiative;
+    if (timeSinceOwn < MIN_INITIATIVE_INTERVAL_MS) return false;
+
+    // FIX #3: no evaluar si cualquier engine disparó recientemente
+    const timeSinceAny = Date.now() - this._lastAnyInitiative;
+    if (timeSinceAny < MIN_ANY_INITIATIVE_MS) return false;
 
     return true;
   }
@@ -152,14 +172,16 @@ class InitiativeEngine {
     const interruptionCost = this._calculateInterruptionCost();
     const utility          = relevance - interruptionCost;
 
-    if (utility <= 0.3) return; // umbral mínimo
+    if (utility <= 0.3) return;
 
     // Elegir mensaje
     const msgFn      = rule.messages[Math.floor(Math.random() * rule.messages.length)];
     const suggestion = msgFn(friendlyName || app, title);
 
     // Disparar iniciativa
-    this._lastInitiative = Date.now();
+    this._lastInitiative  = Date.now();
+    // _lastAnyInitiative se actualiza automáticamente desde el listener
+    // 'initiative:trigger' en _setupListeners (FIX #3)
     this._initiativeCount++;
 
     const payload = {
@@ -180,8 +202,17 @@ class InitiativeEngine {
   }
 
   _calculateInterruptionCost() {
-    // Mayor costo si hay iniciativa reciente
-    const timeSinceLast = Date.now() - this._lastInitiative;
+    // FIX #3: la función ahora toma en cuenta AMBOS timestamps
+    const now = Date.now();
+
+    // Tiempo desde la última iniciativa de ESTE engine
+    const timeSinceOwn = now - this._lastInitiative;
+
+    // Tiempo desde cualquier iniciativa (puede ser más reciente)
+    const timeSinceAny = now - this._lastAnyInitiative;
+
+    // Usar el más reciente de los dos para calcular el costo
+    const timeSinceLast = Math.min(timeSinceOwn, timeSinceAny);
     const hoursSince    = timeSinceLast / (1000 * 60 * 60);
 
     if (hoursSince < 0.5)  return 0.8;  // menos de 30 min → muy costoso
@@ -204,10 +235,11 @@ class InitiativeEngine {
 
   getStats() {
     return {
-      lastInitiative:   this._lastInitiative,
-      initiativeCount:  this._initiativeCount,
-      chatOpen:         this._chatOpen,
-      sessionActive:    this._sessionActive,
+      lastInitiative:     this._lastInitiative,
+      lastAnyInitiative:  this._lastAnyInitiative,
+      initiativeCount:    this._initiativeCount,
+      chatOpen:           this._chatOpen,
+      sessionActive:      this._sessionActive,
     };
   }
 }

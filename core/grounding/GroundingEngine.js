@@ -1,14 +1,9 @@
 /**
- * GroundingEngine.js — Fase 2
+ * GroundingEngine.js — Fase 3 (actualizado)
  *
- * Orquesta el pipeline completo de contexto:
- *   StateGraph → RetrievalPlanner → ContextAssembler → Serializer
- *
- * Diferencias con Fase 1:
- *   - Usa RetrievalPlanner para elegir nodos relevantes por mensaje
- *   - Usa ContextAssembler con serializers por provider
- *   - Incluye contexto OS desde OSSensor
- *   - GroundingMinimo sigue como fallback si algo falla
+ * CAMBIOS respecto a Fase 2:
+ *   - buildContext() acepta toolIntent como tercer parámetro
+ *   - Lo pasa al ContextAssembler para que el GroqSerializer lo inyecte
  */
 
 const fs   = require('fs');
@@ -25,7 +20,6 @@ class GroundingEngine {
     this._osSensor  = null;
   }
 
-  /** Inyectar OSSensor cuando esté disponible (lo hace MarchCore). */
   setOSSensor(osSensor) {
     this._osSensor = osSensor;
     this._assembler.setOSSensor(osSensor);
@@ -33,30 +27,23 @@ class GroundingEngine {
   }
 
   /**
-   * Construye el Context Package completo para un turno.
-   * Punto de entrada principal — compatible con Fase 1.
-   *
-   * @param {Array}  sessionHistory  — historial completo incluyendo mensaje actual
-   * @param {string} activeProvider  — 'groq' | 'gemini' | 'openai'
-   * @returns {{ messages: Array, systemPrompt: string }}
+   * @param {Array}  sessionHistory
+   * @param {string} activeProvider
+   * @param {object} toolIntent      — resultado de IntentDetector (Fase 3, opcional)
    */
-  buildContext(sessionHistory = [], activeProvider = 'groq') {
+  buildContext(sessionHistory = [], activeProvider = 'groq', toolIntent = null) {
     try {
-      // El último mensaje es el actual — lo usamos para retrieval
       const currentMsg = sessionHistory[sessionHistory.length - 1];
       const userText   = currentMsg?.role === 'user' ? currentMsg.content : '';
+      const osCtx      = this._osSensor?.getCurrentContext() ?? null;
 
-      // Obtener contexto OS para el planner
-      const osCtx = this._osSensor?.getCurrentContext() ?? null;
-
-      // Planificar qué nodos recuperar
       const retrievalResult = this._planner.plan(userText, osCtx);
 
-      // Ensamblar el contexto completo
       const result = this._assembler.build({
         sessionHistory,
         retrievalResult,
         activeProvider,
+        toolIntent,
       });
 
       return result;
@@ -67,32 +54,23 @@ class GroundingEngine {
     }
   }
 
-  /** Fallback a GroundingMinimo si algo falla en el pipeline. */
   _fallback(sessionHistory) {
     try {
       const Fallback = require('../llm/GroundingMinimo.js');
       return Fallback.buildContext(sessionHistory);
     } catch(e2) {
       console.error('[grounding] fallback también falló:', e2.message);
-      const last = sessionHistory.slice(-1);
       return {
         systemPrompt: 'Eres March 7th. Responde con tu personalidad habitual.',
-        messages: last,
+        messages: sessionHistory.slice(-1),
       };
     }
   }
 
-  /**
-   * Acceso al OSSensor para el InitiativeEngine y otros módulos.
-   */
   getOSSensor() { return this._osSensor; }
 
-  /**
-   * Contexto OS actual (para el IPC handler en main.js).
-   */
   getOSContext() {
     if (this._osSensor) return this._osSensor.getCurrentContext();
-    // Fallback mínimo
     const now  = new Date();
     const hour = now.getHours();
     let timeOfDay = hour >= 5 && hour < 12 ? 'mañana' : hour < 18 ? 'tarde' : hour < 22 ? 'noche' : 'madrugada';
@@ -107,7 +85,6 @@ class GroundingEngine {
   }
 }
 
-// ── Función standalone (compatibilidad con Fase 0/1) ─────────────────────────
 function buildContext(sessionHistory = []) {
   const engine = new GroundingEngine(null);
   return engine.buildContext(sessionHistory);
@@ -126,9 +103,4 @@ function getIdentity() {
   }
 }
 
-module.exports = {
-  GroundingEngine,
-  buildContext,
-  getOSContext: getOSContextPublic,
-  getIdentity,
-};
+module.exports = { GroundingEngine, buildContext, getOSContext: getOSContextPublic, getIdentity };

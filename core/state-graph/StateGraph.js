@@ -1,20 +1,26 @@
 /**
- * StateGraph.js — Fase 2
+ * StateGraph.js — Fase 2 + Quick Fixes
  *
- * Interfaz pública del grafo de memoria de March.
- * Gestiona nodos con decay automático, relevancia y consolidación.
+ * Fix QW-1: _usingFallback — flag público que indica si la persistencia
+ *   real falló y el sistema cayó a MemoryDB. Permite que main.js / chat.html
+ *   muestren un banner de advertencia visible en lugar de fallar en silencio.
  *
- * Tipos de nodo:
- *   User       — quién es el usuario (nombre, preferencias globales)
- *   Episode    — evento específico con timestamp (ephémero, decae)
- *   Belief     — algo que March cree sobre el usuario o el mundo
- *   Preference — preferencias observadas (herramienta, horario, estilo)
- *   Project    — proyectos activos del usuario
+ * Fix QW-1b: pragma('busy_timeout', 3000) — evita SQLITE_BUSY no manejado
+ *   cuando decay + cierre de sesión coinciden (ej. durante before-quit).
  *
- * Fase 2 agrega:
- *   - Tabla app_history para historial de apps del día (OSSensor)
- *   - saveAppHistory(), getTodayAppHistory(), getAppUsageSummary()
- *   - _migrateSchema() para bases de datos existentes de Fase 1
+ * Fix QW-2 (decay por lectura): queryNodes() ahora actualiza last_accessed_at
+ *   cuando recupera nodos, para que el decay no archive hechos activamente
+ *   usados solo porque no se reescriben frecuentemente.
+ *   Se hace de forma lazy y asíncrona (fire-and-forget) para no añadir
+ *   latencia al camino caliente de retrieval.
+ *
+ * Fix QW-2c (este parche): el touch de QW-2 estaba duplicado en
+ *   queryNodes() y getRecentEpisodes(), y faltaba por completo en
+ *   getWorldModel() — que es justo el método que trae los nodos
+ *   User/Project/Preference/Belief al contexto en cada turno (el caso
+ *   exacto que motivó el bug original: hechos de baja decay_rate que se
+ *   leen todos los días pero nunca se reescriben). Se extrajo la lógica
+ *   a _touchNodes(ids) y se aplicó también en getWorldModel().
  */
 
 const path = require('path');
@@ -65,9 +71,11 @@ class MemoryDB {
 // ── StateGraph ────────────────────────────────────────────────────────────────
 class StateGraph {
   constructor(dbPath) {
-    this._dbPath = dbPath;
-    this._db     = null;
-    this._ready  = false;
+    this._dbPath       = dbPath;
+    this._db           = null;
+    this._ready        = false;
+    // FIX QW-1: flag público — true si no pudo iniciar SQLite real
+    this.usingFallback = false;
   }
 
   init() {
@@ -79,19 +87,24 @@ class StateGraph {
         if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
 
         this._db = new Database(this._dbPath);
+        // FIX QW-1b: evita SQLITE_BUSY no manejado en escrituras concurrentes
+        this._db.pragma('busy_timeout = 3000');
         this._db.pragma('journal_mode = WAL');
         this._db.pragma('foreign_keys = ON');
+        this.usingFallback = false;
       } else {
-        this._db = new MemoryDB();
+        throw new Error('better-sqlite3 no disponible');
       }
 
       this._createSchema();
-      this._migrateSchema(); // Fase 2: migrar DBs existentes de Fase 1
+      this._migrateSchema();
       this._ready = true;
       console.log('[state-graph] inicializado (Fase 2):', this._dbPath);
     } catch(e) {
-      console.error('[state-graph] error init:', e.message);
-      this._db = new MemoryDB();
+      console.error('[state-graph] ERROR CRÍTICO — cayendo a MemoryDB:', e.message);
+      console.error('[state-graph] ⚠ La memoria de March NO se está guardando en disco.');
+      this._db           = new MemoryDB();
+      this.usingFallback = true;
       this._createSchema();
       this._ready = true;
     }
@@ -163,11 +176,6 @@ class StateGraph {
     `);
   }
 
-  /**
-   * Migración segura para bases de datos existentes de Fase 1.
-   * Agrega la tabla app_history si no existe.
-   * Es idempotente — se puede llamar siempre sin riesgo.
-   */
   _migrateSchema() {
     try {
       const tableExists = this._db.prepare(`
@@ -241,6 +249,49 @@ class StateGraph {
     return this._db.prepare('SELECT * FROM nodes WHERE id=?').get(id) || null;
   }
 
+  /**
+   * FIX QW-2c: helper centralizado de "touch" — actualiza last_accessed_at
+   * y access_count de forma lazy/fire-and-forget para una lista de ids.
+   *
+   * Extraído de queryNodes()/getRecentEpisodes() (donde estaba duplicado
+   * literalmente) y aplicado también en getWorldModel(), que antes no
+   * lo tenía. getWorldModel() es el método que trae los nodos
+   * User/Project/Preference/Belief al contexto en cada turno — exactamente
+   * el camino de lectura cuya falta de "touch" causaba que hechos de baja
+   * decay_rate (ej. tipo User) decayeran y se archivaran aunque se
+   * estuvieran usando activamente en cada conversación.
+   *
+   * No se aplica a getNode() a propósito: getNode() se usa internamente
+   * (ej. dentro de updateNode() para leer el estado actual antes de
+   * escribir), y tocar ahí causaría una escritura redundante que
+   * inmediatamente se sobreescribe — no aporta nada y duplica I/O.
+   */
+  _touchNodes(ids, label = '') {
+    if (!ids?.length || this.usingFallback) return;
+    const now = Date.now();
+    setImmediate(() => {
+      try {
+        const placeholders = ids.map(() => '?').join(',');
+        this._db.prepare(
+          `UPDATE nodes SET last_accessed_at=?, access_count=access_count+1 WHERE id IN (${placeholders}) AND archived=0`
+        ).run(now, ...ids);
+      } catch(e) {
+        // No crítico — el decay simplemente no ve este acceso
+        console.warn(`[state-graph] error actualizando last_accessed_at (${label || 'touch'}):`, e.message);
+      }
+    });
+  }
+
+  /**
+   * FIX QW-2: queryNodes ahora actualiza last_accessed_at en los nodos
+   * recuperados (vía _touchNodes), de forma fire-and-forget (no bloquea
+   * el camino caliente). Esto previene que el decay archive nodos que se
+   * usan frecuentemente en retrieval pero que no se reescriben, ya que la
+   * fórmula de decay usa last_accessed_at para calcular daysSince.
+   *
+   * Se limita a nodos con archived=0 para no actualizar memoria archivada
+   * accidentalmente si alguien llama queryNodes({includeArchived: true}).
+   */
   queryNodes({ type, search, limit = 20, includeArchived = false } = {}) {
     let sql    = 'SELECT * FROM nodes WHERE 1=1';
     const args = [];
@@ -252,26 +303,45 @@ class StateGraph {
     sql += ' ORDER BY importance DESC LIMIT ?';
     args.push(limit);
 
-    return this._db.prepare(sql).all(...args);
+    const results = this._db.prepare(sql).all(...args);
+
+    if (!includeArchived) {
+      this._touchNodes(results.map(n => n.id).filter(Boolean), 'queryNodes');
+    }
+
+    return results;
   }
 
   getRecentEpisodes(limit = 20) {
-    return this._db.prepare(`
+    const results = this._db.prepare(`
       SELECT * FROM nodes
       WHERE type='Episode' AND archived=0
       ORDER BY importance DESC, created_at DESC
       LIMIT ?
     `).all(limit);
+
+    this._touchNodes(results.map(n => n.id).filter(Boolean), 'getRecentEpisodes');
+
+    return results;
   }
 
+  /**
+   * FIX QW-2c: getWorldModel() ahora también hace touch de los nodos que
+   * devuelve. Antes era la única vía de lectura "de contexto" del grafo
+   * que no actualizaba last_accessed_at — ver comentario de _touchNodes().
+   */
   getWorldModel() {
-    return this._db.prepare(`
+    const results = this._db.prepare(`
       SELECT * FROM nodes
       WHERE type IN ('User','Project','Preference','Belief')
         AND archived=0
       ORDER BY importance DESC
       LIMIT 30
     `).all();
+
+    this._touchNodes(results.map(n => n.id).filter(Boolean), 'getWorldModel');
+
+    return results;
   }
 
   upsertNode({ type, label, content, importance, tags = [] }) {
@@ -322,15 +392,9 @@ class StateGraph {
 
   // ── App History (Fase 2) ────────────────────────────────────────────────────
 
-  /**
-   * Guarda una entrada de historial de apps.
-   * Llamado por OSSensor cada vez que cambia la app activa.
-   *
-   * @param {object} entry — { app, friendlyName, title, category, start, end, duration }
-   */
   saveAppHistory({ app, friendlyName, title, category, start, end, duration }) {
     if (!app || !start || !end || !duration) return;
-    const dayKey = new Date(start).toISOString().slice(0, 10); // YYYY-MM-DD
+    const dayKey = new Date(start).toISOString().slice(0, 10);
     try {
       this._db.prepare(`
         INSERT INTO app_history (app, friendly_name, title, category, start_ts, end_ts, duration_sec, day_key)
@@ -348,10 +412,6 @@ class StateGraph {
     }
   }
 
-  /**
-   * Obtiene el historial completo de apps del día actual.
-   * @returns {Array} [{id, app, friendly_name, title, category, start_ts, end_ts, duration_sec}]
-   */
   getTodayAppHistory() {
     const dayKey = new Date().toISOString().slice(0, 10);
     try {
@@ -366,13 +426,6 @@ class StateGraph {
     }
   }
 
-  /**
-   * Resumen de tiempo por app en los últimos N días.
-   * Útil para el GroundingEngine — "hoy usó X horas en VSCode".
-   *
-   * @param {number} days — cuántos días hacia atrás (default: 1 = hoy)
-   * @returns {Array} [{friendly_name, category, total_sec}] ordenado por tiempo desc
-   */
   getAppUsageSummary(days = 1) {
     const since = Date.now() - (days * 24 * 60 * 60 * 1000);
     try {
@@ -390,12 +443,6 @@ class StateGraph {
     }
   }
 
-  /**
-   * Obtiene las N apps más usadas hoy como string legible.
-   * Para incluir en el system prompt de forma compacta.
-   *
-   * @returns {string|null} — "VSCode (2h 30m), Discord (45m), Chrome (20m)" o null
-   */
   getTodayAppSummaryString() {
     const summary = this.getAppUsageSummary(1);
     if (!summary.length) return null;
@@ -430,6 +477,10 @@ class StateGraph {
       let decayed = 0, archived = 0;
 
       for (const node of nodes) {
+        // FIX QW-2: daysSince usa last_accessed_at (que ahora se actualiza
+        // también en queryNodes/getRecentEpisodes/getWorldModel), no solo
+        // updated_at. Un nodo leído frecuentemente no decae como si fuera
+        // abandonado.
         const daysSince = (now - node.last_accessed_at) / (1000 * 60 * 60 * 24);
         if (daysSince < 1) continue;
 
@@ -450,12 +501,6 @@ class StateGraph {
     runDecay();
   }
 
-  /**
-   * Limpia entradas de app_history con más de N días de antigüedad.
-   * Llamar periódicamente para no inflar la DB.
-   *
-   * @param {number} days — conservar los últimos N días (default: 30)
-   */
   pruneAppHistory(days = 30) {
     const cutoff = Date.now() - (days * 24 * 60 * 60 * 1000);
     try {
@@ -485,9 +530,14 @@ class StateGraph {
         'SELECT COUNT(*) as c FROM app_history'
       ).get()?.c ?? 0;
 
-      return { total, active, byType, appHistoryToday, appHistoryTotal };
+      return {
+        total, active, byType,
+        appHistoryToday, appHistoryTotal,
+        // FIX QW-1: exponer el estado del fallback en los stats
+        usingFallback: this.usingFallback,
+      };
     } catch {
-      return { total: 0, active: 0, byType: [], appHistoryToday: 0, appHistoryTotal: 0 };
+      return { total: 0, active: 0, byType: [], appHistoryToday: 0, appHistoryTotal: 0, usingFallback: this.usingFallback };
     }
   }
 

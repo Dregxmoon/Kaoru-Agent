@@ -1,19 +1,41 @@
 /**
- * RetrievalPlanner.js — Fase 2 (mejorado)
+ * RetrievalPlanner.js — Fase 3 (actualizado)
  *
- * Decide qué nodos del StateGraph son relevantes para el mensaje actual
- * ANTES de construir el context package.
+ * CAMBIOS respecto a la versión Fase 2:
+ *   - Se agrega detección semántica de intenciones de herramienta
+ *     via IntentDetector (embeddings locales).
+ *   - El método plan() ahora acepta un tercer argumento `detectIntent`
+ *     (boolean, default true) para activar/desactivar la detección.
+ *   - Se agrega planWithIntent() como método principal para el flujo
+ *     de Fase 3 — retorna el resultado del StateGraph MÁS el resultado
+ *     de IntentDetector en un solo objeto.
+ *   - TODO lo anterior de Fase 2 (StateGraph, keywords, episodios,
+ *     OS context) sigue funcionando exactamente igual — sin romper nada.
  *
- * Mejoras respecto a la versión anterior:
- *   - Regex de código corregido (tenía "función" duplicado)
- *   - Keywords mínimas: 3 chars para el vocabulario general +
- *     set ALWAYS_SEARCH para términos técnicos cortos (bug, api, db, git...)
- *   - Boost por recencia en episodios (los más recientes suben al top)
- *   - Límite de nodos aumentado a 12
- *   - Nuevo intent: "estado/emoción" para preguntas personales
- *   - OS category "design" y "docs" también priorizan proyectos
+ * Separación de responsabilidades:
+ *   RetrievalPlanner → qué nodos del StateGraph son relevantes
+ *   IntentDetector   → qué intención de herramienta tiene el mensaje
+ *   ContextAssembler → los une en el Context Package final
+ *
+ * Flujo de datos:
+ *   userMessage
+ *     ├─→ RetrievalPlanner.plan()     → { nodes, episodes }  (StateGraph)
+ *     └─→ IntentDetector.detect()     → { action, confidence, level }
+ *           ↓
+ *         ContextAssembler.build()    → Context Package con ambos resultados
+ *           ↓
+ *         GroqSerializer              → system prompt con instrucción de formato
+ *           ↓
+ *         LLM responde:               ACCIÓN: edit_file | ARCHIVO: main.js
+ *           ↓
+ *         StructuredActionParser      → extrae la acción sin regex frágil
+ *           ↓
+ *         OpenClawBridge.execute()    → herramienta real
  */
 
+'use strict';
+
+// ── Patrones de intención para StateGraph (sin cambios de Fase 2) ──────────────
 const INTENT_PATTERNS = [
   { pattern: /\b(proyecto|project|trabajando en|working on|construyendo|building)\b/i,  types: ['Project'] },
   { pattern: /\b(recuerdas|recuerda|dijiste|mencionaste|remember|acordar)\b/i,          types: ['Episode', 'Belief'] },
@@ -25,7 +47,6 @@ const INTENT_PATTERNS = [
   { pattern: /\b(trabajo|empleo|empresa|cliente|reunión|jefe|equipo|meeting)\b/i,      types: ['User', 'Project'] },
 ];
 
-// Términos técnicos cortos que siempre se buscan en el grafo
 const ALWAYS_SEARCH = new Set(['bug', 'api', 'db', 'git', 'ui', 'ux', 'ml', 'ia', 'ai']);
 
 const STOPWORDS = new Set([
@@ -38,20 +59,77 @@ const STOPWORDS = new Set([
 ]);
 
 class RetrievalPlanner {
-  constructor(stateGraph) {
-    this._graph = stateGraph;
+  /**
+   * @param {object} stateGraph     — instancia de StateGraph (Fase 1)
+   * @param {object} intentDetector — instancia de IntentDetector (Fase 3, opcional)
+   *                                  Si no se pasa, la detección semántica se deshabilita
+   *                                  y el sistema cae al flujo de Fase 2 sin romper nada.
+   */
+  constructor(stateGraph, intentDetector = null) {
+    this._graph    = stateGraph;
+    this._detector = intentDetector;
+  }
+
+  // ── API pública ─────────────────────────────────────────────────────────────
+
+  /**
+   * Método principal para Fase 3.
+   * Ejecuta en paralelo:
+   *   - Recuperación de nodos del StateGraph (síncrono)
+   *   - Detección semántica de intención de herramienta (async, embeddings)
+   *
+   * @param {string} userMessage
+   * @param {object} osContext — { app, category, elapsed, title }
+   * @returns {Promise<CombinedResult>}
+   *
+   * CombinedResult:
+   * {
+   *   // Del StateGraph (igual que Fase 2)
+   *   nodes:        Array,
+   *   episodeNodes: Array,
+   *   strategy:     string,
+   *   keywords:     Array,
+   *   intents:      Array,
+   *
+   *   // Del IntentDetector (nuevo en Fase 3)
+   *   toolIntent: {
+   *     detected:    boolean,
+   *     action:      string | null,
+   *     tool:        string | null,
+   *     confidence:  number,
+   *     level:       'high' | 'medium' | 'none',
+   *     description: string,
+   *     elapsed:     number,
+   *   }
+   * }
+   */
+  async planWithIntent(userMessage = '', osContext = null) {
+    // Ejecutar StateGraph (síncrono) e IntentDetector (async) en paralelo
+    const [graphResult, intentResult] = await Promise.all([
+      Promise.resolve(this.plan(userMessage, osContext)),
+      this._detectToolIntent(userMessage),
+    ]);
+
+    return {
+      ...graphResult,
+      toolIntent: intentResult,
+    };
   }
 
   /**
-   * Punto de entrada principal.
+   * Método heredado de Fase 2 — síncrono, solo StateGraph.
+   * Se mantiene para compatibilidad con cualquier código que ya lo llame.
    *
    * @param {string} userMessage
-   * @param {object} osContext — { app, category, elapsed, title, openWindows }
-   * @returns {{ nodes: Array, episodeNodes: Array, strategy: string, keywords: Array, intents: Array }}
+   * @param {object} osContext
+   * @returns {object} — { nodes, episodeNodes, strategy, keywords, intents }
    */
   plan(userMessage = '', osContext = null) {
     if (!this._graph?._ready) {
-      return { nodes: [], episodeNodes: [], strategy: 'fallback', keywords: [], intents: [] };
+      return {
+        nodes: [], episodeNodes: [],
+        strategy: 'fallback', keywords: [], intents: [],
+      };
     }
 
     const nodeIds = new Set();
@@ -65,8 +143,8 @@ class RetrievalPlanner {
     // 1. Siempre incluir nodos User de alta importancia
     addAll(this._graph.queryNodes({ type: 'User', limit: 5 }));
 
-    // 2. Detectar intención y traer nodos específicos
-    const intents = this._detectIntents(userMessage);
+    // 2. Detectar intención semántica para StateGraph y traer nodos específicos
+    const intents = this._detectGraphIntents(userMessage);
     for (const type of intents) {
       addAll(this._graph.queryNodes({ type, limit: 3 }));
     }
@@ -88,10 +166,10 @@ class RetrievalPlanner {
       addAll(this._graph.queryNodes({ type: 'Preference', limit: 2 }));
     }
 
-    // 6. Episodios recientes — getRecentEpisodes ordena por importance DESC, created_at DESC
+    // 6. Episodios recientes
     const episodes = this._graph.getRecentEpisodes(6);
 
-    // Ordenar nodos finales por importancia y recortar
+    // Ordenar por importancia y recortar
     const sortedNodes = nodes
       .sort((a, b) => b.importance - a.importance)
       .slice(0, 12);
@@ -102,7 +180,12 @@ class RetrievalPlanner {
         ? `keywords:${keywords.slice(0, 2).join(',')}`
         : 'default';
 
-    console.log(`[retrieval] strategy=${strategy} nodes=${sortedNodes.length} episodes=${episodes.length} keywords=[${keywords.slice(0, 3).join(',')}]`);
+    console.log(
+      `[retrieval] strategy=${strategy}` +
+      ` nodes=${sortedNodes.length}` +
+      ` episodes=${episodes.length}` +
+      ` keywords=[${keywords.slice(0, 3).join(',')}]`
+    );
 
     return {
       nodes:        sortedNodes,
@@ -113,9 +196,33 @@ class RetrievalPlanner {
     };
   }
 
-  // ── Helpers ────────────────────────────────────────────────────────────────
+  // ── Helpers privados ────────────────────────────────────────────────────────
 
-  _detectIntents(message) {
+  /**
+   * Detección semántica de intención de herramienta.
+   * Wrapper sobre IntentDetector que maneja el caso en que el detector
+   * no esté disponible (Fase 2 sin embeddings).
+   */
+  async _detectToolIntent(userMessage) {
+    const _noDetector = {
+      detected: false, action: null, tool: null,
+      confidence: 0, level: 'none',
+      description: 'IntentDetector no disponible (Fase 2)',
+      elapsed: 0,
+    };
+
+    if (!this._detector) return _noDetector;
+
+    try {
+      return await this._detector.detect(userMessage);
+    } catch (e) {
+      console.warn('[retrieval] Error en IntentDetector:', e.message);
+      return { ..._noDetector, description: `Error: ${e.message}` };
+    }
+  }
+
+  /** Detección de intención para queries del StateGraph (regex, igual que Fase 2). */
+  _detectGraphIntents(message) {
     const types = new Set();
     for (const { pattern, types: t } of INTENT_PATTERNS) {
       if (pattern.test(message)) t.forEach(type => types.add(type));
@@ -131,7 +238,7 @@ class RetrievalPlanner {
       .replace(/[¿?¡!.,;:()"']/g, '')
       .split(/\s+/)
       .filter(w => {
-        if (ALWAYS_SEARCH.has(w)) return true;  // términos técnicos cortos: siempre
+        if (ALWAYS_SEARCH.has(w)) return true;
         return w.length >= 3 && !STOPWORDS.has(w);
       });
 

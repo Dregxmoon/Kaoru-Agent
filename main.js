@@ -53,11 +53,13 @@ let isClickThrough = true;
 let currentView    = 'full';
 let userHasMoved   = false;
 let chatTheme      = 'dark';
+let chatMode       = 'conversational';
 
 const savedConfig    = loadConfig();
 let selectedMicIndex = savedConfig.micIndex  ?? null;
 let selectedMicLabel = savedConfig.micLabel  ?? 'default';
 chatTheme            = savedConfig.chatTheme ?? 'dark';
+chatMode             = savedConfig.chatMode  ?? 'conversational';
 
 console.log('[march7th] config cargada:', savedConfig);
 
@@ -180,8 +182,12 @@ function createChatWindow() {
 
   chatWindow.webContents.once('did-finish-load', () => {
     chatWindow.webContents.send('init-theme', chatTheme);
+    chatWindow.webContents.send('init-mode', chatMode);
     if (selectedMicIndex !== null)
       chatWindow.webContents.send('restore-mic', { index: selectedMicIndex, label: selectedMicLabel });
+
+    const usingFallback = MarchCore.getGraph()?.usingFallback ?? false;
+    chatWindow.webContents.send('memory-status', { usingFallback });
   });
 
   if (mainWindow && !mainWindow.isDestroyed()) mainWindow.hide();
@@ -296,13 +302,55 @@ ipcMain.on('chat-close', () => {
 
 ipcMain.on('chat-theme-changed', (e, theme) => { chatTheme = theme; saveConfig({ chatTheme: theme }); });
 
-// ── IPC: aprobación de planes (Fase 3) ───────────────────────────────────────
-// Este listener va aquí arriba porque puede llegarnos desde el renderer
-// en cualquier momento durante la ejecución de un plan.
-ipcMain.on('plan-approval-response', () => {
-  // El handler real se registra dinámicamente dentro de openclaw-execute-plan.
-  // Este registro vacío evita warnings de "no handler" en Electron.
+ipcMain.on('chat-mode-changed', (e, mode) => {
+  if (mode !== 'conversational' && mode !== 'task') return;
+  chatMode = mode;
+  saveConfig({ chatMode: mode });
+  console.log('[march7th] modo de chat cambiado a:', mode);
 });
+
+
+
+ipcMain.handle('init-vectors', async () => {
+  const { INTENT_CATALOG, embed, float32ToBuffer } = require('./infrastructure/database/init_vectors.js');
+  const db = MarchCore.getGraph()._db;
+  if (!db) throw new Error('DB no disponible');
+
+  const sqliteVec = require('sqlite-vec');
+  sqliteVec.load(db);
+
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS intent_catalog (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      action TEXT NOT NULL, tool TEXT,
+      description TEXT NOT NULL, phrase TEXT NOT NULL,
+      created_at INTEGER DEFAULT (strftime('%s', 'now'))
+    );
+    CREATE INDEX IF NOT EXISTS idx_intent_catalog_action ON intent_catalog(action);
+    CREATE VIRTUAL TABLE IF NOT EXISTS intent_vectors USING vec0(embedding float[384]);
+  `);
+
+  db.exec('DELETE FROM intent_catalog; DELETE FROM intent_vectors;');
+
+  const insertMeta   = db.prepare(`INSERT INTO intent_catalog (action, tool, description, phrase) VALUES (@action, @tool, @description, @phrase)`);
+  const insertVector = db.prepare(`INSERT INTO intent_vectors (embedding) VALUES (?)`);
+
+  let count = 0;
+  for (const intent of INTENT_CATALOG) {
+    for (const phrase of [intent.description, ...intent.phrases]) {
+      insertMeta.run({ action: intent.action, tool: intent.tool ?? null, description: intent.description, phrase });
+      insertVector.run(float32ToBuffer(await embed(phrase)));
+      count++;
+    }
+  }
+  console.log(`[init-vectors] ${count} frases en ${MarchCore.getGraph()._dbPath}`);
+  return `${count} frases vectorizadas`;
+});
+
+
+
+// ── IPC: aprobación de planes (Fase 3) ───────────────────────────────────────
+ipcMain.on('plan-approval-response', () => {});
 
 // ── IPC: memoria ──────────────────────────────────────────────────────────────
 ipcMain.on('memory-add-turn', (e, { role, content }) => {
@@ -313,8 +361,10 @@ ipcMain.on('memory-add-turn', (e, { role, content }) => {
 ipcMain.handle('memory-stats', () => MarchCore.getStats());
 
 // ── IPC: grounding ────────────────────────────────────────────────────────────
-ipcMain.handle('grounding-build-context', (e, { sessionHistory, activeProvider }) => {
-  const ctx = MarchCore.buildContext(sessionHistory, activeProvider);
+// FIX Fase 3: async/await porque buildContext ahora es async
+// (necesita await para IntentDetector.detect())
+ipcMain.handle('grounding-build-context', async (e, { sessionHistory, activeProvider }) => {
+  const ctx = await MarchCore.buildContext(sessionHistory, activeProvider);
   console.log('[grounding-ipc] provider:', activeProvider, '| systemPrompt:', ctx?.systemPrompt?.length, 'chars');
   return ctx;
 });
@@ -355,12 +405,10 @@ ipcMain.handle('force-proactive', async (e, triggerType) => {
 
 // ── IPC: Fase 3 — OpenClaw ────────────────────────────────────────────────────
 
-// Verificar disponibilidad de OpenClaw
 ipcMain.handle('openclaw-available', async () => {
   return MarchCore.isOpenClawAvailable();
 });
 
-// Ejecutar herramienta directa (sin plan multi-paso)
 ipcMain.handle('openclaw-execute-tool', async (e, { tool, params }) => {
   console.log(`[main] openclaw-execute-tool: ${tool}`);
   try {
@@ -372,7 +420,6 @@ ipcMain.handle('openclaw-execute-tool', async (e, { tool, params }) => {
   }
 });
 
-// Parsear respuesta del LLM buscando acciones
 ipcMain.handle('openclaw-parse-plan', (e, { llmResponse, userGoal }) => {
   try {
     const plan = MarchCore.parsePlanFromResponse(llmResponse, userGoal);
@@ -383,7 +430,6 @@ ipcMain.handle('openclaw-parse-plan', (e, { llmResponse, userGoal }) => {
   }
 });
 
-// Ejecutar un plan paso a paso
 ipcMain.handle('openclaw-execute-plan', async (e, { plan }) => {
   console.log(`[main] ejecutando plan: ${plan?.id} (${plan?.steps?.length} pasos)`);
 
@@ -442,7 +488,6 @@ ipcMain.handle('openclaw-execute-plan', async (e, { plan }) => {
           };
           ipcMain.on('plan-approval-response', handler);
 
-          // Timeout de 60s si el usuario no responde
           setTimeout(() => {
             ipcMain.removeListener('plan-approval-response', handler);
             resolve(false);
@@ -464,12 +509,10 @@ ipcMain.handle('openclaw-execute-plan', async (e, { plan }) => {
   }
 });
 
-// Historial de planes ejecutados
 ipcMain.handle('openclaw-plan-history', () => {
   return MarchCore.getPlanner()?.getHistory(20) ?? [];
 });
 
-// Stats Fase 3
 ipcMain.handle('fase3-stats', () => {
   const stats = MarchCore.getStats();
   return {
@@ -479,24 +522,14 @@ ipcMain.handle('fase3-stats', () => {
   };
 });
 
-// Límite de serialización para IPC.
-// Electron IPC soporta hasta ~64MB. 512KB es más que suficiente para
-// cualquier archivo de código o resultado de herramienta, y nunca causará
-// truncado en edit_file (los README / source files rara vez superan los 100KB).
-const IPC_RESULT_LIMIT = 512 * 1024; // 512 KB
+const IPC_RESULT_LIMIT = 512 * 1024;
 
 function _serializeResult(result) {
   if (!result) return null;
-
-  if (typeof result === 'string') {
-    // Nunca truncar strings — el contenido de archivos debe pasar completo
-    return result;
-  }
-
+  if (typeof result === 'string') return result;
   if (typeof result === 'object') {
     try {
       const str = JSON.stringify(result);
-      // Solo truncar si supera 512KB (prácticamente imposible en uso normal)
       if (str.length > IPC_RESULT_LIMIT) {
         console.warn(`[main] resultado muy grande (${str.length} chars), truncando para IPC`);
         return { _truncated: true, preview: str.slice(0, IPC_RESULT_LIMIT), totalLength: str.length };
@@ -506,7 +539,6 @@ function _serializeResult(result) {
       return String(result);
     }
   }
-
   return result;
 }
 
@@ -721,21 +753,14 @@ app.whenReady().then(() => {
   ensureLLMConfig();
   setupMicPermissions();
 
-  // MarchCore.init() debe ser lo primero — inicializa _bus y todos los subsistemas
   MarchCore.init(app);
 
-  // ── Registrar listeners del EventBus DESPUÉS de init() ─────────────────────
-  // IMPORTANTE: estos listeners usan MarchCore.getEventBus() que solo existe
-  // después de init(). Nunca moverlos fuera de whenReady().
-
-  // Reenviar estado de OpenClaw al renderer cuando cambie
   MarchCore.getEventBus().on('openclaw:available', (payload) => {
     if (chatWindow && !chatWindow.isDestroyed()) {
       chatWindow.webContents.send('openclaw-status', payload);
     }
   });
 
-  // Reenviar eventos de plan al renderer
   MarchCore.getEventBus().on('plan:started', (payload) => {
     if (chatWindow && !chatWindow.isDestroyed()) {
       chatWindow.webContents.send('plan-started', payload);
@@ -748,7 +773,6 @@ app.whenReady().then(() => {
     }
   });
 
-  // ── Iniciativas proactivas (ProactiveEngine + InitiativeEngine) ────────────
   MarchCore.onInitiative((payload) => {
     const chatVisible = chatWindow && !chatWindow.isDestroyed() && chatWindow.isVisible();
     if (chatVisible) {
@@ -777,7 +801,6 @@ app.whenReady().then(() => {
     }
   });
 
-  // ── Arrancar ventanas y servicios ──────────────────────────────────────────
   createWindow();
   createTray();
   startControlServer();
@@ -801,13 +824,13 @@ function withTimeout(promise, ms) {
 let _quitting = false;
 
 app.on('before-quit', (event) => {
-  if (_quitting) return;       // ya hicimos cleanup, deja salir de verdad
+  if (_quitting) return;
   event.preventDefault();
   (async () => {
     try { await withTimeout(MarchCore.closeSession(), 8000); } catch(_) {}
     if (voiceProc) { voiceProc.kill(); voiceProc = null; }
     _quitting = true;
-    app.quit();                // ahora sí, sin que before-quit se cuelgue en loop
+    app.quit();
   })();
 });
 
