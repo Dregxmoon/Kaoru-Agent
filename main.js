@@ -311,38 +311,24 @@ ipcMain.on('chat-mode-changed', (e, mode) => {
 
 
 
+// FIX — antes este handler duplicaba ~30 líneas de SQL (CREATE TABLE,
+// DELETE, INSERT) que ya existían en init_vectors.js, y esa copia NO
+// tenía el fix de rowid explícito (intent_vectors.rowid = intent_catalog.id)
+// que sí tiene la v2 de init_vectors.js — es decir, esta copia inline
+// podía desincronizar las tablas igual que la versión vieja del otro
+// archivo. Ahora delega TODO a populateDatabase(), que vive en un solo
+// lugar (init_vectors.js) y ya incluye ese fix.
 ipcMain.handle('init-vectors', async () => {
-  const { INTENT_CATALOG, embed, float32ToBuffer } = require('./infrastructure/database/init_vectors.js');
+  const { populateDatabase } = require('./infrastructure/database/init_vectors.js');
   const db = MarchCore.getGraph()._db;
   if (!db) throw new Error('DB no disponible');
 
-  const sqliteVec = require('sqlite-vec');
-  sqliteVec.load(db);
+  const result = await populateDatabase(db, { force: true });
 
-  db.exec(`
-    CREATE TABLE IF NOT EXISTS intent_catalog (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      action TEXT NOT NULL, tool TEXT,
-      description TEXT NOT NULL, phrase TEXT NOT NULL,
-      created_at INTEGER DEFAULT (strftime('%s', 'now'))
-    );
-    CREATE INDEX IF NOT EXISTS idx_intent_catalog_action ON intent_catalog(action);
-    CREATE VIRTUAL TABLE IF NOT EXISTS intent_vectors USING vec0(embedding float[384]);
-  `);
+  const count = result.populated
+    ? result.inserted
+    : result.existing;
 
-  db.exec('DELETE FROM intent_catalog; DELETE FROM intent_vectors;');
-
-  const insertMeta   = db.prepare(`INSERT INTO intent_catalog (action, tool, description, phrase) VALUES (@action, @tool, @description, @phrase)`);
-  const insertVector = db.prepare(`INSERT INTO intent_vectors (embedding) VALUES (?)`);
-
-  let count = 0;
-  for (const intent of INTENT_CATALOG) {
-    for (const phrase of [intent.description, ...intent.phrases]) {
-      insertMeta.run({ action: intent.action, tool: intent.tool ?? null, description: intent.description, phrase });
-      insertVector.run(float32ToBuffer(await embed(phrase)));
-      count++;
-    }
-  }
   console.log(`[init-vectors] ${count} frases en ${MarchCore.getGraph()._dbPath}`);
   return `${count} frases vectorizadas`;
 });
