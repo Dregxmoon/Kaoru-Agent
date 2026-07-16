@@ -5,12 +5,109 @@ const {
 const path = require('path');
 const http = require('http');
 const fs   = require('fs');
+const os   = require('os');
 const { URL } = require('url');
+const { spawnSync } = require('child_process');
 
 const MarchCore = require('./core/MarchCore.js');
 
+// ── Manejo global de errores ──────────────────────────────────────────────────
+// Antes no había NINGÚN handler de uncaughtException/unhandledRejection — un
+// error async sin catch (p.ej. una promesa rechazada en un handler de IPC)
+// podía tirar el proceso principal entero sin dejar rastro visible, porque
+// esto corre casi siempre desde la bandeja del sistema sin consola abierta.
+// Ahora se registra en un log persistente para poder diagnosticar qué pasó,
+// pero NO se fuerza el cierre — la mayoría de estos errores son recuperables
+// y March es una app "siempre presente", no queremos que un solo handler
+// roto tumbe toda la sesión.
+const CRASH_LOG_PATH = path.join(app.getPath('userData'), 'crash.log');
+
+function logCrash(label, err) {
+  const line = `[${new Date().toISOString()}] ${label}: ${err?.stack || err}\n`;
+  console.error(line);
+  try { fs.appendFileSync(CRASH_LOG_PATH, line); } catch (_) { /* best-effort */ }
+}
+
+process.on('uncaughtException', (err) => logCrash('uncaughtException', err));
+process.on('unhandledRejection', (reason) => logCrash('unhandledRejection', reason));
+
 // ── Python executable ─────────────────────────────────────────────────────────
-const PYTHON_BIN = 'C:/Users/lukal/AppData/Local/Programs/Python/Python311/python.exe';
+// FIX: antes esto era una ruta absoluta hardcodeada a un usuario y versión de
+// Python específicos ('C:/Users/lukal/.../Python311/python.exe'). Se rompe en
+// cualquier máquina distinta a la tuya actual — incluido tu propio PC si
+// reinstalas Windows, cambias de versión de Python, o si algún día generas el
+// build portable (`npm run build-portable`) para alguien más, ya que ese exe
+// jamás va a tener esa ruta exacta. Ahora se resuelve dinámicamente:
+//   1. Variable de entorno MARCH_PYTHON_BIN (override manual si hace falta)
+//   2. El launcher estándar de Windows `py -3` (viene con casi cualquier
+//      instalación oficial de Python en Windows)
+//   3. `python` / `python3` si están en el PATH
+//   4. Barrido de las carpetas de instalación típicas bajo el HOME del
+//      usuario ACTUAL (os.homedir(), no un usuario fijo), tomando la versión
+//      más alta encontrada
+// Se resuelve una sola vez al arrancar y se cachea.
+function resolvePythonBin() {
+  if (process.env.MARCH_PYTHON_BIN && fs.existsSync(process.env.MARCH_PYTHON_BIN)) {
+    console.log('[python] usando override MARCH_PYTHON_BIN:', process.env.MARCH_PYTHON_BIN);
+    return process.env.MARCH_PYTHON_BIN;
+  }
+
+  // Resuelve el comando a la ruta ABSOLUTA real del ejecutable (en vez de
+  // devolver 'py' o 'python' tal cual) para que los spawn(PYTHON_BIN, args)
+  // que ya existen más abajo no necesiten cambiar — siguen recibiendo un
+  // solo binario + sus args normales, sin tener que anteponer '-3' etc.
+  const resolveViaCommand = (cmd, extraArgs = []) => {
+    try {
+      const res = spawnSync(cmd, [...extraArgs, '-c', 'import sys; print(sys.executable)'], {
+        timeout: 4000, windowsHide: true, encoding: 'utf-8',
+      });
+      if (res.status === 0) {
+        const out = (res.stdout || '').trim().split(/\r?\n/).pop().trim();
+        if (out && fs.existsSync(out)) return out;
+      }
+    } catch (_) { /* comando no existe */ }
+    return null;
+  };
+
+  // Launcher oficial de Windows — resuelve él mismo la versión instalada
+  if (process.platform === 'win32') {
+    const viaLauncher = resolveViaCommand('py', ['-3']);
+    if (viaLauncher) { console.log('[python] resuelto vía "py -3":', viaLauncher); return viaLauncher; }
+  }
+
+  const viaPython = resolveViaCommand('python');
+  if (viaPython) { console.log('[python] resuelto vía "python" del PATH:', viaPython); return viaPython; }
+
+  const viaPython3 = resolveViaCommand('python3');
+  if (viaPython3) { console.log('[python] resuelto vía "python3" del PATH:', viaPython3); return viaPython3; }
+
+  // Barrido de carpetas típicas de instalación en Windows, bajo el HOME real
+  if (process.platform === 'win32') {
+    const home = os.homedir();
+    const searchDirs = [
+      path.join(home, 'AppData', 'Local', 'Programs', 'Python'),
+      'C:\\Program Files\\',
+      'C:\\',
+    ];
+    for (const dir of searchDirs) {
+      try {
+        const entries = fs.readdirSync(dir).filter(n => /^Python3\d\d?$/i.test(n)).sort().reverse();
+        for (const entry of entries) {
+          const candidate = path.join(dir, entry, 'python.exe');
+          if (fs.existsSync(candidate)) {
+            console.log('[python] encontrado por barrido de carpetas:', candidate);
+            return candidate;
+          }
+        }
+      } catch (_) { /* carpeta no existe, seguir */ }
+    }
+  }
+
+  console.warn('[python] no se encontró ningún intérprete de Python. La voz y el STT local no van a funcionar hasta que instales Python o definas MARCH_PYTHON_BIN.');
+  return null;
+}
+
+const PYTHON_BIN = resolvePythonBin();
 
 // ── Constantes ────────────────────────────────────────────────────────────────
 const MARGIN  = 12;
