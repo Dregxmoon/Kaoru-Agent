@@ -289,9 +289,9 @@ async function isOpenClawAvailable() {
   return _bridge.isAvailable();
 }
 
-function parsePlanFromResponse(llmResponse, userGoal) {
+function parsePlanFromResponse(llmResponse, userGoal, toolIntent = null) {
   if (!_planner) return null;
-  return _planner.planFromLLMResponse(llmResponse, userGoal);
+  return _planner.planFromLLMResponse(llmResponse, userGoal, toolIntent);
 }
 
 async function executePlan(plan, opts = {}) {
