@@ -711,6 +711,7 @@ async function processMessage(text, files = []) {
       const plan = await ipcRenderer.invoke('openclaw-parse-plan', {
         llmResponse: response,
         userGoal: trimmed,
+        toolIntent: context.toolIntent ?? null,
       });
       if (plan && plan.steps?.length) {
         pushToSession('assistant', response);
