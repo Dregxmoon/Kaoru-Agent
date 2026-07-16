@@ -11,9 +11,15 @@
  * que el Planner y el GroundingEngine consumen para ajustar el prompt.
  *
  * Separación de responsabilidades:
- *   InitiativeEngine  → decide cuándo interrumpir basado en OS/app
- *   ProactiveEngine   → decide qué decir en silencio largo / madrugada
+ *   ProactiveEngine   → decide CUÁNDO y QUÉ decir por iniciativa propia
+ *                        (fecha especial, madrugada, silencio largo, y
+ *                        análisis en vivo del OS: racha de enfoque, salto
+ *                        entre apps, regreso de AFK — ver ese archivo)
  *   BehaviorModel     → decide cómo responder dado el turno actual
+ *
+ * (InitiativeEngine.js quedó deprecado — su lógica fue absorbida por
+ * ProactiveEngine.js v2, ahora con criterio real del LLM en vez de
+ * plantillas fijas.)
  *
  * El BehaviorContext que produce tiene esta forma:
  * {
