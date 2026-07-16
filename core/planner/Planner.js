@@ -64,7 +64,8 @@
 'use strict';
 
 const path = require('path');
-const { getOpenClawBridge } = require('./OpenClawBridge.js');
+const { getOpenClawBridge }        = require('./OpenClawBridge.js');
+const { getStructuredActionParser } = require('./StructuredActionParser.js');
 
 // ── CWD del proyecto ──────────────────────────────────────────────────────────
 let PROJECT_CWD = process.cwd();
@@ -970,8 +971,27 @@ class Planner {
     };
   }
 
-  planFromLLMResponse(llmResponse, userGoal) {
-    const actions = ActionParser.parse(llmResponse, userGoal);
+  /**
+   * FIX — Fase 3 (integración pendiente resuelta): antes esta función SOLO
+   * usaba el ActionParser regex legacy, ignorando por completo el bloque
+   * ```action``` estructurado que GroqSerializer ya le pide al LLM cuando
+   * IntentDetector detecta una intención de nivel 'high'/'medium'. Es decir:
+   * el LLM obedecía la instrucción y devolvía el bloque, pero nada en el
+   * pipeline real lo leía — se descartaba en silencio y la respuesta caía
+   * como si fuera puramente conversacional.
+   *
+   * Ahora se usa StructuredActionParser, que intenta el bloque estructurado
+   * primero y cae automáticamente al ActionParser regex si no lo encuentra
+   * (compatibilidad total con el flujo narrativo "Ejecutar: X" que se usa
+   * cuando toolIntent no se detectó — ver MarchCore.buildContext()).
+   *
+   * @param {object} toolIntent — resultado de IntentDetector (opcional).
+   *   Solo se usa para un log de diagnóstico si el LLM ignoró el bloque
+   *   pedido; no cambia el parsing en sí.
+   */
+  planFromLLMResponse(llmResponse, userGoal, toolIntent = null) {
+    const parser  = getStructuredActionParser(PROJECT_CWD);
+    const actions = parser.parse(llmResponse, userGoal, toolIntent);
     if (!actions.length) return null;
     if (actions.length === 1) {
       const { tool, params, description } = actions[0];
