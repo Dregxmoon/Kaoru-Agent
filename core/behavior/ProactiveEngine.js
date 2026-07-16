@@ -1,29 +1,92 @@
 /**
- * ProactiveEngine.js — Fase 2.5 + Quick Fix QW-5
+ * ProactiveEngine.js — v2: proactividad autónoma basada en eventos reales del OS
  *
- * Fix QW-5: _checkSpecialDate tenía un bug con fechas de un solo dígito
- *   guardadas con cero de relleno ("15/06/2000" no matcheaba "15/6").
- *   Ahora normaliza ambos lados antes de comparar:
- *     - extrae día y mes numérico de `todayShort` (sin relleno)
- *     - al buscar en el contenido del nodo, genera múltiples variantes
- *       del formato ("15/6", "15/06", "15 de junio") para no depender
- *       de cómo exactamente lo guardó el LLM.
+ * ─────────────────────────────────────────────────────────────────────────────
+ * CAMBIO PRINCIPAL respecto a la versión anterior (Fase 2.5 + QW-5):
  *
- * El resto del archivo es idéntico a la versión original.
+ *   Antes, este engine SOLO se evaluaba en un timer fijo cada 5 minutos, y
+ *   solo conocía 3 triggers: fecha especial, madrugada, silencio largo.
+ *   Toda la proactividad "basada en lo que el usuario está haciendo ahora
+ *   mismo" vivía en InitiativeEngine.js — pero ese engine nunca consultaba
+ *   al LLM, solo elegía una frase random de un array fijo por categoría
+ *   ("Llevas rato en VSCode. ¿Cómo va el código?"). No había análisis real,
+ *   solo un timer + un if.
+ *
+ *   Ahora ProactiveEngine se suscribe DIRECTO a los eventos del OSSensor
+ *   (os:app-changed, os:app-tick, os:idle-changed) y analiza patrones de
+ *   uso en tiempo real, sin esperar ningún mensaje del usuario:
+ *
+ *     - sustained_focus       → lleva mucho tiempo enfocado en una categoría
+ *                                (código, terminal, docs, diseño, navegador)
+ *     - context_switch_thrash → está saltando entre muchas apps distintas
+ *                                en poco tiempo (posible señal de estar
+ *                                atorado, frustrado o buscando algo)
+ *     - return_from_break     → estuvo un rato AFK y acaba de volver
+ *
+ *   Se suman a los 3 triggers temporales que ya existían:
+ *   special_date, late_night, long_silence.
+ *
+ *   TODOS los triggers — nuevos y viejos — pasan por el mismo pipeline:
+ *   una heurística barata actúa como pre-filtro (¿vale la pena siquiera
+ *   preguntarle al LLM?) y el LLM es quien decide con criterio real si
+ *   dice algo y qué dice — exactamente el mismo patrón "pre-filtro barato
+ *   → el modelo decide" que ya usas en IntentDetector (embeddings como
+ *   pre-filtro → LLM confirma). El LLM siempre puede responder NO.
+ *
+ *   InitiativeEngine.js queda DEPRECADO (ver ese archivo) — su tabla de
+ *   reglas por categoría se reusa aquí como pre-filtro (FOCUS_RULES), pero
+ *   la decisión y el mensaje ahora los genera el LLM con memoria real,
+ *   anti-repetición y contexto del OS — no una frase fija de un array.
+ *
+ * Se mantiene sin cambios de fondo: fix QW-5 de fechas especiales, el
+ * pipeline de generación de mensajes con el LLM, y el contrato del payload
+ * que emite ('initiative:trigger' con { reason, suggestion, actionType,
+ * canHelp, utility, openChat }) — main.js no necesita ningún cambio.
+ * ─────────────────────────────────────────────────────────────────────────────
  */
 
 const { getEventBus } = require('../../infrastructure/event-bus/EventBus.js');
 const LLMProvider     = require('../llm/LLMProvider.js');
 const { getIdentity } = require('../grounding/GroundingEngine.js');
 
-// ── Configuración ─────────────────────────────────────────────────────────────
+// ── Configuración general ───────────────────────────────────────────────────
 
-const EVAL_INTERVAL_MS          = 5 * 60 * 1000;
-const MIN_PROACTIVE_INTERVAL_MS = 4 * 60 * 60 * 1000;
-const SILENCE_THRESHOLD_MS      = 3 * 60 * 60 * 1000;
-const LATE_NIGHT_START          = 0;
-const LATE_NIGHT_END            = 5;
-const MAX_IDLE_TO_INTERRUPT     = 30 * 60;
+const EVAL_INTERVAL_MS      = 5 * 60 * 1000;        // heartbeat para triggers temporales
+const GLOBAL_MIN_GAP_MS     = 25 * 60 * 1000;        // colchón mínimo entre CUALQUIER mensaje autónomo
+const SILENCE_THRESHOLD_MS  = 3 * 60 * 60 * 1000;
+const LATE_NIGHT_START      = 0;
+const LATE_NIGHT_END        = 5;
+const MAX_IDLE_TO_INTERRUPT = 30 * 60;               // segundos — no interrumpir si lleva más de esto AFK
+
+// ── Pre-filtro barato para triggers basados en actividad del OS ─────────────
+// (reemplaza las INITIATIVE_RULES de InitiativeEngine.js — mismo umbral por
+// categoría, pero aquí solo decide si vale la pena PREGUNTARLE al LLM, no
+// qué decir)
+const FOCUS_RULES = {
+  code:     { minSec: 5  * 60, label: 'programando' },
+  terminal: { minSec: 3  * 60, label: 'en la terminal' },
+  docs:     { minSec: 10 * 60, label: 'metido en documentos' },
+  design:   { minSec: 10 * 60, label: 'diseñando' },
+  browser:  { minSec: 15 * 60, label: 'navegando' },
+};
+
+const THRASH_WINDOW_MS             = 10 * 60 * 1000; // ventana para detectar "salto entre apps"
+const THRASH_MIN_SWITCHES          = 6;               // mínimo de cambios de app en la ventana
+const THRASH_MIN_DISTINCT_CATEGORY = 3;                // mínimo de categorías distintas involucradas
+
+const RETURN_MIN_GAP_SEC = 15 * 60;      // mínimo de ausencia para que valga la pena comentar
+const RETURN_MAX_GAP_SEC = 3 * 60 * 60;  // más que esto ya es más parecido a "long_silence"
+
+// Cooldown por TIPO de trigger — tanto para intentos (se le preguntó al LLM,
+// haya dicho sí o no) como, en la práctica, para envíos exitosos.
+const TRIGGER_COOLDOWN_MS = {
+  special_date:          20 * 60 * 60 * 1000,
+  late_night:             2 * 60 * 60 * 1000,
+  long_silence:           3 * 60 * 60 * 1000,
+  sustained_focus:       45 * 60 * 1000,
+  context_switch_thrash: 60 * 60 * 1000,
+  return_from_break:     45 * 60 * 1000,
+};
 
 // ── ProactiveEngine ───────────────────────────────────────────────────────────
 
@@ -33,13 +96,23 @@ class ProactiveEngine {
     this._bus            = getEventBus();
     this._osSensor       = null;
     this._chatOpen       = false;
-    this._lastProactive  = 0;
+    this._lastProactive  = 0;     // último mensaje autónomo ENVIADO (cualquier tipo)
     this._lastUserMsg    = Date.now();
     this._timer          = null;
     this._running        = false;
+    this._deciding       = false; // lock — solo una consulta al LLM a la vez
+
+    this._lastAttemptByType = {}; // último intento (haya dicho sí o no el LLM) por tipo
 
     this._lastProactiveMessage = null;
     this._lastProactiveTrigger = null;
+
+    // ── Estado para análisis de actividad en tiempo real ──────────────────
+    this._currentCategory     = null;
+    this._categoryStreakStart = 0;
+    this._categoryStreakFired = false; // ya se le preguntó al LLM por esta racha
+    this._recentSwitches      = [];    // [{ts, category, app}] — ventana de thrash
+    this._idleStartedAt       = null;  // marca de cuándo empezó el AFK actual
 
     this._setupListeners();
   }
@@ -59,9 +132,9 @@ class ProactiveEngine {
   start() {
     if (this._running) return;
     this._running = true;
-    console.log('[proactive] iniciado (eval cada 5 min)');
-    setTimeout(() => this._evaluate(), 2 * 60 * 1000);
-    this._timer = setInterval(() => this._evaluate(), EVAL_INTERVAL_MS);
+    console.log('[proactive] iniciado (eventos del OS en vivo + heartbeat cada 5 min)');
+    setTimeout(() => this._evaluateTimeBased(), 2 * 60 * 1000);
+    this._timer = setInterval(() => this._evaluateTimeBased(), EVAL_INTERVAL_MS);
   }
 
   stop() {
@@ -70,82 +143,129 @@ class ProactiveEngine {
     console.log('[proactive] detenido');
   }
 
-  // ── Evaluación ──────────────────────────────────────────────────────────────
+  // ── Listeners de eventos del OS (análisis en vivo, sin esperar timer) ──────
 
-  async _evaluate() {
-    if (this._chatOpen) return;
-    if (!LLMProvider.getActiveProvider()) return;
+  _setupListeners() {
+    this._bus.on('memory:turn-added', ({ role }) => {
+      if (role === 'user') this._lastUserMsg = Date.now();
+    });
 
-    const sinceLastProactive = Date.now() - this._lastProactive;
-    if (sinceLastProactive < MIN_PROACTIVE_INTERVAL_MS) return;
-
-    const idleSecs = this._osSensor?.getCurrentContext()?.idleSecs ?? 0;
-    if (idleSecs > MAX_IDLE_TO_INTERRUPT) {
-      console.log(`[proactive] usuario idle ${idleSecs}s, omitiendo`);
-      return;
-    }
-
-    const trigger = this._checkTriggers();
-    if (!trigger) return;
-
-    console.log(`[proactive] trigger: ${trigger.type} — consultando LLM...`);
-
-    const message = await this._generateMessage(trigger);
-    if (!message) {
-      console.log('[proactive] LLM decidió no enviar mensaje');
-      return;
-    }
-
-    this._lastProactive        = Date.now();
-    this._lastProactiveMessage = message;
-    this._lastProactiveTrigger = trigger.type;
-
-    const payload = {
-      reason:     trigger.type,
-      suggestion: message,
-      actionType: 'proactive',
-      canHelp:    true,
-      utility:    1.0,
-      openChat:   true,
-    };
-
-    console.log(`[proactive] emitiendo: "${message.slice(0, 60)}..."`);
-    this._bus.emit('initiative:trigger', payload);
+    this._bus.on('os:app-changed', (payload) => this._onAppChanged(payload));
+    this._bus.on('os:app-tick',    (payload) => this._onAppTick(payload));
+    this._bus.on('os:idle-changed', (payload) => this._onIdleChanged(payload));
   }
 
-  // ── Triggers ────────────────────────────────────────────────────────────────
+  /** El usuario cambió de app — actualiza racha de enfoque y detecta "thrashing". */
+  _onAppChanged({ app, category }) {
+    const now = Date.now();
 
-  _checkTriggers() {
-    const now  = new Date();
-    const hour = now.getHours();
+    this._recentSwitches.push({ ts: now, category, app });
+    this._recentSwitches = this._recentSwitches.filter(s => now - s.ts <= THRASH_WINDOW_MS);
+
+    // Nueva racha de enfoque (se resetea con cada cambio de app real)
+    this._currentCategory     = category;
+    this._categoryStreakStart = now;
+    this._categoryStreakFired = false;
+
+    const distinctCategories = [...new Set(this._recentSwitches.map(s => s.category))];
+    if (
+      this._recentSwitches.length >= THRASH_MIN_SWITCHES &&
+      distinctCategories.length   >= THRASH_MIN_DISTINCT_CATEGORY
+    ) {
+      const windowMin = Math.round(THRASH_WINDOW_MS / 60000);
+      this._tryTrigger({
+        type:        'context_switch_thrash',
+        switchCount: this._recentSwitches.length,
+        categories:  distinctCategories,
+        context:     `El usuario cambió de aplicación ${this._recentSwitches.length} veces en los últimos ${windowMin} minutos, saltando entre: ${distinctCategories.join(', ')}.`,
+      }).catch(e => console.warn('[proactive] error en trigger de thrash:', e.message));
+    }
+  }
+
+  /** El usuario sigue en la misma app — revisa si ya lleva suficiente racha de enfoque. */
+  _onAppTick({ friendlyName, category, elapsed, elapsedFormatted, title }) {
+    if (this._categoryStreakFired) return;
+
+    const rule = FOCUS_RULES[category];
+    if (!rule) return;
+    if (elapsed < rule.minSec) return;
+
+    // Solo se intenta UNA vez por racha, sin importar si el LLM dice NO —
+    // evita estar preguntando cada 5s mientras la condición se mantenga.
+    this._categoryStreakFired = true;
+
+    this._tryTrigger({
+      type:             'sustained_focus',
+      category,
+      label:            rule.label,
+      friendlyName,
+      title,
+      elapsedSec:       elapsed,
+      elapsedFormatted,
+      context:          `El usuario lleva ${elapsedFormatted} ${rule.label} en ${friendlyName}${title ? ` ("${title.slice(0, 80)}")` : ''}.`,
+    }).catch(e => console.warn('[proactive] error en trigger de enfoque sostenido:', e.message));
+  }
+
+  /** El usuario se fue o volvió del PC — detecta regreso de una ausencia real. */
+  _onIdleChanged({ idle, idleSecs }) {
+    const now = Date.now();
+
+    if (idle) {
+      // Se acaba de cruzar el umbral de idle — estima cuándo empezó realmente
+      this._idleStartedAt = now - (idleSecs * 1000);
+      return;
+    }
+
+    // idle === false → el usuario acaba de volver a estar activo
+    if (!this._idleStartedAt) return;
+    const gapSec = Math.round((now - this._idleStartedAt) / 1000);
+    this._idleStartedAt = null;
+
+    if (gapSec < RETURN_MIN_GAP_SEC || gapSec > RETURN_MAX_GAP_SEC) return;
+
+    const minutes = Math.round(gapSec / 60);
+    this._tryTrigger({
+      type:   'return_from_break',
+      gapSec,
+      context: `El usuario estuvo alejado de la PC unos ${minutes} minutos y acaba de volver a estar activo.`,
+    }).catch(e => console.warn('[proactive] error en trigger de regreso:', e.message));
+  }
+
+  // ── Evaluación temporal (heartbeat cada 5 min) ──────────────────────────────
+  // Cubre los triggers que NO dependen de un evento puntual del OS, sino del
+  // paso del tiempo: fecha especial, madrugada, silencio largo.
+
+  async _evaluateTimeBased() {
+    const now = new Date();
 
     const specialDate = this._checkSpecialDate(now);
-    if (specialDate) return specialDate;
+    if (specialDate) { await this._tryTrigger(specialDate); return; }
 
-    const idleSecs = this._osSensor?.getCurrentContext()?.idleSecs ?? 0;
+    const hour      = now.getHours();
+    const idleSecs  = this._osSensor?.getCurrentContext()?.idleSecs ?? 0;
+
     if (hour >= LATE_NIGHT_START && hour < LATE_NIGHT_END && idleSecs < 300) {
-      return {
+      await this._tryTrigger({
         type:    'late_night',
         hour,
         context: `Son las ${now.toLocaleTimeString('es-MX', { hour: '2-digit', minute: '2-digit' })} de la madrugada y el usuario sigue activo frente al PC.`,
-      };
+      });
+      return;
     }
 
     const silenceMs = Date.now() - this._lastUserMsg;
     if (silenceMs > SILENCE_THRESHOLD_MS) {
       const silenceHours = Math.round(silenceMs / (1000 * 60 * 60));
-      return {
+      await this._tryTrigger({
         type:    'long_silence',
         hours:   silenceHours,
         context: `Han pasado ${silenceHours} horas desde la última conversación con el usuario.`,
-      };
+      });
     }
-
-    return null;
   }
 
   /**
-   * FIX QW-5: normalización de fechas para _checkSpecialDate.
+   * FIX QW-5 (sin cambios): normalización de fechas para _checkSpecialDate.
    *
    * Bug original: "15/06/2000" (con cero de relleno y año) no matcheaba
    * `todayShort = "15/6"` (sin cero de relleno), por lo que cumpleaños
@@ -164,20 +284,18 @@ class ProactiveEngine {
       const day   = now.getDate();      // ej. 6
       const month = now.getMonth() + 1; // ej. 1–12 (sin relleno)
 
-      // Variantes de la fecha de hoy que el LLM pudo haber guardado
       const dateVariants = [
-        `${day}/${month}`,                                    // "6/1"
-        `${day}/${String(month).padStart(2, '0')}`,          // "6/01"
-        `${String(day).padStart(2, '0')}/${month}`,          // "06/1"
-        `${String(day).padStart(2, '0')}/${String(month).padStart(2, '0')}`, // "06/01"
-        `${day} de ${_monthName(month - 1)}`,                // "6 de enero"
-        `${String(day).padStart(2, '0')} de ${_monthName(month - 1)}`, // "06 de enero"
+        `${day}/${month}`,
+        `${day}/${String(month).padStart(2, '0')}`,
+        `${String(day).padStart(2, '0')}/${month}`,
+        `${String(day).padStart(2, '0')}/${String(month).padStart(2, '0')}`,
+        `${day} de ${_monthName(month - 1)}`,
+        `${String(day).padStart(2, '0')} de ${_monthName(month - 1)}`,
       ];
 
       for (const node of userNodes) {
         const content = node.content?.toLowerCase() || '';
 
-        // Verificar que el nodo habla de una fecha especial
         const isBirthday = (
           content.includes('cumpleaños') ||
           content.includes('birthday')   ||
@@ -186,7 +304,6 @@ class ProactiveEngine {
         );
         if (!isBirthday) continue;
 
-        // Verificar si alguna variante de la fecha de hoy aparece en el contenido
         const matchesToday = dateVariants.some(v => content.includes(v.toLowerCase()));
         if (!matchesToday) continue;
 
@@ -202,6 +319,66 @@ class ProactiveEngine {
     }
 
     return null;
+  }
+
+  // ── Árbitro central: TODO trigger (de OS o de tiempo) pasa por aquí ────────
+
+  /**
+   * Punto único de decisión. Aplica todos los filtros baratos (cooldowns,
+   * chat abierto, idle, LLM disponible) y, si pasan, consulta al LLM con
+   * criterio real. El LLM siempre puede decidir no decir nada.
+   */
+  async _tryTrigger(trigger) {
+    if (this._deciding) return null;          // ya hay una decisión en curso
+    if (this._chatOpen) return null;
+    if (!LLMProvider.getActiveProvider()) return null;
+
+    const now = Date.now();
+
+    if (now - this._lastProactive < GLOBAL_MIN_GAP_MS) return null;
+
+    const cooldown    = TRIGGER_COOLDOWN_MS[trigger.type] ?? GLOBAL_MIN_GAP_MS;
+    const lastAttempt = this._lastAttemptByType[trigger.type] || 0;
+    if (now - lastAttempt < cooldown) return null;
+
+    // No interrumpir si lleva mucho AFK — excepto el trigger que ES,
+    // precisamente, "acaba de volver de estar AFK".
+    if (trigger.type !== 'return_from_break') {
+      const idleSecs = this._osSensor?.getCurrentContext()?.idleSecs ?? 0;
+      if (idleSecs > MAX_IDLE_TO_INTERRUPT) return null;
+    }
+
+    this._lastAttemptByType[trigger.type] = now;
+    this._deciding = true;
+    console.log(`[proactive] trigger: ${trigger.type} — consultando LLM...`);
+
+    try {
+      const message = await this._generateMessage(trigger);
+      if (!message) {
+        console.log('[proactive] LLM decidió no enviar mensaje');
+        return null;
+      }
+
+      this._lastProactive        = Date.now();
+      this._lastProactiveMessage = message;
+      this._lastProactiveTrigger = trigger.type;
+
+      const payload = {
+        reason:     trigger.type,
+        suggestion: message,
+        actionType: 'proactive',
+        canHelp:    true,
+        utility:    1.0,
+        openChat:   true,
+      };
+
+      console.log(`[proactive] emitiendo: "${message.slice(0, 60)}..."`);
+      this._bus.emit('initiative:trigger', payload);
+      return message;
+
+    } finally {
+      this._deciding = false;
+    }
   }
 
   // ── Generación con LLM ──────────────────────────────────────────────────────
@@ -316,6 +493,10 @@ No expliques por qué escribes. No anuncies que eres proactiva. Solo di lo que d
     return lines.join('\n');
   }
 
+  // ── Testing manual (DevTools / IPC force-proactive) ─────────────────────────
+  // Bypasea los cooldowns a propósito (es una prueba forzada), pero el LLM
+  // sigue teniendo la última palabra — puede seguir respondiendo NO.
+
   async forceEvaluate(triggerType = 'long_silence') {
     const now  = new Date();
     const hour = now.getHours();
@@ -360,6 +541,51 @@ No expliques por qué escribes. No anuncies que eres proactiva. Solo di lo que d
         };
         break;
       }
+      case 'sustained_focus': {
+        const osCtx = this._osSensor?.getCurrentContext();
+        const rule  = osCtx?.category ? FOCUS_RULES[osCtx.category] : null;
+        const real  = !!(rule && osCtx.elapsed >= rule.minSec);
+        const effectiveRule = rule || FOCUS_RULES.code;
+        trigger = {
+          type: 'sustained_focus',
+          category:    osCtx?.category || 'code',
+          label:       effectiveRule.label,
+          friendlyName: osCtx?.friendlyName || 'la app actual',
+          title:       osCtx?.title || '',
+          elapsedSec:  osCtx?.elapsed || 0,
+          forced: true,
+          forcedMismatch: !real,
+          context: real
+            ? `El usuario lleva ${osCtx.elapsedFormatted} ${effectiveRule.label} en ${osCtx.friendlyName}.`
+            : `[SIMULACIÓN DE TESTING] Se está forzando "sustained_focus", pero el usuario no lleva suficiente tiempo enfocado en una categoría reconocida ahora mismo (app actual: ${osCtx?.friendlyName || 'ninguna detectada'}).`,
+        };
+        break;
+      }
+      case 'context_switch_thrash': {
+        const distinctCategories = [...new Set(this._recentSwitches.map(s => s.category))];
+        const real = this._recentSwitches.length >= THRASH_MIN_SWITCHES && distinctCategories.length >= THRASH_MIN_DISTINCT_CATEGORY;
+        trigger = {
+          type: 'context_switch_thrash',
+          switchCount: this._recentSwitches.length,
+          categories:  distinctCategories,
+          forced: true,
+          forcedMismatch: !real,
+          context: real
+            ? `El usuario cambió de aplicación ${this._recentSwitches.length} veces en los últimos ${Math.round(THRASH_WINDOW_MS / 60000)} minutos, saltando entre: ${distinctCategories.join(', ')}.`
+            : `[SIMULACIÓN DE TESTING] Se está forzando "context_switch_thrash", pero no hay suficientes cambios de app recientes registrados (solo ${this._recentSwitches.length} en la ventana de ${Math.round(THRASH_WINDOW_MS / 60000)} min).`,
+        };
+        break;
+      }
+      case 'return_from_break': {
+        trigger = {
+          type: 'return_from_break',
+          gapSec: RETURN_MIN_GAP_SEC + 60,
+          forced: true,
+          forcedMismatch: true,
+          context: `[SIMULACIÓN DE TESTING] Se está forzando "return_from_break" — no hubo una ausencia real detectada, es una prueba.`,
+        };
+        break;
+      }
       default:
         trigger = {
           type: triggerType,
@@ -372,9 +598,11 @@ No expliques por qué escribes. No anuncies que eres proactiva. Solo di lo que d
     console.log('[proactive] evaluación forzada:', triggerType, trigger.forcedMismatch ? '(sin correspondencia con la realidad)' : '(coincide con la realidad)');
     const message = await this._generateMessage(trigger);
     if (message) {
-      this._lastProactive        = Date.now();
-      this._lastProactiveMessage = message;
-      this._lastProactiveTrigger = trigger.type;
+      const firedAt = Date.now();
+      this._lastProactive             = firedAt;
+      this._lastAttemptByType[trigger.type] = firedAt;
+      this._lastProactiveMessage      = message;
+      this._lastProactiveTrigger      = trigger.type;
       this._bus.emit('initiative:trigger', {
         reason:     trigger.type,
         suggestion: message,
@@ -390,22 +618,25 @@ No expliques por qué escribes. No anuncies que eres proactiva. Solo di lo que d
   }
 
   getStats() {
+    const now = Date.now();
     return {
       running:               this._running,
+      deciding:              this._deciding,
       lastProactive:         this._lastProactive,
       lastProactiveMessage:  this._lastProactiveMessage,
       lastProactiveTrigger:  this._lastProactiveTrigger,
+      lastAttemptByType:     this._lastAttemptByType,
       lastUserMsg:           this._lastUserMsg,
-      silenceMs:             Date.now() - this._lastUserMsg,
+      silenceMs:             now - this._lastUserMsg,
       chatOpen:              this._chatOpen,
       idleSecs:              this._osSensor?.getCurrentContext()?.idleSecs ?? null,
+      // Análisis de actividad en vivo:
+      currentCategory:       this._currentCategory,
+      categoryStreakSec:     this._categoryStreakStart ? Math.round((now - this._categoryStreakStart) / 1000) : 0,
+      categoryStreakFired:   this._categoryStreakFired,
+      recentSwitchesCount:   this._recentSwitches.length,
+      awaySince:             this._idleStartedAt,
     };
-  }
-
-  _setupListeners() {
-    this._bus.on('memory:turn-added', ({ role }) => {
-      if (role === 'user') this._lastUserMsg = Date.now();
-    });
   }
 }
 
@@ -431,6 +662,12 @@ function _triggerDescription(trigger) {
       return `Llevan ${trigger.hours} horas sin hablar. Si hay algo de las sesiones recientes que se te quedó pensando, retómalo. Si no, un comentario casual también vale — no necesita ser sobre el proyecto.`;
     case 'special_date':
       return `Hoy es una fecha especial: ${trigger.node}. Reacciona de forma natural, no exagerada.`;
+    case 'sustained_focus':
+      return `El usuario lleva ${trigger.elapsedFormatted || 'un buen rato'} ${trigger.label} en ${trigger.friendlyName}${trigger.title ? ` (título de la ventana: "${trigger.title.slice(0, 80)}")` : ''}. Si el título te da una pista concreta de lo que está haciendo, úsala — sé específica, no genérica ("¿cómo va el código?" es el tipo de pregunta que NO quieres repetir siempre). Puedes preguntar algo puntual, comentar el tiempo que lleva metido en esto, o simplemente no decir nada si no tienes algo genuino.`;
+    case 'context_switch_thrash':
+      return `El usuario cambió de aplicación ${trigger.switchCount} veces en pocos minutos, saltando entre: ${trigger.categories?.join(', ')}. Esto puede ser una señal de que está atorado, distraído, o buscando algo que no encuentra. No lo regañes ni asumas lo peor — puedes preguntar con curiosidad genuina si anda buscando algo o si algo no le está saliendo. Si no se siente genuino, responde NO.`;
+    case 'return_from_break':
+      return `El usuario estuvo fuera de la PC unos ${Math.round((trigger.gapSec || 0) / 60)} minutos y acaba de volver. Un comentario breve y casual de bienvenida puede ser genuino aquí — pero no es obligatorio, si no tienes algo natural que decir responde NO.`;
     default:
       return trigger.context;
   }
