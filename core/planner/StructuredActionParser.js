@@ -44,7 +44,13 @@ const path = require('path');
 // ── Mapa action → tool de OpenClaw ────────────────────────────────────────────
 // Mismo mapping que en el catálogo de init_vectors.js para consistencia.
 const ACTION_TO_TOOL = {
-  create_file:      'write',
+  // FIX: 'create_file' iba mapeado a tool 'write', pero Planner._executeStep
+  // solo dispara el flujo especial (llm → write → verify, ver
+  // _executeCreateFile) cuando tool === 'create_file' exactamente. Con
+  // 'write' se habría llamado a OpenClawBridge.execute('write', {path,
+  // instruction}) directo — y el schema de 'write' espera {path, content},
+  // no {path, instruction}, así que 'content' habría llegado undefined.
+  create_file:      'create_file',
   edit_file:        'edit_file',   // manejado especialmente en Planner._executeEditFile
   read_file:        'read',
   delete_file:      'exec',        // mock: delete via exec del
