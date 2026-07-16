@@ -503,9 +503,9 @@ ipcMain.handle('openclaw-execute-tool', async (e, { tool, params }) => {
   }
 });
 
-ipcMain.handle('openclaw-parse-plan', (e, { llmResponse, userGoal }) => {
+ipcMain.handle('openclaw-parse-plan', (e, { llmResponse, userGoal, toolIntent }) => {
   try {
-    const plan = MarchCore.parsePlanFromResponse(llmResponse, userGoal);
+    const plan = MarchCore.parsePlanFromResponse(llmResponse, userGoal, toolIntent ?? null);
     return plan ?? null;
   } catch (err) {
     console.error('[main] error en parsePlanFromResponse:', err.message);
