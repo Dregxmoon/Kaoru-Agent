@@ -169,6 +169,26 @@ ACCIÓN: web_search | QUERY: cómo configurar webpack 5
     shouldParse:    true,
   },
   {
+    // Regresión: create_file estaba mapeado a tool 'write' en vez de
+    // 'create_file', así que nunca disparaba el flujo especial de
+    // Planner._executeCreateFile (llm → write → verify) y en su lugar
+    // habría llamado a OpenClawBridge.execute('write', {path, instruction})
+    // directo — con 'content' undefined, porque el schema de 'write' espera
+    // {path, content}, no {path, instruction}.
+    label: 'Parsea bloque create_file con ARCHIVO (tool debe ser create_file, no write)',
+    llmResponse: `
+Voy a crear ese archivo.
+
+\`\`\`action
+ACCIÓN: create_file | ARCHIVO: notas.txt
+\`\`\`
+    `,
+    userGoal:       'créame un archivo de notas',
+    expectedTool:   'create_file',
+    expectedSource: 'structured',
+    shouldParse:    true,
+  },
+  {
     label: 'Respuesta sin bloque → array vacío (sin crash)',
     llmResponse:  'Claro, te ayudo con eso. ¿Puedes darme más detalles?',
     userGoal:     'modifica el archivo',
