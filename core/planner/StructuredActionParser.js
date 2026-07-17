@@ -84,6 +84,27 @@ function _buildDescription(action, fields) {
   }
 }
 
+// ── Sanitización antes de interpolar en un comando de shell ──────────────────
+// ARCHIVO/RUTA vienen del LLM, que a su vez puede haber sido influenciado por
+// contenido externo no confiable (p.ej. una página web leída con browser/
+// web_search — inyección de prompt indirecta). Antes de meterlos en un string
+// de shell como `del "${valor}"`, hay que asegurarse de que no puedan romper
+// el escapado e inyectar un comando extra. Esto es defensa en profundidad
+// ADEMÁS del diálogo de aprobación — si por lo que sea ese diálogo se salta,
+// esto igual frena la inyección.
+const SHELL_METACHAR_RE = /["'`$;&|<>\n\r]/;
+
+function _sanitizeShellArg(value) {
+  if (typeof value !== 'string') return null;
+  const trimmed = value.trim();
+  if (!trimmed) return null;
+  if (SHELL_METACHAR_RE.test(trimmed)) {
+    console.warn('[structured-parser] valor rechazado por caracteres de shell sospechosos:', JSON.stringify(trimmed));
+    return null;
+  }
+  return trimmed;
+}
+
 // ── Construcción de params para OpenClawBridge ────────────────────────────────
 function _buildParams(action, fields, userGoal, projectCwd) {
   const cwd = projectCwd || process.cwd();
@@ -104,25 +125,31 @@ function _buildParams(action, fields, userGoal, projectCwd) {
     case 'read_file':
       return { path: fields.ARCHIVO };
 
-    case 'delete_file':
-      // OpenClaw del/rm según plataforma
+    case 'delete_file': {
+      const safeArchivo = _sanitizeShellArg(fields.ARCHIVO);
+      if (!safeArchivo) return null;
       return {
         command: process.platform === 'win32'
-          ? `del "${fields.ARCHIVO}"`
-          : `rm "${fields.ARCHIVO}"`,
+          ? `del "${safeArchivo}"`
+          : `rm "${safeArchivo}"`,
         cwd,
       };
+    }
 
-    case 'create_directory':
+    case 'create_directory': {
+      const safeRuta = _sanitizeShellArg(fields.RUTA || fields.ARCHIVO || 'nueva-carpeta');
+      if (!safeRuta) return null;
       return {
-        command: `mkdir "${fields.RUTA || fields.ARCHIVO || 'nueva-carpeta'}"`,
+        command: `mkdir "${safeRuta}"`,
         cwd,
       };
+    }
 
     case 'list_directory': {
-      const dir = fields.RUTA || fields.ARCHIVO || '.';
+      const safeDir = _sanitizeShellArg(fields.RUTA || fields.ARCHIVO || '.');
+      if (!safeDir) return null;
       return {
-        command: process.platform === 'win32' ? `dir "${dir}"` : `ls -la "${dir}"`,
+        command: process.platform === 'win32' ? `dir "${safeDir}"` : `ls -la "${safeDir}"`,
         cwd,
       };
     }
@@ -299,7 +326,11 @@ class StructuredActionParser {
       return null;
     }
 
-    const params      = _buildParams(action, fields, userGoal, this._cwd);
+    const params = _buildParams(action, fields, userGoal, this._cwd);
+    if (!params) {
+      console.warn(`[structured-parser] ${action} descartado — params inválidos tras sanitización`);
+      return null;
+    }
     const description = _buildDescription(action, fields);
 
     return {
