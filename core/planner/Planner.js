@@ -351,17 +351,99 @@ async function _llmTransform(originalContent, instruction, filePath) {
 
 // ── Clasificación de impacto ──────────────────────────────────────────────────
 const HIGH_IMPACT_PATTERNS = [
+  // Destructivos (ya existían)
   /\brm\s+-rf?\b/i, /\bdel\s+\/[sqf]/i, /\bformat\b/i,
   /\bshutdown\b/i,  /\breboot\b/i,      /\bpoweroff\b/i,
   /\bkill\s+-9\b/,  /C:\\Windows\\/i,   /\/etc\//,
   /\/sys\//,        /\/boot\//,
+
+  // ── Ampliado — defensa en profundidad para el pipeline de acciones ──────────
+  // La lista original solo cubría comandos catastróficos de borrado total.
+  // Esto no es (ni pretende ser) una lista exhaustiva — es un blocklist, no
+  // un allowlist, a propósito: bloquear TODO exec rompería el flujo normal
+  // de trabajo (git, npm, node, tests). Cubre los patrones más comunes de
+  // un payload inyectado (p.ej. vía una página web que el LLM haya leído
+  // con browser/web_search) en vez de un typo accidental tuyo.
+
+  // Descarga + ejecución remota ("download cradles")
+  /\b(curl|wget)\b.*\|\s*(sh|bash|zsh)\b/i,
+  /\biwr\b|\binvoke-webrequest\b/i,
+  /\biex\b|\binvoke-expression\b/i,
+  /-encodedcommand\b/i,
+  /\bcertutil\b.*-urlcache/i,
+  /\bmshta\b/i,
+
+  // Lectura de credenciales/env por línea de comandos
+  /\b(printenv|env)\b\s*$/i,
+
+  // Persistencia / manipulación del sistema
+  /\bschtasks\b/i,       /\breg\s+(add|delete)\b/i,
+  /\bnew-service\b|\bsc\s+create\b/i,
+  /disable.*defender/i,  /disable.*firewall/i, /netsh\s+advfirewall/i,
+
+  // Git destructivo o forzado
+  /\bgit\s+push\s+.*--force/i, /\bgit\s+reset\s+--hard\b/i,
+  /\bgit\s+clean\s+-[a-z]*f/i,
+
+  // Instalación de paquetes — no es destructivo, pero sí riesgo de
+  // supply-chain (un paquete malicioso corre código al instalarse)
+  /\b(npm|pnpm|yarn)\s+install\b/i, /\bpip\s+install\b/i,
 ];
 
+// ── Rutas sensibles — SIEMPRE requieren aprobación, sin importar el tool ──────
+// Llaves SSH, credenciales, cookies de navegador, wallets. Si alguna vez el
+// LLM pide tocar algo de esto (por una inyección de prompt, o simplemente
+// por confusión), el usuario tiene que verlo en el diálogo y decir que sí.
+const SENSITIVE_PATH_PATTERNS = [
+  /\.ssh[\\/]/i,       /id_rsa/i,      /id_ed25519/i,
+  /\.pem$/i,           /\.pfx$/i,      /\.key$/i,
+  /\.aws[\\/]/i,       /\.env(\.|$)/i, /credentials/i,
+  /\.git-credentials/i,/\.npmrc/i,     /login data/i,
+  /\bcookies\b/i,      /wallet/i,      /\.pgpass/i,
+];
+
+function _isSensitivePath(p) {
+  if (!p || typeof p !== 'string') return false;
+  return SENSITIVE_PATH_PATTERNS.some(re => re.test(p));
+}
+
+// ── Confinamiento de rutas — fuera del proyecto SIEMPRE requiere aprobación ──
+// Cubre tanto rutas absolutas (C:\Users\...\Downloads\algo) como traversal
+// relativo (../../../algo) — ambas resuelven a algo fuera de PROJECT_CWD.
+function _isOutsideProject(p) {
+  if (!p || typeof p !== 'string') return false;
+  try {
+    const resolved = path.isAbsolute(p) ? p : path.join(PROJECT_CWD, p);
+    const rel = path.relative(PROJECT_CWD, resolved);
+    return rel.startsWith('..') || path.isAbsolute(rel);
+  } catch (_) {
+    return true; // si no se puede resolver la ruta, mejor pedir aprobación
+  }
+}
+
 function isHighImpact(tool, params) {
+  // Rutas/comandos sensibles — siempre, sin importar el tool
+  if (_isSensitivePath(params?.path) || _isSensitivePath(params?.command)) return true;
+
   if (tool === 'exec' && params.command)
     return HIGH_IMPACT_PATTERNS.some(p => p.test(params.command));
+
   if (tool === 'write' && params.path)
-    return HIGH_IMPACT_PATTERNS.some(p => p.test(params.path));
+    return HIGH_IMPACT_PATTERNS.some(p => p.test(params.path)) || _isOutsideProject(params.path);
+
+  // FIX: 'read' nunca pedía aprobación sin importar la ruta — un LLM
+  // inyectado podía pedir leer cualquier archivo del disco en silencio.
+  // Ahora, leer DENTRO del proyecto sigue siendo instantáneo (uso normal);
+  // leer fuera del proyecto pide confirmación.
+  if (tool === 'read' && params.path)
+    return _isOutsideProject(params.path);
+
+  // FIX: 'browser' (navigate_browser) nunca pedía aprobación — es el otro
+  // extremo de una cadena de exfiltración (leer algo sensible → navegar a
+  // una URL que lo incluya). Navegar es poco frecuente comparado con
+  // exec/read, así que el costo de fricción es bajo.
+  if (tool === 'browser') return true;
+
   if (tool === 'edit_file')      return true;
   if (tool === 'create_file')    return true;
   if (tool === 'apply_patch')    return true;
@@ -1314,6 +1396,8 @@ module.exports = {
   _debug_cleanPath: _cleanPath,
   _debug_trimNarrative: _trimNarrativeOutsideQuotes,
   _debug_splitChained: _splitChainedGitCommand,
+  _debug_isSensitivePath: _isSensitivePath,
+  _debug_isOutsideProject: _isOutsideProject,
   Planner,
   ActionParser,
   getPlanner,
