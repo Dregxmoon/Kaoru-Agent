@@ -93,6 +93,24 @@ const SPECIAL_FOLDERS = {
   'video':      path.join(HOME, 'Videos'),
 };
 
+// ── Última línea de defensa — rutas absolutamente prohibidas ─────────────────
+// El comentario de arriba decía "el control de seguridad vive en el flujo de
+// aprobación de Planner.js, no aquí" — cierto, pero una sola capa de defensa
+// es frágil. Si por lo que sea una request llega hasta acá pidiendo tocar una
+// llave SSH, un archivo de credenciales, o el almacén de contraseñas del
+// navegador, esto se niega sin excepción — mismo espíritu que el blocklist de
+// comandos catastróficos que ya existe más abajo en este archivo.
+const FORBIDDEN_PATH_PATTERNS = [
+  /\.ssh[\\/]/i, /id_rsa/i, /id_ed25519/i, /\.pem$/i, /\.pfx$/i, /\.key$/i,
+  /\.aws[\\/]/i, /\.env(\.|$)/i, /credentials/i, /\.git-credentials/i,
+  /\.npmrc/i, /login data/i, /\bcookies\b/i, /wallet/i, /\.pgpass/i,
+];
+
+function isForbiddenPath(filePath) {
+  if (!filePath) return false;
+  return FORBIDDEN_PATH_PATTERNS.some(re => re.test(filePath));
+}
+
 /**
  * Resuelve un filePath de forma inteligente:
  *
@@ -104,8 +122,9 @@ const SPECIAL_FOLDERS = {
  *     de trabajo en el proyecto).
  *
  * No hay restricción de "directorios permitidos" — March tiene acceso
- * total al filesystem del usuario. El control de seguridad vive en el
- * flujo de aprobación de Planner.js, no aquí.
+ * total al filesystem del usuario. El control de seguridad principal vive
+ * en el flujo de aprobación de Planner.js; FORBIDDEN_PATH_PATTERNS de
+ * arriba es la segunda capa, aplicada en los handlers read/write/edit.
  */
 function resolveSmartPath(filePath) {
   if (!filePath) return filePath;
@@ -243,9 +262,14 @@ const TOOLS = {
     }
   },
 
-  // read — acceso total, sin restricción de directorio
+  // read — restringido solo por FORBIDDEN_PATH_PATTERNS (ver arriba);
+  // el resto del control de acceso vive en Planner.js
   read: (input) => {
     const { path: filePath } = input;
+    if (isForbiddenPath(filePath)) {
+      console.warn(`[mock] read BLOQUEADO por ruta prohibida: "${filePath}"`);
+      return { result: '', error: `Acceso denegado: "${filePath}" coincide con un patrón de ruta sensible (llaves, credenciales, cookies, etc).` };
+    }
     try {
       const resolved = resolveSmartPath(filePath);
       const content  = fs.readFileSync(resolved, { encoding: 'utf8' });
@@ -256,9 +280,14 @@ const TOOLS = {
     }
   },
 
-  // write — acceso total, crea subcarpetas automáticamente si no existen
+  // write — restringido solo por FORBIDDEN_PATH_PATTERNS; crea subcarpetas
+  // automáticamente si no existen
   write: (input) => {
     const { path: filePath, content } = input;
+    if (isForbiddenPath(filePath)) {
+      console.warn(`[mock] write BLOQUEADO por ruta prohibida: "${filePath}"`);
+      return { result: '', error: `Acceso denegado: "${filePath}" coincide con un patrón de ruta sensible (llaves, credenciales, cookies, etc).` };
+    }
     try {
       const resolved = resolveSmartPath(filePath);
       fs.mkdirSync(path.dirname(resolved), { recursive: true });
@@ -270,9 +299,13 @@ const TOOLS = {
     }
   },
 
-  // edit — acceso total
+  // edit — restringido solo por FORBIDDEN_PATH_PATTERNS
   edit: (input) => {
     const { path: filePath, old_text, new_text } = input;
+    if (isForbiddenPath(filePath)) {
+      console.warn(`[mock] edit BLOQUEADO por ruta prohibida: "${filePath}"`);
+      return { result: '', error: `Acceso denegado: "${filePath}" coincide con un patrón de ruta sensible (llaves, credenciales, cookies, etc).` };
+    }
     try {
       const resolved = resolveSmartPath(filePath);
       let content    = fs.readFileSync(resolved, 'utf8');
