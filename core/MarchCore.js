@@ -24,7 +24,7 @@ const { getEventBus }                  = require('../infrastructure/event-bus/Ev
 const { InitiativeEngine }             = require('./behavior/InitiativeEngine.js');
 const { ProactiveEngine }              = require('./behavior/ProactiveEngine.js');
 const { BehaviorModel }                = require('./behavior/BehaviorModel.js');
-const { getPlanner, setProjectCWD }    = require('./planner/Planner.js');
+const { getPlanner, setProjectCWD, isHighImpact } = require('./planner/Planner.js');
 const { getOpenClawBridge }            = require('./planner/OpenClawBridge.js');
 const LLMProvider                      = require('./llm/LLMProvider.js');
 
@@ -317,6 +317,27 @@ async function executePlan(plan, opts = {}) {
 
 async function executeTool(tool, params) {
   if (!_bridge) throw new Error('OpenClawBridge no inicializado');
+
+  // FIX — defensa en profundidad: executeTool() (vía IPC 'openclaw-execute-tool')
+  // es un camino directo a OpenClawBridge que NO pasa por Planner.execute() ni
+  // por su diálogo de aprobación (onApprovalNeeded). Hoy ningún renderer lo
+  // llama, pero es un IPC handler expuesto y con nodeIntegration activo
+  // cualquier script en el chat podría invocarlo. Para que este atajo no sea
+  // un bypass total y silencioso del sistema de aprobación, cualquier
+  // operación que Planner consideraría "alto impacto" queda bloqueada aquí
+  // — ese tipo de acción SOLO puede pasar por el flujo normal con plan +
+  // confirmación del usuario.
+  if (isHighImpact(tool, params || {})) {
+    console.warn(`[march-core] executeTool bloqueado — "${tool}" requiere pasar por el flujo de plan con aprobación, no por el atajo directo`);
+    return {
+      ok:     false,
+      error:  'Esta acción requiere aprobación explícita — usa el flujo de plan (openclaw-parse-plan → openclaw-execute-plan) en vez de executeTool directo.',
+      tool,
+      result: null,
+      elapsed: 0,
+    };
+  }
+
   return _bridge.execute(tool, params);
 }
 
