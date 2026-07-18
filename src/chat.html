@@ -85,6 +85,7 @@ body::before { content:''; position:fixed; inset:0; background:var(--grain); poi
    configurar); fallback de memoria = todo lo que se hable HOY se pierde
    al cerrar la app, sin aviso previo si no fuera por este banner. */
 #memory-banner { display:none; align-items:center; gap:10px; padding:8px 14px; background:rgba(239,68,68,0.08); border-bottom:1px solid rgba(239,68,68,0.3); font-family:var(--font-mono); font-size:11px; color:#ef4444; flex-shrink:0; z-index:2; }
+.session-resume-divider { text-align:center; font-family:var(--font-mono); font-size:9px; color:var(--text-secondary); opacity:.6; margin:14px 0; letter-spacing:.5px; text-transform:uppercase; }
 #memory-banner.visible { display:flex; }
 #memory-banner svg { width:14px; height:14px; flex-shrink:0; }
 
@@ -120,6 +121,7 @@ body::before { content:''; position:fixed; inset:0; background:var(--grain); poi
 .mcp-status-dot { width:8px; height:8px; border-radius:50%; flex-shrink:0; background:#6b7280; }
 .mcp-status-dot.connected { background:#10b981; box-shadow:0 0 6px rgba(16,185,129,.6); }
 .mcp-status-dot.connecting { background:#f59e0b; animation:mcpPulse 1s ease-in-out infinite; }
+.mcp-status-dot.reconnecting { background:#f59e0b; animation:mcpPulse .6s ease-in-out infinite; }
 .mcp-status-dot.error { background:#ef4444; }
 @keyframes mcpPulse { 50%{opacity:.3;} }
 .mcp-server-info { flex:1; min-width:0; }
@@ -703,6 +705,27 @@ ipcRenderer.on('memory-status', (e, { usingFallback }) => {
   }
 });
 
+// Mejora #6 — la sesión anterior se cerró sin pasar por close() (crash,
+// apagón, cierre forzado) y SessionManager la retomó con su historial
+// completo. Repuebla la ventana visualmente y el array que se manda al
+// LLM, para que la conversación siga exactamente donde se quedó.
+ipcRenderer.on('resumed-session', (e, { history }) => {
+  if (!Array.isArray(history) || !history.length) return;
+  console.log(`[chat] restaurando sesión interrumpida: ${history.length} mensajes`);
+
+  const divider = document.createElement('div');
+  divider.className = 'session-resume-divider';
+  divider.textContent = '· sesión anterior recuperada ·';
+  messagesEl.appendChild(divider);
+
+  for (const turn of history) {
+    if (!turn?.content) continue;
+    addMessage(turn.role === 'user' ? 'user' : 'march', turn.content);
+    sessionHistory.push(turn);
+  }
+  messagesEl.scrollTop = messagesEl.scrollHeight;
+});
+
 // ── Settings modal ────────────────────────────────────────────────────────────
 const settingsModal  = document.getElementById('settings-modal');
 const settingsStatus = document.getElementById('settings-status');
@@ -779,9 +802,10 @@ async function checkOpenClaw() {
 const mcpModal = document.getElementById('mcp-modal');
 
 function mcpStatusLabel(status) {
-  if (status === 'connected')  return 'conectado';
-  if (status === 'connecting') return 'conectando...';
-  if (status === 'error')      return 'error';
+  if (status === 'connected')    return 'conectado';
+  if (status === 'connecting')   return 'conectando...';
+  if (status === 'reconnecting') return 'reconectando...';
+  if (status === 'error')        return 'error';
   return 'desconectado';
 }
 
