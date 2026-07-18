@@ -26,6 +26,7 @@ const { ProactiveEngine }              = require('./behavior/ProactiveEngine.js'
 const { BehaviorModel }                = require('./behavior/BehaviorModel.js');
 const { getPlanner, setProjectCWD, isHighImpact } = require('./planner/Planner.js');
 const { getOpenClawBridge }            = require('./planner/OpenClawBridge.js');
+const { getMCPManager }                = require('./mcp/MCPManager.js');
 const LLMProvider                      = require('./llm/LLMProvider.js');
 
 let _graph       = null;
@@ -42,6 +43,7 @@ let _bus         = null;
 let _app         = null;
 let _configPath  = null;
 let _detector    = null;
+let _mcp         = null;
 
 let _initialized  = false;
 let _onInitiative = null;
@@ -77,6 +79,7 @@ console.log('[march-core] DEBUG graph.usingFallback:', _graph.usingFallback, '| 
   _behavior = new BehaviorModel(_graph);
   _planner  = getPlanner();
   _bridge   = getOpenClawBridge();
+  _mcp      = getMCPManager();
 
   const projectCWD = app ? app.getAppPath() : process.cwd();
   setProjectCWD(projectCWD);
@@ -123,6 +126,7 @@ console.log('[march-core] DEBUG graph.usingFallback:', _graph.usingFallback, '| 
 
   _scheduleDailyPrune();
   _loadLLMConfig();
+  _loadMCPConfig();
   _proactive.start();
 
   _bridge.isAvailable().then(available => {
@@ -177,6 +181,50 @@ function _loadLLMConfig() {
 
 function reloadLLMConfig() { _loadLLMConfig(); }
 
+// ── MCP ────────────────────────────────────────────────────────────────────────
+// Los servidores se guardan/editan desde main.js (que ya tiene loadConfig/
+// saveConfig para config.json) — esto solo LEE al arrancar para reconectar
+// automáticamente los que estaban enabled:true en la sesión anterior. No
+// bloquea init() — si un servidor tarda o falla en conectar, el resto de
+// March sigue funcionando normal (por diseño: MCP es una capacidad extra,
+// nunca un requisito).
+function _loadMCPConfig() {
+  try {
+    if (!_configPath || !fs.existsSync(_configPath)) return;
+    const cfg = JSON.parse(fs.readFileSync(_configPath, 'utf-8'));
+    const servers = cfg?.mcp?.servers || [];
+    if (!servers.length) return;
+    _mcp.init(servers).catch(e => console.warn('[march-core] error inicializando servidores MCP:', e.message));
+  } catch(e) {
+    console.warn('[march-core] error leyendo config de MCP:', e.message);
+  }
+}
+
+async function mcpListServers() {
+  return _mcp ? _mcp.listServers() : [];
+}
+
+async function mcpAddServer(serverCfg) {
+  if (!_mcp) throw new Error('MCP no inicializado');
+  return _mcp.addServer(serverCfg);
+}
+
+async function mcpRemoveServer(id) {
+  if (_mcp) await _mcp.removeServer(id);
+}
+
+async function mcpToggleServer(id, enabled, serverCfg) {
+  if (_mcp) await _mcp.toggleServer(id, enabled, serverCfg);
+}
+
+async function mcpSearchRegistry(query) {
+  return _mcp ? _mcp.searchRegistry(query) : [];
+}
+
+function mcpListAllTools() {
+  return _mcp ? _mcp.listAllTools() : [];
+}
+
 // ── Sesión ────────────────────────────────────────────────────────────────────
 
 async function startSession() {
@@ -191,6 +239,20 @@ async function closeSession() {
     await _session.close();
     _bus.emit('session:closed', { sessionId: null });
   }
+}
+
+/**
+ * Cierre ordenado. Lo más importante acá: los servidores MCP corren como
+ * procesos hijos (típicamente `npx ...`) — si la app se cierra sin
+ * desconectarlos, pueden quedar huérfanos corriendo en el sistema. Se
+ * llama desde main.js en 'before-quit', con timeout, igual que closeSession.
+ */
+async function shutdown() {
+  console.log('[march-core] cerrando...');
+  if (_mcp) {
+    try { await _mcp.disconnectAll(); } catch(e) { console.warn('[march-core] error desconectando MCP:', e.message); }
+  }
+  _proactive?.stop();
 }
 
 function addTurn(role, content) {
@@ -279,7 +341,40 @@ async function buildContext(sessionHistory, activeProvider) {
       'El sistema los ejecutará en orden automáticamente.';
   }
 
+  // MCP — independiente de toolIntent y de si OpenClaw está disponible.
+  // Si hay servidores MCP conectados, sus tools se suman siempre — esa es
+  // justo la idea: otra fuente de herramientas, no otra dependencia.
+  if (_mcp?.hasConnectedServers()) {
+    const mcpTools = _mcp.listAllTools();
+    if (mcpTools.length) {
+      result.systemPrompt += _buildMCPCatalogPrompt(mcpTools);
+    }
+  }
+
   return { ...result, behaviorCtx, toolIntent };
+}
+
+/**
+ * Construye el bloque de system prompt que le enseña al LLM qué tools MCP
+ * hay disponibles ahora mismo y el formato exacto para usarlas. Se limita
+ * a 40 tools para no inflar el prompt si hay muchos servidores conectados.
+ */
+function _buildMCPCatalogPrompt(mcpTools) {
+  const lines = mcpTools.slice(0, 40).map(t => {
+    const desc = (t.description || '').replace(/\s+/g, ' ').slice(0, 100);
+    return `  - ${t.server}:${t.tool}${desc ? ' — ' + desc : ''}`;
+  });
+
+  return '\n\n# HERRAMIENTAS MCP DISPONIBLES\n' +
+    'Además de lo anterior, tienes acceso a estas herramientas de servidores MCP conectados:\n' +
+    lines.join('\n') + '\n\n' +
+    'Para usar una, responde con este formato exacto (sin narrativa alrededor del bloque):\n' +
+    '```action\n' +
+    'ACCIÓN: mcp_call | SERVIDOR: <nombre-servidor> | HERRAMIENTA: <nombre-herramienta> | PARAMS: {"clave": "valor"}\n' +
+    '```\n' +
+    'PARAMS debe ser JSON válido en una sola línea con los argumentos que la herramienta espera ' +
+    '(puede ser {} si no necesita ninguno). El sistema pedirá confirmación al usuario antes de ' +
+    'ejecutar cualquier herramienta MCP — no asumas que ya se ejecutó ni inventes su resultado.';
 }
 
 // ── Fase 3: Planner y OpenClaw ────────────────────────────────────────────────
@@ -396,6 +491,7 @@ function getBridge()        { return _bridge;    }
 
 module.exports = {
   init,
+  shutdown,
   startSession,
   closeSession,
   addTurn,
@@ -417,4 +513,10 @@ module.exports = {
   parsePlanFromResponse,
   executePlan,
   executeTool,
+  mcpListServers,
+  mcpAddServer,
+  mcpRemoveServer,
+  mcpToggleServer,
+  mcpSearchRegistry,
+  mcpListAllTools,
 };
