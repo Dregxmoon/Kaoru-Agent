@@ -88,6 +88,21 @@ function _float32ToBuffer(arr) {
   return Buffer.from(arr.buffer);
 }
 
+/**
+ * Genera embedding para un texto — expuesto para reuso fuera de este
+ * archivo (StateGraph.js lo usa para embeddings de nodos de memoria).
+ * Comparte el mismo singleton de _getEmbedder(), así que NO carga el
+ * modelo dos veces sin importar quién lo llame primero.
+ * Retorna Float32Array de 384 dimensiones (normalizado L2).
+ */
+async function embedText(text) {
+  return _embed(text);
+}
+
+function float32ToBuffer(arr) {
+  return _float32ToBuffer(arr);
+}
+
 // ── IntentDetector ────────────────────────────────────────────────────────────
 
 class IntentDetector {
@@ -333,4 +348,4 @@ function getIntentDetector(db) {
   return _instance;
 }
 
-module.exports = { IntentDetector, getIntentDetector, THRESHOLD_HIGH, THRESHOLD_LOW };
+module.exports = { IntentDetector, getIntentDetector, THRESHOLD_HIGH, THRESHOLD_LOW, embedText, float32ToBuffer };
