@@ -117,14 +117,25 @@ class RetrievalPlanner {
   }
 
   /**
-   * Método heredado de Fase 2 — síncrono, solo StateGraph.
-   * Se mantiene para compatibilidad con cualquier código que ya lo llame.
+   * Método heredado de Fase 2 — ahora ASYNC (antes era síncrono).
+   *
+   * CAMBIO: el paso 3 (antes N búsquedas LIKE, una por keyword extraída)
+   * ahora es una sola búsqueda semántica sobre el mensaje completo en
+   * lenguaje natural — más preciso que trocear en keywords sueltas, y
+   * pondera por recencia además de importance (ver
+   * StateGraph.queryNodesSemantic). Si el recall vectorial no está listo,
+   * cae sola a la búsqueda LIKE de siempre — no hay caso en que esto deje
+   * de funcionar, solo deja de ser tan preciso.
+   *
+   * Se mantiene compatible con el único call site real (GroundingEngine.
+   * buildContext(), que ya es async) — no quedó ningún llamador síncrono
+   * de plan() en el resto del código.
    *
    * @param {string} userMessage
    * @param {object} osContext
-   * @returns {object} — { nodes, episodeNodes, strategy, keywords, intents }
+   * @returns {Promise<object>} — { nodes, episodeNodes, strategy, keywords, intents }
    */
-  plan(userMessage = '', osContext = null) {
+  async plan(userMessage = '', osContext = null) {
     if (!this._graph?._ready) {
       return {
         nodes: [], episodeNodes: [],
@@ -149,10 +160,18 @@ class RetrievalPlanner {
       addAll(this._graph.queryNodes({ type, limit: 3 }));
     }
 
-    // 3. Búsqueda por keywords extraídas del mensaje
+    // 3. Recall semántico sobre el mensaje completo (antes: LIKE por keyword)
     const keywords = this._extractKeywords(userMessage);
-    for (const kw of keywords.slice(0, 5)) {
-      addAll(this._graph.queryNodes({ search: kw, limit: 2 }));
+    if (userMessage && userMessage.trim().length >= 4) {
+      try {
+        const semantic = await this._graph.queryNodesSemantic(userMessage, { limit: 8 });
+        addAll(semantic);
+      } catch(e) {
+        console.warn('[retrieval] error en recall semántico, cayendo a keywords:', e.message);
+        for (const kw of keywords.slice(0, 5)) {
+          addAll(this._graph.queryNodes({ search: kw, limit: 2 }));
+        }
+      }
     }
 
     // 4. OS context → priorizar proyectos si el usuario está en modo trabajo
@@ -177,7 +196,7 @@ class RetrievalPlanner {
     const strategy = intents.length > 0
       ? `intent:${intents.join(',')}`
       : keywords.length > 0
-        ? `keywords:${keywords.slice(0, 2).join(',')}`
+        ? `semantic:${keywords.slice(0, 2).join(',')}`
         : 'default';
 
     console.log(
