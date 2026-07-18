@@ -48,6 +48,14 @@ const DECAY_RATES = {
 
 const ARCHIVE_THRESHOLD = 0.05;
 
+// ── Recall semántico ──────────────────────────────────────────────────────────
+// Cuánto pesa la recencia frente a la similitud vectorial pura. No es un
+// corte duro — un recuerdo viejo pero muy relevante sigue pudiendo aparecer,
+// solo que con menos empuje. RECENCY_HALFLIFE_DAYS=21 significa: algo visto
+// hace 21 días tiene la mitad del "boost" de recencia que algo de hoy.
+const RECENCY_HALFLIFE_DAYS = 21;
+const SEMANTIC_CANDIDATES   = 24; // cuántos candidatos trae sqlite-vec antes de re-rankear
+
 // ── DB en memoria como fallback ───────────────────────────────────────────────
 class MemoryDB {
   constructor() {
@@ -76,6 +84,10 @@ class StateGraph {
     this._ready        = false;
     // FIX QW-1: flag público — true si no pudo iniciar SQLite real
     this.usingFallback = false;
+    // true si node_vectors (sqlite-vec) está listo para recall semántico —
+    // ver enableVectorSearch(). Si queda false, queryNodesSemantic() cae
+    // a la búsqueda LIKE de siempre, sin romper nada.
+    this._vectorReady = false;
   }
 
   init() {
@@ -204,8 +216,221 @@ class StateGraph {
         `);
         console.log('[state-graph] migración Fase 2 completada');
       }
+
+      // Mejora #6 — persistencia de sesión resumible: antes, si la ventana
+      // de chat se cerraba sin pasar por el flujo normal (crash, apagón,
+      // Windows forzando un reinstall de una vez), _history vivía SOLO en
+      // memoria de SessionManager y se perdía por completo — la próxima
+      // sesión arrancaba en blanco, sin la conversación en curso.
+      // history_json guarda el array de turnos tal cual, actualizado en
+      // cada addTurn(), para poder restaurarlo si la sesión anterior quedó
+      // con ended_at NULL (ver SessionManager.start() / findResumableSession).
+      const sessionCols = this._db.prepare(`PRAGMA table_info(sessions)`).all();
+      if (!sessionCols.some(c => c.name === 'history_json')) {
+        console.log('[state-graph] migrando schema: sessions.history_json...');
+        this._db.exec(`ALTER TABLE sessions ADD COLUMN history_json TEXT;`);
+      }
     } catch(e) {
       console.warn('[state-graph] error en migración (no crítico):', e.message);
+    }
+  }
+
+  // ── Recall semántico (vector + decay temporal) ──────────────────────────────
+  //
+  // queryNodes({search}) hace un LIKE plano sobre label/content, ordenado
+  // SOLO por importance — no distingue "coincide de casualidad" de
+  // "es justo lo que se preguntó", y no le da ningún peso extra a que un
+  // recuerdo sea reciente. queryNodesSemantic() es la mejora: usa el mismo
+  // embedder que ya carga IntentDetector (no se duplica el modelo) para
+  // rankear por similitud coseno real, combinado con un boost de recencia.
+  //
+  // Requiere que sqlite-vec ya esté cargado en esta conexión — eso lo hace
+  // MarchCore.init() (ver "sqlite-vec cargado en StateGraph DB"), y luego
+  // llama a enableVectorSearch() para crear la tabla. Si algo de esto falla
+  // o no se llamó, _vectorReady queda false y todo cae a queryNodes() normal
+  // — nunca es un requisito duro, es una mejora quePuede no estar.
+
+  /**
+   * Crea la tabla virtual node_vectors (sqlite-vec) si no existe. Debe
+   * llamarse DESPUÉS de que sqlite-vec.load(db) ya corrió sobre esta misma
+   * conexión — no lo hace esta función, porque StateGraph no depende de
+   * sqlite-vec directamente (evita acoplar un módulo de más bajo nivel a
+   * una extensión que hoy vive en MarchCore.init()).
+   */
+  enableVectorSearch() {
+    if (this.usingFallback) return false;
+    try {
+      const exists = this._db.prepare(
+        "SELECT name FROM sqlite_master WHERE type='table' AND name='node_vectors'"
+      ).get();
+
+      if (!exists) {
+        this._db.exec(`
+          CREATE VIRTUAL TABLE node_vectors USING vec0(
+            embedding FLOAT[384]
+          );
+        `);
+        console.log('[state-graph] node_vectors creada — recall semántico habilitado');
+      }
+
+      this._vectorReady = true;
+      return true;
+    } catch(e) {
+      console.warn('[state-graph] no se pudo habilitar recall semántico (se sigue usando LIKE):', e.message);
+      this._vectorReady = false;
+      return false;
+    }
+  }
+
+  /**
+   * Fire-and-forget: embedea el contenido de un nodo y lo guarda en
+   * node_vectors con rowid = id del nodo (así el JOIN en queryNodesSemantic
+   * es directo, sin tabla intermedia). No bloquea al llamador — createNode/
+   * updateNode siguen siendo síncronos como siempre; el nodo queda
+   * buscable por LIKE de inmediato y por semántica un momento después.
+   *
+   * DOS quirks de sqlite-vec (vec0) que costó encontrar, documentados para
+   * no volver a pisarlos:
+   *   1. El rowid debe pasarse como BigInt, no Number — un placeholder con
+   *      Number de JS falla con "Only integers are allowed for primary
+   *      key values" aunque sea un entero legítimo. El SELECT de vuelta sí
+   *      da Number normal, no hace falta convertir en el otro sentido.
+   *   2. vec0 NO soporta "INSERT OR REPLACE" — falla con "UNIQUE constraint
+   *      failed" aunque en una tabla normal funcionaría. Hay que borrar
+   *      primero y luego insertar (ver _upsertNodeVector abajo).
+   */
+  _scheduleNodeEmbedding(id, content) {
+    if (!this._vectorReady || !id || !content) return;
+    setImmediate(async () => {
+      try {
+        const { embedText, float32ToBuffer } = require('../grounding/IntentDetector.js');
+        const vec = await embedText(content.slice(0, 2000)); // cap razonable, no embedear textos gigantes
+        this._upsertNodeVector(id, float32ToBuffer(vec));
+      } catch(e) {
+        // No crítico — el nodo sigue siendo buscable por LIKE aunque esto falle
+        console.warn(`[state-graph] no se pudo embedear nodo ${id}:`, e.message);
+      }
+    });
+  }
+
+  /** Ver nota de quirks en _scheduleNodeEmbedding — vec0 no soporta OR REPLACE. */
+  _upsertNodeVector(id, embeddingBuffer) {
+    const bigId = BigInt(id);
+    this._db.prepare('DELETE FROM node_vectors WHERE rowid=?').run(bigId);
+    this._db.prepare('INSERT INTO node_vectors (rowid, embedding) VALUES (?, ?)').run(bigId, embeddingBuffer);
+  }
+
+  /**
+   * Recall semántico: similitud vectorial + boost de recencia, no solo
+   * importance. Cae a queryNodes({search}) si el recall vectorial no está
+   * listo o falla — nunca deja al llamador sin resultados por esto.
+   *
+   * @param {string} searchText — texto en lenguaje natural (no keywords sueltas)
+   * @param {object} opts — { type, limit, includeArchived }
+   */
+  async queryNodesSemantic(searchText, { type, limit = 8, includeArchived = false } = {}) {
+    if (!this._vectorReady || !searchText || !searchText.trim()) {
+      return this.queryNodes({ type, search: searchText, limit, includeArchived });
+    }
+
+    try {
+      const { embedText, float32ToBuffer } = require('../grounding/IntentDetector.js');
+      const queryVec = await embedText(searchText.slice(0, 500));
+
+      const candidates = this._db.prepare(`
+        SELECT nv.rowid as id, distance
+        FROM node_vectors nv
+        WHERE embedding MATCH ? AND k = ?
+        ORDER BY distance
+      `).all(float32ToBuffer(queryVec), SEMANTIC_CANDIDATES);
+
+      if (!candidates.length) {
+        return this.queryNodes({ type, search: searchText, limit, includeArchived });
+      }
+
+      const now = Date.now();
+      const ids = candidates.map(c => c.id);
+      const placeholders = ids.map(() => '?').join(',');
+      const archivedClause = includeArchived ? '' : 'AND archived=0';
+      const typeClause = type ? 'AND type=?' : '';
+
+      const rows = this._db.prepare(`
+        SELECT * FROM nodes WHERE id IN (${placeholders}) ${archivedClause} ${typeClause}
+      `).all(...ids, ...(type ? [type] : []));
+
+      const distanceById = new Map(candidates.map(c => [c.id, c.distance]));
+
+      const scored = rows.map(node => {
+        const distance   = distanceById.get(node.id) ?? 1;
+        const similarity = Math.max(0, 1 - distance);
+        const daysSince   = Math.max(0, (now - node.last_accessed_at) / (1000 * 60 * 60 * 24));
+        // recencyBoost va de 1.0 (justo ahora) a 0.5 (muy viejo) — nunca
+        // llega a 0, para que un recuerdo viejo pero muy relevante todavía
+        // pueda salir si su similitud/importance son altas.
+        const recencyBoost = 0.5 + 0.5 * Math.exp(-daysSince / RECENCY_HALFLIFE_DAYS);
+        const score = similarity * node.importance * recencyBoost;
+        return { ...node, _semanticScore: score, _similarity: similarity };
+      });
+
+      scored.sort((a, b) => b._semanticScore - a._semanticScore);
+      const top = scored.slice(0, limit);
+
+      if (!includeArchived) {
+        this._touchNodes(top.map(n => n.id).filter(Boolean), 'queryNodesSemantic');
+      }
+
+      return top;
+
+    } catch(e) {
+      console.warn('[state-graph] error en recall semántico, cayendo a LIKE:', e.message);
+      return this.queryNodes({ type, search: searchText, limit, includeArchived });
+    }
+  }
+
+  /**
+   * Embedea en lote los nodos que no tienen vector todavía (nodos creados
+   * antes de que existiera esta mejora, o si enableVectorSearch() se activó
+   * después de tener memoria acumulada). Fire-and-forget desde
+   * MarchCore.init() — no bloquea el arranque. Se hace en lotes chicos con
+   * una pausa entre cada uno para no acaparar CPU de un jalón en hardware
+   * limitado (Athlon Silver).
+   */
+  async backfillEmbeddings(batchSize = 10) {
+    if (!this._vectorReady) return { embedded: 0 };
+
+    try {
+      const pending = this._db.prepare(`
+        SELECT n.id, n.content FROM nodes n
+        LEFT JOIN node_vectors nv ON nv.rowid = n.id
+        WHERE nv.rowid IS NULL AND n.archived = 0
+      `).all();
+
+      if (!pending.length) return { embedded: 0 };
+
+      console.log(`[state-graph] backfill de embeddings: ${pending.length} nodos pendientes...`);
+      const { embedText, float32ToBuffer } = require('../grounding/IntentDetector.js');
+
+      let done = 0;
+      for (let i = 0; i < pending.length; i += batchSize) {
+        const batch = pending.slice(i, i + batchSize);
+        for (const node of batch) {
+          try {
+            const vec = await embedText((node.content || '').slice(0, 2000));
+            this._upsertNodeVector(node.id, float32ToBuffer(vec));
+            done++;
+          } catch(e) {
+            console.warn(`[state-graph] backfill: error embedeando nodo ${node.id}:`, e.message);
+          }
+        }
+        // Pausa breve entre lotes — no monopolizar el hilo principal
+        if (i + batchSize < pending.length) await new Promise(r => setTimeout(r, 50));
+      }
+
+      console.log(`[state-graph] backfill completado: ${done}/${pending.length} nodos embedeados`);
+      return { embedded: done, total: pending.length };
+    } catch(e) {
+      console.warn('[state-graph] error en backfillEmbeddings:', e.message);
+      return { embedded: 0, error: e.message };
     }
   }
 
@@ -223,6 +448,7 @@ class StateGraph {
       JSON.stringify(tags),
       now, now, now
     );
+    this._scheduleNodeEmbedding(result.lastInsertRowid, content);
     return result.lastInsertRowid;
   }
 
@@ -241,6 +467,12 @@ class StateGraph {
       SET content=?, label=?, importance=?, tags=?, updated_at=?, last_accessed_at=?, access_count=access_count+1
       WHERE id=?
     `).run(newContent, newLabel, newImportance, JSON.stringify(newTags), now, now, id);
+
+    // Solo re-embedear si el contenido realmente cambió — evita trabajo
+    // innecesario en updates que solo tocan importance/tags.
+    if (content && content !== node.content) {
+      this._scheduleNodeEmbedding(id, newContent);
+    }
 
     return true;
   }
@@ -388,6 +620,52 @@ class StateGraph {
       SELECT * FROM sessions WHERE ended_at IS NOT NULL
       ORDER BY started_at DESC LIMIT ?
     `).all(limit);
+  }
+
+  /**
+   * Guarda el transcript en curso — se llama en cada addTurn() de
+   * SessionManager, no solo al cerrar. Es una escritura barata (better-
+   * sqlite3 es síncrono) así que no hace falta batchear ni debounce; el
+   * costo real es que si la app truena a media sesión, se pierde como
+   * mucho el turno que estaba en vuelo, no la conversación completa.
+   */
+  updateSessionHistory(sessionId, history) {
+    if (!sessionId) return;
+    try {
+      this._db.prepare('UPDATE sessions SET history_json=? WHERE id=?')
+        .run(JSON.stringify(history || []), sessionId);
+    } catch(e) {
+      console.warn('[state-graph] error guardando history_json:', e.message);
+    }
+  }
+
+  /**
+   * Busca una sesión que se haya quedado a medias — ended_at IS NULL,
+   * dentro de una ventana razonable (por defecto 12h: lo bastante para
+   * cubrir "se fue la luz"/"crasheó"/"Windows forzó un reinicio", sin
+   * "resumir" algo que quedó abierto por accidente hace tres semanas).
+   * Devuelve null si no hay nada que valga la pena resumir.
+   */
+  findResumableSession(maxAgeHours = 12) {
+    try {
+      const cutoff = Date.now() - maxAgeHours * 60 * 60 * 1000;
+      const row = this._db.prepare(`
+        SELECT * FROM sessions
+        WHERE ended_at IS NULL AND started_at > ? AND history_json IS NOT NULL
+        ORDER BY started_at DESC LIMIT 1
+      `).get(cutoff);
+
+      if (!row) return null;
+
+      let history = [];
+      try { history = JSON.parse(row.history_json) || []; } catch(_) { history = []; }
+      if (!history.length) return null;
+
+      return { id: row.id, history, turnCount: row.turn_count || history.length, startedAt: row.started_at };
+    } catch(e) {
+      console.warn('[state-graph] error buscando sesión resumible:', e.message);
+      return null;
+    }
   }
 
   // ── App History (Fase 2) ────────────────────────────────────────────────────
