@@ -107,6 +107,60 @@ body::before { content:''; position:fixed; inset:0; background:var(--grain); poi
 .btn-save:hover { filter:brightness(1.15); }
 .settings-status { font-family:var(--font-mono); font-size:10px; margin-top:12px; min-height:16px; }
 
+/* ── MCP ─────────────────────────────────────────────────────────────────── */
+.mcp-badge { display:inline-flex; align-items:center; gap:5px; font-family:var(--font-mono); font-size:9px; color:var(--text-secondary); background:var(--tag-bg); border:1px solid var(--border); border-radius:3px; padding:2px 8px; cursor:pointer; -webkit-app-region:no-drag; transition:all .2s; margin-right:6px; }
+.mcp-badge:hover { border-color:var(--accent); color:var(--accent); }
+.mcp-badge.active { color:#10b981; background:rgba(16,185,129,.1); border-color:rgba(16,185,129,.3); }
+
+#mcp-modal { display:none; position:fixed; inset:0; z-index:1000; background:rgba(0,0,0,0.6); backdrop-filter:blur(4px); align-items:center; justify-content:center; }
+#mcp-modal.visible { display:flex; }
+#mcp-box { background:var(--bg-panel); border:1px solid var(--border-accent); border-radius:12px; padding:24px; width:560px; max-width:92vw; max-height:82vh; overflow-y:auto; animation:msgIn .2s ease forwards; }
+
+.mcp-server-row { display:flex; align-items:center; gap:10px; padding:10px 12px; border:1px solid var(--border); border-radius:8px; margin-bottom:8px; background:var(--bg-input); }
+.mcp-status-dot { width:8px; height:8px; border-radius:50%; flex-shrink:0; background:#6b7280; }
+.mcp-status-dot.connected { background:#10b981; box-shadow:0 0 6px rgba(16,185,129,.6); }
+.mcp-status-dot.connecting { background:#f59e0b; animation:mcpPulse 1s ease-in-out infinite; }
+.mcp-status-dot.error { background:#ef4444; }
+@keyframes mcpPulse { 50%{opacity:.3;} }
+.mcp-server-info { flex:1; min-width:0; }
+.mcp-server-name { font-family:var(--font-mono); font-size:12px; color:var(--text-primary); font-weight:600; }
+.mcp-server-sub { font-family:var(--font-mono); font-size:9px; color:var(--text-secondary); margin-top:2px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.mcp-switch { width:30px; height:17px; border-radius:9px; border:1px solid var(--border-accent); background:var(--bg-msg-user); cursor:pointer; position:relative; flex-shrink:0; transition:all .2s; }
+.mcp-switch::after { content:''; width:11px; height:11px; border-radius:50%; background:var(--text-secondary); position:absolute; top:2px; left:2px; transition:transform .2s; }
+.mcp-switch.on { background:rgba(16,185,129,.25); border-color:#10b981; }
+.mcp-switch.on::after { background:#10b981; transform:translateX(13px); }
+.mcp-remove-btn { width:22px; height:22px; border-radius:5px; border:1px solid var(--border); background:transparent; color:var(--text-secondary); cursor:pointer; flex-shrink:0; font-size:11px; transition:all .2s; }
+.mcp-remove-btn:hover { border-color:#ef4444; color:#ef4444; }
+.mcp-empty { font-family:var(--font-mono); font-size:11px; color:var(--text-secondary); text-align:center; padding:16px; opacity:.7; }
+
+.mcp-add-toggle { width:100%; padding:9px; margin-top:4px; border-radius:6px; border:1px dashed var(--border-accent); background:transparent; color:var(--accent); font-family:var(--font-mono); font-size:11px; cursor:pointer; transition:all .2s; }
+.mcp-add-toggle:hover { background:rgba(91,110,245,.08); }
+
+#mcp-add-panel { display:none; margin-top:14px; padding-top:14px; border-top:1px solid var(--border); }
+#mcp-add-panel.visible { display:block; }
+.mcp-tabs { display:flex; gap:6px; margin-bottom:12px; }
+.mcp-tab { flex:1; padding:6px; border-radius:5px; border:1px solid var(--border); background:transparent; color:var(--text-secondary); font-family:var(--font-mono); font-size:10px; cursor:pointer; }
+.mcp-tab.active { border-color:var(--accent); color:var(--accent); background:rgba(91,110,245,.08); }
+
+.mcp-search-row { display:flex; gap:6px; margin-bottom:10px; }
+.mcp-search-row input { flex:1; background:var(--bg-input); border:1px solid var(--border); border-radius:6px; padding:7px 10px; color:var(--text-primary); font-family:var(--font-mono); font-size:11px; outline:none; }
+.mcp-search-row input:focus { border-color:var(--accent); }
+.mcp-search-row button { padding:7px 12px; border-radius:6px; border:none; background:var(--accent); color:white; font-family:var(--font-mono); font-size:10px; cursor:pointer; }
+
+.mcp-result-row { display:flex; align-items:flex-start; gap:10px; padding:9px 10px; border:1px solid var(--border); border-radius:7px; margin-bottom:6px; }
+.mcp-result-info { flex:1; min-width:0; }
+.mcp-result-name { font-family:var(--font-mono); font-size:11px; color:var(--text-primary); font-weight:600; }
+.mcp-result-desc { font-family:var(--font-mono); font-size:9.5px; color:var(--text-secondary); margin-top:3px; line-height:1.4; }
+.mcp-result-badge { font-size:8px; padding:1px 5px; border-radius:3px; background:var(--tag-bg); border:1px solid var(--border); color:var(--text-secondary); margin-left:6px; }
+.mcp-add-result-btn { padding:5px 10px; border-radius:5px; border:1px solid var(--accent); background:transparent; color:var(--accent); font-family:var(--font-mono); font-size:10px; cursor:pointer; flex-shrink:0; white-space:nowrap; }
+.mcp-add-result-btn:hover { background:rgba(91,110,245,.12); }
+.mcp-add-result-btn:disabled { opacity:.5; cursor:default; }
+
+.mcp-json-textarea { width:100%; min-height:110px; background:var(--bg-input); border:1px solid var(--border); border-radius:6px; padding:10px; color:var(--text-primary); font-family:var(--font-mono); font-size:10.5px; outline:none; resize:vertical; }
+.mcp-json-textarea:focus { border-color:var(--accent); }
+.mcp-json-hint { font-family:var(--font-mono); font-size:9px; color:var(--text-secondary); margin:6px 0 10px; opacity:.75; line-height:1.5; }
+.mcp-status-msg { font-family:var(--font-mono); font-size:10px; margin-top:8px; min-height:14px; }
+
 #chat-panel { display:flex; flex-direction:column; border-right:1px solid var(--border); background:var(--bg-panel); overflow:hidden; position:relative; transition:background var(--transition-theme),border-color var(--transition-theme); }
 [data-theme="dark"] #chat-panel::before { content:''; position:absolute; inset:0; pointer-events:none; background:radial-gradient(ellipse at 10% 20%,rgba(91,110,245,.05) 0%,transparent 50%),radial-gradient(ellipse at 90% 80%,rgba(192,132,252,.04) 0%,transparent 50%); }
 [data-theme="sakura"] #chat-panel::before { content:''; position:absolute; inset:0; pointer-events:none; background:radial-gradient(ellipse at 10% 20%,rgba(255,182,210,.15) 0%,transparent 50%),radial-gradient(ellipse at 90% 80%,rgba(200,150,255,.12) 0%,transparent 50%); }
@@ -263,6 +317,7 @@ body::before { content:''; position:fixed; inset:0; background:var(--grain); poi
     <span class="header-tag">v0.1 · AGENTE</span>
     <div class="header-spacer"></div>
     <span id="openclaw-badge" class="openclaw-badge offline" title="OpenClaw no disponible">NO TOOLS</span>
+    <button id="mcp-btn" class="mcp-badge" title="Servidores MCP">🔌 MCP <span id="mcp-count">0</span></button>
     <button id="mode-toggle" class="mode-toggle" title="Modo conversación: rápido y económico. Clic para pasar a modo tareas (GPT-OSS 120B).">
       <span class="mode-icon">💬</span><span class="mode-label">Conversación</span>
     </button>
@@ -378,6 +433,46 @@ body::before { content:''; position:fixed; inset:0; background:var(--grain); poi
   </div>
 </div>
 
+<div id="mcp-modal">
+  <div id="mcp-box">
+    <div class="settings-title">Servidores MCP</div>
+    <div class="settings-sub">HERRAMIENTAS EXTRA, INDEPENDIENTES DE OPENCLAW · TODA LLAMADA PIDE TU APROBACIÓN</div>
+
+    <div id="mcp-server-list"></div>
+    <div class="mcp-empty" id="mcp-empty-msg" style="display:none;">Sin servidores configurados todavía.</div>
+
+    <button class="mcp-add-toggle" id="mcp-add-toggle-btn">+ Agregar servidor</button>
+
+    <div id="mcp-add-panel">
+      <div class="mcp-tabs">
+        <button class="mcp-tab active" id="mcp-tab-browse">Buscar en biblioteca</button>
+        <button class="mcp-tab" id="mcp-tab-manual">Configurar con JSON</button>
+      </div>
+
+      <div id="mcp-browse-view">
+        <div class="mcp-search-row">
+          <input id="mcp-search-input" type="text" placeholder="Buscar servidores MCP (ej: github, filesystem, slack)...">
+          <button id="mcp-search-btn">Buscar</button>
+        </div>
+        <div id="mcp-search-results"></div>
+      </div>
+
+      <div id="mcp-manual-view" style="display:none;">
+        <div class="mcp-json-hint">
+          Formato tipo Claude Desktop — pega la config que traiga la documentación del servidor:<br>
+          <code>{"name": "mi-servidor", "command": "npx", "args": ["-y", "@paquete/servidor"], "env": {}}</code>
+        </div>
+        <textarea class="mcp-json-textarea" id="mcp-json-input" placeholder='{"name": "filesystem", "command": "npx", "args": ["-y", "@modelcontextprotocol/server-filesystem", "C:\\Users\\tu-usuario\\Documents"], "env": {}}'></textarea>
+        <div style="margin-top:10px; text-align:right;">
+          <button class="btn-save" id="mcp-json-add-btn">Agregar</button>
+        </div>
+      </div>
+
+      <div class="mcp-status-msg" id="mcp-status-msg"></div>
+    </div>
+  </div>
+</div>
+
 <script src="https://cubism.live2d.com/sdk-web/cubismcore/live2dcubismcore.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/pixi.js@6.5.10/dist/browser/pixi.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/pixi-live2d-display@0.4.0/dist/cubism4.min.js"></script>
@@ -390,7 +485,15 @@ const cp   = require('child_process');
 
 window.PIXI = PIXI;
 
-const PYTHON_BIN = 'C:/Users/lukal/AppData/Local/Programs/Python/Python311/python.exe';
+// FIX: antes esto era la misma ruta absoluta hardcodeada que main.js tenía
+// duplicada — se rompía en cualquier máquina que no fuera exactamente esta.
+// Ahora se pide una sola vez al proceso main (que ya la resuelve de forma
+// portable, ver resolvePythonBin en main.js) y se cachea.
+let _pythonBinPromise = null;
+function getPythonBin() {
+  if (!_pythonBinPromise) _pythonBinPromise = ipcRenderer.invoke('get-python-bin');
+  return _pythonBinPromise;
+}
 const MODEL_PATH = path.join(__dirname, '..', 'models', 'March 7th', 'march 7th.model3.json');
 const TTS_VOICE  = 'ja-JP-NanamiNeural';
 
@@ -667,6 +770,204 @@ async function checkOpenClaw() {
     updateOpenClawBadge(false);
   }
 }
+
+// ── MCP ────────────────────────────────────────────────────────────────────────
+// Panel de servidores MCP: lista de conectados/configurados + búsqueda en la
+// biblioteca (registro oficial, con fallback a un catálogo estático si no
+// hay internet) + alta manual por JSON. Todo pasa por IPC a MarchCore/
+// MCPManager — nada de esto depende de que OpenClaw esté corriendo.
+const mcpModal = document.getElementById('mcp-modal');
+
+function mcpStatusLabel(status) {
+  if (status === 'connected')  return 'conectado';
+  if (status === 'connecting') return 'conectando...';
+  if (status === 'error')      return 'error';
+  return 'desconectado';
+}
+
+async function refreshMcpBadge() {
+  try {
+    const servers = await ipcRenderer.invoke('mcp-list-servers');
+    const connected = servers.filter(s => s.status === 'connected').length;
+    const badge = document.getElementById('mcp-btn');
+    const count = document.getElementById('mcp-count');
+    count.textContent = connected;
+    badge.classList.toggle('active', connected > 0);
+  } catch(e) { /* silencioso — no es crítico para el resto de la app */ }
+}
+
+async function renderMcpServerList() {
+  const listEl  = document.getElementById('mcp-server-list');
+  const emptyEl = document.getElementById('mcp-empty-msg');
+  let servers = [];
+  try { servers = await ipcRenderer.invoke('mcp-list-servers'); } catch(e) {}
+
+  emptyEl.style.display = servers.length ? 'none' : 'block';
+  listEl.innerHTML = servers.map(s => `
+    <div class="mcp-server-row" data-id="${s.id}">
+      <div class="mcp-status-dot ${s.status}" title="${mcpStatusLabel(s.status)}"></div>
+      <div class="mcp-server-info">
+        <div class="mcp-server-name">${s.name}</div>
+        <div class="mcp-server-sub">${s.status === 'connected' ? s.toolCount + ' tools' : (s.error || mcpStatusLabel(s.status))}</div>
+      </div>
+      <div class="mcp-switch ${s.status !== 'disconnected' && s.status !== 'error' ? 'on' : ''}" data-toggle="${s.id}" title="Activar/desactivar"></div>
+      <button class="mcp-remove-btn" data-remove="${s.id}" title="Quitar">✕</button>
+    </div>
+  `).join('');
+
+  listEl.querySelectorAll('[data-toggle]').forEach(el => {
+    el.addEventListener('click', async () => {
+      const id = el.dataset.toggle;
+      const enabling = !el.classList.contains('on');
+      el.style.opacity = '.5';
+      try {
+        await ipcRenderer.invoke('mcp-toggle-server', { id, enabled: enabling });
+      } catch(e) { console.error('[mcp] error toggle:', e.message); }
+      await renderMcpServerList();
+      await refreshMcpBadge();
+    });
+  });
+
+  listEl.querySelectorAll('[data-remove]').forEach(el => {
+    el.addEventListener('click', async () => {
+      const id = el.dataset.remove;
+      el.closest('.mcp-server-row').style.opacity = '.4';
+      try { await ipcRenderer.invoke('mcp-remove-server', { id }); }
+      catch(e) { console.error('[mcp] error al quitar:', e.message); }
+      await renderMcpServerList();
+      await refreshMcpBadge();
+    });
+  });
+}
+
+function openMcpModal() {
+  mcpModal.classList.add('visible');
+  document.getElementById('mcp-add-panel').classList.remove('visible');
+  document.getElementById('mcp-status-msg').textContent = '';
+  renderMcpServerList();
+}
+function closeMcpModal() { mcpModal.classList.remove('visible'); }
+
+document.getElementById('mcp-btn').addEventListener('click', openMcpModal);
+mcpModal.addEventListener('click', (e) => { if (e.target === mcpModal) closeMcpModal(); });
+
+document.getElementById('mcp-add-toggle-btn').addEventListener('click', () => {
+  document.getElementById('mcp-add-panel').classList.toggle('visible');
+});
+
+// Tabs: buscar en biblioteca vs. JSON manual
+document.getElementById('mcp-tab-browse').addEventListener('click', () => {
+  document.getElementById('mcp-tab-browse').classList.add('active');
+  document.getElementById('mcp-tab-manual').classList.remove('active');
+  document.getElementById('mcp-browse-view').style.display = 'block';
+  document.getElementById('mcp-manual-view').style.display = 'none';
+});
+document.getElementById('mcp-tab-manual').addEventListener('click', () => {
+  document.getElementById('mcp-tab-manual').classList.add('active');
+  document.getElementById('mcp-tab-browse').classList.remove('active');
+  document.getElementById('mcp-manual-view').style.display = 'block';
+  document.getElementById('mcp-browse-view').style.display = 'none';
+});
+
+function mcpSetStatus(msg, color) {
+  const el = document.getElementById('mcp-status-msg');
+  el.textContent = msg;
+  el.style.color = color || 'var(--text-secondary)';
+}
+
+async function mcpAddFromRegistryEntry(entry, btnEl) {
+  btnEl.disabled = true;
+  btnEl.textContent = 'Agregando...';
+  mcpSetStatus(`Conectando "${entry.name}"... si es la primera vez, npx puede tardar en descargarlo.`, 'var(--text-secondary)');
+  try {
+    const serverCfg = {
+      name: entry.name,
+      command: 'npx',
+      args: ['-y', entry.identifier, ...(entry.args || []).filter(a => !a.startsWith('<'))],
+      env: {},
+    };
+    const res = await ipcRenderer.invoke('mcp-add-server', { serverCfg });
+    if (res.ok && res.status?.status === 'connected') {
+      mcpSetStatus(`✓ "${entry.name}" conectado (${res.status.toolCount} tools).`, '#10b981');
+    } else if (res.ok) {
+      mcpSetStatus(`"${entry.name}" agregado pero no conectó: ${res.status?.error || 'error desconocido'}.`, '#f59e0b');
+    } else {
+      mcpSetStatus(`Error: ${res.error}`, '#ef4444');
+    }
+    await renderMcpServerList();
+    await refreshMcpBadge();
+  } catch(e) {
+    mcpSetStatus(`Error: ${e.message}`, '#ef4444');
+  } finally {
+    btnEl.disabled = false;
+    btnEl.textContent = 'Agregar';
+  }
+}
+
+async function mcpSearch(query) {
+  const resultsEl = document.getElementById('mcp-search-results');
+  resultsEl.innerHTML = '<div class="mcp-empty">Buscando...</div>';
+  try {
+    const results = await ipcRenderer.invoke('mcp-search-registry', { query });
+    if (!results.length) {
+      resultsEl.innerHTML = '<div class="mcp-empty">Sin resultados.</div>';
+      return;
+    }
+    resultsEl.innerHTML = results.map((r, i) => `
+      <div class="mcp-result-row" data-idx="${i}">
+        <div class="mcp-result-info">
+          <div class="mcp-result-name">${r.name}<span class="mcp-result-badge">${r.source === 'live' ? 'registro oficial' : 'catálogo local'}</span></div>
+          <div class="mcp-result-desc">${r.description || ''}</div>
+        </div>
+        <button class="mcp-add-result-btn">Agregar</button>
+      </div>
+    `).join('');
+    resultsEl.querySelectorAll('.mcp-result-row').forEach((row, i) => {
+      row.querySelector('.mcp-add-result-btn').addEventListener('click', (ev) => {
+        mcpAddFromRegistryEntry(results[i], ev.target);
+      });
+    });
+  } catch(e) {
+    resultsEl.innerHTML = `<div class="mcp-empty">Error buscando: ${e.message}</div>`;
+  }
+}
+
+document.getElementById('mcp-search-btn').addEventListener('click', () => {
+  mcpSearch(document.getElementById('mcp-search-input').value.trim());
+});
+document.getElementById('mcp-search-input').addEventListener('keydown', (e) => {
+  if (e.key === 'Enter') mcpSearch(e.target.value.trim());
+});
+
+document.getElementById('mcp-json-add-btn').addEventListener('click', async () => {
+  const raw = document.getElementById('mcp-json-input').value.trim();
+  if (!raw) { mcpSetStatus('Pega la config primero.', '#f59e0b'); return; }
+  let parsed;
+  try { parsed = JSON.parse(raw); }
+  catch(e) { mcpSetStatus('JSON inválido: ' + e.message, '#ef4444'); return; }
+  if (!parsed.name || !parsed.command) { mcpSetStatus('Falta "name" o "command" en la config.', '#f59e0b'); return; }
+
+  mcpSetStatus(`Conectando "${parsed.name}"...`, 'var(--text-secondary)');
+  try {
+    const res = await ipcRenderer.invoke('mcp-add-server', { serverCfg: parsed });
+    if (res.ok && res.status?.status === 'connected') {
+      mcpSetStatus(`✓ "${parsed.name}" conectado (${res.status.toolCount} tools).`, '#10b981');
+      document.getElementById('mcp-json-input').value = '';
+    } else if (res.ok) {
+      mcpSetStatus(`Agregado pero no conectó: ${res.status?.error || 'error desconocido'}.`, '#f59e0b');
+    } else {
+      mcpSetStatus(`Error: ${res.error}`, '#ef4444');
+    }
+    await renderMcpServerList();
+    await refreshMcpBadge();
+  } catch(e) {
+    mcpSetStatus('Error: ' + e.message, '#ef4444');
+  }
+});
+
+// Estado inicial del badge — no hace falta abrir el panel para ver si hay algo conectado
+refreshMcpBadge();
+setInterval(refreshMcpBadge, 15000);
 
 // ── processMessage ────────────────────────────────────────────────────────────
 async function processMessage(text, files = []) {
@@ -1062,9 +1363,11 @@ async function speak(text) {
   const spokenText = cleanForTTS(text);
   const scriptPath = path.join(__dirname, '..', 'tts_stream.py');
   try {
+    const pythonBin = await getPythonBin();
+    if (!pythonBin) throw new Error('No se encontró un intérprete de Python — TTS no disponible');
     await new Promise((resolve, reject) => {
       const chunks = [];
-      const proc = cp.spawn(PYTHON_BIN, [scriptPath,'--voice',TTS_VOICE,'--rate','+10%','--pitch','+20Hz','--text',spokenText]);
+      const proc = cp.spawn(pythonBin, [scriptPath,'--voice',TTS_VOICE,'--rate','+10%','--pitch','+20Hz','--text',spokenText]);
       proc.stdout.on('data', c => chunks.push(c));
       proc.on('close', async (code) => {
         if (code !== 0 || !chunks.length) { reject(new Error('TTS failed')); return; }
