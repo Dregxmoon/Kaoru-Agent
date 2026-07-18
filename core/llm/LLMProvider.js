@@ -310,6 +310,44 @@ const PROVIDERS = {
 // ── API pública ───────────────────────────────────────────────────────────────
 
 /**
+ * Auto-reconnect (mejora #5): retry con backoff exponencial + jitter para
+ * fallos que PARECEN transitorios (timeout, red caída momentáneamente,
+ * 429/5xx del proveedor) — antes, un solo timeout en Groq saltaba
+ * directo a Gemini sin darle a Groq una segunda oportunidad, aunque el
+ * problema hubiera sido un blip de red de medio segundo.
+ *
+ * Errores claramente no-transitorios (401/403/404 — key inválida, sin
+ * acceso, endpoint no existe) NO se reintentan — reintentar eso no
+ * cambia el resultado, solo demora el fallback al siguiente proveedor.
+ */
+const MAX_RETRIES_PER_PROVIDER = 2; // hasta 3 intentos totales por proveedor
+const RETRY_BASE_MS            = 400;
+
+function _sleep(ms) { return new Promise(resolve => setTimeout(resolve, ms)); }
+
+function _backoffWithJitter(attempt) {
+  const base   = RETRY_BASE_MS * Math.pow(2, attempt); // 400, 800, 1600...
+  const jitter = base * (0.7 + Math.random() * 0.6);   // ±30% para no sincronizar reintentos
+  return Math.round(jitter);
+}
+
+function _isRetryableError(err) {
+  const msg = err?.message || '';
+  if (/^Timeout después de/i.test(msg)) return true;
+  if (/ECONNRESET|ECONNREFUSED|ETIMEDOUT|ENOTFOUND|EAI_AGAIN|socket hang up/i.test(msg)) return true;
+
+  const statusMatch = msg.match(/^(?:Groq|Gemini|OpenAI) (\d{3}):/);
+  if (statusMatch) {
+    const status = parseInt(statusMatch[1], 10);
+    // 429 (rate limit) y 5xx (problema del lado del proveedor) valen la
+    // pena reintentar. 4xx (key inválida, prohibido, etc.) no — es un
+    // problema de configuración, no de conexión, y no se va a arreglar solo.
+    return status === 429 || (status >= 500 && status < 600);
+  }
+  return false; // por defecto, no reintentar algo que no reconocemos
+}
+
+/**
  * Llama al LLM con fallback automático.
  *
  * @param {Array}  messages
@@ -326,14 +364,26 @@ async function _callWithFallback(messages, systemPrompt, mode = 'fast') {
     const key = _config.apiKeys[providerName];
     if (!key || key.trim() === '') continue;
 
-    try {
-      console.log(`[llm] intentando ${providerName} (${mode})...`);
-      const result = await fn(messages, systemPrompt, mode);
-      console.log(`[llm] respuesta de ${providerName} (${result.length} chars)`);
-      return result;
-    } catch(e) {
-      console.log(`[llm] ${providerName} falló: ${e.message}`);
-      tried.push(providerName);
+    for (let attempt = 0; attempt <= MAX_RETRIES_PER_PROVIDER; attempt++) {
+      try {
+        if (attempt > 0) {
+          const waitMs = _backoffWithJitter(attempt - 1);
+          console.log(`[llm] reintentando ${providerName} en ${waitMs}ms (intento ${attempt + 1}/${MAX_RETRIES_PER_PROVIDER + 1})...`);
+          await _sleep(waitMs);
+        }
+        console.log(`[llm] intentando ${providerName} (${mode})${attempt > 0 ? ` [retry ${attempt}]` : ''}...`);
+        const result = await fn(messages, systemPrompt, mode);
+        console.log(`[llm] respuesta de ${providerName} (${result.length} chars)`);
+        return result;
+      } catch(e) {
+        const retryable = _isRetryableError(e);
+        console.log(`[llm] ${providerName} falló${retryable ? ' (parece transitorio)' : ' (no reintentable)'}: ${e.message}`);
+        if (!retryable || attempt === MAX_RETRIES_PER_PROVIDER) {
+          tried.push(providerName);
+          break; // agotado — pasa al siguiente proveedor de la cadena
+        }
+        // si es retryable y quedan intentos, el for sigue con el próximo intento
+      }
     }
   }
 
@@ -390,4 +440,8 @@ function getActiveModel(mode = 'fast') {
   return MODELS[provider]?.[mode] ?? null;
 }
 
-module.exports = { configure, complete, completeTask, getActiveProvider, getActiveModel };
+module.exports = {
+  configure, complete, completeTask, getActiveProvider, getActiveModel,
+  _debug_isRetryableError: _isRetryableError,
+  _debug_backoffWithJitter: _backoffWithJitter,
+};
