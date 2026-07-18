@@ -31,13 +31,13 @@ class GroundingEngine {
    * @param {string} activeProvider
    * @param {object} toolIntent      — resultado de IntentDetector (Fase 3, opcional)
    */
-  buildContext(sessionHistory = [], activeProvider = 'groq', toolIntent = null) {
+  async buildContext(sessionHistory = [], activeProvider = 'groq', toolIntent = null) {
     try {
       const currentMsg = sessionHistory[sessionHistory.length - 1];
       const userText   = currentMsg?.role === 'user' ? currentMsg.content : '';
       const osCtx      = this._osSensor?.getCurrentContext() ?? null;
 
-      const retrievalResult = this._planner.plan(userText, osCtx);
+      const retrievalResult = await this._planner.plan(userText, osCtx);
 
       const result = this._assembler.build({
         sessionHistory,
@@ -85,7 +85,7 @@ class GroundingEngine {
   }
 }
 
-function buildContext(sessionHistory = []) {
+async function buildContext(sessionHistory = []) {
   const engine = new GroundingEngine(null);
   return engine.buildContext(sessionHistory);
 }
