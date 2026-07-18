@@ -111,6 +111,16 @@ console.log('[march-core] DEBUG graph.usingFallback:', _graph.usingFallback, '| 
       }).catch(e => {
         console.warn('[march-core] IntentDetector warmup falló:', e.message);
       });
+
+      // Recall semántico de memoria (StateGraph.queryNodesSemantic) — misma
+      // extensión, misma conexión, tabla vec0 separada de intent_vectors.
+      // Backfill de nodos viejos sin embedding corre en segundo plano, en
+      // lotes chicos, sin bloquear el arranque ni el primer mensaje.
+      if (_graph.enableVectorSearch()) {
+        _graph.backfillEmbeddings().catch(e =>
+          console.warn('[march-core] backfill de embeddings falló:', e.message)
+        );
+      }
     } catch(e) {
       console.warn('[march-core] IntentDetector no disponible:', e.message);
       _detector = null;
@@ -229,9 +239,9 @@ function mcpListAllTools() {
 
 async function startSession() {
   if (!_session) { console.warn('[march-core] no inicializado'); return null; }
-  const id = await _session.start(_app);
-  _bus.emit('session:started', { sessionId: id });
-  return id;
+  const result = await _session.start(_app);
+  _bus.emit('session:started', { sessionId: result.sessionId, resumed: result.resumed });
+  return result; // { sessionId, resumed, history }
 }
 
 async function closeSession() {
@@ -304,7 +314,7 @@ async function buildContext(sessionHistory, activeProvider) {
   // GroundingEngine
   let result;
   if (_grounding) {
-    result = _grounding.buildContext(sessionHistory, provider, toolIntent);
+    result = await _grounding.buildContext(sessionHistory, provider, toolIntent);
   } else {
     const Fallback = require('./llm/GroundingMinimo.js');
     result = Fallback.buildContext(sessionHistory);
