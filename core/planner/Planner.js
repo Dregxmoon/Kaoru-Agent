@@ -448,6 +448,14 @@ function isHighImpact(tool, params) {
   if (tool === 'create_file')    return true;
   if (tool === 'apply_patch')    return true;
   if (tool === 'code_execution') return true;
+
+  // MCP — tools de servidores de terceros, no hay forma de saber de
+  // antemano qué hacen. Default seguro: preguntar SIEMPRE, igual que
+  // edit_file/create_file. Nada de auto-approve por ahora — si en la
+  // práctica resulta muy repetitivo para una tool que uses seguido, es
+  // fácil agregar una lista de "confío en esta" más adelante.
+  if (tool === 'mcp') return true;
+
   return false;
 }
 
@@ -1163,7 +1171,29 @@ class Planner {
   async _executeStep(tool, params) {
     if (tool === 'edit_file')   return this._executeEditFile(params);
     if (tool === 'create_file') return this._executeCreateFile(params);
+    if (tool === 'mcp')         return this._executeMCP(params);
     return this._bridge.execute(tool, params);
+  }
+
+  /**
+   * Ejecuta una tool de un servidor MCP conectado. A diferencia del resto
+   * de tools (que van a OpenClawBridge/mock-openclaw), esto pasa por
+   * MCPManager — independiente de si OpenClaw está corriendo o no.
+   */
+  async _executeMCP({ server, tool, args }) {
+    const { getMCPManager } = require('../mcp/MCPManager.js');
+    const mgr = getMCPManager();
+    try {
+      const result = await mgr.callTool(server, tool, args || {});
+      const text = (result?.content || [])
+        .filter(c => c.type === 'text')
+        .map(c => c.text)
+        .join('\n') || JSON.stringify(result);
+      return { ok: true, result: text, tool: `mcp:${server}:${tool}` };
+    } catch (e) {
+      console.warn(`[planner] error ejecutando mcp:${server}:${tool}:`, e.message);
+      return { ok: false, error: e.message, result: null, tool: `mcp:${server}:${tool}` };
+    }
   }
 
   async _executeEditFile({ path: filePath, instruction }) {
