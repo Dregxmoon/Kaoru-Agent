@@ -62,6 +62,10 @@ const ACTION_TO_TOOL = {
   install_package:  'exec',
   web_search:       'web_search',
   navigate_browser: 'browser',
+
+  // MCP — independiente de OpenClaw. 'mcp' es un pseudo-tool, manejado
+  // especialmente en Planner._executeMCP (ver ahí), no por OpenClawBridge.
+  mcp_call:         'mcp',
 };
 
 // ── Descripción legible por acción ────────────────────────────────────────────
@@ -80,6 +84,7 @@ function _buildDescription(action, fields) {
     case 'install_package':  return `Instalar paquete: ${f.COMANDO || '(sin comando)'}`;
     case 'web_search':       return `Buscar en la web: "${f.QUERY || ''}"`;
     case 'navigate_browser': return `Navegar a: ${f.URL || '(sin URL)'}`;
+    case 'mcp_call':         return `MCP · ${f.SERVIDOR || f.SERVER || '?'}: ${f.HERRAMIENTA || f.TOOL || '?'}`;
     default:                 return action;
   }
 }
@@ -105,6 +110,46 @@ function _sanitizeShellArg(value) {
   return trimmed;
 }
 
+// ── Extracción de JSON balanceado para el campo PARAMS ────────────────────────
+// PARAMS (usado por mcp_call) trae JSON, que casi siempre tiene ':' y a
+// veces '{...}' anidado. El split genérico de campos de abajo parte por
+// "|" y toma el primer ':' de cada línea — funciona para un JSON plano de
+// una sola línea, pero un regex simple para encontrar el cierre del
+// objeto se rompe con JSON anidado (se para en el primer '}', que puede
+// ser el de un objeto interno). Por eso esto cuenta llaves de verdad,
+// respetando strings, en vez de usar regex para el cierre.
+function _extractBalancedJSON(content, label) {
+  const labelRe = new RegExp(label + '\\s*:\\s*', 'i');
+  const m = content.match(labelRe);
+  if (!m) return null;
+
+  const searchFrom = m.index + m[0].length;
+  const braceStart = content.indexOf('{', searchFrom);
+  // El '{' debe venir casi inmediatamente después del label — si hay texto
+  // largo en medio, no es el JSON de este campo.
+  if (braceStart === -1 || braceStart - searchFrom > 3) return null;
+
+  let depth = 0, inString = false, escaped = false;
+  for (let i = braceStart; i < content.length; i++) {
+    const c = content[i];
+    if (inString) {
+      if (escaped) escaped = false;
+      else if (c === '\\') escaped = true;
+      else if (c === '"') inString = false;
+      continue;
+    }
+    if (c === '"') { inString = true; continue; }
+    if (c === '{') depth++;
+    else if (c === '}') {
+      depth--;
+      if (depth === 0) {
+        return { json: content.slice(braceStart, i + 1), fullMatchStart: m.index, fullMatchEnd: i + 1 };
+      }
+    }
+  }
+  return null; // JSON sin cerrar — se ignora, no se intenta adivinar
+}
+
 // ── Construcción de params para OpenClawBridge ────────────────────────────────
 function _buildParams(action, fields, userGoal, projectCwd) {
   const cwd = projectCwd || process.cwd();
@@ -124,6 +169,25 @@ function _buildParams(action, fields, userGoal, projectCwd) {
 
     case 'read_file':
       return { path: fields.ARCHIVO };
+
+    case 'mcp_call': {
+      const server   = fields.SERVIDOR || fields.SERVER;
+      const toolName = fields.HERRAMIENTA || fields.TOOL;
+      if (!server || !toolName) {
+        console.warn('[structured-parser] mcp_call sin SERVIDOR o HERRAMIENTA:', fields);
+        return null;
+      }
+      let mcpArgs = {};
+      if (fields.PARAMS) {
+        try {
+          mcpArgs = JSON.parse(fields.PARAMS);
+        } catch (e) {
+          console.warn('[structured-parser] PARAMS de mcp_call no es JSON válido, se ignora:', fields.PARAMS);
+          return null;
+        }
+      }
+      return { server, tool: toolName, args: mcpArgs };
+    }
 
     case 'delete_file': {
       const safeArchivo = _sanitizeShellArg(fields.ARCHIVO);
@@ -265,11 +329,20 @@ class StructuredActionParser {
   _parseBlockContent(content, userGoal) {
     if (!content) return null;
 
-    // Extraer campos clave:valor separados por "|" o por newlines
     const fields = {};
 
-    // Normalizar: convertir "|" en newlines para parsear uniformemente
-    const normalized = content.replace(/\|/g, '\n');
+    // PARAMS (JSON) se extrae ANTES de la normalización genérica — ver
+    // _extractBalancedJSON arriba para el porqué.
+    let workingContent = content;
+    const paramsExtracted = _extractBalancedJSON(content, 'PARAMS');
+    if (paramsExtracted) {
+      fields['PARAMS'] = paramsExtracted.json;
+      workingContent = content.slice(0, paramsExtracted.fullMatchStart)
+                     + content.slice(paramsExtracted.fullMatchEnd);
+    }
+
+    // Extraer el resto de campos clave:valor separados por "|" o por newlines
+    const normalized = workingContent.replace(/\|/g, '\n');
 
     for (const line of normalized.split('\n')) {
       const colonIdx = line.indexOf(':');
