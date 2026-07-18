@@ -40,6 +40,24 @@ const CONNECT_TIMEOUT_MS = 45 * 1000;
 const REGISTRY_API = 'https://registry.modelcontextprotocol.io/v0/servers';
 const REGISTRY_TIMEOUT_MS = 8 * 1000;
 
+// ── Auto-reconnect (mejora #5) ────────────────────────────────────────────────
+// Si un servidor MCP se cae a mitad de sesión (el proceso hijo crashea, npx
+// se cuelga, etc.), antes se quedaba "conectado" en el estado hasta el
+// siguiente intento fallido de callTool() — sin aviso, sin reintento. Ahora
+// el SDK avisa vía onclose/onerror y se reintenta solo, con backoff
+// exponencial + jitter, hasta un tope — después de eso queda en 'error'
+// visible en el panel, esperando que el usuario reconecte a mano.
+const MAX_RECONNECT_ATTEMPTS = 5;
+const RECONNECT_BASE_MS      = 1000;
+
+function _sleep(ms) { return new Promise(resolve => setTimeout(resolve, ms)); }
+
+function _reconnectBackoff(attempt) {
+  const base   = RECONNECT_BASE_MS * Math.pow(2, attempt); // 1s, 2s, 4s, 8s, 16s...
+  const jitter = base * (0.7 + Math.random() * 0.6);
+  return Math.round(jitter);
+}
+
 // ── Catálogo estático de respaldo ─────────────────────────────────────────────
 // Se usa si la búsqueda en vivo contra el registro oficial falla (sin
 // internet, el registro está caído, cambió de forma, etc). Un puñado de
@@ -78,15 +96,20 @@ class MCPServerConnection {
     this.config    = config; // { command, args, env }
     this.client    = null;
     this.transport = null;
-    this.status    = 'disconnected'; // disconnected | connecting | connected | error
+    this.status    = 'disconnected'; // disconnected | connecting | connected | reconnecting | error
     this.error     = null;
     this.tools     = []; // [{ name, description, inputSchema }]
+
+    this._intentionalDisconnect = false; // true si disconnect() lo pidió el usuario
+    this._reconnectAttempts     = 0;
+    this._onStatusChange        = null;  // callback del Manager, para _notify()
   }
 
   async connect() {
     if (this.status === 'connected' || this.status === 'connecting') return;
     this.status = 'connecting';
     this.error  = null;
+    this._intentionalDisconnect = false;
 
     try {
       this.transport = new StdioClientTransport({
@@ -95,6 +118,15 @@ class MCPServerConnection {
         env:     { ...process.env, ...(this.config.env || {}) },
       });
       this.client = new Client({ name: 'march-7th', version: '1.0.0' }, { capabilities: {} });
+
+      // Auto-reconnect: el SDK avisa acá cuando el transporte se cierra por
+      // CUALQUIER razón — incluyendo que nosotros mismos llamemos
+      // client.close(). _intentionalDisconnect distingue "lo pedimos
+      // nosotros" (no reconectar) de "se cayó solo" (sí reconectar).
+      this.client.onclose = () => this._handleUnexpectedClose();
+      this.client.onerror = (err) => {
+        console.warn(`[mcp] error en servidor "${this.name}":`, err.message);
+      };
 
       await Promise.race([
         this.client.connect(this.transport),
@@ -106,6 +138,7 @@ class MCPServerConnection {
       const listed = await this.client.listTools();
       this.tools  = listed.tools || [];
       this.status = 'connected';
+      this._reconnectAttempts = 0; // conexión sana — resetea el presupuesto de reintentos
       console.log(`[mcp] conectado: "${this.name}" (${this.tools.length} tools: ${this.tools.map(t => t.name).join(', ')})`);
     } catch (e) {
       this.status = 'error';
@@ -114,9 +147,51 @@ class MCPServerConnection {
       try { await this.transport?.close(); } catch (_) { /* best-effort */ }
       this.client = null;
     }
+    this._onStatusChange?.();
+  }
+
+  /** El transporte se cerró sin que nosotros lo pidiéramos — probable crash del proceso hijo. */
+  _handleUnexpectedClose() {
+    if (this._intentionalDisconnect) return; // fuimos nosotros — nada que hacer
+    if (this.status === 'connecting' || this.status === 'reconnecting') return; // ya en proceso
+
+    console.warn(`[mcp] "${this.name}" se desconectó inesperadamente`);
+    this.client = null;
+    this._scheduleReconnect();
+  }
+
+  async _scheduleReconnect() {
+    if (this._intentionalDisconnect) return;
+
+    if (this._reconnectAttempts >= MAX_RECONNECT_ATTEMPTS) {
+      this.status = 'error';
+      this.error  = `Se perdió la conexión y no se pudo recuperar tras ${MAX_RECONNECT_ATTEMPTS} intentos. Reconecta manualmente desde el panel.`;
+      console.warn(`[mcp] "${this.name}" agotó los intentos de reconexión`);
+      this._onStatusChange?.();
+      return;
+    }
+
+    this._reconnectAttempts++;
+    this.status = 'reconnecting';
+    this._onStatusChange?.();
+
+    const waitMs = _reconnectBackoff(this._reconnectAttempts - 1);
+    console.log(`[mcp] "${this.name}" — reintentando en ${waitMs}ms (intento ${this._reconnectAttempts}/${MAX_RECONNECT_ATTEMPTS})`);
+    await _sleep(waitMs);
+
+    if (this._intentionalDisconnect) return; // pudo cambiar mientras esperábamos
+    this.status = 'disconnected'; // deja que connect() haga su cosa normal
+    await this.connect();
+
+    // Si connect() falló de nuevo, vuelve a intentar (connect() ya deja
+    // status='error' en ese caso — desde ahí, reintentamos otra vez).
+    if (this.status === 'error' && !this._intentionalDisconnect) {
+      this._scheduleReconnect();
+    }
   }
 
   async disconnect() {
+    this._intentionalDisconnect = true;
     if (this.client) {
       try { await this.client.close(); } catch (_) { /* best-effort */ }
     }
@@ -164,6 +239,7 @@ class MCPManager {
     let conn = this._connections.get(cfg.id);
     if (!conn) {
       conn = new MCPServerConnection(cfg);
+      conn._onStatusChange = () => this._notify();
       this._connections.set(cfg.id, conn);
     } else {
       conn.config = cfg;
