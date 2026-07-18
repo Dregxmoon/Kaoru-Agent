@@ -285,11 +285,21 @@ function createChatWindow() {
 
     const usingFallback = MarchCore.getGraph()?.usingFallback ?? false;
     chatWindow.webContents.send('memory-status', { usingFallback });
+
+    // Mejora #6 — si sessionPromise resolvió con una sesión RETOMADA
+    // (ended_at NULL de un cierre no-limpio anterior), repobla la ventana
+    // con los mensajes recuperados en vez de arrancar en blanco.
+    sessionPromise.then(result => {
+      if (result?.resumed && result.history?.length && chatWindow && !chatWindow.isDestroyed()) {
+        console.log(`[main] enviando sesión resumida al chat: ${result.history.length} mensajes`);
+        chatWindow.webContents.send('resumed-session', { history: result.history });
+      }
+    }).catch(() => {});
   });
 
   if (mainWindow && !mainWindow.isDestroyed()) mainWindow.hide();
 
-  MarchCore.startSession().catch(e => console.error('[session] error:', e.message));
+  const sessionPromise = MarchCore.startSession().catch(e => { console.error('[session] error:', e.message); return null; });
   MarchCore.setChatOpen(true);
 
   chatWindow.on('closed', () => {
