@@ -479,6 +479,13 @@ ipcMain.handle('save-llm-keys', (e, { groq, gemini, openai }) => {
   return true;
 });
 
+// ── IPC: ruta de Python ya resuelta (ver resolvePythonBin arriba) ─────────────
+// chat.html necesita spawnear Python directo para el TTS (línea con cp.spawn)
+// y antes traía su PROPIA copia hardcodeada de la misma ruta absoluta que
+// arreglamos en main.js — mismo bug, dos lugares. Ahora lo pide por IPC en
+// vez de duplicar la lógica de resolución en el renderer.
+ipcMain.handle('get-python-bin', () => PYTHON_BIN);
+
 // ── IPC: testing proactivo ────────────────────────────────────────────────────
 ipcMain.handle('force-proactive', async (e, triggerType) => {
   console.log('[main] force-proactive:', triggerType);
@@ -594,6 +601,74 @@ ipcMain.handle('openclaw-execute-plan', async (e, { plan }) => {
 
 ipcMain.handle('openclaw-plan-history', () => {
   return MarchCore.getPlanner()?.getHistory(20) ?? [];
+});
+
+// ── MCP ────────────────────────────────────────────────────────────────────────
+// Independiente de OpenClaw — estos handlers funcionan aunque mock-openclaw
+// no esté corriendo. La config (qué servidores hay, cuáles están enabled)
+// vive en config.json bajo `mcp.servers`, igual que las apiKeys de LLM.
+
+ipcMain.handle('mcp-list-servers', async () => {
+  try { return await MarchCore.mcpListServers(); }
+  catch (err) { console.error('[main] error en mcp-list-servers:', err.message); return []; }
+});
+
+ipcMain.handle('mcp-list-tools', () => {
+  try { return MarchCore.mcpListAllTools(); }
+  catch (err) { console.error('[main] error en mcp-list-tools:', err.message); return []; }
+});
+
+ipcMain.handle('mcp-search-registry', async (e, { query }) => {
+  try { return await MarchCore.mcpSearchRegistry(query || ''); }
+  catch (err) { console.error('[main] error en mcp-search-registry:', err.message); return []; }
+});
+
+// Agrega un servidor y lo persiste en config.json. `serverCfg` trae al
+// menos { name, command, args, env? }. Se conecta de inmediato para poder
+// mostrarle al usuario si funcionó o no.
+ipcMain.handle('mcp-add-server', async (e, { serverCfg }) => {
+  try {
+    const status = await MarchCore.mcpAddServer(serverCfg);
+    const cfg = loadConfig();
+    const servers = cfg?.mcp?.servers || [];
+    const withoutDup = servers.filter(s => s.id !== status.id);
+    saveConfig({ mcp: { servers: [...withoutDup, { ...serverCfg, id: status.id, enabled: true }] } });
+    return { ok: true, status };
+  } catch (err) {
+    console.error('[main] error en mcp-add-server:', err.message);
+    return { ok: false, error: err.message };
+  }
+});
+
+ipcMain.handle('mcp-remove-server', async (e, { id }) => {
+  try {
+    await MarchCore.mcpRemoveServer(id);
+    const cfg = loadConfig();
+    const servers = (cfg?.mcp?.servers || []).filter(s => s.id !== id);
+    saveConfig({ mcp: { servers } });
+    return { ok: true };
+  } catch (err) {
+    console.error('[main] error en mcp-remove-server:', err.message);
+    return { ok: false, error: err.message };
+  }
+});
+
+ipcMain.handle('mcp-toggle-server', async (e, { id, enabled }) => {
+  try {
+    const cfg = loadConfig();
+    const servers = cfg?.mcp?.servers || [];
+    const serverCfg = servers.find(s => s.id === id);
+    if (!serverCfg) return { ok: false, error: 'Servidor no encontrado en config' };
+
+    await MarchCore.mcpToggleServer(id, enabled, serverCfg);
+
+    const updated = servers.map(s => s.id === id ? { ...s, enabled } : s);
+    saveConfig({ mcp: { servers: updated } });
+    return { ok: true };
+  } catch (err) {
+    console.error('[main] error en mcp-toggle-server:', err.message);
+    return { ok: false, error: err.message };
+  }
 });
 
 ipcMain.handle('fase3-stats', () => {
@@ -911,6 +986,7 @@ app.on('before-quit', (event) => {
   event.preventDefault();
   (async () => {
     try { await withTimeout(MarchCore.closeSession(), 8000); } catch(_) {}
+    try { await withTimeout(MarchCore.shutdown(), 8000); } catch(_) {}
     if (voiceProc) { voiceProc.kill(); voiceProc = null; }
     _quitting = true;
     app.quit();
