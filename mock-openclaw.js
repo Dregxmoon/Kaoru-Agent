@@ -1,484 +1,300 @@
 /**
- * mock-openclaw.js — v6
+ * GroqSerializer.js — Fase 3 (actualizado)
  *
- * Fix v5 → v6:
- *   exec — bug de comillas perdidas en Windows con comandos multi-palabra
- *          entre comillas (ej. `git commit -m "mensaje con espacios"`).
+ * CAMBIOS respecto a la versión Fase 2:
+ *   - _buildToolIntentSection() inyecta la intención detectada por
+ *     IntentDetector en el system prompt con instrucciones de formato
+ *     estructurado para el LLM.
+ *   - Cuando hay toolIntent de nivel 'high' o 'medium', el LLM recibe
+ *     instrucción explícita de responder con el bloque:
+ *       ACCIÓN: <action> | ARCHIVO: <path>   (si aplica path)
+ *       ACCIÓN: <action> | COMANDO: <cmd>    (si aplica comando)
+ *       ACCIÓN: <action>                     (si solo action)
+ *     Este formato estructurado lo extrae StructuredActionParser
+ *     sin necesidad de regex frágil sobre narrativa libre.
+ *   - Si toolIntent.level === 'none', el system prompt es idéntico
+ *     al de Fase 2 — sin cambios para el flujo conversacional.
  *
- *          Causa raíz: se parseaba `command` con parseArgs() (que quita
- *          las comillas y agrupa correctamente "mensaje con espacios" en
- *          UN solo argumento) y luego se llamaba
- *          spawnSync(program, args, { shell: true }) en Windows.
- *
- *          Lo que Node hace internamente cuando shell:true en Windows es:
- *              const command = [file, ...args].join(' ');
- *          — es decir, vuelve a unir el programa y los argumentos con
- *          espacios SIN volver a poner comillas a los argumentos que
- *          las necesitan. Como parseArgs ya les había quitado las
- *          comillas, el argumento del mensaje llegaba a cmd.exe como
- *          varias palabras sueltas, y git las trataba como pathspecs
- *          independientes (de ahí los errores "pathspec 'código' did
- *          not match any file(s)").
- *
- *          Fix: en Windows ya NO se parsea `command` con parseArgs antes
- *          de ejecutar — se le pasa el string completo, original, con
- *          sus comillas intactas, directamente a spawnSync con
- *          shell:true. Así es cmd.exe quien parsea las comillas, igual
- *          que lo haría una terminal real (es el mismo mecanismo que usa
- *          internamente child_process.exec() de Node, probado y estable).
- *
- *          En plataformas no-Windows se sigue usando parseArgs() +
- *          shell:false, que es más seguro (sin pasar por una shell) y
- *          no tiene este problema porque execve recibe cada argumento
- *          del array de forma literal, sin volver a tokenizar nada.
- *
- * Fixes anteriores mantenidos (v4 → v5):
- *   Acceso total al filesystem — eliminada la restricción de
- *   isWithinAllowedRoots(). March puede leer/escribir/editar en
- *   cualquier ruta del sistema (absoluta, relativa al proyecto,
- *   o dentro de carpetas especiales con subcarpetas arbitrarias).
- *
- *   La seguridad ya no vive en el mock — vive en el flujo de
- *   aprobación de Planner.js (isHighImpact + onApprovalNeeded),
- *   que el usuario ve y confirma antes de cada acción real.
- *
- *   Mantiene el bloqueo de comandos shell destructivos (rm -rf,
- *   format, shutdown, etc.) como última línea de defensa contra
- *   comandos catastróficos incluso si el usuario aprobó por error.
- *
- *   resolveSmartPath ahora soporta subcarpetas arbitrarias dentro
- *   de carpetas especiales: "Descargas/Tec/archivo.txt" resuelve
- *   correctamente a C:\Users\<usuario>\Downloads\Tec\archivo.txt
- *   sin necesitar que "Tec" exista de antemano (se crea si falta).
- *
- * Fixes anteriores mantenidos:
- *   Bug commit — comillas en cmd /c (parseo de args sin shell)
- *   Bug read   — sin truncado de archivos
- *   Bug 3      — exec captura stdout/stderr reales
- *   Bug 11     — UTF-8 encoding correcto
- *   Bug 12     — CWD fijo al proyecto (para rutas normales)
+ * Principio: el LLM sigue siendo el que decide y conversa.
+ * El embedding le da un "hint" fuerte de qué se le está pidiendo,
+ * y el formato estructurado hace que su respuesta sea parseable
+ * de forma determinista.
  */
 
 'use strict';
 
-const http = require('http');
-const os   = require('os');
-const { spawnSync } = require('child_process');
 const fs   = require('fs');
 const path = require('path');
 
-const PROJECT_CWD = process.cwd();
-const HOME        = os.homedir();
+// ── Identity ──────────────────────────────────────────────────────────────────
+const IDENTITY_PATH = path.join(__dirname, '../identity/identity.json');
+let _identityCache = null;
 
-console.log(`[mock] CWD del proyecto: ${PROJECT_CWD}`);
-console.log(`[mock] HOME del usuario: ${HOME}`);
+function _getIdentity() {
+  if (_identityCache) return _identityCache;
+  try {
+    _identityCache = JSON.parse(fs.readFileSync(IDENTITY_PATH, 'utf-8'));
+  } catch {
+    _identityCache = { name: 'March 7th', core: 'Soy March 7th.' };
+  }
+  return _identityCache;
+}
 
-const PORT = 18789;
+// ── Límite de tokens del sistema ──────────────────────────────────────────────
+// Groq/Llama-3.3-70B: contexto de 32k tokens. Reservamos ~1.5k para la
+// respuesta y ~2k para el historial de sesión, lo que deja ~28k para
+// el system prompt + memoria.
+const MAX_SYSTEM_CHARS = 14_000; // ~3.5k tokens — conservador pero amplio
 
-// ── Carpetas especiales del usuario ───────────────────────────────────────────
-const SPECIAL_FOLDERS = {
-  'descargas':  path.join(HOME, 'Downloads'),
-  'downloads':  path.join(HOME, 'Downloads'),
-  'escritorio': path.join(HOME, 'Desktop'),
-  'desktop':    path.join(HOME, 'Desktop'),
-  'documentos': path.join(HOME, 'Documents'),
-  'documents':  path.join(HOME, 'Documents'),
-  'imagenes':   path.join(HOME, 'Pictures'),
-  'imágenes':   path.join(HOME, 'Pictures'),
-  'pictures':   path.join(HOME, 'Pictures'),
-  'musica':     path.join(HOME, 'Music'),
-  'música':     path.join(HOME, 'Music'),
-  'music':      path.join(HOME, 'Music'),
-  'videos':     path.join(HOME, 'Videos'),
-  'video':      path.join(HOME, 'Videos'),
+// Acciones cuyo campo ARCHIVO puede referirse a una carpeta especial del
+// usuario (Descargas, Escritorio, etc.) en vez de algo dentro del proyecto.
+const FILE_PATH_ACTIONS = new Set(['create_file', 'edit_file', 'read_file', 'delete_file']);
+
+/**
+ * FIX: antes no existía NINGUNA instrucción sobre esto — si el usuario
+ * decía "créame un archivo en la carpeta descargas", el LLM adivinaba a
+ * ciegas qué poner en ARCHIVO. A veces por suerte escribía exactamente
+ * "descargas/archivo.txt" (que sí resuelve bien, ver resolveSmartPath en
+ * mock-openclaw.js) pero con cualquier variación natural — "mis
+ * descargas/...", "./descargas/...", "carpeta descargas/...", un path
+ * absoluto con un usuario inventado — el archivo terminaba creándose
+ * dentro del proyecto o en un lugar equivocado, sin ningún aviso.
+ */
+function _specialFolderNote(action) {
+  if (!FILE_PATH_ACTIONS.has(action)) return '';
+  return `
+Si el usuario se refiere a una carpeta especial de SU sistema (Descargas,
+Escritorio, Documentos, Imágenes, Música, Videos), usa EXACTAMENTE esa
+palabra (en español, sin acentos si no estás seguro, minúscula) como
+primer segmento de ARCHIVO — nada más delante, nada de "mi"/"carpeta"/"la":
+  Correcto:   ARCHIVO: descargas/reporte.txt
+  Incorrecto: ARCHIVO: mis descargas/reporte.txt
+  Incorrecto: ARCHIVO: ./descargas/reporte.txt
+  Incorrecto: ARCHIVO: C:\\Users\\usuario\\Downloads\\reporte.txt (nunca inventes una ruta absoluta con un usuario que no conoces)
+Si NO se menciona ninguna carpeta especial, usa una ruta relativa normal (se resuelve dentro del proyecto).`;
+}
+
+// ── Formato de tool intent por level ─────────────────────────────────────────
+const TOOL_INSTRUCTIONS = {
+  // El LLM DEBE usar el formato estructurado
+  high: (intent) => `
+## INTENCIÓN DE HERRAMIENTA DETECTADA (alta confianza: ${(intent.confidence * 100).toFixed(0)}%)
+
+El usuario quiere ejecutar una acción en el sistema: **${intent.action}**
+${intent.tool ? `Herramienta disponible: \`${intent.tool}\`\n` : ''}
+**INSTRUCCIÓN CRÍTICA:** Al responder, DEBES incluir un bloque de acción con este formato exacto
+(en una línea separada, al final de tu respuesta o donde sea relevante):
+
+${_buildFormatExample(intent.action)}
+${_specialFolderNote(intent.action)}
+
+Conversa naturalmente con el usuario, confirma lo que vas a hacer, y luego incluye el bloque.
+Si necesitas más información (ruta del archivo, nombre, etc.), pregunta ANTES de incluir el bloque.
+`.trim(),
+
+  // El LLM DEBERÍA usar el formato estructurado si confirma la intención
+  medium: (intent) => `
+## POSIBLE INTENCIÓN DE HERRAMIENTA (confianza media: ${(intent.confidence * 100).toFixed(0)}%)
+
+Es posible que el usuario quiera ejecutar: **${intent.action}**
+${intent.tool ? `Herramienta disponible: \`${intent.tool}\`\n` : ''}
+Si confirmas que esto es lo que el usuario quiere, incluye al final de tu respuesta:
+
+${_buildFormatExample(intent.action)}
+${_specialFolderNote(intent.action)}
+
+Si es solo una pregunta o conversación, responde normalmente sin el bloque.
+`.trim(),
 };
 
-// ── Última línea de defensa — rutas absolutamente prohibidas ─────────────────
-// El comentario de arriba decía "el control de seguridad vive en el flujo de
-// aprobación de Planner.js, no aquí" — cierto, pero una sola capa de defensa
-// es frágil. Si por lo que sea una request llega hasta acá pidiendo tocar una
-// llave SSH, un archivo de credenciales, o el almacén de contraseñas del
-// navegador, esto se niega sin excepción — mismo espíritu que el blocklist de
-// comandos catastróficos que ya existe más abajo en este archivo.
-const FORBIDDEN_PATH_PATTERNS = [
-  /\.ssh[\\/]/i, /id_rsa/i, /id_ed25519/i, /\.pem$/i, /\.pfx$/i, /\.key$/i,
-  /\.aws[\\/]/i, /\.env(\.|$)/i, /credentials/i, /\.git-credentials/i,
-  /\.npmrc/i, /login data/i, /\bcookies\b/i, /wallet/i, /\.pgpass/i,
-];
+/**
+ * Genera el ejemplo de formato estructurado según el tipo de acción.
+ * El LLM aprende el formato leyendo este ejemplo en el system prompt.
+ */
+function _buildFormatExample(action) {
+  const examples = {
+    // Acciones con path de archivo
+    create_file:      '```action\nACCIÓN: create_file | ARCHIVO: nombre-del-archivo.ext\n```',
+    edit_file:        '```action\nACCIÓN: edit_file | ARCHIVO: ruta/al/archivo.ext\n```',
+    read_file:        '```action\nACCIÓN: read_file | ARCHIVO: ruta/al/archivo.ext\n```',
+    delete_file:      '```action\nACCIÓN: delete_file | ARCHIVO: ruta/al/archivo.ext\n```',
+    create_directory: '```action\nACCIÓN: create_directory | RUTA: nombre-carpeta\n```',
+    list_directory:   '```action\nACCIÓN: list_directory | RUTA: . (o la ruta específica)\n```',
 
-function isForbiddenPath(filePath) {
-  if (!filePath) return false;
-  return FORBIDDEN_PATH_PATTERNS.some(re => re.test(filePath));
+    // Acciones con comando
+    run_command:      '```action\nACCIÓN: run_command | COMANDO: el-comando-aquí\n```',
+    run_script:       '```action\nACCIÓN: run_script | COMANDO: python script.py\n```',
+    git_action:       '```action\nACCIÓN: git_action | COMANDO: git commit -m "mensaje"\n```',
+    install_package:  '```action\nACCIÓN: install_package | COMANDO: npm install paquete\n```',
+
+    // Acciones con query
+    web_search:       '```action\nACCIÓN: web_search | QUERY: lo que se busca\n```',
+    navigate_browser: '```action\nACCIÓN: navigate_browser | URL: https://ejemplo.com\n```',
+
+    // Fallback genérico
+    default:          '```action\nACCIÓN: <acción>\n```',
+  };
+
+  return examples[action] ?? examples.default;
+}
+
+// ── Secciones del system prompt ───────────────────────────────────────────────
+
+function _buildIdentitySection(identity) {
+  const lines = [
+    `# Identidad`,
+    identity.core || identity.description || 'Soy March 7th.',
+  ];
+
+  if (identity.personality) {
+    lines.push('', '## Personalidad', identity.personality);
+  }
+
+  if (identity.uncertainty_voice) {
+    lines.push('', '## Cómo expreso incertidumbre', identity.uncertainty_voice);
+  }
+
+  return lines.join('\n');
+}
+
+function _buildOSSection(osContext) {
+  if (!osContext) return '';
+
+  const lines = ['## Contexto actual'];
+
+  if (osContext.timeFormatted) lines.push(osContext.timeFormatted);
+
+  if (osContext.friendlyName) {
+    let appLine = `El usuario está usando **${osContext.friendlyName}**`;
+    if (osContext.elapsedFormatted) appLine += ` (hace ${osContext.elapsedFormatted})`;
+    if (osContext.title)            appLine += ` — ventana: "${osContext.title}"`;
+    lines.push(appLine + '.');
+  }
+
+  if (osContext.idleFormatted) {
+    lines.push(`Tiempo sin actividad: ${osContext.idleFormatted}.`);
+  }
+
+  if (osContext.openWindowsSummary) {
+    lines.push(`Otras ventanas abiertas: ${osContext.openWindowsSummary}.`);
+  }
+
+  if (osContext.todaySummary) {
+    lines.push('', '### Actividad de hoy', osContext.todaySummary);
+  }
+
+  return lines.join('\n');
+}
+
+function _buildMemorySection(persistentMemory) {
+  if (!persistentMemory) return '';
+
+  const parts = [];
+
+  if (persistentMemory.nodes?.length > 0) {
+    parts.push('## Lo que sé del usuario y sus proyectos');
+    for (const node of persistentMemory.nodes.slice(0, 8)) {
+      const label = node.label || node.id;
+      const props = node.properties ? JSON.stringify(node.properties).slice(0, 200) : '';
+      parts.push(`- **${label}** (${node.type}): ${props}`);
+    }
+  }
+
+  if (persistentMemory.episodes?.length > 0) {
+    parts.push('', '## Episodios recientes relevantes');
+    for (const ep of persistentMemory.episodes.slice(0, 5)) {
+      const when = ep.created_at
+        ? new Date(ep.created_at * 1000).toLocaleDateString('es-MX')
+        : 'antes';
+      parts.push(`- [${when}] ${ep.label || ep.summary || ep.id}`);
+    }
+  }
+
+  return parts.join('\n');
 }
 
 /**
- * Resuelve un filePath de forma inteligente:
- *
- *   - Ruta absoluta → se usa tal cual, sin restricciones.
- *   - Primer segmento coincide con carpeta especial → resuelve contra
- *     esa carpeta real del usuario, soportando subcarpetas arbitrarias
- *     ("Descargas/Tec/archivo.txt" → Downloads/Tec/archivo.txt).
- *   - Cualquier otro caso → relativo a PROJECT_CWD (comportamiento normal
- *     de trabajo en el proyecto).
- *
- * No hay restricción de "directorios permitidos" — March tiene acceso
- * total al filesystem del usuario. El control de seguridad principal vive
- * en el flujo de aprobación de Planner.js; FORBIDDEN_PATH_PATTERNS de
- * arriba es la segunda capa, aplicada en los handlers read/write/edit.
+ * Inyecta la instrucción de formato estructurado cuando hay toolIntent.
+ * Esta es la pieza clave que conecta el embedding con el parsing del LLM.
  */
-function resolveSmartPath(filePath) {
-  if (!filePath) return filePath;
+function _buildToolIntentSection(toolIntent) {
+  if (!toolIntent || !toolIntent.detected) return '';
 
-  if (path.isAbsolute(filePath)) return filePath;
+  const builder = TOOL_INSTRUCTIONS[toolIntent.level];
+  if (!builder) return '';
 
-  const normalized = filePath.replace(/\\/g, '/');
-  const parts       = normalized.split('/').filter(Boolean);
-  const firstPart   = (parts[0] || '').toLowerCase();
-
-  if (SPECIAL_FOLDERS[firstPart]) {
-    const rest = parts.slice(1).join(path.sep);
-    const resolved = rest
-      ? path.join(SPECIAL_FOLDERS[firstPart], rest)
-      : SPECIAL_FOLDERS[firstPart];
-    console.log(`[mock] ruta especial detectada: "${filePath}" → "${resolved}"`);
-    return resolved;
-  }
-
-  return path.resolve(PROJECT_CWD, filePath);
+  return builder(toolIntent);
 }
 
-// ── Helpers de exec ────────────────────────────────────────────────────────────
+// ── Serializer principal ──────────────────────────────────────────────────────
 
-/**
- * Parsea un comando en argumentos respetando comillas dobles y simples.
- * Solo se usa en plataformas NO-Windows (ver TOOLS.exec) — en Windows el
- * comando se pasa completo y sin parsear a la shell (cmd.exe), porque
- * volver a unir un array de args con espacios bajo shell:true no vuelve
- * a poner comillas a los que las necesitan (ver comentario de la v6
- * arriba). Aquí, en cambio, los args van directo a execve sin pasar por
- * ninguna shell (shell:false), así que cada elemento del array llega
- * literal, sin volver a tokenizarse — no hay riesgo de que se pierdan
- * las comillas porque nunca se reconstruye un string de comando.
- */
-function parseArgs(cmd) {
-  const args = [];
-  let current  = '';
-  let inDouble = false;
-  let inSingle = false;
-  for (let i = 0; i < cmd.length; i++) {
-    const c = cmd[i];
-    if (c === '"' && !inSingle) { inDouble = !inDouble; continue; }
-    if (c === "'" && !inDouble) { inSingle = !inSingle; continue; }
-    if (c === ' ' && !inDouble && !inSingle) {
-      if (current) { args.push(current); current = ''; }
-      continue;
-    }
-    current += c;
-  }
-  if (current) args.push(current);
-  return args;
-}
-
-// ── Herramientas ──────────────────────────────────────────────────────────────
-
-const TOOLS = {
-
-  exec: (input) => {
-    const { command, cwd, timeout } = input;
-
-    // Última línea de defensa: comandos catastróficos siguen bloqueados
-    // incluso si el usuario aprobó la acción — protección contra errores.
-    const BLOCKED = /\brm\s+-rf?\s+\/(?!\w)|\bdel\s+\/[sqf]\s+[a-z]:\\?\s*$|\bformat\s+[a-z]:/i;
-    if (BLOCKED.test(command)) {
-      return { result: '', error: `[mock] comando catastrófico bloqueado: ${command}` };
-    }
-
-    const workDir = cwd || PROJECT_CWD;
-    const isWin   = process.platform === 'win32';
-
-    console.log(`[mock] exec (${isWin ? 'win32/shell' : 'posix/no-shell'}): ${command}`);
-
-    try {
-      let result;
-
-      if (isWin) {
-        // FIX v6 — en Windows NO se parsea `command` a un array de args.
-        // Se pasa el string original completo (comillas intactas) como
-        // único "file" a spawnSync, sin args, con shell:true. Esto es
-        // necesario además porque muchos comandos en Windows (echo, dir,
-        // type, set, mkdir sin slash...) son built-ins de cmd.exe, no
-        // ejecutables reales — sin shell:true fallarían con ENOENT.
-        // Es cmd.exe quien parsea las comillas del comando, igual que lo
-        // haría una terminal real (mismo mecanismo que usa internamente
-        // child_process.exec() de Node).
-        result = spawnSync(command, {
-          cwd:      workDir,
-          timeout:  (timeout || 30) * 1000,
-          encoding: 'utf8',
-          shell:    true,
-          env:      { ...process.env, PYTHONIOENCODING: 'utf-8', PYTHONUTF8: '1' },
-        });
-      } else {
-        // No-Windows: parseamos nosotros mismos respetando comillas y
-        // ejecutamos directo (sin shell) — más seguro y sin el problema
-        // de re-tokenización descrito arriba, porque execve recibe cada
-        // argumento del array tal cual, sin reconstruir ningún string.
-        const args    = parseArgs(command);
-        const program = args.shift();
-
-        console.log(`[mock] exec args parseados: ${program} ${JSON.stringify(args)}`);
-
-        result = spawnSync(program, args, {
-          cwd:      workDir,
-          timeout:  (timeout || 30) * 1000,
-          encoding: 'utf8',
-          shell:    false,
-          env:      { ...process.env, PYTHONIOENCODING: 'utf-8', PYTHONUTF8: '1' },
-        });
-      }
-
-      const stdout = (result.stdout || '').trim();
-      const stderr = (result.stderr || '').trim();
-      const code   = result.status ?? 0;
-
-      console.log(`[mock] exec resultado: code=${code} stdout=${stdout.length}chars stderr=${stderr.length}chars`);
-
-      if (result.error) {
-        return { result: '', error: result.error.message };
-      }
-
-      if (code !== 0 && !stdout) {
-        return {
-          result: stderr || '',
-          error:  `Comando salió con código ${code}${stderr ? ': ' + stderr : ''}`,
-        };
-      }
-
-      const output = [stdout, stderr].filter(Boolean).join('\n--- stderr ---\n');
-      return { result: output || `(sin salida, código ${code})` };
-
-    } catch(e) {
-      return { result: '', error: e.message };
-    }
-  },
-
-  // read — restringido solo por FORBIDDEN_PATH_PATTERNS (ver arriba);
-  // el resto del control de acceso vive en Planner.js
-  read: (input) => {
-    const { path: filePath } = input;
-    if (isForbiddenPath(filePath)) {
-      console.warn(`[mock] read BLOQUEADO por ruta prohibida: "${filePath}"`);
-      return { result: '', error: `Acceso denegado: "${filePath}" coincide con un patrón de ruta sensible (llaves, credenciales, cookies, etc).` };
-    }
-    try {
-      const resolved = resolveSmartPath(filePath);
-      const content  = fs.readFileSync(resolved, { encoding: 'utf8' });
-      console.log(`[mock] read: "${filePath}" → "${resolved}" (${content.length} chars)`);
-      return { result: content };
-    } catch(e) {
-      return { result: '', error: `No se pudo leer ${filePath}: ${e.message}` };
-    }
-  },
-
-  // write — restringido solo por FORBIDDEN_PATH_PATTERNS; crea subcarpetas
-  // automáticamente si no existen
-  write: (input) => {
-    const { path: filePath, content } = input;
-    if (isForbiddenPath(filePath)) {
-      console.warn(`[mock] write BLOQUEADO por ruta prohibida: "${filePath}"`);
-      return { result: '', error: `Acceso denegado: "${filePath}" coincide con un patrón de ruta sensible (llaves, credenciales, cookies, etc).` };
-    }
-    try {
-      const resolved = resolveSmartPath(filePath);
-      fs.mkdirSync(path.dirname(resolved), { recursive: true });
-      fs.writeFileSync(resolved, content, { encoding: 'utf8' });
-      console.log(`[mock] write: "${filePath}" → "${resolved}" (${content.length} chars)`);
-      return { result: `Archivo escrito: ${resolved} (${content.length} chars)` };
-    } catch(e) {
-      return { result: '', error: e.message };
-    }
-  },
-
-  // edit — restringido solo por FORBIDDEN_PATH_PATTERNS
-  edit: (input) => {
-    const { path: filePath, old_text, new_text } = input;
-    if (isForbiddenPath(filePath)) {
-      console.warn(`[mock] edit BLOQUEADO por ruta prohibida: "${filePath}"`);
-      return { result: '', error: `Acceso denegado: "${filePath}" coincide con un patrón de ruta sensible (llaves, credenciales, cookies, etc).` };
-    }
-    try {
-      const resolved = resolveSmartPath(filePath);
-      let content    = fs.readFileSync(resolved, 'utf8');
-      if (!content.includes(old_text)) {
-        return { result: '', error: `Texto no encontrado en ${filePath}` };
-      }
-      content = content.replace(old_text, new_text);
-      fs.writeFileSync(resolved, content, 'utf8');
-      console.log(`[mock] edit: "${filePath}" → "${resolved}"`);
-      return { result: `Editado: ${resolved}` };
-    } catch(e) {
-      return { result: '', error: e.message };
-    }
-  },
-
-  code_execution: (input) => {
-    const { code, timeout = 10 } = input;
-    const tmp = path.join(os.tmpdir(), `march_code_${Date.now()}.py`);
-    try {
-      fs.writeFileSync(tmp, code, 'utf8');
-      const result = spawnSync('python', [tmp], {
-        cwd:      PROJECT_CWD,
-        timeout:  timeout * 1000,
-        encoding: 'utf8',
-        env:      { ...process.env, PYTHONIOENCODING: 'utf-8' },
-      });
-      const stdout = (result.stdout || '').trim();
-      const stderr = (result.stderr || '').trim();
-      console.log(`[mock] code_execution: ${stdout.length} chars stdout, ${stderr.length} chars stderr`);
-      if (result.error) return { result: '', error: result.error.message };
-      return { result: stdout || stderr || '(sin salida)' };
-    } catch(e) {
-      return { result: '', error: e.message };
-    } finally {
-      try { fs.unlinkSync(tmp); } catch(_) {}
-    }
-  },
-
+class GroqSerializer {
   /**
-   * apply_patch — aplica un parche estilo unified diff a un archivo.
-   * params: { path: string, patch: string }
+   * Serializa el Context Package completo al formato que espera Groq/Llama.
    *
-   * Implementación simple: parsea bloques @@ ... @@ con líneas
-   * +/-/  y los aplica secuencialmente. No requiere `patch` ni `git`
-   * instalado en el sistema — parser propio en JS.
+   * @param {object} contextPackage
+   * @param {object} contextPackage.identity
+   * @param {object} contextPackage.osContext
+   * @param {object} contextPackage.persistentMemory  — { nodes, episodes }
+   * @param {Array}  contextPackage.sessionHistory     — historial previo
+   * @param {object} contextPackage.currentMessage     — { role, content }
+   * @param {object} contextPackage.toolIntent         — resultado de IntentDetector (Fase 3)
+   *
+   * @returns {{ systemPrompt: string, messages: Array }}
    */
-  apply_patch: (input) => {
-    const { path: filePath, patch } = input;
-    try {
-      const resolved = resolveSmartPath(filePath);
-      let lines = fs.readFileSync(resolved, 'utf8').split('\n');
+  serialize(contextPackage) {
+    const {
+      identity        = null,
+      osContext       = null,
+      persistentMemory = null,
+      sessionHistory  = [],
+      currentMessage  = null,
+      toolIntent      = null,   // ← nuevo en Fase 3
+    } = contextPackage;
 
-      // Parsear bloques de hunks: @@ -start,len +start,len @@
-      const hunkRegex = /@@\s*-(\d+)(?:,(\d+))?\s*\+(\d+)(?:,(\d+))?\s*@@/g;
-      const patchLines = patch.split('\n');
+    const id = identity ?? _getIdentity();
 
-      let currentLineIdx = -1;
-      let offset = 0; // ajuste acumulado por inserciones/eliminaciones previas
+    // Construir secciones del system prompt
+    const sections = [
+      _buildIdentitySection(id),
+      _buildOSSection(osContext),
+      _buildMemorySection(persistentMemory),
+      _buildToolIntentSection(toolIntent),   // ← inyección Fase 3
+    ].filter(Boolean);
 
-      for (let i = 0; i < patchLines.length; i++) {
-        const line = patchLines[i];
-        const hunkMatch = /@@\s*-(\d+)/.exec(line);
+    let systemPrompt = sections.join('\n\n---\n\n');
 
-        if (hunkMatch) {
-          currentLineIdx = parseInt(hunkMatch[1], 10) - 1 + offset;
-          continue;
-        }
-
-        if (currentLineIdx === -1) continue;
-
-        if (line.startsWith('-')) {
-          lines.splice(currentLineIdx, 1);
-          offset -= 1;
-        } else if (line.startsWith('+')) {
-          lines.splice(currentLineIdx, 0, line.slice(1));
-          currentLineIdx++;
-          offset += 1;
-        } else if (line.startsWith(' ')) {
-          currentLineIdx++;
-        }
-      }
-
-      const newContent = lines.join('\n');
-      fs.writeFileSync(resolved, newContent, 'utf8');
-      console.log(`[mock] apply_patch: "${filePath}" → "${resolved}" (${newContent.length} chars)`);
-      return { result: `Patch aplicado: ${resolved}` };
-    } catch(e) {
-      return { result: '', error: `Error aplicando patch a ${filePath}: ${e.message}` };
+    // Truncar si es demasiado largo (no debería pasar en uso normal)
+    if (systemPrompt.length > MAX_SYSTEM_CHARS) {
+      console.warn(`[groq-serializer] system prompt truncado: ${systemPrompt.length} → ${MAX_SYSTEM_CHARS} chars`);
+      systemPrompt = systemPrompt.slice(0, MAX_SYSTEM_CHARS) + '\n\n[contexto truncado por longitud]';
     }
-  },
 
-  // web_search y browser se delegan a BrowserBridge.js (Playwright real)
-  web_search: (input) => {
-    return { result: '', error: '[mock] web_search debe usar BrowserBridge.js, no este mock. Ver integración en Planner.js' };
-  },
+    // Construir el array de mensajes para la API de Groq
+    const messages = [];
 
-  browser: (input) => {
-    return { result: '', error: '[mock] browser debe usar BrowserBridge.js, no este mock. Ver integración en Planner.js' };
-  },
-};
-
-// ── Servidor HTTP ─────────────────────────────────────────────────────────────
-
-const server = http.createServer((req, res) => {
-  res.setHeader('Content-Type', 'application/json; charset=utf-8');
-  res.setHeader('Access-Control-Allow-Origin', '*');
-
-  if (req.method === 'GET' && req.url === '/health') {
-    res.writeHead(200);
-    res.end(JSON.stringify({
-      status:  'ok',
-      version: 'mock-6.0',
-      tools:   Object.keys(TOOLS),
-      cwd:     PROJECT_CWD,
-      home:    HOME,
-      specialFolders: Object.keys(SPECIAL_FOLDERS),
-    }));
-    return;
-  }
-
-  if (req.method === 'POST' && req.url === '/v1/tool') {
-    const chunks = [];
-    req.on('data', chunk => chunks.push(chunk));
-    req.on('end', () => {
-      try {
-        const body = Buffer.concat(chunks).toString('utf8');
-        const { tool, input } = JSON.parse(body);
-        console.log(`\n[mock] ← ${tool}`, JSON.stringify(input).slice(0, 200));
-
-        const handler = TOOLS[tool];
-        if (!handler) {
-          res.writeHead(400);
-          res.end(JSON.stringify({ result: '', error: `Herramienta desconocida: ${tool}` }));
-          return;
-        }
-
-        const toolResult = handler(input);
-        console.log(`[mock] → ${tool}:`, JSON.stringify(toolResult).slice(0, 200));
-
-        res.writeHead(200);
-        res.end(JSON.stringify(toolResult));
-
-      } catch(e) {
-        console.error('[mock] error:', e.message);
-        res.writeHead(500);
-        res.end(JSON.stringify({ result: '', error: e.message }));
+    // Historial de sesión (sin el mensaje actual)
+    for (const turn of sessionHistory) {
+      if (turn.role && turn.content) {
+        messages.push({ role: turn.role, content: String(turn.content) });
       }
-    });
-    return;
+    }
+
+    // Mensaje actual del usuario
+    if (currentMessage?.content) {
+      messages.push({
+        role:    currentMessage.role || 'user',
+        content: String(currentMessage.content),
+      });
+    }
+
+    // Groq requiere al menos un mensaje en el array
+    if (messages.length === 0) {
+      messages.push({ role: 'user', content: '...' });
+    }
+
+    return { systemPrompt, messages };
   }
+}
 
-  res.writeHead(404);
-  res.end(JSON.stringify({ error: 'Not found' }));
-});
-
-server.listen(PORT, '127.0.0.1', () => {
-  console.log(`\n╔═══════════════════════════════════════════╗`);
-  console.log(`║   Mock OpenClaw v6 corriendo en :${PORT}   ║`);
-  console.log(`╠═══════════════════════════════════════════╣`);
-  console.log(`║  CWD:  ${PROJECT_CWD.slice(0, 34).padEnd(34)} ║`);
-  console.log(`║  HOME: ${HOME.slice(0, 34).padEnd(34)} ║`);
-  console.log(`╠═══════════════════════════════════════════╣`);
-  console.log(`║  Fixes aplicados:                         ║`);
-  console.log(`║   ✓ exec: comillas no se pierden en        ║`);
-  console.log(`║     Windows (comando completo a la shell)  ║`);
-  console.log(`║   ✓ Acceso total al filesystem            ║`);
-  console.log(`║   ✓ apply_patch implementado (sin git)    ║`);
-  console.log(`║   ✓ code_execution con stdout/stderr      ║`);
-  console.log(`║   ⚠ web_search/browser → usar BrowserBridge║`);
-  console.log(`╚═══════════════════════════════════════════╝\n`);
-});
-
-server.on('error', (e) => {
-  if (e.code === 'EADDRINUSE') console.error(`❌ Puerto ${PORT} ocupado.`);
-  else console.error('❌ Error:', e.message);
-});
+module.exports = { GroqSerializer };
