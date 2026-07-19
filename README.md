@@ -16,31 +16,51 @@ El proyecto está estructurado como un sistema multi-capa con responsabilidades 
 
 ## Arquitectura
 
-```
-┌─────────────────────────────────────────────────────────────┐
-│  Presentación           Electron + Live2D (overlay siempre   │
-│                          visible, click-through, bandeja)     │
-├─────────────────────────────────────────────────────────────┤
-│  Orquestación            MarchCore — ciclo de vida de sesión, │
-│                          coordinación entre subsistemas       │
-├───────────────┬───────────────┬───────────────┬─────────────┤
-│  Percepción   │  Memoria      │  Comportamiento│  Ejecución   │
-│               │               │                │              │
-│  OSSensor     │  StateGraph   │  BehaviorModel │  Planner     │
-│  (foco, apps, │  (grafo de    │  ProactiveEngine│ StructuredAction│
-│  idle, título)│  conocimiento,│  (autonomía,   │  Parser      │
-│               │  recall       │  iniciativa    │  OpenClawBridge│
-│               │  semántico)   │  propia)       │  MCPManager  │
-├───────────────┴───────────────┴────────────────┴─────────────┤
-│  Grounding                IntentDetector + RetrievalPlanner + │
-│                           ContextAssembler → system prompt    │
-├─────────────────────────────────────────────────────────────┤
-│  Proveedores de LLM       Groq · Gemini · OpenAI (fallback    │
-│                           en cadena con retry exponencial)     │
-└─────────────────────────────────────────────────────────────┘
-```
+```mermaid
+flowchart TB
 
----
+subgraph Presentation
+UI["Electron Overlay<br/>Live2D Avatar"]
+end
+
+subgraph Core
+March["MarchCore"]
+end
+
+subgraph Intelligence
+Sensor["OS Sensors"]
+Memory["Semantic Memory"]
+Grounding["Grounding"]
+Behavior["Behavior Engine"]
+Planner["Action Planner"]
+end
+
+subgraph Execution
+MCP["MCP Manager"]
+OpenClaw["OpenClaw"]
+end
+
+subgraph AI
+LLMs["Groq<br/>Gemini<br/>OpenAI"]
+end
+
+UI --> March
+
+March --> Sensor
+March --> Memory
+March --> Behavior
+March --> Grounding
+March --> Planner
+
+Sensor --> Grounding
+Memory --> Grounding
+Behavior --> Grounding
+
+Grounding --> LLMs
+
+Planner --> MCP
+Planner --> OpenClaw
+```
 
 ## Capacidades técnicas
 
