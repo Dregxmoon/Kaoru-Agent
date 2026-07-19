@@ -90,6 +90,23 @@ const APP_NAMES = {
   'mpc-hc64':        'Media Player Classic',
   'explorer':        'Explorador de archivos',
   'SystemSettings':  'Configuración de Windows',
+  // Juegos — antes no existía NINGÚN reconocimiento de juegos, así que
+  // jugar (sin importar cuánto tiempo) era completamente invisible para la
+  // proactividad: category caía a 'other', que ni siquiera está en
+  // FOCUS_RULES de ProactiveEngine.js. Ver ese archivo para el fix
+  // completo — esto es solo la mitad de "reconocer que hay un juego abierto".
+  'VALORANT-Win64-Shipping': 'Valorant',
+  'RiotClientServices':      'Riot Client',
+  'League of Legends':       'League of Legends',
+  'LeagueClient':            'League of Legends',
+  'cs2':                     'Counter-Strike 2',
+  'csgo':                    'CS:GO',
+  'steam':                   'Steam',
+  'steamwebhelper':          'Steam',
+  'EpicGamesLauncher':       'Epic Games',
+  'Overwatch':                'Overwatch 2',
+  'FortniteClient-Win64-Shipping': 'Fortnite',
+  'javaw':                    'Minecraft',
 };
 
 const APP_CATEGORIES = {
@@ -103,6 +120,11 @@ const APP_CATEGORIES = {
   api:      ['postman', 'insomnia'],
   files:    ['explorer'],
   system:   ['SystemSettings', 'ApplicationFrameHost'],
+  game:     [
+    'VALORANT-Win64-Shipping', 'RiotClientServices', 'League of Legends', 'LeagueClient',
+    'cs2', 'csgo', 'steam', 'steamwebhelper', 'EpicGamesLauncher', 'Overwatch',
+    'FortniteClient-Win64-Shipping', 'javaw',
+  ],
 };
 
 const IDLE_THRESHOLD_SECS = 120;
