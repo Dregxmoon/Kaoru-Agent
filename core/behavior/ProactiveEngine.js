@@ -68,6 +68,11 @@ const FOCUS_RULES = {
   docs:     { minSec: 10 * 60, label: 'metido en documentos' },
   design:   { minSec: 10 * 60, label: 'diseñando' },
   browser:  { minSec: 15 * 60, label: 'navegando' },
+  // Antes 'game' ni existía como categoría (ver fix en OSSensor.js) — sin
+  // esto, jugar era invisible para toda la proactividad sin importar
+  // cuánto tiempo llevaras. 40 min porque una sesión de juego típica es
+  // más larga que una racha de código antes de que valga la pena comentar.
+  game:     { minSec: 40 * 60, label: 'jugando' },
 };
 
 const THRASH_WINDOW_MS             = 10 * 60 * 1000; // ventana para detectar "salto entre apps"
