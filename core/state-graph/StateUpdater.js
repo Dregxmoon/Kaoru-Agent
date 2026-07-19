@@ -230,10 +230,14 @@ class StateUpdater {
       `${m.role === 'user' ? 'Usuario' : 'March'}: ${m.content}`
     ).join('\n');
 
+    // NOTA: LLMProvider.complete(messages, systemPrompt) solo acepta esos
+    // dos parámetros — antes había un tercer argumento { max_tokens: 256 }
+    // acá que se ignoraba en silencio (JS no protesta por argumentos de
+    // más). No cambia el comportamiento real: modo 'fast' ya reserva un
+    // máximo razonable por defecto, de sobra para este JSON compacto.
     const raw = await LLMProvider.complete(
       [{ role: 'user', content: `Conversación:\n\n${conversation}` }],
-      EXTRACTION_SYSTEM,
-      { max_tokens: 256 }
+      EXTRACTION_SYSTEM
     );
     return this._parseJSON(raw);
   }
