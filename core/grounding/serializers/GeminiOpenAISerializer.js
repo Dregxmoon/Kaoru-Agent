@@ -20,12 +20,13 @@ class GeminiSerializer extends GroqSerializer {
     // Reutilizamos la lógica de Groq — el formato de system prompt es compatible
     const result = super.serialize(contextPackage);
 
-    // Gemini prefiere instrucciones más explícitas al final
-    result.systemPrompt = result.systemPrompt.replace(
-      '# INSTRUCCIÓN',
-      '# INSTRUCCIONES PARA ESTA RESPUESTA'
-    );
-
+    // FIX: antes había un result.systemPrompt.replace('# INSTRUCCIÓN', '# INSTRUCCIONES PARA ESTA RESPUESTA')
+    // acá, pero GroqSerializer.js ya no genera ningún heading con ese texto
+    // exacto (se refactorizó en algún punto sin actualizar esto) — el
+    // replace() nunca hacía match y fallaba en silencio, sin error, sin
+    // efecto. Gemini recibe el mismo prompt que Groq por ahora (igual que
+    // ya hace OpenAISerializer abajo) hasta que valga la pena un ajuste
+    // real y verificado contra el formato actual.
     return result;
   }
 }
