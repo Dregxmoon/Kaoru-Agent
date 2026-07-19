@@ -90,10 +90,19 @@ class ContradictionResolver {
     switch (policy) {
 
       case 'overwrite': {
-        // Actualizar el nodo existente con el nuevo contenido
-        this._graph._db.prepare(
-          'UPDATE nodes SET content=?, importance=?, updated_at=?, last_accessed_at=? WHERE id=?'
-        ).run(content, Math.max(importance, existing.importance), Date.now(), Date.now(), existing.id);
+        // FIX: antes esto era SQL directo a la tabla — funcionaba para
+        // actualizar el contenido, pero se saltaba updateNode() por
+        // completo, y con eso el re-embedding automático para recall
+        // semántico (ver StateGraph._scheduleNodeEmbedding). El nodo
+        // quedaba con contenido nuevo pero el VECTOR seguía apuntando al
+        // contenido viejo, indefinidamente — justo el caso más común
+        // (alguien corrige su trabajo, su ciudad, etc.) quedaba invisible
+        // para queryNodesSemantic() hasta la próxima vez que ese nodo
+        // se tocara por otra vía.
+        this._graph.updateNode(existing.id, {
+          content: content,
+          importance: Math.max(importance, existing.importance),
+        });
         console.log(`[resolver] overwrite: ${label} → "${content.slice(0, 60)}"`);
         return existing.id;
       }
@@ -112,14 +121,17 @@ class ContradictionResolver {
       case 'append': {
         // Fusionar el contenido viejo y nuevo, pero con tope — se conservan
         // solo los últimos MAX_APPEND_SEGMENTS fragmentos, nunca crece infinito.
+        // Mismo fix que 'overwrite' arriba — updateNode() en vez de SQL
+        // directo, para que dispare el re-embedding del contenido fusionado.
         const segments = existing.content.split(APPEND_SEPARATOR);
         segments.push(content);
         const trimmed = segments.slice(-MAX_APPEND_SEGMENTS);
         const merged  = trimmed.join(APPEND_SEPARATOR);
 
-        this._graph._db.prepare(
-          'UPDATE nodes SET content=?, importance=?, updated_at=?, last_accessed_at=? WHERE id=?'
-        ).run(merged, Math.max(importance, existing.importance), Date.now(), Date.now(), existing.id);
+        this._graph.updateNode(existing.id, {
+          content: merged,
+          importance: Math.max(importance, existing.importance),
+        });
         console.log(`[resolver] append: ${label} (${trimmed.length}/${segments.length} fragmentos conservados)`);
         return existing.id;
       }
