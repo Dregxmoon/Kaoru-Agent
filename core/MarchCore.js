@@ -262,6 +262,14 @@ async function shutdown() {
   if (_mcp) {
     try { await _mcp.disconnectAll(); } catch(e) { console.warn('[march-core] error desconectando MCP:', e.message); }
   }
+  // FIX: OpenClawBridge.closeBrowser() existía y hasta decía en su propio
+  // comentario "llamar al cerrar la app", pero nada lo llamaba — el
+  // Chromium headless de BrowserBridge (más sus procesos hijo) se quedaba
+  // corriendo huérfano después de cerrar March, mismo problema que ya se
+  // resolvió para los servidores MCP arriba.
+  if (_bridge) {
+    try { await _bridge.closeBrowser(); } catch(e) { console.warn('[march-core] error cerrando navegador:', e.message); }
+  }
   _proactive?.stop();
 }
 
