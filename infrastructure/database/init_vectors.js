@@ -574,7 +574,38 @@ async function getEmbedder() {
  * sentence-transformers). Puede llamarse de forma totalmente independiente
  * (sin haber llamado a main() ni a loadDeps() antes).
  */
+/**
+ * FIX — antes esto SIEMPRE cargaba su propio pipeline de
+ * @xenova/transformers, independiente del que ya carga IntentDetector.js
+ * (_getEmbedder(), ver ese archivo). Como main.js SÍ importa este módulo
+ * en caliente (el handler IPC 'init-vectors' — el mismo que usas para
+ * repoblar el catálogo con `ipcRenderer.invoke('init-vectors')` sin
+ * reiniciar la app), terminaban conviviendo DOS copias del modelo
+ * (~23MB + el overhead del runtime de ONNX) en el mismo proceso — en un
+ * equipo de 8GB de RAM, memoria que no hace falta gastar dos veces.
+ *
+ * Ahora intenta reusar IntentDetector.embedText() primero (mismo
+ * singleton, se comparte sin importar quién lo haya cargado primero) y
+ * solo si eso falla —p.ej. corriendo standalone y ese archivo no está
+ * disponible por alguna razón— cae a cargar su propio pipeline, igual
+ * que antes.
+ */
+let _useSharedEmbedder = null; // null = sin determinar, true/false tras el primer intento
+
 async function embed(text) {
+  if (_useSharedEmbedder !== false) {
+    try {
+      const IntentDetector = require('../../core/grounding/IntentDetector.js');
+      if (typeof IntentDetector.embedText === 'function') {
+        _useSharedEmbedder = true;
+        return await IntentDetector.embedText(text);
+      }
+    } catch (e) {
+      console.warn('[init-vectors] no se pudo reusar el embedder de IntentDetector.js, usando pipeline propio:', e.message);
+    }
+    _useSharedEmbedder = false;
+  }
+
   const embedder = await getEmbedder();
   const output   = await embedder(text, { pooling: 'mean', normalize: true });
   return output.data;
