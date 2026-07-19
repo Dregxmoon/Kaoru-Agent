@@ -3,6 +3,7 @@
   "version": "1.0.0",
   "description": "Overlay VTuber Live2D siempre encima de otras ventanas",
   "main": "main.js",
+  "license": "MIT",
   "scripts": {
     "start": "electron .",
     "postinstall": "node fix-electron.js",
