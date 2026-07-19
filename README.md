@@ -1,202 +1,122 @@
-# 🎭 March 7th — Asistente Virtual de Escritorio
+# March 7th
 
-Overlay de escritorio para Windows con el modelo Live2D de March 7th (Honkai: Star Rail).  
-Flota sobre cualquier aplicación, responde preguntas con IA, escucha tu voz y habla con TTS.
+**Compañera de escritorio con IA, memoria persistente y percepción del sistema operativo, construida sobre Electron.**
 
----
-
-## ✨ Características
-
-- 🖼️ **Live2D** — modelo animado flotando sobre el escritorio, siempre visible
-- 💬 **Chat con IA** — conectado a Groq, Gemini u OpenAI con fallback automático
-- 🎙️ **Voz en tiempo real** — transcripción local con Vosk (sin internet, sin Google)
-- 🔊 **TTS** — síntesis de voz con Edge TTS (voz de Nanami en japonés)
-- 🌸 **Temas** — Dark y Sakura
-- 🖱️ **Click-through** — el overlay no interrumpe lo que estás haciendo
-- 📌 **Tray** — control completo desde el ícono de bandeja del sistema
-- 🎤 **Wake word** — activa el chat por voz sin tocar el teclado
+March 7th es un overlay de escritorio para Windows que combina un avatar Live2D, un modelo de lenguaje conversacional, un sistema de memoria semántica propio y una capa de ejecución de acciones con control de acceso — diseñado para operar de forma autónoma, no solo reactiva.
 
 ---
 
-## ✅ Requisitos
+## Visión general
 
-| Herramienta | Versión recomendada |
-|-------------|-------------------|
-| Windows | 10 / 11 (64 bits) |
-| [Node.js](https://nodejs.org) | v22 LTS |
-| [Python](https://python.org) | 3.11+ |
+A diferencia de un chatbot de escritorio convencional, March observa el contexto del sistema operativo en tiempo real (aplicación activa, tiempo de enfoque, patrones de uso), mantiene un grafo de conocimiento persistente sobre el usuario a través de sesiones, y puede iniciar conversaciones por sí misma cuando detecta un momento genuinamente relevante — sin que eso dependa de un temporizador fijo ni de plantillas de texto.
+
+El proyecto está estructurado como un sistema multi-capa con responsabilidades claramente separadas: percepción del entorno, recuperación y ensamblado de contexto, planificación de acciones, y ejecución — cada una reemplazable o extensible de forma independiente.
 
 ---
 
-## 🚀 Instalación
+## Arquitectura
 
-### 1. Clonar el repositorio
-
-```bash
-git clone https://github.com/Dregxmoon/Asistente-Vtuber.git
-cd Asistente-Vtuber
 ```
-
-### 2. Instalar dependencias de Node.js
-
-```bash
-npm install
-```
-
-> ⚠️ **Si Electron falla al instalar en Windows**, ejecuta esto en PowerShell:
-> ```powershell
-> [System.IO.File]::WriteAllText("$PWD\node_modules\electron\path.txt", "electron.exe")
-> ```
-> Luego vuelve a ejecutar `npm install`.
-
-### 3. Instalar dependencias de Python
-
-```bash
-pip install -r requirements.txt
-```
-
-Dependencias incluidas:
-- **vosk** — reconocimiento de voz offline en tiempo real
-- **sounddevice** — captura de audio del micrófono
-- **numpy** — procesamiento de audio
-- **edge-tts** — síntesis de voz (TTS)
-
-> 💡 La primera vez que uses el micrófono, el modelo de Vosk (~50MB) se descargará automáticamente en `models/vosk-es/`.
-
-### 4. Configurar API Keys
-
-Copia el archivo de ejemplo y edítalo:
-
-```bash
-cp config.example.json config.json
-```
-
-Abre `config.json` y agrega al menos una key:
-
-```json
-{
-  "llm": {
-    "primary": "groq",
-    "apiKeys": {
-      "groq":   "gsk_...",
-      "gemini": "AIza...",
-      "openai": "sk-proj-..."
-    },
-    "fallback": ["gemini", "openai"]
-  }
-}
-```
-
-> 🔒 `config.json` está en `.gitignore` — tus keys nunca se suben al repositorio.
-
-Puedes obtener keys gratis en:
-- [Groq](https://console.groq.com) — recomendado, muy rápido
-- [Google AI Studio](https://aistudio.google.com) — Gemini gratis
-- [OpenAI](https://platform.openai.com) — de pago
-
-### 5. Iniciar la aplicación
-
-```bash
-npm start
+┌─────────────────────────────────────────────────────────────┐
+│  Presentación           Electron + Live2D (overlay siempre   │
+│                          visible, click-through, bandeja)     │
+├─────────────────────────────────────────────────────────────┤
+│  Orquestación            MarchCore — ciclo de vida de sesión, │
+│                          coordinación entre subsistemas       │
+├───────────────┬───────────────┬───────────────┬─────────────┤
+│  Percepción   │  Memoria      │  Comportamiento│  Ejecución   │
+│               │               │                │              │
+│  OSSensor     │  StateGraph   │  BehaviorModel │  Planner     │
+│  (foco, apps, │  (grafo de    │  ProactiveEngine│ StructuredAction│
+│  idle, título)│  conocimiento,│  (autonomía,   │  Parser      │
+│               │  recall       │  iniciativa    │  OpenClawBridge│
+│               │  semántico)   │  propia)       │  MCPManager  │
+├───────────────┴───────────────┴────────────────┴─────────────┤
+│  Grounding                IntentDetector + RetrievalPlanner + │
+│                           ContextAssembler → system prompt    │
+├─────────────────────────────────────────────────────────────┤
+│  Proveedores de LLM       Groq · Gemini · OpenAI (fallback    │
+│                           en cadena con retry exponencial)     │
+└─────────────────────────────────────────────────────────────┘
 ```
 
 ---
 
-## 🗂️ Estructura del proyecto
+## Capacidades técnicas
 
-```
-Asistente-Vtuber/
-├── src/
-│   ├── chat.html          # Ventana de chat con Live2D
-│   └── index.html         # Overlay Live2D flotante
-├── core/
-│   └── llm/
-│       ├── LLMProvider.js # Manejo de proveedores IA con fallback
-│       └── GroundingMinimo.js # Personalidad y contexto de March
-├── Models/
-│   └── March 7th/         # Modelo Live2D (.model3.json + assets)
-├── models/
-│   └── vosk-es/           # Modelo de voz (se descarga automático)
-├── main.js                # Proceso principal de Electron
-├── stt_transcribe.py      # Transcripción de voz en tiempo real (Vosk)
-├── tts_stream.py          # Síntesis de voz (Edge TTS)
-├── Voice_listener.py      # Wake word y comandos de voz
-├── requirements.txt       # Dependencias Python
-├── package.json           # Dependencias Node.js
-└── config.json            # API keys (NO se sube al repo)
-```
+**Memoria semántica con decaimiento temporal**
+El grafo de conocimiento (SQLite + `sqlite-vec`) no solo almacena hechos sobre el usuario — los indexa por embeddings locales (`all-MiniLM-L6-v2`, vía `@xenova/transformers`) y los recupera por similitud coseno ponderada por recencia. Un recuerdo de hace tres semanas y uno de ayer no compiten en igualdad de condiciones; el sistema favorece lo reciente sin descartar lo importante.
+
+**Proactividad basada en eventos, no en temporizadores**
+El motor de iniciativa propia se suscribe directamente a los eventos del sistema operativo — cambios de aplicación, tiempo de enfoque sostenido, patrones de cambio de contexto, regreso de inactividad — y usa el LLM como árbitro final de si vale la pena decir algo. Toda decisión pasa por una heurística barata como pre-filtro antes de consultar al modelo, el mismo patrón que usa el detector de intenciones.
+
+**Detección de intención semántica**
+Un catálogo de frases de referencia, embebido localmente, actúa como pre-filtro antes de pedirle al LLM que decida si el usuario quiere ejecutar una acción concreta — evitando tanto falsos positivos costosos como narrativa ambigua sin estructura.
+
+**Ejecución de acciones con defensa en profundidad**
+Ninguna acción de alto impacto (edición de archivos, comandos de shell, navegación web, herramientas de servidores externos) se ejecuta sin aprobación explícita del usuario. El sistema de aprobación combina una lista de patrones de riesgo, confinamiento de rutas al directorio del proyecto, bloqueo incondicional de rutas sensibles (credenciales, llaves SSH, cookies de navegador) y un timeout que falla de forma segura.
+
+**Integración con Model Context Protocol (MCP)**
+Cliente MCP propio, independiente del resto del sistema de acciones — permite conectar servidores externos (locales o del registro oficial) que amplían las capacidades de March sin acoplarse a ninguna herramienta específica. Incluye reconexión automática con backoff exponencial si un servidor se cae a mitad de sesión.
+
+**Resiliencia de conexión**
+Los tres proveedores de LLM soportados forman una cadena de fallback con reintento exponencial y jitter para fallos transitorios — un timeout puntual no significa perder el proveedor completo. La sesión de conversación se persiste incrementalmente, por lo que un cierre no controlado (falla de energía, cierre forzado) no implica perder el hilo de la conversación al reabrir.
 
 ---
 
-## 🎮 Uso
-
-### Overlay
-- **Doble clic** en el modelo → abre/cierra el chat
-- **Clic derecho** en el tray → menú de opciones
-- **Tray → Bloquear** → permite arrastrar el modelo por la pantalla
-- **Tray → Vista** → cambiar entre cuerpo completo, medio cuerpo o solo cabeza
-
-### Chat
-- Escribe y presiona **Enter** para enviar
-- Botón 🎙️ → **mantén presionado para hablar**, suelta para transcribir
-- El texto aparece en tiempo real mientras hablas
-- Botón ⚙️ → configurar API keys sin reiniciar la app
-- Arrastra archivos al chat para adjuntarlos
-
-### Voz (wake word)
-Pronuncia **"March"** o **"Hey March"** para activar el micrófono sin tocar nada.  
-Comandos disponibles:
-- *"Abre el chat"* → abre la ventana de chat
-- *"Cierra el chat"* → cierra la ventana de chat
-- Cualquier otra frase → se envía como mensaje al chat
-
----
-
-## 🛠️ Solución de problemas
-
-### Electron no inicia
-```powershell
-[System.IO.File]::WriteAllText("$PWD\node_modules\electron\path.txt", "electron.exe")
-npm start
-```
-
-### Python no se encuentra
-Si ves errores como `spawn python ENOENT`, edita `main.js` y cambia `PYTHON_BIN` a la ruta de tu Python:
-```js
-const PYTHON_BIN = 'C:/Users/TU_USUARIO/AppData/Local/Programs/Python/Python311/python.exe';
-```
-
-Para encontrar tu ruta exacta:
-```powershell
-(Get-Command python).Source
-```
-
-### El micrófono no funciona
-1. Verifica que `sounddevice` y `vosk` estén instalados: `pip list`
-2. Selecciona el micrófono correcto en el selector **MIC** en la parte inferior del chat
-3. El modelo de voz se descarga automático la primera vez (~50MB)
-
-### La IA no responde
-1. Abre el chat → botón ⚙️ → verifica que tengas al menos una API key configurada
-2. Groq es gratuito y el más rápido — [obtén tu key aquí](https://console.groq.com)
-
----
-
-## 📦 Tecnologías
+## Stack técnico
 
 | Capa | Tecnología |
-|------|-----------|
-| Desktop | Electron |
-| Animación | Live2D Cubism SDK + PixiJS |
-| IA | Groq / Gemini / OpenAI |
-| STT | Vosk (offline) |
-| TTS | Edge TTS (Microsoft Neural) |
-| Voz | SpeechRecognition + Python |
+|---|---|
+| Runtime de escritorio | Electron |
+| Modelo de personaje | Live2D Cubism |
+| Persistencia | SQLite (`better-sqlite3`) + `sqlite-vec` |
+| Embeddings locales | `@xenova/transformers` (ONNX Runtime) |
+| Automatización de navegador | Playwright |
+| Reconocimiento de voz | Vosk (offline) |
+| Síntesis de voz | Edge TTS |
+| Modelos de lenguaje | Groq · Google Gemini · OpenAI |
+| Protocolo de herramientas | Model Context Protocol (MCP) |
 
 ---
 
-## 📝 Notas
+## Estructura del proyecto
 
-- El modelo Live2D de March 7th pertenece a **HoYoverse** — uso personal únicamente, no distribuir.
-- Las API keys se guardan localmente en `config.json` y nunca salen de tu equipo.
-- Probado en Windows 10/11 con Python 3.11 y Node.js 22.
+```
+core/
+  MarchCore.js          Orquestador central
+  behavior/              Modelo de comportamiento y motor de proactividad
+  grounding/              Detección de intención, recuperación y ensamblado de contexto
+  llm/                    Abstracción de proveedores de LLM
+  mcp/                    Cliente MCP
+  planner/                Parsing y ejecución de acciones
+  state-graph/            Grafo de conocimiento, sesiones, resolución de contradicciones
+
+infrastructure/
+  sensors/                Percepción del sistema operativo (Windows)
+  event-bus/              Bus de eventos interno
+  database/               Inicialización de índices vectoriales
+
+src/                      Interfaz (overlay Live2D + ventana de chat)
+tests/                    Suite de pruebas
+```
+
+---
+
+## Estado del proyecto
+
+En desarrollo activo. La arquitectura ha pasado por varias fases de consolidación — de un prototipo de overlay simple a un sistema con memoria persistente, percepción de contexto y ejecución de acciones gobernada. El histórico de decisiones técnicas está documentado en `core/*_Cambios.md`.
+
+---
+
+## Licencia
+
+El código fuente de este proyecto se distribuye bajo licencia MIT — ver [`LICENSE`](./LICENSE).
+
+**Esta licencia no cubre los assets del modelo Live2D de March 7th** (carpeta `Models/`). El personaje es propiedad de Cognosphere Pte. Ltd. / HoYoverse, usado aquí como contenido de fan sin fines comerciales. Cualquier reutilización de este proyecto debe proveer su propio modelo o excluir esa carpeta.
+
+---
+
+## Reconocimientos
+
+March 7th es un personaje de *Honkai: Star Rail*, desarrollado por HoYoverse. Este proyecto es un trabajo de fan no oficial, sin afiliación con Cognosphere Pte. Ltd.
