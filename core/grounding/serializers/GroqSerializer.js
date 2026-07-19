@@ -46,6 +46,34 @@ function _getIdentity() {
 // el system prompt + memoria.
 const MAX_SYSTEM_CHARS = 14_000; // ~3.5k tokens — conservador pero amplio
 
+// Acciones cuyo campo ARCHIVO puede referirse a una carpeta especial del
+// usuario (Descargas, Escritorio, etc.) en vez de algo dentro del proyecto.
+const FILE_PATH_ACTIONS = new Set(['create_file', 'edit_file', 'read_file', 'delete_file']);
+
+/**
+ * FIX: antes no existía NINGUNA instrucción sobre esto — si el usuario
+ * decía "créame un archivo en la carpeta descargas", el LLM adivinaba a
+ * ciegas qué poner en ARCHIVO. A veces por suerte escribía exactamente
+ * "descargas/archivo.txt" (que sí resuelve bien, ver resolveSmartPath en
+ * mock-openclaw.js) pero con cualquier variación natural — "mis
+ * descargas/...", "./descargas/...", "carpeta descargas/...", un path
+ * absoluto con un usuario inventado — el archivo terminaba creándose
+ * dentro del proyecto o en un lugar equivocado, sin ningún aviso.
+ */
+function _specialFolderNote(action) {
+  if (!FILE_PATH_ACTIONS.has(action)) return '';
+  return `
+Si el usuario se refiere a una carpeta especial de SU sistema (Descargas,
+Escritorio, Documentos, Imágenes, Música, Videos), usa EXACTAMENTE esa
+palabra (en español, sin acentos si no estás seguro, minúscula) como
+primer segmento de ARCHIVO — nada más delante, nada de "mi"/"carpeta"/"la":
+  Correcto:   ARCHIVO: descargas/reporte.txt
+  Incorrecto: ARCHIVO: mis descargas/reporte.txt
+  Incorrecto: ARCHIVO: ./descargas/reporte.txt
+  Incorrecto: ARCHIVO: C:\\Users\\usuario\\Downloads\\reporte.txt (nunca inventes una ruta absoluta con un usuario que no conoces)
+Si NO se menciona ninguna carpeta especial, usa una ruta relativa normal (se resuelve dentro del proyecto).`;
+}
+
 // ── Formato de tool intent por level ─────────────────────────────────────────
 const TOOL_INSTRUCTIONS = {
   // El LLM DEBE usar el formato estructurado
@@ -58,6 +86,7 @@ ${intent.tool ? `Herramienta disponible: \`${intent.tool}\`\n` : ''}
 (en una línea separada, al final de tu respuesta o donde sea relevante):
 
 ${_buildFormatExample(intent.action)}
+${_specialFolderNote(intent.action)}
 
 Conversa naturalmente con el usuario, confirma lo que vas a hacer, y luego incluye el bloque.
 Si necesitas más información (ruta del archivo, nombre, etc.), pregunta ANTES de incluir el bloque.
@@ -72,6 +101,7 @@ ${intent.tool ? `Herramienta disponible: \`${intent.tool}\`\n` : ''}
 Si confirmas que esto es lo que el usuario quiere, incluye al final de tu respuesta:
 
 ${_buildFormatExample(intent.action)}
+${_specialFolderNote(intent.action)}
 
 Si es solo una pregunta o conversación, responde normalmente sin el bloque.
 `.trim(),
