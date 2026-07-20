@@ -8,4 +8,17 @@ config.json
 # Modelos de voz (se descargan automático)
 models/vosk-es/
 
-config.example.json
+# Base de datos local — memoria/sesiones reales del usuario, nunca debe
+# subirse (antes estaba trackeada por accidente, ver commit de limpieza)
+data/*.db
+data/*.db-journal
+data/*.db-wal
+data/*.db-shm
+
+# Artefactos de prueba sueltos
+test.txt
+
+# config.example.json SÍ debe trackearse — es la plantilla sin secretos
+# que le dice a cualquiera (incluido tú, en una máquina nueva) qué forma
+# tiene config.json. Estaba ignorado por error, junto con lo que sí
+# debía ignorarse (config.json, el real, con tus API keys).
