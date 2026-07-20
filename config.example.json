@@ -1,0 +1,14 @@
+{
+  "llm": {
+    "primary": "groq",
+    "apiKeys": {
+      "groq": "",
+      "gemini": "",
+      "openai": ""
+    },
+    "fallback": ["gemini", "openai"]
+  },
+  "mcp": {
+    "servers": []
+  }
+}
