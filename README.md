@@ -125,7 +125,7 @@ tests/                    Suite de pruebas
 
 ## Estado del proyecto
 
-En desarrollo activo. La arquitectura ha pasado por varias fases de consolidación — de un prototipo de overlay simple a un sistema con memoria persistente, percepción de contexto y ejecución de acciones gobernada. El histórico de decisiones técnicas está documentado en `core/*_Cambios.md`.
+En desarrollo activo. La arquitectura ha pasado por varias fases de consolidación — de un prototipo de overlay simple a un sistema con memoria persistente, percepción de contexto y ejecución de acciones gobernada.
 
 ---
 
