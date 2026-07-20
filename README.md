@@ -133,7 +133,7 @@ En desarrollo activo. La arquitectura ha pasado por varias fases de consolidaci�
 
 El código fuente de este proyecto se distribuye bajo licencia MIT — ver [`LICENSE`](./LICENSE).
 
-**Esta licencia no cubre los assets del modelo Live2D de March 7th** (carpeta `Models/`). El personaje es propiedad de Cognosphere Pte. Ltd. / HoYoverse, usado aquí como contenido de fan sin fines comerciales. Cualquier reutilización de este proyecto debe proveer su propio modelo o excluir esa carpeta.
+**Esta licencia no cubre los assets del modelo Live2D de March 7th** (carpeta `models/`). El personaje es propiedad de Cognosphere Pte. Ltd. / HoYoverse, usado aquí como contenido de fan sin fines comerciales. Cualquier reutilización de este proyecto debe proveer su propio modelo o excluir esa carpeta.
 
 ---
 
