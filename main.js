@@ -1,6 +1,6 @@
 const {
   app, BrowserWindow, ipcMain, screen,
-  Tray, Menu, nativeImage, session
+  Tray, Menu, nativeImage, session, globalShortcut
 } = require('electron');
 const path = require('path');
 const http = require('http');
@@ -975,6 +975,20 @@ app.whenReady().then(() => {
   startVoiceListener(selectedMicIndex);
   createChatWindow();
 
+  // NUEVO (multiplataforma): en Linux con GNOME (el escritorio más común,
+  // p.ej. Ubuntu de fábrica), Electron NO puede mostrar el ícono de la
+  // bandeja del sistema sin que el usuario instale la extensión "AppIndicator
+  // and KStatusNotifierItem Support" — sin eso, el tray de arriba
+  // (createTray()) queda invisible y el usuario se queda sin forma de
+  // llegar a "Cerrar todo". Este atajo es un respaldo para no dejar a
+  // nadie sin poder cerrar la app. También sirve en Windows/macOS como
+  // atajo rápido — no reemplaza al tray, solo evita que sea la ÚNICA
+  // salida en Linux/GNOME.
+  const shortcutOk = globalShortcut.register('CommandOrControl+Shift+Q', () => app.quit());
+  if (!shortcutOk) {
+    console.warn('[march7th] no se pudo registrar el atajo global de salida (Ctrl/Cmd+Shift+Q) — probablemente ya lo usa otra app.');
+  }
+
   screen.on('display-metrics-changed', () => {
     if (!mainWindow || mainWindow.isDestroyed()) return;
     if (!userHasMoved) mainWindow.setBounds(getBottomRightBounds());
@@ -1004,3 +1018,7 @@ app.on('before-quit', (event) => {
 });
 
 app.on('window-all-closed', () => { if (process.platform !== 'darwin') app.quit(); });
+
+// NUEVO: liberar el atajo global registrado arriba — buena práctica de
+// Electron para no dejarlo "pegado" a nivel de SO si algo falla.
+app.on('will-quit', () => { globalShortcut.unregisterAll(); });
