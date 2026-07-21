@@ -64,6 +64,19 @@ const cp   = require('child_process');
 
 window.PIXI = PIXI;
 
+// P1: antes esto hacía cp.spawn('python', ...) directo — 'python' no existe
+// en la mayoría de Linux de fábrica (solo 'python3'), así que el TTS se
+// quedaba mudo ahí aunque el resto de March funcionara bien. main.js ya
+// tiene resolvePythonBin(), que prueba 'py'/'python'/'python3' de forma
+// portable — este es el mismo patrón que ya usa chat.html (ver
+// getPythonBin() ahí) para pedirlo una sola vez por IPC y cachearlo, en vez
+// de duplicar la resolución en el renderer.
+let _pythonBinPromise = null;
+function getPythonBin() {
+  if (!_pythonBinPromise) _pythonBinPromise = ipcRenderer.invoke('get-python-bin');
+  return _pythonBinPromise;
+}
+
 const MODEL_PATH = path.join(__dirname, '..', 'models', 'March 7th', 'march 7th.model3.json');
 const canvas     = document.getElementById('live2d-canvas');
 const TTS_VOICE  = 'ja-JP-NanamiNeural';
@@ -132,9 +145,10 @@ async function speak(text, emotionOverride = null) {
   const scriptPath = path.join(__dirname, '..', 'tts_stream.py');
 
   try {
+    const pythonBin = await getPythonBin();
     await new Promise((resolve, reject) => {
       const chunks = [];
-      const proc = cp.spawn('python', [
+      const proc = cp.spawn(pythonBin, [
         scriptPath,
         '--voice', TTS_VOICE,
         '--rate',  emo.rate,
