@@ -5,7 +5,6 @@
 <title>March 7th — Chat</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Share+Tech+Mono&family=Zen+Kaku+Gothic+New:wght@300;400;700&family=Kaisei+Decol:wght@400;700&display=swap" rel="stylesheet">
-<script src="https://cdn.jsdelivr.net/npm/marked@9.1.6/marked.min.js"></script>
 <style>
 :root { --transition-theme: 0.5s cubic-bezier(0.4, 0, 0.2, 1); }
 
@@ -485,6 +484,19 @@ const path = require('path');
 const fs   = require('fs');
 const cp   = require('child_process');
 
+// P0: antes 'marked' se cargaba desde un CDN externo (cdn.jsdelivr.net) vía
+// <script src>, lo que además de depender de internet para algo tan básico
+// como formatear texto, en un renderer con nodeIntegration:true es un riesgo
+// de cadena de suministro (si el CDN o la conexión se comprometen, el script
+// inyectado corre con Node completo disponible). Ahora se cargan como
+// dependencias npm normales vía require() — más robusto además porque evita
+// la detección de entorno UMD (typeof exports/module), que en un renderer
+// con nodeIntegration puede hacer que la librería no llegue a exponerse como
+// variable global aunque el <script> cargue bien.
+const marked         = require('marked');
+const createDOMPurify = require('dompurify');
+const DOMPurify       = createDOMPurify(window);
+
 window.PIXI = PIXI;
 
 // FIX: antes esto era la misma ruta absoluta hardcodeada que main.js tenía
@@ -558,14 +570,23 @@ function pushToSession(role, content) {
 }
 
 // ── Markdown ──────────────────────────────────────────────────────────────────
-if (typeof marked !== 'undefined') {
-  marked.setOptions({ breaks: true, gfm: true });
-}
+marked.setOptions({ breaks: true, gfm: true });
 
+// P0: antes esto devolvía marked.parse(text) directo — marked NO escapa HTML
+// crudo embebido en el markdown por defecto. Como este texto puede incluir
+// contenido de páginas web que OpenClaw trajo (web_search/browser) o de
+// archivos leídos, una fuente maliciosa podía inyectar HTML/JS que terminaba
+// tal cual en el DOM vía innerHTML. Ahora se sanitiza con DOMPurify antes de
+// devolverlo — deja el markdown/HTML "normal" intacto pero saca cualquier
+// <script>, atributo on*, etc.
 function renderMarkdown(text) {
-  if (typeof marked === 'undefined') return escapeHtml(text);
-  try { return marked.parse(text || ''); }
-  catch(e) { return escapeHtml(text); }
+  try {
+    const rawHtml = marked.parse(text || '');
+    return DOMPurify.sanitize(rawHtml);
+  } catch (e) {
+    console.warn('[chat] error renderizando markdown, cae a texto plano:', e.message);
+    return escapeHtml(text);
+  }
 }
 
 function escapeHtml(text) {
