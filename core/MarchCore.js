@@ -20,6 +20,7 @@ const { GroundingEngine }              = require('./grounding/GroundingEngine.js
 const { SessionManager }               = require('./state-graph/SessionManager.js');
 const { StateUpdater }                 = require('./state-graph/StateUpdater.js');
 const { OSSensor }                     = require('../infrastructure/sensors/OSSensor.js');
+const { LinuxOSSensor }                = require('../infrastructure/sensors/LinuxOSSensor.js');
 const { getEventBus }                  = require('../infrastructure/event-bus/EventBus.js');
 const { InitiativeEngine }             = require('./behavior/InitiativeEngine.js');
 const { ProactiveEngine }              = require('./behavior/ProactiveEngine.js');
@@ -72,7 +73,21 @@ console.log('[march-core] DEBUG graph.usingFallback:', _graph.usingFallback, '| 
   _session   = new SessionManager(_graph, _grounding);
   _updater   = new StateUpdater(_graph);
 
-  _osSensor   = new OSSensor(_graph);
+  const SensorClass = process.platform === 'win32'
+    ? OSSensor
+    : process.platform === 'linux'
+      ? LinuxOSSensor
+      : null;
+
+  if (SensorClass) {
+    _osSensor = new SensorClass(_graph);
+    _osSensor.start();
+    console.log(`[march-core] ${SensorClass.name} iniciado (${process.platform})`);
+  } else {
+    _osSensor = null;
+    console.log(`[march-core] OSSensor no disponible para ${process.platform}`);
+  }
+
   _initiative = new InitiativeEngine(_graph);
   _proactive  = new ProactiveEngine(_graph);
 
@@ -84,15 +99,10 @@ console.log('[march-core] DEBUG graph.usingFallback:', _graph.usingFallback, '| 
   const projectCWD = app ? app.getAppPath() : process.cwd();
   setProjectCWD(projectCWD);
 
-  _grounding.setOSSensor(_osSensor);
-  if (typeof _initiative.setOSSensor === 'function') _initiative.setOSSensor(_osSensor);
-  _proactive.setOSSensor(_osSensor);
-
-  if (process.platform === 'win32') {
-    _osSensor.start();
-    console.log('[march-core] OSSensor iniciado');
-  } else {
-    console.log('[march-core] OSSensor no disponible (no es Windows)');
+  if (_osSensor) {
+    _grounding.setOSSensor(_osSensor);
+    if (typeof _initiative.setOSSensor === 'function') _initiative.setOSSensor(_osSensor);
+    _proactive.setOSSensor(_osSensor);
   }
 
   // ── IntentDetector ────────────────────────────────────────────────────────
@@ -269,6 +279,9 @@ async function shutdown() {
   // resolvió para los servidores MCP arriba.
   if (_bridge) {
     try { await _bridge.closeBrowser(); } catch(e) { console.warn('[march-core] error cerrando navegador:', e.message); }
+  }
+  if (_osSensor) {
+    try { _osSensor.stop(); } catch(e) { console.warn('[march-core] error deteniendo sensor:', e.message); }
   }
   _proactive?.stop();
 }
