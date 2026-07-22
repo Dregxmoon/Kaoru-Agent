@@ -32,6 +32,7 @@ try {
   Database = require('better-sqlite3');
 } catch(e) {
   console.warn('[state-graph] better-sqlite3 no disponible, usando modo memoria');
+  console.warn('[state-graph]   Solución: npm run postinstall (o npx @electron/rebuild -f -w better-sqlite3)');
   Database = null;
 }
 

@@ -157,7 +157,7 @@ console.log('[march-core] DEBUG graph.usingFallback:', _graph.usingFallback, '| 
     console.error('║  March está usando MemoryDB (RAM temporal).             ║');
     console.error('║  Todo lo aprendido esta sesión se perderá al cerrar.    ║');
     console.error('║                                                          ║');
-    console.error('║  Solución: npx electron-rebuild -f -w better-sqlite3    ║');
+                console.error('║  Solución: npx @electron/rebuild -f -w better-sqlite3     ║');
     console.error('╚══════════════════════════════════════════════════════════╝');
     console.error('');
     _bus.emit('march:memory-status', { usingFallback: true });

@@ -7,13 +7,14 @@
   "scripts": {
     "start": "electron .",
     "postinstall": "node fix-electron.js",
+    "rebuild": "npx @electron/rebuild -f -w better-sqlite3",
     "build": "electron-builder --win --x64",
     "build-portable": "electron-builder --win portable"
   },
   "devDependencies": {
     "electron": "^28.0.0",
     "electron-builder": "^24.0.0",
-    "electron-rebuild": "^3.2.9"
+    "@electron/rebuild": "^4.2.0"
   },
   "build": {
     "appId": "com.vtuber.overlay",
