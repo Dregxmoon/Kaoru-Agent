@@ -35,25 +35,25 @@ class SessionManager {
       this._closePromise = null;
     }
 
+    // Cerrar cualquier sesión anterior interrumpida para que no se
+    // muestren mensajes viejos en el nuevo chat. Los nodos en la base
+    // de datos (memoria persistente) se conservan intactos.
     const resumable = this._graph.findResumableSession(12);
-
     if (resumable) {
-      this._sessionId = resumable.id;
-      this._history   = resumable.history;
-      this._turnCount = resumable.turnCount;
-      console.log(`[session] retomando sesión interrumpida ${this._sessionId} (${this._history.length} mensajes, empezó hace ${Math.round((Date.now() - resumable.startedAt) / 60000)} min)`);
-    } else {
-      this._sessionId = this._graph.startSession();
-      this._history   = [];
-      this._turnCount = 0;
-      console.log(`[session] sesión ${this._sessionId} iniciada`);
+      console.log(`[session] cerrando sesión interrumpida ${resumable.id} (${resumable.history.length} mensajes) — empezando sesión nueva`);
+      this._graph.endSession(resumable.id, { turnCount: resumable.turnCount });
     }
+
+    this._sessionId = this._graph.startSession();
+    this._history   = [];
+    this._turnCount = 0;
+    console.log(`[session] sesión ${this._sessionId} iniciada`);
 
     // Limpiar duplicados acumulados de sesiones anteriores
     this._resolver.deduplicateNodes();
 
     this._maybeRunDecay(app);
-    return { sessionId: this._sessionId, resumed: !!resumable, history: [...this._history] };
+    return { sessionId: this._sessionId, resumed: false, history: [] };
   }
 
   addTurn(role, content) {
