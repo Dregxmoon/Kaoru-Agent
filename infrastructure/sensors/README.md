@@ -13,7 +13,7 @@ Ambos sensores exponen la misma interfaz: `start()`, `stop()`, `getCurrentContex
 
 ## Archivos
 
-### OSSensor.js (548 líneas) — Windows
+### OSSensor.js — Windows
 Ejecuta un script PowerShell cada 5 segundos usando Win32 API:
 - `GetForegroundWindow()` → ventana activa (proceso + título)
 - `GetLastInputInfo()` → tiempo de inactividad
@@ -22,7 +22,7 @@ Ejecuta un script PowerShell cada 5 segundos usando Win32 API:
 Clasifica apps en categorías: code, terminal, browser, design, docs, chat, media, api, files, system, game.
 Mantiene historial de uso diario para `getTodaySummary()`.
 
-### LinuxOSSensor.js (354 líneas) — Linux
+### LinuxOSSensor.js — Linux
 Usa herramientas nativas de Linux:
 - `hyprctl activewindow` → ventana activa (Hyprland/Wayland)
 - `hyprctl clients` → todas las ventanas abiertas
