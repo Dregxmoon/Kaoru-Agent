@@ -183,6 +183,8 @@ function _buildOSSection(osContext) {
     lines.push('', '### Actividad de hoy', osContext.todaySummary);
   }
 
+  lines.push('', 'NOTA: Esta información del contexto del sistema ES la respuesta a preguntas como "¿qué tengo abierto?" o "¿qué estás viendo?". No necesitas usar herramientas (MCP, OpenClaw, etc.) para averiguarlo — los datos ya están aquí.');
+
   return lines.join('\n');
 }
 

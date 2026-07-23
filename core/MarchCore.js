@@ -397,9 +397,14 @@ function _buildMCPCatalogPrompt(mcpTools) {
   });
 
   return '\n\n# HERRAMIENTAS MCP DISPONIBLES\n' +
-    'Además de lo anterior, tienes acceso a estas herramientas de servidores MCP conectados:\n' +
+    'Tienes acceso a estas herramientas de servidores MCP conectados. Úsalas SOLO para operaciones ' +
+    'que el contexto del sistema (sección "## Contexto actual" arriba) no pueda responder:\n' +
     lines.join('\n') + '\n\n' +
-    'Para usar una, responde con este formato exacto (sin narrativa alrededor del bloque):\n' +
+    'IMPORTANTE: NO uses herramientas de sistema de archivos (filesystem:list_directory, ' +
+    'filesystem:read_file, etc.) para responder preguntas sobre qué aplicaciones o ventanas ' +
+    'tiene abiertas el usuario — esa información ya está en "## Contexto actual" y es más ' +
+    'precisa que escanear directorios.\n\n' +
+    'Para usar una herramienta MCP, responde con este formato exacto:\n' +
     '```action\n' +
     'ACCIÓN: mcp_call | SERVIDOR: <nombre-servidor> | HERRAMIENTA: <nombre-herramienta> | PARAMS: {"clave": "valor"}\n' +
     '```\n' +
