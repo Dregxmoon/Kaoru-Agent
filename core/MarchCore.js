@@ -13,6 +13,7 @@
 
 const path = require('path');
 const fs   = require('fs');
+const cp   = require('child_process');
 
 const { getIntentDetector }            = require('./grounding/IntentDetector.js');
 const { getStateGraph }                = require('./state-graph/StateGraph.js');
@@ -45,6 +46,7 @@ let _app         = null;
 let _configPath  = null;
 let _detector    = null;
 let _mcp         = null;
+let _openclawProcess = null;
 
 let _initialized  = false;
 let _onInitiative = null;
@@ -147,16 +149,8 @@ console.log('[march-core] DEBUG graph.usingFallback:', _graph.usingFallback, '| 
   _scheduleDailyPrune();
   _loadLLMConfig();
   _loadMCPConfig();
+  _startOpenClaw();
   _proactive.start();
-
-  _bridge.isAvailable().then(available => {
-    if (available) {
-      console.log('[march-core] OpenClaw disponible — Fase 3 activa');
-      _bus.emit('openclaw:available', { available: true });
-    } else {
-      console.log('[march-core] OpenClaw no detectado — herramientas desactivadas');
-    }
-  }).catch(() => {});
 
   if (_graph.usingFallback) {
     console.error('');
@@ -280,10 +274,93 @@ async function shutdown() {
   if (_bridge) {
     try { await _bridge.closeBrowser(); } catch(e) { console.warn('[march-core] error cerrando navegador:', e.message); }
   }
+  _stopOpenClaw();
   if (_osSensor) {
     try { _osSensor.stop(); } catch(e) { console.warn('[march-core] error deteniendo sensor:', e.message); }
   }
   _proactive?.stop();
+}
+
+// ── OpenClaw Server ────────────────────────────────────────────────────────────
+
+function _startOpenClaw() {
+  const serverPath = path.join(__dirname, '..', 'openclaw-server.js');
+  if (!fs.existsSync(serverPath)) {
+    console.warn('[march-core] openclaw-server.js no encontrado — herramientas desactivadas');
+    _bus.emit('openclaw:available', { available: false });
+    return;
+  }
+
+  try {
+    _openclawProcess = cp.fork(serverPath, [], { stdio: 'pipe' });
+
+    _openclawProcess.stdout?.on('data', (d) => {
+      const msg = d.toString().trim();
+      if (msg) console.log('[openclaw-server]', msg);
+    });
+
+    _openclawProcess.stderr?.on('data', (d) => {
+      const msg = d.toString().trim();
+      if (msg) console.error('[openclaw-server]', msg);
+    });
+
+    _openclawProcess.on('exit', (code) => {
+      console.log(`[march-core] OpenClaw terminado (código ${code})`);
+      _openclawProcess = null;
+      getOpenClawBridge().resetAvailabilityCache();
+      _bus.emit('openclaw:available', { available: false });
+    });
+
+    _openclawProcess.on('error', (err) => {
+      console.error('[march-core] error en OpenClaw:', err.message);
+      _openclawProcess = null;
+      _bus.emit('openclaw:available', { available: false });
+    });
+
+    let retries = 0;
+    const check = () => {
+      retries++;
+      _bridge.isAvailable().then(available => {
+        if (available) {
+          console.log('[march-core] OpenClaw listo — Fase 3 activa');
+          _bus.emit('openclaw:available', { available: true });
+        } else if (retries < 15) {
+          setTimeout(check, 400);
+        } else {
+          console.warn('[march-core] OpenClaw no respondió después de 15 intentos');
+          _openclawProcess?.kill();
+          _openclawProcess = null;
+          _bus.emit('openclaw:available', { available: false });
+        }
+      }).catch(() => {
+        if (retries < 15) setTimeout(check, 400);
+        else _bus.emit('openclaw:available', { available: false });
+      });
+    };
+
+    setTimeout(check, 500);
+  } catch (e) {
+    console.error('[march-core] error iniciando OpenClaw:', e.message);
+    _bus.emit('openclaw:available', { available: false });
+  }
+}
+
+function _stopOpenClaw() {
+  if (_openclawProcess) {
+    console.log('[march-core] deteniendo OpenClaw...');
+    try {
+      _openclawProcess.kill('SIGTERM');
+      setTimeout(() => {
+        if (_openclawProcess) {
+          try { _openclawProcess.kill('SIGKILL'); } catch (_) {}
+          _openclawProcess = null;
+        }
+      }, 3000);
+    } catch (e) {
+      console.warn('[march-core] error deteniendo OpenClaw:', e.message);
+    }
+  }
+  getOpenClawBridge().resetAvailabilityCache();
 }
 
 function addTurn(role, content) {
@@ -393,24 +470,23 @@ async function buildContext(sessionHistory, activeProvider) {
 function _buildMCPCatalogPrompt(mcpTools) {
   const lines = mcpTools.slice(0, 40).map(t => {
     const desc = (t.description || '').replace(/\s+/g, ' ').slice(0, 100);
-    return `  - ${t.server}:${t.tool}${desc ? ' — ' + desc : ''}`;
+    return `  - SERVIDOR=${t.server} | HERRAMIENTA=${t.tool}${desc ? ' — ' + desc : ''}`;
   });
 
   return '\n\n# HERRAMIENTAS MCP DISPONIBLES\n' +
-    'Tienes acceso a estas herramientas de servidores MCP conectados. Úsalas SOLO para operaciones ' +
-    'que el contexto del sistema (sección "## Contexto actual" arriba) no pueda responder:\n' +
+    'Tienes acceso a estas herramientas de servidores MCP conectados. ' +
+    'SOLO debes usarlas si el comando que necesitas NO se puede ejecutar con OpenClaw ' +
+    '(Ejecutar: <comando>). Para listar archivos, leer archivos, o escribir archivos ' +
+    'usa SIEMPRE OpenClaw (Ejecutar: ls <ruta>, Ejecutar: cat <archivo>, etc.).\n\n' +
+    'Herramientas disponibles (copia EXACTAMENTE el SERVIDOR y HERRAMIENTA de esta lista):\n' +
     lines.join('\n') + '\n\n' +
-    'IMPORTANTE: NO uses herramientas de sistema de archivos (filesystem:list_directory, ' +
-    'filesystem:read_file, etc.) para responder preguntas sobre qué aplicaciones o ventanas ' +
-    'tiene abiertas el usuario — esa información ya está en "## Contexto actual" y es más ' +
-    'precisa que escanear directorios.\n\n' +
-    'Para usar una herramienta MCP, responde con este formato exacto:\n' +
+    'Para usar una herramienta MCP, responde con este formato EXACTO (sin comillas alrededor de SERVIDOR y HERRAMIENTA):\n' +
     '```action\n' +
-    'ACCIÓN: mcp_call | SERVIDOR: <nombre-servidor> | HERRAMIENTA: <nombre-herramienta> | PARAMS: {"clave": "valor"}\n' +
+    'ACCIÓN: mcp_call | SERVIDOR: filesystem | HERRAMIENTA: list_directory | PARAMS: {"path": "/ruta"}\n' +
     '```\n' +
-    'PARAMS debe ser JSON válido en una sola línea con los argumentos que la herramienta espera ' +
-    '(puede ser {} si no necesita ninguno). El sistema pedirá confirmación al usuario antes de ' +
-    'ejecutar cualquier herramienta MCP — no asumas que ya se ejecutó ni inventes su resultado.';
+    'El SERVIDOR y HERRAMIENTA deben coincidir EXACTAMENTE con la lista de arriba, incluyendo mayúsculas. ' +
+    'PARAMS debe ser JSON válido en una sola línea. ' +
+    'El sistema pedirá confirmación al usuario antes de ejecutar cualquier herramienta MCP.';
 }
 
 // ── Fase 3: Planner y OpenClaw ────────────────────────────────────────────────

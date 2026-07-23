@@ -19,47 +19,49 @@ El proyecto está estructurado como un sistema multi-capa con responsabilidades 
 ```mermaid
 flowchart TB
 
-subgraph Presentation
-UI["Electron Overlay<br/>Live2D Avatar"]
+subgraph Frontend
+UI["Overlay + Chat"]
 end
 
 subgraph Core
 March["MarchCore"]
 end
 
-subgraph Intelligence
+subgraph Context
 Sensor["OS Sensors"]
-Memory["Semantic Memory"]
+Memory["Memoria Semántica"]
 Grounding["Grounding"]
-Behavior["Behavior Engine"]
-Planner["Action Planner"]
+Behavior["Behavior"]
 end
 
-subgraph Execution
-MCP["MCP Manager"]
+subgraph Actions
+Planner["Planner"]
 OpenClaw["OpenClaw"]
+MCP["MCP Servers"]
 end
 
-subgraph AI
-LLMs["Groq<br/>Gemini<br/>OpenAI"]
+subgraph LLM
+LLMs["Groq / Gemini / OpenAI"]
 end
 
 UI --> March
-
-March --> Sensor
-March --> Memory
-March --> Behavior
-March --> Grounding
-March --> Planner
 
 Sensor --> Grounding
 Memory --> Grounding
 Behavior --> Grounding
 
 Grounding --> LLMs
+LLMs --> March
 
-Planner --> MCP
-Planner --> OpenClaw
+March --> Planner
+Planner --> March
+
+March --> OpenClaw
+OpenClaw --> MCP
+MCP --> OpenClaw
+OpenClaw --> March
+
+March --> UI
 ```
 
 ## Capacidades técnicas

@@ -1030,8 +1030,9 @@ async function processMessage(text, files = []) {
   triggerMotion();
 
   let response;
+  let context;
   try {
-    const context = await ipcRenderer.invoke('grounding-build-context', {
+    context = await ipcRenderer.invoke('grounding-build-context', {
       sessionHistory: [...sessionHistory],
       activeProvider: LLMProvider.getActiveProvider(),
     });
@@ -1062,10 +1063,8 @@ async function processMessage(text, files = []) {
       if (plan && plan.steps?.length) {
         pushToSession('assistant', response);
         ipcRenderer.send('memory-add-turn', { role: 'assistant', content: response });
-        const { bubble } = addMessage('march', '');
-        await typewriterMarkdown(bubble, response, 12);
+        const { bubble } = addMessage('march', 'Ejecutando...');
         await _executePlanWithUI(plan, bubble.parentElement.parentElement);
-        speak(response);
         return;
       }
     } catch(e) {
@@ -1084,6 +1083,12 @@ async function processMessage(text, files = []) {
 // ── Plan UI ───────────────────────────────────────────────────────────────────
 async function _executePlanWithUI(plan, msgDiv) {
   activePlanId = plan.id;
+
+  const bubble = msgDiv.querySelector('.msg-bubble');
+
+  const stepLabels = plan.steps.map(s => s.description).join(' → ');
+  if (bubble) bubble.textContent = stepLabels;
+
   const card = document.createElement('div');
   card.className = 'plan-card'; card.id = `plan-${plan.id}`;
   card.innerHTML = `<div class="plan-header"><div class="plan-dot"></div>EJECUTANDO — ${plan.steps.length} PASO${plan.steps.length !== 1 ? 'S' : ''}</div><div class="plan-steps"></div><div class="plan-result" style="display:none"></div>`;
@@ -1108,107 +1113,64 @@ async function _executePlanWithUI(plan, msgDiv) {
   const headerText = card.querySelector('.plan-header');
   if (headerText) headerText.innerHTML = `<div class="plan-dot" style="background:${result.ok ? '#10b981' : '#ef4444'};animation:none"></div>${result.ok ? '✓ COMPLETADO' : '✗ ERROR'} — ${plan.steps.length} PASO${plan.steps.length !== 1 ? 'S' : ''}`;
 
-  if (result.result) {
+  if (result.result && result.ok) {
     const txt = typeof result.result === 'string' ? result.result : JSON.stringify(result.result, null, 2);
-if (txt?.trim()) {
-  resultEl.textContent = txt;
-  resultEl.style.display = 'block';
-  setTimeout(() => _summarizePlanResult(plan, txt), 10000); // 10s — evita chocar con el rate limit TPM de Groq
-}
-  }
-  if (!result.ok && result.error) {
+    if (txt?.trim()) {
+      resultEl.textContent = txt;
+      resultEl.style.display = 'block';
+    }
+    _interpretResult(plan, result.result, bubble);
+  } else if (!result.ok && result.error) {
     resultEl.textContent = `Error: ${result.error}`;
     resultEl.style.color = '#ef4444';
     resultEl.style.display = 'block';
   }
+
   messagesEl.scrollTop = messagesEl.scrollHeight;
   activePlanId = null;
 }
 
-function _extractSummaryInput(rawResult) {
+function _compactResult(rawResult) {
   try {
     const parsed = JSON.parse(rawResult);
     const compact = {};
     for (const [key, val] of Object.entries(parsed)) {
       if (val && typeof val === 'object' && (val.status === 'success' || val.status === 'written_unverified')) {
-        // No mandar originalContent/newContent/verifiedContent completos —
-        // son el mismo archivo 3 veces y eso es lo que inflaba el contexto.
-        compact[key] = {
-          status:   val.status,
-          path:     val.path,
-          verified: val.verified ?? null,
-          chars:    val.newContent?.length ?? 0,
-        };
+        compact[key] = { status: val.status, path: val.path, chars: val.newContent?.length ?? 0 };
       } else if (typeof val === 'string') {
-        compact[key] = val.length > 500 ? val.slice(0, 500) + '...' : val;
+        compact[key] = val.length > 800 ? val.slice(0, 800) + '...' : val;
       } else {
         compact[key] = val;
       }
     }
     return JSON.stringify(compact, null, 2);
   } catch {
-    // No era JSON — es output de texto plano (exec, etc), limitar tamaño razonable
-    return rawResult.length > 1500 ? rawResult.slice(0, 1500) + '\n...[truncado]' : rawResult;
+    return rawResult.length > 2000 ? rawResult.slice(0, 2000) + '\n...[truncado]' : rawResult;
   }
 }
 
-// FIX — _summarizePlanResult recibía solo `goal` (texto del usuario) y
-// `rawResult`, y le pedía al LLM "Resume lo más relevante. Sé directa y
-// breve." sin más contexto. Para acciones de SOLO LECTURA (read_file), el
-// usuario YA tiene el contenido completo visible en el bloque de resultado
-// justo arriba — pedirle al modelo que "resuma" un dump de código gigante
-// con una instrucción vaga es una tarea ambigua, y la salida típica de un
-// modelo rápido/económico ante ambigüedad es esquivar con una pregunta de
-// aclaración ("¿qué específico te gustaría saber?") en vez de aportar algo.
-// Eso es lo que se veía: una respuesta genérica e inútil después de leer
-// main.js con éxito.
-//
-// Fix: además de pasar el contenido real (ya se hacía), ahora se construye
-// una instrucción EXPLÍCITA y distinta según el tipo de acción ejecutada:
-//   - Si TODOS los pasos del plan fueron de solo lectura (`read`/`read_file`):
-//     se le aclara al modelo que el contenido YA es visible para el usuario,
-//     se le pide una descripción breve y directa (no un resumen exhaustivo),
-//     y se le prohíbe explícitamente pedir aclaraciones o negarse.
-//   - Para cualquier otro caso (exec, git, escritura de archivos, etc.):
-//     se mantiene la instrucción de resumen genérica, pero también se agrega
-//     la prohibición de pedir aclaraciones, porque el mismo problema de fondo
-//     (modelo ambiguo → pregunta en vez de responder) aplica igual ahí.
-//
-// Se recibe `plan` completo (antes solo `plan.goal`) para poder inspeccionar
-// `plan.steps[].tool` y decidir qué instrucción usar.
-async function _summarizePlanResult(plan, rawResult) {
+async function _interpretResult(plan, rawResult, container) {
+  const compactResult = _compactResult(rawResult);
+  const summaryHistory = [
+    ...sessionHistory,
+    { role: 'user', content: `Resultado de ejecutar "${plan.goal}":\n\n${compactResult}\n\nInterpreta esto en tu voz. Responde como March, útil y directa, sin preguntar qué sigue.` },
+  ];
   try {
-    const compactResult = _extractSummaryInput(rawResult);
-
-    const READ_TOOLS = new Set(['read', 'read_file']);
-    const isReadOnly  = plan.steps.length > 0 && plan.steps.every(s => READ_TOOLS.has(s.tool));
-
-    const instruction = isReadOnly
-      ? 'El usuario YA está viendo el contenido completo del archivo en un bloque arriba de este mensaje — no lo repitas ni lo resumas línea por línea. ' +
-        'Da una descripción breve y directa (2-4 frases) de qué hace este archivo o qué contiene, en tu voz habitual. ' +
-        'NO preguntes qué parte le interesa, NO digas que no puedes resumir un archivo grande, NO pidas que especifique qué quiere saber. ' +
-        'Si de verdad el contenido es muy largo para detallarlo todo, simplemente menciona los puntos más importantes que puedas identificar y omite el resto — eso es preferible a no responder.'
-      : 'Resume lo más relevante en tu voz. Sé directa y breve. ' +
-        'NO preguntes qué parte le interesa ni pidas que especifique — si quiere más detalle, ya te lo va a decir después.';
-
-    const summaryHistory = [
-      ...sessionHistory,
-      { role: 'user', content: `Resultado de ejecutar "${plan.goal}":\n\n${compactResult}\n\n${instruction}` },
-    ];
     const context = await ipcRenderer.invoke('grounding-build-context', {
       sessionHistory: summaryHistory,
       activeProvider: LLMProvider.getActiveProvider(),
     });
     const summary = await LLMProvider.complete(context.messages, context.systemPrompt);
     if (summary?.trim()) {
-      pushToSession('assistant', summary);
-      ipcRenderer.send('memory-add-turn', { role: 'assistant', content: summary });
-      const { bubble } = addMessage('march', '');
-      await typewriterMarkdown(bubble, summary, 14);
-      speak(summary);
+      const el = document.createElement('div');
+      el.style.marginTop = '12px';
+      container.appendChild(el);
+      await typewriterMarkdown(el, summary, 14);
+      messagesEl.scrollTop = messagesEl.scrollHeight;
     }
-  } catch(e) { console.warn('[chat] error resumiendo:', e.message); }
+  } catch(e) { console.warn('[chat] error interpretando resultado:', e.message); }
 }
+
 
 function _showApprovalCard({ planId, stepId, description, tool, params }) {
   const card = document.createElement('div'); card.className = 'approval-card';

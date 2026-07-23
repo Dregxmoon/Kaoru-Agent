@@ -576,7 +576,9 @@ function _trimNarrativeOutsideQuotes(cmd) {
   const NARRATIVE_TAIL_RULES = [
     /\.\s+[A-ZÁÉÍÓÚ][a-z].*$/,
     /\s+para\s+(?:ver|listar|asegurar|verificar|comprobar|ejecutar).*$/i,
-    /\s+y\s+(?:ver|ejecutar|listar).*$/i,
+    /\s+y\s+(?:dime|ver|ejecutar|listar).*$/i,
+    /\s+en\s+(?:la\s+)?(?:terminal|consola|shell|línea\s+de\s+comandos).*$/i,
+    /\s+en\s+(?:el\s+)?(?:directorio|carpeta|sistema|servidor).*$/i,
   ];
 
   for (let i = 0; i < segments.length; i++) {
@@ -586,15 +588,7 @@ function _trimNarrativeOutsideQuotes(cmd) {
 
     let cleaned = seg;
     for (const rule of NARRATIVE_TAIL_RULES) {
-      const before = cleaned;
       cleaned = cleaned.replace(rule, '');
-      // Si esta regla cortó algo Y había más segmentos después (un
-      // tramo citado más adelante en el comando), detenemos el corte
-      // en este segmento — el resto del comando, incluida la siguiente
-      // parte citada, ya no debería existir si el LLM realmente quiso
-      // terminar la frase aquí. Esto reproduce el comportamiento
-      // original para el caso normal (sin comillas de por medio).
-      if (cleaned !== before) break;
     }
     segments[i] = cleaned;
 
@@ -853,6 +847,17 @@ const ACTION_PATTERNS = [
   // exec genérico — requiere backticks para evitar capturar narrativa libre
   {
     pattern: /(?:ejecuta(?:r|ndo)?|corre(?:r)?|lanza(?:r)?)\s+(?:el\s+comando\s+)?[:\-]?\s*`([^`\n]{2,120})`/i,
+    tool: 'exec',
+    buildParams: (m) => ({ command: _cleanCommand(m[1]), cwd: PROJECT_CWD }),
+    description: (m) => `Ejecutar: ${_cleanCommand(m[1])}`,
+    validate: (m) => _isValidCommand(_cleanCommand(m[1])),
+  },
+
+  // "Ejecutar: <comando>" — formato que el system prompt le pide al LLM
+  // (ver MarchCore.js: "Para ejecutar un comando di EXACTAMENTE: 'Ejecutar: git status'")
+  // Sin backticks porque el prompt no los incluye en el ejemplo.
+  {
+    pattern: /Ejecutar:\s*([^\n]{2,200})/i,
     tool: 'exec',
     buildParams: (m) => ({ command: _cleanCommand(m[1]), cwd: PROJECT_CWD }),
     description: (m) => `Ejecutar: ${_cleanCommand(m[1])}`,
