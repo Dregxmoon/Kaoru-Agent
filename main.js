@@ -158,7 +158,13 @@ let selectedMicLabel = savedConfig.micLabel  ?? 'default';
 chatTheme            = savedConfig.chatTheme ?? 'dark';
 chatMode             = savedConfig.chatMode  ?? 'conversational';
 
-console.log('[march7th] config cargada:', savedConfig);
+const maskedConfig = JSON.parse(JSON.stringify(savedConfig));
+if (maskedConfig.llm?.apiKeys) {
+  for (const k of Object.keys(maskedConfig.llm.apiKeys)) {
+    if (maskedConfig.llm.apiKeys[k]) maskedConfig.llm.apiKeys[k] = '***';
+  }
+}
+console.log('[march7th] config cargada:', maskedConfig);
 
 if (process.platform === 'linux')
   app.commandLine.appendSwitch('enable-transparent-visuals');
@@ -238,7 +244,10 @@ function createWindow() {
   mainWindow.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
   mainWindow.setMenuBarVisibility(false);
   mainWindow.setIgnoreMouseEvents(true, { forward: true });
-  mainWindow.webContents.on('console-message', (e, level, msg) => console.log(`[overlay] ${msg}`));
+  mainWindow.webContents.on('console-message', (e, level, msg) => {
+    if (msg.includes('PixiJS') || msg.includes('Live2D Cubism Core') || msg.includes('CubismFramework.') || msg.startsWith(' %c') || msg.includes('Electron Security Warning')) return;
+    console.log(`[overlay] ${msg}`);
+  });
   mainWindow.loadFile(path.join(__dirname, 'src/index.html'));
   mainWindow.webContents.once('did-finish-load', () => {
     setTimeout(() => mainWindow.webContents.send('set-view', currentView), 1500);
@@ -275,7 +284,10 @@ function createChatWindow() {
   chatWindow.setMenuBarVisibility(false);
   chatWindow.loadFile(path.join(__dirname, 'src/chat.html'));
   chatWindow.webContents.openDevTools({ mode: 'detach' });
-  chatWindow.webContents.on('console-message', (e, level, msg) => console.log(`[chat] ${msg}`));
+  chatWindow.webContents.on('console-message', (e, level, msg) => {
+    if (msg.includes('PixiJS') || msg.includes('Live2D Cubism Core') || msg.includes('CubismFramework.') || msg.startsWith(' %c') || msg.includes('Electron Security Warning')) return;
+    console.log(`[chat] ${msg}`);
+  });
 
   chatWindow.webContents.once('did-finish-load', () => {
     chatWindow.webContents.send('init-theme', chatTheme);

@@ -557,7 +557,7 @@ document.getElementById('mode-toggle').addEventListener('click', () => {
   const next = chatMode === 'task' ? 'conversational' : 'task';
   applyModeUI(next);
   ipcRenderer.send('chat-mode-changed', next);
-  console.log('[chat] modo cambiado a:', next);
+  console.log('modo cambiado a:', next);
 });
 
 const sessionHistory      = [];
@@ -584,7 +584,7 @@ function renderMarkdown(text) {
     const rawHtml = marked.parse(text || '');
     return DOMPurify.sanitize(rawHtml);
   } catch (e) {
-    console.warn('[chat] error renderizando markdown, cae a texto plano:', e.message);
+    console.warn('error renderizando markdown, cae a texto plano:', e.message);
     return escapeHtml(text);
   }
 }
@@ -732,7 +732,7 @@ ipcRenderer.on('memory-status', (e, { usingFallback }) => {
 // LLM, para que la conversación siga exactamente donde se quedó.
 ipcRenderer.on('resumed-session', (e, { history }) => {
   if (!Array.isArray(history) || !history.length) return;
-  console.log(`[chat] restaurando sesión interrumpida: ${history.length} mensajes`);
+  console.log(`restaurando sesión interrumpida: ${history.length} mensajes`);
 
   const divider = document.createElement('div');
   divider.className = 'session-resume-divider';
@@ -1039,12 +1039,12 @@ async function processMessage(text, files = []) {
     if (!context || !context.messages || !context.systemPrompt) {
       throw new Error('context inválido');
     }
-    console.log('[chat] generando respuesta en modo:', chatMode);
+    console.log('generando respuesta en modo:', chatMode);
     response = chatMode === 'task'
       ? await LLMProvider.completeTask(context.messages, context.systemPrompt)
       : await LLMProvider.complete(context.messages, context.systemPrompt);
   } catch(err) {
-    console.error('[chat] error LLM:', err.message);
+    console.error('error LLM:', err.message);
     response = LLMProvider.getActiveProvider()
       ? 'Algo falló al conectar. Revisa tu conexión o la key.'
       : 'Sin API keys. Usa el botón ⚙ para configurarlas.';
@@ -1068,7 +1068,7 @@ async function processMessage(text, files = []) {
         return;
       }
     } catch(e) {
-      console.warn('[chat] error parseando plan:', e.message);
+      console.warn('error parseando plan:', e.message);
     }
   }
 
@@ -1168,7 +1168,7 @@ async function _interpretResult(plan, rawResult, container) {
       await typewriterMarkdown(el, summary, 14);
       messagesEl.scrollTop = messagesEl.scrollHeight;
     }
-  } catch(e) { console.warn('[chat] error interpretando resultado:', e.message); }
+  } catch(e) { console.warn('error interpretando resultado:', e.message); }
 }
 
 
@@ -1428,7 +1428,7 @@ async function loadModel() {
     setTimeout(triggerMotion, 600);
     setInterval(triggerMotion, 8000);
     startAutonomousView();
-  } catch(e) { console.error('[chat] model error:', e); }
+  } catch(e) { console.error('model error:', e); }
 
   showWelcome();
 }

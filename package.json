@@ -5,7 +5,7 @@
   "main": "main.js",
   "license": "MIT",
   "scripts": {
-    "start": "electron .",
+    "start": "ELECTRON_DISABLE_SECURITY_WARNINGS=1 electron . 2>&1 | grep -vE 'Fontconfig warning|invalid (attribute|constant used)'",
     "postinstall": "node fix-electron.js",
     "rebuild": "npx @electron/rebuild -f -w better-sqlite3",
     "build": "electron-builder --win --x64",

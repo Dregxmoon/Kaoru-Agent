@@ -27,7 +27,6 @@
 
 class InitiativeEngine {
   constructor(_stateGraph) {
-    console.log('[initiative] deprecado — su lógica vive ahora en ProactiveEngine (ver getStats().currentCategory, etc.)');
   }
 
   // No-ops mantenidos solo por compatibilidad con MarchCore.js

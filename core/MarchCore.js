@@ -70,7 +70,7 @@ function init(app) {
     : null;
 
   _graph = getStateGraph(dbPath);
-console.log('[march-core] DEBUG graph.usingFallback:', _graph.usingFallback, '| _graph._db:', !!_graph._db);
+if (process.env.DEBUG) console.log('[march-core] graph.usingFallback:', _graph.usingFallback, '| _graph._db:', !!_graph._db);
   _grounding = new GroundingEngine(_graph);
   _session   = new SessionManager(_graph, _grounding);
   _updater   = new StateUpdater(_graph);
@@ -142,7 +142,7 @@ console.log('[march-core] DEBUG graph.usingFallback:', _graph.usingFallback, '| 
   }
 
   _bus.on('initiative:trigger', (payload) => {
-    console.log(`[march-core] initiative: "${payload.suggestion?.slice(0, 60)}"`);
+    if (process.env.DEBUG) console.log(`[march-core] initiative: "${payload.suggestion?.slice(0, 60)}"`);
     if (_onInitiative) _onInitiative(payload);
   });
 
