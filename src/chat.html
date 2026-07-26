@@ -1167,6 +1167,17 @@ async function _interpretResult(plan, rawResult, container) {
       container.appendChild(el);
       await typewriterMarkdown(el, summary, 14);
       messagesEl.scrollTop = messagesEl.scrollHeight;
+
+      // FIX: la interpretación del resultado de una acción nunca se
+      // persistía — se mostraba una vez en el DOM y desaparecía. El
+      // siguiente turno, sessionHistory solo tenía "voy a ejecutar X",
+      // nunca "ejecuté X y encontré Y", así que March perdía continuidad
+      // conversacional justo después de actuar. Esto cierra ese loop:
+      // el resultado interpretado se vuelve un turno real, indexable
+      // luego por la memoria semántica (sqlite-vec) igual que cualquier
+      // otro mensaje de la conversación.
+      pushToSession('assistant', summary);
+      ipcRenderer.send('memory-add-turn', { role: 'assistant', content: summary });
     }
   } catch(e) { console.warn('error interpretando resultado:', e.message); }
 }
