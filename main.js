@@ -781,24 +781,62 @@ const { spawn } = require('child_process');
 const VOICE_COMMANDS_OPEN  = ['abre el chat','abre chat','abrir chat','muestra el chat','abre la ventana','chat'];
 const VOICE_COMMANDS_CLOSE = ['cierra el chat','cierra chat','cerrar chat','oculta el chat'];
 let voiceProc = null, voiceRestartTimer = null;
+let voiceCrashCount = 0;
+let voiceStartedAt = 0;
+const VOICE_MAX_CRASHES   = 5;
+const VOICE_MIN_HEALTHY_MS = 10_000; // si muere antes de esto, cuenta como parte de una racha de crashes
+
+// El stack de audio en Linux (ALSA sobre PipeWire/PulseAudio) siempre
+// se queja de dispositivos virtuales que no existen en este hardware
+// (pcm.rear, pcm.center_lfe, pcm.side, dmix, dsnoop) — es ruido normal,
+// no un error real. Se filtra para que lo que sí importa (el malloc/free
+// corrupto que tumba el proceso) no se pierda entre cientos de líneas.
+const ALSA_NOISE = /ALSA lib (pcm_dsnoop|pcm_dmix|pcm)\.c:\d+:\(snd_pcm_(dsnoop_open|dmix_open|open_noupdate)\)|Unknown PCM cards\.pcm\.|^\[error\.pcm\]$|^\[error\.pcm\] unable to open slave$|^unable to open slave$/;
+
+function _logVoiceStderr(raw) {
+  const lines = raw.split('\n')
+    .map(l => l.trim())
+    .filter(l => l && !ALSA_NOISE.test(l));
+  if (lines.length) console.log('[voice stderr]', lines.join('\n'));
+}
 
 function startVoiceListener(micIndex = null) {
   const scriptPath = path.join(__dirname, 'Voice_listener.py');
-  if (!fs.existsSync(scriptPath)) { console.log('[voice] voice_listener.py no encontrado.'); return; }
+  if (!fs.existsSync(scriptPath)) { console.log('[voice] Voice_listener.py no encontrado.'); return; }
   const args = [scriptPath];
   if (micIndex !== null && micIndex >= 0) args.push('--mic-index', String(micIndex));
+
+  voiceStartedAt = Date.now();
   voiceProc = spawn(PYTHON_BIN, args, {
     env: { ...process.env, PYTHONIOENCODING: 'utf-8', PYTHONUTF8: '1' }
   });
   voiceProc.stdout.on('data', (data) => {
     data.toString().split('\n').filter(l => l.trim()).forEach(line => {
-      try { handleVoiceEvent(JSON.parse(line)); } catch(_) {}
+      try { handleVoiceEvent(JSON.parse(line)); }
+      catch(e) { console.warn('[voice] línea no-JSON de Voice_listener.py:', line); }
     });
   });
-  voiceProc.stderr.on('data', (d) => console.log('[voice stderr]', d.toString().trim()));
+  voiceProc.stderr.on('data', (d) => _logVoiceStderr(d.toString()));
   voiceProc.on('close', (code) => {
-    console.log(`[voice] proceso terminado (code ${code}), reiniciando en 3s...`);
     voiceProc = null;
+    const aliveMs = Date.now() - voiceStartedAt;
+
+    if (aliveMs >= VOICE_MIN_HEALTHY_MS) {
+      // vivió suficiente — lo que haya pasado antes ya no cuenta como
+      // parte de una racha de crashes, es un evento aislado
+      voiceCrashCount = 0;
+    } else {
+      voiceCrashCount++;
+    }
+
+    if (voiceCrashCount > VOICE_MAX_CRASHES) {
+      console.error(`[voice] ${VOICE_MAX_CRASHES} crashes seguidos en menos de ${VOICE_MIN_HEALTHY_MS/1000}s cada uno (último code ${code}) — desactivando el listener de voz esta sesión.`);
+      console.error('[voice] esto no es transitorio — revisa tu stack de audio (ALSA/PipeWire) o Voice_listener.py.');
+      if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('voice-disabled');
+      return; // no reprogramar
+    }
+
+    console.log(`[voice] proceso terminado (code ${code}) tras ${(aliveMs/1000).toFixed(1)}s tras arrancar, reiniciando en 3s... (racha: ${voiceCrashCount}/${VOICE_MAX_CRASHES})`);
     if (voiceRestartTimer) clearTimeout(voiceRestartTimer);
     voiceRestartTimer = setTimeout(() => startVoiceListener(selectedMicIndex), 3000);
   });
