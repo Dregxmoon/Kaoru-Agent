@@ -484,17 +484,17 @@ const path = require('path');
 const fs   = require('fs');
 const cp   = require('child_process');
 
-// Corta la respuesta del LLM en la última línea que reconoce como trigger
-// de acción ("Ejecutar:", "Voy a leer", "Voy a escribir") y descarta todo
-// lo que venga después, porque a veces el modelo viola REGLA 2 del system
-// prompt y pega prosa alucinada sobre un resultado que aún no existe.
+// Se queda SOLO con las líneas que son un trigger reconocido, sin importar
+// dónde caiga la prosa alucinada del modelo — la versión anterior solo
+// cortaba después del ÚLTIMO trigger, así que un párrafo alucinado
+// intercalado ENTRE dos líneas "Ejecutar:" se colaba igual.
 function _sanitizePlanAnnouncement(response) {
   const triggerRe = /^(Ejecutar:|Voy a leer|Voy a escribir)/i;
-  const lines = response.split('\n');
-  let lastTriggerIdx = -1;
-  lines.forEach((l, i) => { if (triggerRe.test(l.trim())) lastTriggerIdx = i; });
-  if (lastTriggerIdx === -1) return response;
-  return lines.slice(0, lastTriggerIdx + 1).join('\n').trim();
+  const triggerLines = response.split('\n')
+    .map(l => l.trim())
+    .filter(l => triggerRe.test(l));
+  if (!triggerLines.length) return response;
+  return triggerLines.join('\n');
 }
 
 // P0: antes 'marked' se cargaba desde un CDN externo (cdn.jsdelivr.net) vía
