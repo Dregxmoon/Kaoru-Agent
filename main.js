@@ -783,7 +783,7 @@ const VOICE_COMMANDS_CLOSE = ['cierra el chat','cierra chat','cerrar chat','ocul
 let voiceProc = null, voiceRestartTimer = null;
 
 function startVoiceListener(micIndex = null) {
-  const scriptPath = path.join(__dirname, 'voice_listener.py');
+  const scriptPath = path.join(__dirname, 'Voice_listener.py');
   if (!fs.existsSync(scriptPath)) { console.log('[voice] voice_listener.py no encontrado.'); return; }
   const args = [scriptPath];
   if (micIndex !== null && micIndex >= 0) args.push('--mic-index', String(micIndex));

@@ -152,15 +152,17 @@ function rebuildNativeModules() {
     if (result.status === 0) {
       log('ok', 'Módulos nativos reconstruidos correctamente');
     } else {
-      log('warn', `@electron/rebuild terminó con código ${result.status}`);
-      log('warn', 'Si better-sqlite3 falla en tiempo de ejecución, ejecuta manualmente: npx @electron/rebuild -f -w better-sqlite3');
+      log('error', `@electron/rebuild terminó con código ${result.status} — better-sqlite3 probablemente NO va a funcionar`);
+      log('error', 'Ejecuta manualmente: npx @electron/rebuild -f -w better-sqlite3');
       if (result.error) {
         log('error', result.error.message);
       }
+      exitCode = 1;
     }
   } catch (e) {
-    log('warn', `No se pudo ejecutar @electron/rebuild: ${e.message}`);
-    log('warn', 'Instálalo con: npm install -D @electron/rebuild');
+    log('error', `No se pudo ejecutar @electron/rebuild: ${e.message} — better-sqlite3 probablemente NO va a funcionar`);
+    log('error', 'Instálalo con: npm install -D @electron/rebuild, luego corre: npx @electron/rebuild -f -w better-sqlite3');
+    exitCode = 1;
   }
 }
 
