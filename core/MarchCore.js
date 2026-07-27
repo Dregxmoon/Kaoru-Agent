@@ -9,6 +9,13 @@
  * FIX Fase 3b: sqlite-vec se carga en la misma conexión del StateGraph
  *   antes de instanciar el IntentDetector, para que la tabla virtual
  *   intent_vectors sea visible desde esa conexión.
+ *
+ * FIX (revisión con Claude): el truncado del system prompt a
+ * MAX_SYSTEM_CHARS pasaba dentro de GroqSerializer.serialize(), pero
+ * buildContext() le pegaba BehaviorModel + reglas de OpenClaw + catálogo
+ * MCP DESPUÉS de ese punto — el presupuesto de tokens nunca contaba esas
+ * secciones. El truncado se movió aquí, al final, sobre el prompt ya
+ * completo. Ver GroqSerializer.js para el otro lado de este mismo fix.
  */
 
 const path = require('path');
@@ -30,6 +37,12 @@ const { getPlanner, setProjectCWD, isHighImpact } = require('./planner/Planner.j
 const { getOpenClawBridge }            = require('./planner/OpenClawBridge.js');
 const { getMCPManager }                = require('./mcp/MCPManager.js');
 const LLMProvider                      = require('./llm/LLMProvider.js');
+
+// FIX: presupuesto de tokens del system prompt COMPLETO — antes vivía
+// dentro de GroqSerializer.js y se aplicaba antes de pegar BehaviorModel,
+// las reglas de OpenClaw y el catálogo MCP. Ahora se aplica aquí, al
+// final de buildContext(), sobre el prompt ya ensamblado del todo.
+const MAX_SYSTEM_CHARS = 14_000; // ~3.5k tokens — conservador pero amplio
 
 let _graph       = null;
 let _grounding   = null;
@@ -458,6 +471,16 @@ async function buildContext(sessionHistory, activeProvider) {
     if (mcpTools.length) {
       result.systemPrompt += _buildMCPCatalogPrompt(mcpTools);
     }
+  }
+
+  // FIX: truncado del prompt COMPLETO, aquí al final — antes esto pasaba
+  // dentro de GroqSerializer.serialize(), antes de que se pegaran
+  // BehaviorModel, las reglas de OpenClaw y el catálogo MCP, así que el
+  // presupuesto de tokens nunca contaba esas secciones (podían crecer sin
+  // límite real). Ver GroqSerializer.js — ahí se quitó el truncado viejo.
+  if (result.systemPrompt.length > MAX_SYSTEM_CHARS) {
+    console.warn(`[march-core] system prompt truncado: ${result.systemPrompt.length} → ${MAX_SYSTEM_CHARS} chars`);
+    result.systemPrompt = result.systemPrompt.slice(0, MAX_SYSTEM_CHARS) + '\n\n[contexto truncado por longitud]';
   }
 
   return { ...result, behaviorCtx, toolIntent };

@@ -19,6 +19,20 @@
  * El embedding le da un "hint" fuerte de qué se le está pidiendo,
  * y el formato estructurado hace que su respuesta sea parseable
  * de forma determinista.
+ *
+ * FIX (revisión con Claude): _buildIdentitySection() leía
+ * identity.personality e identity.uncertainty_voice — campos que NUNCA
+ * existieron en identity.json (que en realidad tiene character, voice,
+ * uncertainty_behaviors, relationship, limits). Como esos ifs nunca
+ * entraban, solo identity.core llegaba al LLM — toda la personalidad
+ * escrita en el archivo se calculaba y se guardaba, pero nunca salía de
+ * disco. Ahora la función lee la forma real del archivo.
+ *
+ * FIX (revisión con Claude): el truncado a MAX_SYSTEM_CHARS pasaba AQUÍ,
+ * pero MarchCore.buildContext() le pegaba BehaviorModel + reglas de
+ * OpenClaw + catálogo MCP DESPUÉS de este punto — el presupuesto de
+ * tokens nunca contaba esas secciones. El truncado se movió a
+ * MarchCore.js, al final de buildContext(), sobre el prompt ya completo.
  */
 
 'use strict';
@@ -39,12 +53,6 @@ function _getIdentity() {
   }
   return _identityCache;
 }
-
-// ── Límite de tokens del sistema ──────────────────────────────────────────────
-// Groq/Llama-3.3-70B: contexto de 32k tokens. Reservamos ~1.5k para la
-// respuesta y ~2k para el historial de sesión, lo que deja ~28k para
-// el system prompt + memoria.
-const MAX_SYSTEM_CHARS = 14_000; // ~3.5k tokens — conservador pero amplio
 
 // Acciones cuyo campo ARCHIVO puede referirse a una carpeta especial del
 // usuario (Descargas, Escritorio, etc.) en vez de algo dentro del proyecto.
@@ -140,18 +148,63 @@ function _buildFormatExample(action) {
 
 // ── Secciones del system prompt ───────────────────────────────────────────────
 
+/**
+ * FIX: antes leía identity.personality e identity.uncertainty_voice, que
+ * no existen en identity.json — ahora usa la forma real: character,
+ * voice, uncertainty_behaviors, relationship, limits.
+ */
 function _buildIdentitySection(identity) {
-  const lines = [
-    `# Identidad`,
-    identity.core || identity.description || 'Soy March 7th.',
-  ];
+  const lines = [`# Identidad`, identity.core || 'Soy March 7th.'];
 
-  if (identity.personality) {
-    lines.push('', '## Personalidad', identity.personality);
+  const char = identity.character;
+  if (char) {
+    if (char.summary) lines.push('', '## Personalidad', char.summary);
+    if (char.traits?.length) {
+      lines.push('', '### Rasgos', ...char.traits.map(t => `- ${t}`));
+    }
+    if (char.dislikes?.length) {
+      lines.push('', '### Lo que me disgusta', ...char.dislikes.map(d => `- ${d}`));
+    }
   }
 
-  if (identity.uncertainty_voice) {
-    lines.push('', '## Cómo expreso incertidumbre', identity.uncertainty_voice);
+  const voice = identity.voice;
+  if (voice) {
+    lines.push('', '## Cómo hablo');
+    if (voice.style)     lines.push(voice.style);
+    if (voice.rhythm)    lines.push(voice.rhythm);
+    if (voice.formality) lines.push(voice.formality);
+    if (voice.forbidden_phrases?.length) {
+      lines.push('', '### Nunca digo cosas como', voice.forbidden_phrases.map(p => `"${p}"`).join(', '));
+    }
+  }
+
+  const unc = identity.uncertainty_behaviors;
+  if (unc) {
+    lines.push('', '## Cómo expreso incertidumbre');
+    for (const key of ['doesnt_know', 'is_unsure', 'was_wrong', 'is_surprised']) {
+      const b = unc[key];
+      if (b?.description) {
+        lines.push(`- ${b.description}${b.examples?.[0] ? ` Ej: "${b.examples[0]}"` : ''}`);
+      }
+    }
+  }
+
+  const rel = identity.relationship;
+  if (rel?.default_dynamic) {
+    lines.push('', '## Relación con el usuario', rel.default_dynamic);
+    if (rel.continuity) lines.push(rel.continuity);
+  }
+
+  const ctx = identity.context_awareness;
+  if (ctx) {
+    const bits = [ctx.time, ctx.session, ctx.system].filter(Boolean);
+    if (bits.length) lines.push('', '## Conciencia de contexto', ...bits);
+  }
+
+  const lim = identity.limits;
+  if (lim?.what_i_am_not?.length) {
+    lines.push('', '## Límites', lim.what_i_am_not.join(' '));
+    if (lim.identity_stability) lines.push(lim.identity_stability);
   }
 
   return lines.join('\n');
@@ -264,13 +317,12 @@ class GroqSerializer {
       _buildToolIntentSection(toolIntent),   // ← inyección Fase 3
     ].filter(Boolean);
 
-    let systemPrompt = sections.join('\n\n---\n\n');
-
-    // Truncar si es demasiado largo (no debería pasar en uso normal)
-    if (systemPrompt.length > MAX_SYSTEM_CHARS) {
-      console.warn(`[groq-serializer] system prompt truncado: ${systemPrompt.length} → ${MAX_SYSTEM_CHARS} chars`);
-      systemPrompt = systemPrompt.slice(0, MAX_SYSTEM_CHARS) + '\n\n[contexto truncado por longitud]';
-    }
+    // NOTA: el truncado a MAX_SYSTEM_CHARS ya NO pasa aquí — se movió a
+    // MarchCore.buildContext(), al final, después de que se pegan
+    // BehaviorModel + reglas de OpenClaw + catálogo MCP. Antes esas
+    // secciones se agregaban DESPUÉS de este truncado, así que el
+    // presupuesto de tokens nunca las contaba.
+    const systemPrompt = sections.join('\n\n---\n\n');
 
     // Construir el array de mensajes para la API de Groq
     const messages = [];
