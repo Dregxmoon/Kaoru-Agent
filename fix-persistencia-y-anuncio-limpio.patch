@@ -1,0 +1,61 @@
+diff --git a/src/chat.html b/src/chat.html
+index 46a4b88..978034a 100644
+--- a/src/chat.html
++++ b/src/chat.html
+@@ -1061,8 +1061,16 @@ async function processMessage(text, files = []) {
+         toolIntent: context.toolIntent ?? null,
+       });
+       if (plan && plan.steps?.length) {
+-        pushToSession('assistant', response);
+-        ipcRenderer.send('memory-add-turn', { role: 'assistant', content: response });
++        // El LLM a veces viola REGLA 2 del system prompt (nunca describir
++        // resultados antes de ejecutar) y pega prosa alucinada después del
++        // "Ejecutar: <comando>" — ej. "no pude obtener información...".
++        // Como ahora persistimos el anuncio de forma más agresiva (fix de
++        // resultado-de-acción), esa alucinación quedaría fija en la memoria
++        // junto al resultado real que llega después. Cortamos el texto en
++        // la última línea de trigger reconocida y descartamos lo demás.
++        const announcement = _sanitizePlanAnnouncement(response);
++        pushToSession('assistant', announcement);
++        ipcRenderer.send('memory-add-turn', { role: 'assistant', content: announcement });
+         const { bubble } = addMessage('march', 'Ejecutando...');
+         await _executePlanWithUI(plan, bubble.parentElement.parentElement);
+         return;
+@@ -1149,6 +1157,19 @@ function _compactResult(rawResult) {
+   }
+ }
+ 
++// Corta la respuesta del LLM en la última línea que reconoce como trigger
++// de acción ("Ejecutar:", "Voy a leer", "Voy a escribir") y descarta todo
++// lo que venga después. Si no encuentra ninguna, devuelve el texto tal cual
++// (no queremos tocar respuestas normales que no son anuncios de acción).
++function _sanitizePlanAnnouncement(response) {
++  const triggerRe = /^(Ejecutar:|Voy a leer|Voy a escribir)/i;
++  const lines = response.split('\n');
++  let lastTriggerIdx = -1;
++  lines.forEach((l, i) => { if (triggerRe.test(l.trim())) lastTriggerIdx = i; });
++  if (lastTriggerIdx === -1) return response;
++  return lines.slice(0, lastTriggerIdx + 1).join('\n').trim();
++}
++
+ async function _interpretResult(plan, rawResult, container) {
+   const compactResult = _compactResult(rawResult);
+   const summaryHistory = [
+@@ -1167,6 +1188,17 @@ async function _interpretResult(plan, rawResult, container) {
+       container.appendChild(el);
+       await typewriterMarkdown(el, summary, 14);
+       messagesEl.scrollTop = messagesEl.scrollHeight;
++
++      // FIX: la interpretación del resultado de una acción nunca se
++      // persistía — se mostraba una vez en el DOM y desaparecía. El
++      // siguiente turno, sessionHistory solo tenía "voy a ejecutar X",
++      // nunca "ejecuté X y encontré Y", así que March perdía continuidad
++      // conversacional justo después de actuar. Esto cierra ese loop:
++      // el resultado interpretado se vuelve un turno real, indexable
++      // luego por la memoria semántica (sqlite-vec) igual que cualquier
++      // otro mensaje de la conversación.
++      pushToSession('assistant', summary);
++      ipcRenderer.send('memory-add-turn', { role: 'assistant', content: summary });
+     }
+   } catch(e) { console.warn('error interpretando resultado:', e.message); }
+ }

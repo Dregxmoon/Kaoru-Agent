@@ -484,6 +484,19 @@ const path = require('path');
 const fs   = require('fs');
 const cp   = require('child_process');
 
+// Corta la respuesta del LLM en la última línea que reconoce como trigger
+// de acción ("Ejecutar:", "Voy a leer", "Voy a escribir") y descarta todo
+// lo que venga después, porque a veces el modelo viola REGLA 2 del system
+// prompt y pega prosa alucinada sobre un resultado que aún no existe.
+function _sanitizePlanAnnouncement(response) {
+  const triggerRe = /^(Ejecutar:|Voy a leer|Voy a escribir)/i;
+  const lines = response.split('\n');
+  let lastTriggerIdx = -1;
+  lines.forEach((l, i) => { if (triggerRe.test(l.trim())) lastTriggerIdx = i; });
+  if (lastTriggerIdx === -1) return response;
+  return lines.slice(0, lastTriggerIdx + 1).join('\n').trim();
+}
+
 // P0: antes 'marked' se cargaba desde un CDN externo (cdn.jsdelivr.net) vía
 // <script src>, lo que además de depender de internet para algo tan básico
 // como formatear texto, en un renderer con nodeIntegration:true es un riesgo
@@ -1061,8 +1074,9 @@ async function processMessage(text, files = []) {
         toolIntent: context.toolIntent ?? null,
       });
       if (plan && plan.steps?.length) {
-        pushToSession('assistant', response);
-        ipcRenderer.send('memory-add-turn', { role: 'assistant', content: response });
+        const announcement = _sanitizePlanAnnouncement(response);
+        pushToSession('assistant', announcement);
+        ipcRenderer.send('memory-add-turn', { role: 'assistant', content: announcement });
         const { bubble } = addMessage('march', 'Ejecutando...');
         await _executePlanWithUI(plan, bubble.parentElement.parentElement);
         return;
