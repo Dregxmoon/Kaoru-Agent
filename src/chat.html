@@ -1138,6 +1138,14 @@ async function _executePlanWithUI(plan, msgDiv) {
     resultEl.textContent = `Error: ${result.error}`;
     resultEl.style.color = '#ef4444';
     resultEl.style.display = 'block';
+
+    // Mismo gap que el del resultado exitoso: si no se persiste, March
+    // "olvida" que la acción falló y el siguiente turno no tiene contexto
+    // de por qué. No pasa por _interpretResult (no vale la pena gastar
+    // una llamada al LLM solo para narrar un error) — se guarda directo.
+    const errorNote = `No pude completar "${plan.goal}": ${result.error}`;
+    pushToSession('assistant', errorNote);
+    ipcRenderer.send('memory-add-turn', { role: 'assistant', content: errorNote });
   }
 
   messagesEl.scrollTop = messagesEl.scrollHeight;
