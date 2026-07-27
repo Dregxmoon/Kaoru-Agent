@@ -320,6 +320,7 @@ function _startOpenClaw() {
     let retries = 0;
     const check = () => {
       retries++;
+      _bridge.resetAvailabilityCache();
       _bridge.isAvailable().then(available => {
         if (available) {
           console.log('[march-core] OpenClaw listo — Fase 3 activa');
@@ -338,7 +339,7 @@ function _startOpenClaw() {
       });
     };
 
-    setTimeout(check, 500);
+    setTimeout(check, 1500);
   } catch (e) {
     console.error('[march-core] error iniciando OpenClaw:', e.message);
     _bus.emit('openclaw:available', { available: false });

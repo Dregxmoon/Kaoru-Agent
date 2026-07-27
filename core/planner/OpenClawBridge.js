@@ -161,9 +161,10 @@ class OpenClawBridge {
 
   // ── Disponibilidad ──────────────────────────────────────────────────────────
 
-  async isAvailable() {
+  async isAvailable(force = false) {
     const now = Date.now();
-    if (this._available !== null && (now - this._lastPing) < this._pingInterval) {
+    const ttl = this._available ? this._pingInterval : 2000;
+    if (!force && this._available !== null && (now - this._lastPing) < ttl) {
       return this._available;
     }
 
