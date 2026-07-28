@@ -1238,9 +1238,25 @@ async function _interpretResult(plan, rawResult, container) {
 }
 
 
+// Colorea un patch unified-diff línea por línea: verde lo agregado, rojo
+// lo quitado, gris el contexto. Antes la tarjeta de aprobación no
+// mostraba el patch en absoluto — el humano aprobaba a ciegas.
+function _renderPatchPreview(patchText) {
+  if (!patchText) return '';
+  const esc = (s) => s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+  const lines = patchText.split('\n').map(l => {
+    let color = 'var(--text-secondary)';
+    if (l.startsWith('+') && !l.startsWith('+++')) color = '#10b981';
+    else if (l.startsWith('-') && !l.startsWith('---')) color = '#ef4444';
+    else if (l.startsWith('@@')) color = 'var(--accent)';
+    return `<div style="color:${color}">${esc(l) || '&nbsp;'}</div>`;
+  }).join('');
+  return `<div style="font-family:var(--font-mono);font-size:10.5px;background:var(--bg-base);border-radius:4px;padding:8px 10px;margin-bottom:10px;max-height:240px;overflow-y:auto;white-space:pre;line-height:1.5">${lines}</div>`;
+}
+
 function _showApprovalCard({ planId, stepId, description, tool, params }) {
   const card = document.createElement('div'); card.className = 'approval-card';
-  card.innerHTML = `<div class="approval-title">⚠ ACCIÓN DE ALTO IMPACTO — APROBACIÓN REQUERIDA</div><div class="approval-cmd">${description}</div><div style="font-size:10px;color:var(--text-secondary);margin-bottom:10px">Herramienta: <b>${tool}</b>${params.command ? ` · <code>${params.command}</code>` : ''}${params.path ? ` · <code>${params.path}</code>` : ''}</div><div class="approval-actions"><button class="btn-approve" id="approve-${stepId}">✓ Ejecutar</button><button class="btn-deny" id="deny-${stepId}">✗ Cancelar</button></div>`;
+  card.innerHTML = `<div class="approval-title">⚠ ACCIÓN DE ALTO IMPACTO — APROBACIÓN REQUERIDA</div><div class="approval-cmd">${description}</div><div style="font-size:10px;color:var(--text-secondary);margin-bottom:10px">Herramienta: <b>${tool}</b>${params.command ? ` · <code>${params.command}</code>` : ''}${params.path ? ` · <code>${params.path}</code>` : ''}</div>${_renderPatchPreview(params.patch)}<div class="approval-actions"><button class="btn-approve" id="approve-${stepId}">✓ Ejecutar</button><button class="btn-deny" id="deny-${stepId}">✗ Cancelar</button></div>`;
   messagesEl.appendChild(card);
   messagesEl.scrollTop = messagesEl.scrollHeight;
   document.getElementById(`approve-${stepId}`)?.addEventListener('click', () => {

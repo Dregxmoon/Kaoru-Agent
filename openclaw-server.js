@@ -4,6 +4,7 @@ const http = require('http');
 const { spawnSync, spawn } = require('child_process');
 const fs = require('fs');
 const path = require('path');
+const Diff = require('diff');
 
 const PORT = 18789;
 
@@ -75,36 +76,34 @@ const HANDLERS = {
     if (!fs.existsSync(filePath)) return { error: `File not found: ${filePath}` };
 
     const content = fs.readFileSync(filePath, 'utf-8');
-    const hunks = input.patch.split(/(?=@@ )/);
 
-    let patched = content;
-    for (const hunk of hunks) {
-      const lines = hunk.split('\n');
-      const header = lines[0];
-      const m = header.match(/@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@/);
-      if (!m) continue;
+    // FIX (revisión con Claude): el motor anterior aplicaba el patch por
+    // número de línea (oldStart) SIN comparar que las líneas que dice
+    // borrar fueran las que de verdad están ahí — si el LLM se equivocaba
+    // en el número de línea (algo común), esto corrompía el archivo en
+    // silencio. Diff.applyPatch verifica el contexto real contra el
+    // archivo antes de tocar nada.
+    //
+    // Dos formas distintas de fallar, dos mensajes distintos: si el
+    // CONTENIDO no coincide (líneas de contexto/borrado distintas a lo
+    // real), devuelve \`false\`. Si los CONTEOS del header @@ -N,M +N,M @@
+    // no cuadran con el número real de líneas del hunk (el LLM cuenta mal
+    // seguido), la librería lanza una excepción en vez de devolver false
+    // — se captura aparte para dar un mensaje que March pueda entender y
+    // usar para reintentar, en vez del error crudo del parser.
+    let patched;
+    try {
+      patched = Diff.applyPatch(content, input.patch);
+    } catch (e) {
+      return {
+        error: `El patch tiene mal el conteo de líneas en el header @@ -N,M +N,M @@ (no coincide con las líneas reales del hunk): ${e.message}. No se aplicó nada, el archivo sigue intacto.`,
+      };
+    }
 
-      const oldStart = parseInt(m[1], 10);
-      const oldLines = parseInt(m[2] || '1', 10);
-      const newStart = parseInt(m[3], 10);
-
-      const oldLines_arr = [];
-      const newLines_arr = [];
-      let i = 1;
-      for (; i < lines.length; i++) {
-        const l = lines[i];
-        if (l.startsWith('-')) oldLines_arr.push(l.slice(1));
-        else if (l.startsWith('+')) newLines_arr.push(l.slice(1));
-        else if (l.startsWith(' ')) {
-          oldLines_arr.push(l.slice(1));
-          newLines_arr.push(l.slice(1));
-        }
-      }
-
-      const contentLines = patched.split('\n');
-      const before = contentLines.slice(0, oldStart - 1);
-      const after = contentLines.slice(oldStart - 1 + oldLines_arr.length);
-      patched = [...before, ...newLines_arr, ...after].join('\n');
+    if (patched === false) {
+      return {
+        error: `El patch no coincide con el contenido actual de ${filePath} — el archivo pudo haber cambiado desde que se generó el patch, o el contexto está mal. No se aplicó nada, el archivo sigue intacto.`,
+      };
     }
 
     fs.writeFileSync(filePath, patched, 'utf-8');
