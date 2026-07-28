@@ -1,40 +1,5 @@
-/**
- * BehaviorModel.js — Fase 3
- *
- * Decide CÓMO se comporta March en cada turno:
- *   - Tono (curioso, empático, seco, directo...)
- *   - Si debe usar herramientas o solo responder
- *   - Nivel de detalle / extensión esperada
- *   - Cuándo intervenir proactivamente (score U = Relevance - InterruptionCost)
- *
- * No genera lenguaje. No llama al LLM. Solo produce un BehaviorContext
- * que el Planner y el GroundingEngine consumen para ajustar el prompt.
- *
- * Separación de responsabilidades:
- *   ProactiveEngine   → decide CUÁNDO y QUÉ decir por iniciativa propia
- *                        (fecha especial, madrugada, silencio largo, y
- *                        análisis en vivo del OS: racha de enfoque, salto
- *                        entre apps, regreso de AFK — ver ese archivo)
- *   BehaviorModel     → decide cómo responder dado el turno actual
- *
- * (InitiativeEngine.js quedó deprecado — su lógica fue absorbida por
- * ProactiveEngine.js v2, ahora con criterio real del LLM en vez de
- * plantillas fijas.)
- *
- * El BehaviorContext que produce tiene esta forma:
- * {
- *   tone:         'curious' | 'empathic' | 'dry' | 'direct' | 'playful' | 'focused'
- *   responseLength: 'brief' | 'normal' | 'detailed'
- *   useTools:     boolean
- *   toolHint:     string | null   — tipo de herramienta sugerida si useTools=true
- *   urgency:      'low' | 'medium' | 'high'
- *   notes:        string[]        — instrucciones extra para el serializer
- * }
- */
-
 'use strict';
 
-// ── Patrones que sugieren uso de herramientas ─────────────────────────────────
 const TOOL_TRIGGERS = [
   { pattern: /busca(r|me)?\s+en\s+(la\s+)?web/i,       hint: 'web_search'    },
   { pattern: /abre?\s+(el\s+)?(navegador|chrome|edge)/i, hint: 'browser'      },
@@ -50,21 +15,16 @@ const TOOL_TRIGGERS = [
   { pattern: /descarga?\s+|download\s+/i,                 hint: 'browser'      },
 ];
 
-// ── Patrones de tono ──────────────────────────────────────────────────────────
 const TONE_RULES = [
-  // Errores / frustración → empático primero
-  { pattern: /no\s+(me\s+)?funciona|error|fallo|rompi|bug|crash|exploto/i, tone: 'empathic' },
-  // Preguntas rápidas → directo
-  { pattern: /^(qu[eé]|c[oó]mo|cu[aá]ndo|d[oó]nde|qui[eé]n)\s+/i,        tone: 'direct'   },
-  // Contexto de código → enfocado
-  { pattern: /\b(código|función|clase|método|variable|import|export|async|await|const|let|var)\b/i, tone: 'focused' },
-  // Charla casual → seco/playful aleatorio
-  { pattern: /^(hola|buenas|oye|hey|qu[eé]\s+tal|c[oó]mo\s+est[aá]s)/i,  tone: 'playful'  },
-  // Curiosidad / explicaciones → curioso
-  { pattern: /\bpor\s+qu[eé]\b|\bc[oó]mo\s+funciona\b|\bexplica\b/i,      tone: 'curious'  },
+  { pattern: /no\s+(me\s+)?funciona|error|fallo|rompi|bug|crash|exploto/i, tone: 'empathic', score: 5 },
+  { pattern: /^(qu[eé]|c[oó]mo|cu[aá]ndo|d[oó]nde|qui[eén])\s+/i,        tone: 'direct',   score: 4 },
+  { pattern: /\bpor\s+qu[eé]\b|\bc[oó]mo\s+funciona\b|\bexplica\b/i,      tone: 'curious',  score: 4 },
+  { pattern: /\b(código|función|clase|método|variable|import|export|async|await|const|let|var)\b/i, tone: 'focused', score: 3 },
+  { pattern: /^(hola|buenas|oye|hey|qu[eé]\s+tal|c[oó]mo\s+est[aá]s)/i,  tone: 'playful',  score: 4 },
+  { pattern: /triste|cansad[o,a]|estresad[o,a]|frustrad[o,a]/i,           tone: 'empathic', score: 3 },
+  { pattern: /gracias|te\s+agradezco|thanks/i,                            tone: 'playful',  score: 2 },
 ];
 
-// ── Patrones de longitud ──────────────────────────────────────────────────────
 const LENGTH_RULES = [
   { pattern: /^(s[ií]|no|ok|vale|bien|listo|claro|entend[ií])\.?\s*$/i, length: 'brief'    },
   { pattern: /explica(me)?\s+|describe\s+|dame\s+(un\s+)?detalle/i,      length: 'detailed' },
@@ -75,70 +35,78 @@ const LENGTH_RULES = [
 class BehaviorModel {
   constructor(stateGraph) {
     this._graph = stateGraph;
+    this._lastTone = 'dry';
+    this._lastToneCount = 0;
   }
 
-  /**
-   * Evalúa el mensaje actual y produce un BehaviorContext.
-   *
-   * @param {string} userMessage   — mensaje del usuario este turno
-   * @param {object} osContext     — contexto OS actual (app, category, elapsed...)
-   * @param {Array}  history       — historial de sesión actual
-   * @returns {object}             — BehaviorContext
-   */
   evaluate(userMessage = '', osContext = null, history = []) {
     const text = userMessage.trim();
 
     const tone          = this._detectTone(text, osContext, history);
     const responseLength = this._detectLength(text);
     const { useTools, toolHint } = this._detectTools(text);
-    const urgency       = this._detectUrgency(text, osContext);
+    const urgency       = this._detectUrgency(text, osContext, history);
     const notes         = this._buildNotes(tone, osContext, history, useTools);
+    const proactiveScore = this._computeProactiveScore(osContext, history, urgency);
 
-    const ctx = { tone, responseLength, useTools, toolHint, urgency, notes };
+    this._lastTone = tone;
+    this._lastToneCount++;
+
+    const ctx = { tone, responseLength, useTools, toolHint, urgency, notes, proactiveScore };
 
     console.log(
       `[behavior] tone=${tone} length=${responseLength} tools=${useTools}` +
       (toolHint ? `(${toolHint})` : '') +
-      ` urgency=${urgency}`
+      ` urgency=${urgency} proactive=${proactiveScore.toFixed(2)}`
     );
 
     return ctx;
   }
 
-  // ── Detección de tono ───────────────────────────────────────────────────────
-
   _detectTone(text, osContext, history) {
-    // Reglas explícitas del mensaje
-    for (const { pattern, tone } of TONE_RULES) {
-      if (pattern.test(text)) return tone;
+    const scores = {};
+
+    for (const { pattern, tone, score } of TONE_RULES) {
+      if (pattern.test(text)) {
+        scores[tone] = (scores[tone] || 0) + score;
+      }
     }
 
-    // Si está en código y lleva tiempo — focused
-    if (osContext?.category === 'code' && osContext?.elapsed > 600) return 'focused';
+    // Contexto de código largo → focused
+    if (osContext?.category === 'code' && osContext?.elapsed > 600) {
+      scores['focused'] = (scores['focused'] || 0) + 2;
+    }
 
-    // Conversación larga → más empático
-    if (history.length > 12) return 'empathic';
+    // Conversación larga → empathic
+    if (history.length > 12) {
+      scores['empathic'] = (scores['empathic'] || 0) + 2;
+    }
 
-    // Default: seco (la voz natural de March)
-    return 'dry';
+    if (Object.keys(scores).length === 0) return 'dry';
+
+    const topTone = Object.entries(scores).sort((a, b) => b[1] - a[1])[0][0];
+
+    // Transición suave: si el tono anterior tiene al menos 1 punto, no cambiar
+    // abruptamente a menos que el nuevo tono tenga clara ventaja
+    if (this._lastTone !== topTone) {
+      const currentScore = scores[topTone] || 0;
+      const lastScore = scores[this._lastTone] || 0;
+      if (currentScore <= lastScore + 1 && this._lastToneCount > 2) {
+        return this._lastTone;
+      }
+    }
+
+    return topTone;
   }
-
-  // ── Detección de longitud ───────────────────────────────────────────────────
 
   _detectLength(text) {
     for (const { pattern, length } of LENGTH_RULES) {
       if (pattern.test(text)) return length;
     }
-
-    // Mensaje muy corto → respuesta breve
     if (text.length < 20) return 'brief';
-    // Mensaje muy largo (pregunta compleja) → detallado
     if (text.length > 200) return 'detailed';
-
     return 'normal';
   }
-
-  // ── Detección de herramientas ───────────────────────────────────────────────
 
   _detectTools(text) {
     for (const { pattern, hint } of TOOL_TRIGGERS) {
@@ -147,19 +115,67 @@ class BehaviorModel {
     return { useTools: false, toolHint: null };
   }
 
-  // ── Urgencia ────────────────────────────────────────────────────────────────
-
-  _detectUrgency(text, osContext) {
-    const urgentWords = /urgente|r[aá]pido|ahora mismo|inmediatamente|ya\s+mismo|ASAP/i;
+  _detectUrgency(text, osContext, history) {
+    const urgentWords = /urgente|r[aá]pido|ahora mismo|inmediatamente|ya\s+mismo|ASAP|se\s+rompi[oó]|se\s+cay[oó]/i;
     if (urgentWords.test(text)) return 'high';
 
-    // Terminal activa → puede ser urgente
     if (osContext?.category === 'terminal') return 'medium';
+
+    // Mensajes muy rápidos (menos de 10s entre el último y este, si hay historial)
+    if (history.length >= 2) {
+      const gap = Date.now() - (history[history.length - 1]?.timestamp || Date.now());
+      if (gap < 10_000) return 'medium';
+    }
+
+    // Hora tardía + este es el primer mensaje tras silencio largo → puede ser urgente
+    const hour = new Date().getHours();
+    if (hour >= 23 || hour < 6) {
+      if (history.length <= 1) return 'medium';
+    }
+
+    // Mensaje corto después de larga inactividad — el usuario está apurado
+    if (history.length >= 1) {
+      const lastTs = history[history.length - 1]?.timestamp;
+      if (lastTs && (Date.now() - lastTs) > 60 * 60 * 1000 && text.length < 30) {
+        return 'medium';
+      }
+    }
 
     return 'low';
   }
 
-  // ── Notas extra para el serializer ─────────────────────────────────────────
+  _computeProactiveScore(osContext, history, urgency) {
+    let score = 0.3; // base
+
+    // Usuario activo en una categoría reconocida → más receptivo
+    if (osContext?.category) {
+      if (osContext.category === 'code') score += 0.2;
+      else if (osContext.category === 'terminal') score += 0.15;
+      else if (osContext.category === 'docs') score += 0.1;
+      else if (osContext.category === 'browser') score -= 0.1;
+      else if (osContext.category === 'game') score -= 0.2;
+    }
+
+    // Lleva tiempo en la misma app → buen momento
+    if ((osContext?.elapsed || 0) > 300) score += 0.15;
+    if ((osContext?.elapsed || 0) > 1800) score += 0.1;
+
+    // Conversación activa → probabilidad media
+    if (history.length > 3 && history.length < 15) score += 0.1;
+
+    // Inactividad reciente → muy probable
+    if ((osContext?.idleSecs || 0) < 60) score += 0.05;
+
+    // Urgencia alta → no interrumpir
+    if (urgency === 'high') score -= 0.4;
+    else if (urgency === 'medium') score -= 0.1;
+
+    return Math.max(0, Math.min(1, score));
+  }
+
+  getLastTone() {
+    return this._lastTone;
+  }
 
   _buildNotes(tone, osContext, history, useTools) {
     const notes = [];
@@ -186,13 +202,6 @@ class BehaviorModel {
     return notes;
   }
 
-  /**
-   * Serializa el BehaviorContext como texto para incluir en el system prompt.
-   * Llamado por GroqSerializer / GeminiSerializer.
-   *
-   * @param {object} behaviorCtx
-   * @returns {string}
-   */
   static serialize(behaviorCtx) {
     if (!behaviorCtx) return '';
 

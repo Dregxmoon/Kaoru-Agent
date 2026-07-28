@@ -468,6 +468,7 @@ async function buildContext(sessionHistory, activeProvider) {
   if (_behavior) {
     try {
       behaviorCtx = _behavior.evaluate(userText, osCtx, sessionHistory);
+      _bus.emit('behavior:evaluated', behaviorCtx);
     } catch(e) {
       console.warn('[march-core] error en BehaviorModel:', e.message);
     }

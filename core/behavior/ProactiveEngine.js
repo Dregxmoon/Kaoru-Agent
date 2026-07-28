@@ -57,6 +57,8 @@ const SILENCE_THRESHOLD_MS  = 3 * 60 * 60 * 1000;
 const LATE_NIGHT_START      = 0;
 const LATE_NIGHT_END        = 5;
 const MAX_IDLE_TO_INTERRUPT = 30 * 60;               // segundos — no interrumpir si lleva más de esto AFK
+const FOLLOWUP_MULTIPLIER   = 3;                      // cuántas veces el minSec antes de un follow-up
+const SESSION_END_MIN_SEC   = 20 * 60;                // mínimo de racha para trigger "fin de sesión"
 
 // ── Pre-filtro barato para triggers basados en actividad del OS ─────────────
 // (reemplaza las INITIATIVE_RULES de InitiativeEngine.js — mismo umbral por
@@ -82,6 +84,8 @@ const THRASH_MIN_DISTINCT_CATEGORY = 3;                // mínimo de categorías
 const RETURN_MIN_GAP_SEC = 15 * 60;      // mínimo de ausencia para que valga la pena comentar
 const RETURN_MAX_GAP_SEC = 3 * 60 * 60;  // más que esto ya es más parecido a "long_silence"
 
+const WORK_CATEGORIES = new Set(['code', 'terminal', 'docs', 'design']);
+
 // Cooldown por TIPO de trigger — tanto para intentos (se le preguntó al LLM,
 // haya dicho sí o no) como, en la práctica, para envíos exitosos.
 const TRIGGER_COOLDOWN_MS = {
@@ -91,6 +95,7 @@ const TRIGGER_COOLDOWN_MS = {
   sustained_focus:       45 * 60 * 1000,
   context_switch_thrash: 60 * 60 * 1000,
   return_from_break:     45 * 60 * 1000,
+  session_end:           60 * 60 * 1000,
 };
 
 // ── ProactiveEngine ───────────────────────────────────────────────────────────
@@ -113,12 +118,17 @@ class ProactiveEngine {
     this._lastProactiveTrigger = null;
 
     // ── Estado para análisis de actividad en tiempo real ──────────────────
-    this._currentCategory     = null;
-    this._categoryStreakStart = 0;
-    this._categoryStreakFired = false; // ya se le preguntó al LLM por esta racha
-    this._recentSwitches      = [];    // [{ts, category, app}] — ventana de thrash
-    this._idleStartedAt       = null;  // marca de cuándo empezó el AFK actual
+    this._currentCategory       = null;
+    this._prevCategory          = null;
+    this._prevCategoryStreakSec = 0;
+    this._categoryStreakStart   = 0;
+    this._categoryStreakFired   = false;
+    this._categoryStreakFiredAt = 0;
+    this._categoryStreakFollowupFired = false;
+    this._recentSwitches        = [];    // [{ts, category, app}] — ventana de thrash
+    this._idleStartedAt         = null;  // marca de cuándo empezó el AFK actual
 
+    this._currentProactiveScore = 0.5;
     this._setupListeners();
   }
 
@@ -144,10 +154,11 @@ class ProactiveEngine {
 
   stop() {
     if (this._timer) { clearInterval(this._timer); this._timer = null; }
-    this._bus.off('memory:turn-added', this._boundOnTurnAdded);
-    this._bus.off('os:app-changed', this._boundOnAppChanged);
-    this._bus.off('os:app-tick', this._boundOnAppTick);
-    this._bus.off('os:idle-changed', this._boundOnIdleChanged);
+    this._bus.off('memory:turn-added',  this._boundOnTurnAdded);
+    this._bus.off('os:app-changed',     this._boundOnAppChanged);
+    this._bus.off('os:app-tick',        this._boundOnAppTick);
+    this._bus.off('os:idle-changed',    this._boundOnIdleChanged);
+    this._bus.off('behavior:evaluated', this._boundOnBehaviorEval);
     this._running = false;
     console.log('[proactive] detenido');
   }
@@ -155,15 +166,17 @@ class ProactiveEngine {
   // ── Listeners de eventos del OS (análisis en vivo, sin esperar timer) ──────
 
   _setupListeners() {
-    this._boundOnTurnAdded   = ({ role }) => { if (role === 'user') this._lastUserMsg = Date.now(); };
-    this._boundOnAppChanged  = (p) => this._onAppChanged(p);
-    this._boundOnAppTick     = (p) => this._onAppTick(p);
-    this._boundOnIdleChanged = (p) => this._onIdleChanged(p);
+    this._boundOnTurnAdded    = ({ role }) => { if (role === 'user') this._lastUserMsg = Date.now(); };
+    this._boundOnAppChanged   = (p) => this._onAppChanged(p);
+    this._boundOnAppTick      = (p) => this._onAppTick(p);
+    this._boundOnIdleChanged  = (p) => this._onIdleChanged(p);
+    this._boundOnBehaviorEval = (ctx) => { this._currentProactiveScore = ctx.proactiveScore ?? 0.5; };
 
-    this._bus.on('memory:turn-added', this._boundOnTurnAdded);
-    this._bus.on('os:app-changed',    this._boundOnAppChanged);
-    this._bus.on('os:app-tick',       this._boundOnAppTick);
-    this._bus.on('os:idle-changed',   this._boundOnIdleChanged);
+    this._bus.on('memory:turn-added',  this._boundOnTurnAdded);
+    this._bus.on('os:app-changed',     this._boundOnAppChanged);
+    this._bus.on('os:app-tick',        this._boundOnAppTick);
+    this._bus.on('os:idle-changed',    this._boundOnIdleChanged);
+    this._bus.on('behavior:evaluated', this._boundOnBehaviorEval);
   }
 
   /** El usuario cambió de app — actualiza racha de enfoque y detecta "thrashing". */
@@ -173,10 +186,39 @@ class ProactiveEngine {
     this._recentSwitches.push({ ts: now, category, app });
     this._recentSwitches = this._recentSwitches.filter(s => now - s.ts <= THRASH_WINDOW_MS);
 
-    // Nueva racha de enfoque (se resetea con cada cambio de app real)
-    this._currentCategory     = category;
-    this._categoryStreakStart = now;
-    this._categoryStreakFired = false;
+    const categoryChanged = category !== this._currentCategory;
+
+    if (categoryChanged && this._currentCategory !== null) {
+      this._prevCategory = this._currentCategory;
+      if (this._categoryStreakStart > 0) {
+        this._prevCategoryStreakSec = Math.round((now - this._categoryStreakStart) / 1000);
+      }
+    }
+
+    if (categoryChanged) {
+      // Session-end: transición de trabajo → no-trabajo después de racha significativa
+      if (
+        this._prevCategory &&
+        WORK_CATEGORIES.has(this._prevCategory) &&
+        !WORK_CATEGORIES.has(category) &&
+        this._prevCategoryStreakSec >= SESSION_END_MIN_SEC
+      ) {
+        const streakMinutes = Math.round(this._prevCategoryStreakSec / 60);
+        this._tryTrigger({
+          type:        'session_end',
+          prevCategory: this._prevCategory,
+          streakSec:   this._prevCategoryStreakSec,
+          context:     `El usuario pasó ${streakMinutes} minutos ${FOCUS_RULES[this._prevCategory]?.label || 'trabajando'} y acaba de cambiar a ${category || 'otra cosa'}.`,
+        }).catch(e => console.warn('[proactive] error en trigger de session-end:', e.message));
+      }
+
+      // Nueva racha de enfoque (solo cuando cambia la categoría)
+      this._currentCategory     = category;
+      this._categoryStreakStart = now;
+      this._categoryStreakFired = false;
+      this._categoryStreakFiredAt = 0;
+      this._categoryStreakFollowupFired = false;
+    }
 
     const distinctCategories = [...new Set(this._recentSwitches.map(s => s.category))];
     if (
@@ -195,26 +237,45 @@ class ProactiveEngine {
 
   /** El usuario sigue en la misma app — revisa si ya lleva suficiente racha de enfoque. */
   _onAppTick({ friendlyName, category, elapsed, elapsedFormatted, title }) {
-    if (this._categoryStreakFired) return;
-
     const rule = FOCUS_RULES[category];
     if (!rule) return;
     if (elapsed < rule.minSec) return;
 
-    // Solo se intenta UNA vez por racha, sin importar si el LLM dice NO —
-    // evita estar preguntando cada 5s mientras la condición se mantenga.
-    this._categoryStreakFired = true;
+    if (!this._categoryStreakFired) {
+      // Primer trigger: acaba de cruzar el umbral mínimo
+      this._categoryStreakFired = true;
+      this._categoryStreakFiredAt = Date.now();
 
+      this._tryTrigger({
+        type:             'sustained_focus',
+        category,
+        label:            rule.label,
+        friendlyName,
+        title,
+        elapsedSec:       elapsed,
+        elapsedFormatted,
+        context:          `El usuario lleva ${elapsedFormatted} ${rule.label} en ${friendlyName}${title ? ` ("${title.slice(0, 80)}")` : ''}.`,
+      }).catch(e => console.warn('[proactive] error en trigger de enfoque sostenido:', e.message));
+      return;
+    }
+
+    // Follow-up: si ya pasó bastante más tiempo desde el primer trigger
+    if (this._categoryStreakFollowupFired) return;
+    const followupThreshold = rule.minSec * FOLLOWUP_MULTIPLIER;
+    if (elapsed < followupThreshold) return;
+
+    this._categoryStreakFollowupFired = true;
     this._tryTrigger({
       type:             'sustained_focus',
+      subtype:          'followup',
       category,
       label:            rule.label,
       friendlyName,
       title,
       elapsedSec:       elapsed,
       elapsedFormatted,
-      context:          `El usuario lleva ${elapsedFormatted} ${rule.label} en ${friendlyName}${title ? ` ("${title.slice(0, 80)}")` : ''}.`,
-    }).catch(e => console.warn('[proactive] error en trigger de enfoque sostenido:', e.message));
+      context:          `El usuario sigue concentrado después de ${elapsedFormatted} ${rule.label} en ${friendlyName}${title ? ` ("${title.slice(0, 80)}")` : ''}.`,
+    }).catch(e => console.warn('[proactive] error en trigger de enfoque sostenido (follow-up):', e.message));
   }
 
   /** El usuario se fue o volvió del PC — detecta regreso de una ausencia real. */
@@ -231,7 +292,8 @@ class ProactiveEngine {
     if (!this._idleStartedAt) return;
     const gapSec = Math.round((now - this._idleStartedAt) / 1000);
     this._idleStartedAt = null;
-    this._categoryStreakFired = false; // M10: nueva sesión de enfoque al volver de pausa
+    this._categoryStreakFired = false;
+    this._categoryStreakFollowupFired = false;
 
     if (gapSec < RETURN_MIN_GAP_SEC || gapSec > RETURN_MAX_GAP_SEC) return;
 
@@ -293,8 +355,8 @@ class ProactiveEngine {
     try {
       const userNodes = this._graph.queryNodes({ type: 'User', limit: 20 });
 
-      const day   = now.getDate();      // ej. 6
-      const month = now.getMonth() + 1; // ej. 1–12 (sin relleno)
+      const day   = now.getDate();
+      const month = now.getMonth() + 1;
 
       const dateVariants = [
         `${day}/${month}`,
@@ -305,26 +367,45 @@ class ProactiveEngine {
         `${String(day).padStart(2, '0')} de ${_monthName(month - 1)}`,
       ];
 
+      const todayStr = now.toISOString().slice(0, 10); // YYYY-MM-DD
+
       for (const node of userNodes) {
         const content = node.content?.toLowerCase() || '';
 
-        const isBirthday = (
+        const matchesToday = dateVariants.some(v => content.includes(v.toLowerCase()));
+
+        const hasDateKeyword = (
           content.includes('cumpleaños') ||
           content.includes('birthday')   ||
           content.includes('nació')       ||
-          content.includes('aniversario')
+          content.includes('aniversario') ||
+          content.includes('recordatorio') ||
+          content.includes('importante')   ||
+          content.includes('fecha especial')
         );
-        if (!isBirthday) continue;
 
-        const matchesToday = dateVariants.some(v => content.includes(v.toLowerCase()));
-        if (!matchesToday) continue;
+        if (hasDateKeyword && matchesToday) {
+          const subtype = content.includes('cumpleaños') || content.includes('birthday')
+            ? 'birthday' : 'other';
+          return {
+            type:    'special_date',
+            subtype,
+            node:    node.content,
+            context: `Hoy es una fecha especial para el usuario: ${node.content}`,
+          };
+        }
 
-        return {
-          type:    'special_date',
-          subtype: 'birthday',
-          node:    node.content,
-          context: `Hoy es una fecha especial para el usuario: ${node.content}`,
-        };
+        // También detectar fechas en formato ISO guardadas en contenido
+        if (content.includes(todayStr) && hasDateKeyword) {
+          const subtype = content.includes('cumpleaños') || content.includes('birthday')
+            ? 'birthday' : 'other';
+          return {
+            type:    'special_date',
+            subtype,
+            node:    node.content,
+            context: `Hoy es una fecha especial para el usuario: ${node.content}`,
+          };
+        }
       }
     } catch(e) {
       console.warn('[proactive] error revisando fechas especiales:', e.message);
@@ -347,7 +428,9 @@ class ProactiveEngine {
 
     const now = Date.now();
 
-    if (now - this._lastProactive < GLOBAL_MIN_GAP_MS) return null;
+    // Ajusta el gap mínimo según qué tan receptivo esté el usuario
+    const adjustedGap = Math.round(GLOBAL_MIN_GAP_MS * (1 - (this._currentProactiveScore - 0.3) * 0.5));
+    if (now - this._lastProactive < adjustedGap) return null;
 
     const cooldown    = TRIGGER_COOLDOWN_MS[trigger.type] ?? GLOBAL_MIN_GAP_MS;
     const lastAttempt = this._lastAttemptByType[trigger.type] || 0;
@@ -642,12 +725,13 @@ No expliques por qué escribes. No anuncies que eres proactiva. Solo di lo que d
       silenceMs:             now - this._lastUserMsg,
       chatOpen:              this._chatOpen,
       idleSecs:              this._osSensor?.getCurrentContext()?.idleSecs ?? null,
-      // Análisis de actividad en vivo:
       currentCategory:       this._currentCategory,
       categoryStreakSec:     this._categoryStreakStart ? Math.round((now - this._categoryStreakStart) / 1000) : 0,
       categoryStreakFired:   this._categoryStreakFired,
+      categoryStreakFollowupFired: this._categoryStreakFollowupFired,
       recentSwitchesCount:   this._recentSwitches.length,
       awaySince:             this._idleStartedAt,
+      proactiveScore:        this._currentProactiveScore,
     };
   }
 }
@@ -680,6 +764,8 @@ function _triggerDescription(trigger) {
       return `El usuario cambió de aplicación ${trigger.switchCount} veces en pocos minutos, saltando entre: ${trigger.categories?.join(', ')}. Esto puede ser una señal de que está atorado, distraído, o buscando algo que no encuentra. No lo regañes ni asumas lo peor — puedes preguntar con curiosidad genuina si anda buscando algo o si algo no le está saliendo. Si no se siente genuino, responde NO.`;
     case 'return_from_break':
       return `El usuario estuvo fuera de la PC unos ${Math.round((trigger.gapSec || 0) / 60)} minutos y acaba de volver. Un comentario breve y casual de bienvenida puede ser genuino aquí — pero no es obligatorio, si no tienes algo natural que decir responde NO.`;
+    case 'session_end':
+      return `El usuario venía de una sesión de ${Math.round((trigger.streakSec || 0) / 60)} minutos en una categoría de trabajo y acaba de cambiar a otra cosa. Puedes comentar algo sobre lo que estaba haciendo, preguntar cómo le fue, o simplemente no decir nada si no se siente genuino.`;
     default:
       return trigger.context;
   }
