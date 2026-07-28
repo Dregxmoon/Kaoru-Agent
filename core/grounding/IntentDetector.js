@@ -244,7 +244,7 @@ class IntentDetector {
     const actionMeta   = new Map();
 
     for (const row of rows) {
-      const score = Math.max(0, 1 - row.distance); // distance → similarity
+      const score = Math.max(0, 1 - (row.distance ?? 1)); // distance → similarity
       const prev  = actionScores.get(row.action) ?? 0;
       actionScores.set(row.action, prev + score);
 

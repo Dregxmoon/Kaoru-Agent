@@ -301,7 +301,7 @@ const ACTION_PATTERNS = [
     postMatches: (m) => _splitChainedGitCommand(m[1]).slice(1),
   },
   {
-    pattern: /\b((?:npm|pip|pip3|yarn|npx)\s+(?:install|uninstall|run|start|build|test|update|init)[^\n]{0,80})/i,
+    pattern: /\b((?:npm|pip|pip3|yarn|npx)\s+(?:install|uninstall|run|start|build|test|update|init)[^\n]{0,40})/i,
     tool: 'exec',
     buildParams: (m) => ({ command: _cleanCommand(m[1]), cwd: PROJECT_CWD }),
     description: (m) => `Ejecutar: ${_cleanCommand(m[1])}`,

@@ -97,6 +97,7 @@ class StateGraph {
     // ver enableVectorSearch(). Si queda false, queryNodesSemantic() cae
     // a la búsqueda LIKE de siempre, sin romper nada.
     this._vectorReady = false;
+    this._vectorReadyPromise = Promise.resolve();
   }
 
   init() {
@@ -407,6 +408,14 @@ class StateGraph {
   async backfillEmbeddings(batchSize = 10) {
     if (!this._vectorReady) return { embedded: 0 };
 
+    // M2: doble verificación — que la tabla node_vectors realmente exista
+    try {
+      this._db.prepare("SELECT rowid FROM node_vectors LIMIT 1").get();
+    } catch(e) {
+      console.warn('[state-graph] backfill abortado — node_vectors no existe:', e.message);
+      return { embedded: 0, error: 'node_vectors table not found' };
+    }
+
     try {
       const pending = this._db.prepare(`
         SELECT n.id, n.content FROM nodes n
@@ -438,7 +447,7 @@ class StateGraph {
       console.log(`[state-graph] backfill completado: ${done}/${pending.length} nodos embedeados`);
       return { embedded: done, total: pending.length };
     } catch(e) {
-      console.warn('[state-graph] error en backfillEmbeddings:', e.message);
+      console.error('[state-graph] error en backfillEmbeddings:', e.message);
       return { embedded: 0, error: e.message };
     }
   }
@@ -858,7 +867,8 @@ class StateGraph {
   }
 
   close() {
-    try { this._db?.close(); } catch(_) {}
+    if (this.usingFallback) return;
+    try { this._db?.close(); } catch(e) { console.warn('[state-graph] error al cerrar db:', e.message); }
   }
 }
 

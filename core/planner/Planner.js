@@ -446,7 +446,7 @@ class Planner {
     const stepResults = {};
 
     for (const step of plan.steps) {
-      const blocked = step.dependsOn.find(id => {
+      const blocked = (step.dependsOn || []).find(id => {
         const dep = plan.steps.find(s => s.id === id);
         return dep && dep.status !== 'done';
       });
@@ -543,9 +543,10 @@ class Planner {
     }
   }
 
-  async _executeEditFile({ path: filePath, instruction }) {
+  async _executeEditFile({ path: filePath, instruction } = {}) {
     const start = Date.now();
 
+    if (!filePath) return { ok: false, error: 'filePath requerido', result: null, tool: 'edit_file', elapsed: 0 };
     console.log(`[planner] paso 1: Leer ${filePath}`);
     const readResult = await this._bridge.execute('read', { path: filePath });
 
@@ -631,9 +632,10 @@ class Planner {
     };
   }
 
-  async _executeCreateFile({ path: filePath, instruction }) {
+  async _executeCreateFile({ path: filePath, instruction } = {}) {
     const start = Date.now();
 
+    if (!filePath) return { ok: false, error: 'filePath requerido', result: null, tool: 'create_file', elapsed: 0 };
     console.log(`[planner] paso 1: Generar contenido para ${filePath}`);
 
     const complete = _getLLMComplete();

@@ -254,6 +254,7 @@ class StateUpdater {
   }
 
   _parseJSON(raw) {
+    if (!raw) return { episode_summary: null, episode_importance: 0, nodes: [] };
     try { return JSON.parse(raw.trim()); } catch(_) {}
     const match = raw.match(/\{[\s\S]*\}/);
     if (match) { try { return JSON.parse(match[0]); } catch(_) {} }

@@ -37,6 +37,7 @@ function buildOSContext(osSensor) {
   if (!osSensor) return _buildMinimalOSContext();
 
   const ctx = osSensor.getCurrentContext();
+  if (!ctx) return _buildMinimalOSContext();
 
   const now  = new Date();
   const hour = now.getHours();

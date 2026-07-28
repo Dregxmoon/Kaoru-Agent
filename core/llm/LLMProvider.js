@@ -255,7 +255,7 @@ async function callGroq(messages, systemPrompt, mode = 'fast') {
     timeoutMs
   );
   if (res.status !== 200) throw new Error(`Groq ${res.status}: ${JSON.stringify(res.body)}`);
-  return res.body.choices[0].message.content.trim();
+  return (res.body.choices[0].message.content || '').trim();
 }
 
 async function callGemini(messages, systemPrompt, mode = 'fast') {
@@ -284,7 +284,7 @@ async function callGemini(messages, systemPrompt, mode = 'fast') {
     timeoutMs
   );
   if (res.status !== 200) throw new Error(`Gemini ${res.status}: ${JSON.stringify(res.body)}`);
-  return res.body.candidates[0].content.parts[0].text.trim();
+  return (res.body.candidates[0]?.content?.parts?.[0]?.text || '').trim();
 }
 
 async function callOpenAI(messages, systemPrompt, mode = 'fast') {
@@ -306,7 +306,7 @@ async function callOpenAI(messages, systemPrompt, mode = 'fast') {
     timeoutMs
   );
   if (res.status !== 200) throw new Error(`OpenAI ${res.status}: ${JSON.stringify(res.body)}`);
-  return res.body.choices[0].message.content.trim();
+  return (res.body.choices[0].message.content || '').trim();
 }
 
 const PROVIDERS = {

@@ -144,6 +144,10 @@ class ProactiveEngine {
 
   stop() {
     if (this._timer) { clearInterval(this._timer); this._timer = null; }
+    this._bus.off('memory:turn-added', this._boundOnTurnAdded);
+    this._bus.off('os:app-changed', this._boundOnAppChanged);
+    this._bus.off('os:app-tick', this._boundOnAppTick);
+    this._bus.off('os:idle-changed', this._boundOnIdleChanged);
     this._running = false;
     console.log('[proactive] detenido');
   }
@@ -151,13 +155,15 @@ class ProactiveEngine {
   // ── Listeners de eventos del OS (análisis en vivo, sin esperar timer) ──────
 
   _setupListeners() {
-    this._bus.on('memory:turn-added', ({ role }) => {
-      if (role === 'user') this._lastUserMsg = Date.now();
-    });
+    this._boundOnTurnAdded   = ({ role }) => { if (role === 'user') this._lastUserMsg = Date.now(); };
+    this._boundOnAppChanged  = (p) => this._onAppChanged(p);
+    this._boundOnAppTick     = (p) => this._onAppTick(p);
+    this._boundOnIdleChanged = (p) => this._onIdleChanged(p);
 
-    this._bus.on('os:app-changed', (payload) => this._onAppChanged(payload));
-    this._bus.on('os:app-tick',    (payload) => this._onAppTick(payload));
-    this._bus.on('os:idle-changed', (payload) => this._onIdleChanged(payload));
+    this._bus.on('memory:turn-added', this._boundOnTurnAdded);
+    this._bus.on('os:app-changed',    this._boundOnAppChanged);
+    this._bus.on('os:app-tick',       this._boundOnAppTick);
+    this._bus.on('os:idle-changed',   this._boundOnIdleChanged);
   }
 
   /** El usuario cambió de app — actualiza racha de enfoque y detecta "thrashing". */
@@ -225,6 +231,7 @@ class ProactiveEngine {
     if (!this._idleStartedAt) return;
     const gapSec = Math.round((now - this._idleStartedAt) / 1000);
     this._idleStartedAt = null;
+    this._categoryStreakFired = false; // M10: nueva sesión de enfoque al volver de pausa
 
     if (gapSec < RETURN_MIN_GAP_SEC || gapSec > RETURN_MAX_GAP_SEC) return;
 
@@ -668,7 +675,7 @@ function _triggerDescription(trigger) {
     case 'special_date':
       return `Hoy es una fecha especial: ${trigger.node}. Reacciona de forma natural, no exagerada.`;
     case 'sustained_focus':
-      return `El usuario lleva ${trigger.elapsedFormatted || 'un buen rato'} ${trigger.label} en ${trigger.friendlyName}${trigger.title ? ` (título de la ventana: "${trigger.title.slice(0, 80)}")` : ''}. Si el título te da una pista concreta de lo que está haciendo, úsala — sé específica, no genérica ("¿cómo va el código?" es el tipo de pregunta que NO quieres repetir siempre). Puedes preguntar algo puntual, comentar el tiempo que lleva metido en esto, o simplemente no decir nada si no tienes algo genuino.`;
+      return `El usuario lleva ${trigger.elapsedFormatted || 'un buen rato'} ${trigger.label || 'enfocado'} en ${trigger.friendlyName || 'una aplicación'}${trigger.title ? ` (título de la ventana: "${trigger.title.slice(0, 80)}")` : ''}. Si el título te da una pista concreta de lo que está haciendo, úsala — sé específica, no genérica ("¿cómo va el código?" es el tipo de pregunta que NO quieres repetir siempre). Puedes preguntar algo puntual, comentar el tiempo que lleva metido en esto, o simplemente no decir nada si no tienes algo genuino.`;
     case 'context_switch_thrash':
       return `El usuario cambió de aplicación ${trigger.switchCount} veces en pocos minutos, saltando entre: ${trigger.categories?.join(', ')}. Esto puede ser una señal de que está atorado, distraído, o buscando algo que no encuentra. No lo regañes ni asumas lo peor — puedes preguntar con curiosidad genuina si anda buscando algo o si algo no le está saliendo. Si no se siente genuino, responde NO.`;
     case 'return_from_break':

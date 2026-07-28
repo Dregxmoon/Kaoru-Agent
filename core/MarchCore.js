@@ -68,6 +68,7 @@ let _mcp         = null;
 let _mcpReadyPromise = Promise.resolve();
 let _openclawProcess = null;
 
+let _pruneTimer   = null;
 let _initialized  = false;
 let _onInitiative = null;
 
@@ -357,6 +358,7 @@ async function shutdown() {
     try { _osSensor.stop(); } catch(e) { console.warn('[march-core] error deteniendo sensor:', e.message); }
   }
   _proactive?.stop();
+  if (_pruneTimer) { clearInterval(_pruneTimer); _pruneTimer = null; }
 }
 
 // ── OpenClaw Server ────────────────────────────────────────────────────────────
@@ -676,7 +678,7 @@ function _scheduleDailyPrune() {
     }
   };
   setTimeout(run, 10_000);
-  setInterval(run, 24 * 60 * 60 * 1000);
+  _pruneTimer = setInterval(run, 24 * 60 * 60 * 1000);
 }
 
 // ── Getters ───────────────────────────────────────────────────────────────────

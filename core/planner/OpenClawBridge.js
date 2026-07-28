@@ -91,7 +91,7 @@ function postJSON(url, body, timeoutMs = DEFAULT_TIMEOUT) {
 
     const options = {
       hostname: parsed.hostname,
-      port:     parsed.port || 18789,
+      port:     Number(parsed.port) || 18789,
       path:     parsed.pathname,
       method:   'POST',
       headers: {
@@ -128,7 +128,7 @@ function getJSON(url, timeoutMs = 5000) {
     const parsed = new URL(url);
     const options = {
       hostname: parsed.hostname,
-      port:     parsed.port || 18789,
+      port:     Number(parsed.port) || 18789,
       path:     parsed.pathname,
       method:   'GET',
     };

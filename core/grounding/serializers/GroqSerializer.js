@@ -261,7 +261,7 @@ function _buildMemorySection(persistentMemory) {
       const when = ep.created_at
         ? new Date(ep.created_at).toLocaleDateString('es-MX')
         : 'antes';
-      parts.push(`- [${when}] ${ep.label || ep.content.slice(0, 100) || '(sin detalle)'}`);
+      parts.push(`- [${when}] ${ep.label || (ep.content || '').slice(0, 100) || '(sin detalle)'}`);
     }
   }
 

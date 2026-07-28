@@ -439,7 +439,7 @@ ipcMain.on('chat-mode-changed', (e, mode) => {
 // lugar (init_vectors.js) y ya incluye ese fix.
 ipcMain.handle('init-vectors', async () => {
   const { populateDatabase } = require('./infrastructure/database/init_vectors.js');
-  const db = MarchCore.getGraph()._db;
+  const db = MarchCore.getGraph()?._db;
   if (!db) throw new Error('DB no disponible');
 
   const result = await populateDatabase(db, { force: true });
@@ -448,7 +448,7 @@ ipcMain.handle('init-vectors', async () => {
     ? result.inserted
     : result.existing;
 
-  console.log(`[init-vectors] ${count} frases en ${MarchCore.getGraph()._dbPath}`);
+  console.log(`[init-vectors] ${count} frases en ${MarchCore.getGraph()?._dbPath ?? 'N/A'}`);
   return `${count} frases vectorizadas`;
 });
 
@@ -822,6 +822,7 @@ function startVoiceListener(micIndex = null) {
   const args = [scriptPath];
   if (micIndex !== null && micIndex >= 0) args.push('--mic-index', String(micIndex));
 
+  if (!PYTHON_BIN) { console.log('[voice] PYTHON_BIN no disponible.'); return; }
   voiceStartedAt = Date.now();
   voiceProc = spawn(PYTHON_BIN, args, {
     env: { ...process.env, PYTHONIOENCODING: 'utf-8', PYTHONUTF8: '1' }
@@ -924,6 +925,7 @@ ipcMain.on('stt-start', (e, { micIndex, lang }) => {
   if (micIndex !== null && micIndex >= 0)
     args.push('--mic-index', String(micIndex));
 
+  if (!PYTHON_BIN) { console.log('[stt] PYTHON_BIN no disponible.'); return; }
   console.log(`[stt] iniciando: python ${args.join(' ')}`);
   sttProc = spawn(PYTHON_BIN, args, {
     env: { ...process.env, PYTHONIOENCODING: 'utf-8', PYTHONUTF8: '1' }

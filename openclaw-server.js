@@ -174,5 +174,9 @@ server.listen(PORT, '127.0.0.1', () => {
   console.log(`[openclaw-server] escuchando en http://127.0.0.1:${PORT}`);
 });
 
-process.on('SIGTERM', () => { server.close(() => process.exit(0)); });
-process.on('SIGINT', () => { server.close(() => process.exit(0)); });
+function _gracefulShutdown() {
+  server.close(() => process.exit(0));
+  setTimeout(() => process.exit(1), 3000); // force exit si el cierre no se completa
+}
+process.on('SIGTERM', _gracefulShutdown);
+process.on('SIGINT', _gracefulShutdown);

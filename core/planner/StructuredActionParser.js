@@ -127,7 +127,7 @@ function _extractBalancedJSON(content, label) {
   const braceStart = content.indexOf('{', searchFrom);
   // El '{' debe venir casi inmediatamente después del label — si hay texto
   // largo en medio, no es el JSON de este campo.
-  if (braceStart === -1 || braceStart - searchFrom > 3) return null;
+  if (braceStart === -1 || braceStart - searchFrom > 10) return null;
 
   let depth = 0, inString = false, escaped = false;
   for (let i = braceStart; i < content.length; i++) {
@@ -302,7 +302,7 @@ class StructuredActionParser {
 
     // Regex para encontrar bloques ```action ... ```
     // Usamos un regex simple y robusto — no narrativa libre, solo el bloque delimitado.
-    const BLOCK_RE = /```action\s*\n([\s\S]*?)```/gi;
+    const BLOCK_RE = /```action\s*\n?([\s\S]*?)```/gi;
 
     const actions = [];
     let match;

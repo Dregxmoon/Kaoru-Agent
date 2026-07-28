@@ -100,9 +100,10 @@ class MCPServerConnection {
     this.error     = null;
     this.tools     = []; // [{ name, description, inputSchema }]
 
-    this._intentionalDisconnect = false; // true si disconnect() lo pidió el usuario
-    this._reconnectAttempts     = 0;
-    this._onStatusChange        = null;  // callback del Manager, para _notify()
+    this._intentionalDisconnect  = false; // true si disconnect() lo pidió el usuario
+    this._reconnectAttempts      = 0;
+    this._reconnectInProgress    = false;
+    this._onStatusChange         = null;  // callback del Manager, para _notify()
   }
 
   async connect() {
@@ -123,10 +124,10 @@ class MCPServerConnection {
       // CUALQUIER razón — incluyendo que nosotros mismos llamemos
       // client.close(). _intentionalDisconnect distingue "lo pedimos
       // nosotros" (no reconectar) de "se cayó solo" (sí reconectar).
-      this.client.onclose = () => this._handleUnexpectedClose();
-      this.client.onerror = (err) => {
+      this.client.on('close', () => this._handleUnexpectedClose());
+      this.client.on('error', (err) => {
         console.warn(`[mcp] error en servidor "${this.name}":`, err.message);
-      };
+      });
 
       await Promise.race([
         this.client.connect(this.transport),
@@ -162,11 +163,15 @@ class MCPServerConnection {
 
   async _scheduleReconnect() {
     if (this._intentionalDisconnect) return;
+    if (this._reconnectInProgress) return;
+
+    this._reconnectInProgress = true;
 
     if (this._reconnectAttempts >= MAX_RECONNECT_ATTEMPTS) {
       this.status = 'error';
       this.error  = `Se perdió la conexión y no se pudo recuperar tras ${MAX_RECONNECT_ATTEMPTS} intentos. Reconecta manualmente desde el panel.`;
       console.warn(`[mcp] "${this.name}" agotó los intentos de reconexión`);
+      this._reconnectInProgress = false;
       this._onStatusChange?.();
       return;
     }
@@ -179,19 +184,21 @@ class MCPServerConnection {
     console.log(`[mcp] "${this.name}" — reintentando en ${waitMs}ms (intento ${this._reconnectAttempts}/${MAX_RECONNECT_ATTEMPTS})`);
     await _sleep(waitMs);
 
-    if (this._intentionalDisconnect) return; // pudo cambiar mientras esperábamos
+    if (this._intentionalDisconnect) { this._reconnectInProgress = false; return; }
     this.status = 'disconnected'; // deja que connect() haga su cosa normal
     await this.connect();
 
     // Si connect() falló de nuevo, vuelve a intentar (connect() ya deja
     // status='error' en ese caso — desde ahí, reintentamos otra vez).
+    this._reconnectInProgress = false;
     if (this.status === 'error' && !this._intentionalDisconnect) {
       this._scheduleReconnect();
     }
   }
 
   async disconnect() {
-    this._intentionalDisconnect = true;
+    this._intentionalDisconnect  = true;
+    this._reconnectInProgress    = false;
     if (this.client) {
       try { await this.client.close(); } catch (_) { /* best-effort */ }
     }
@@ -232,7 +239,9 @@ class MCPManager {
       return;
     }
     console.log(`[mcp] conectando ${enabled.length} servidor(es) configurado(s)...`);
-    await Promise.all(enabled.map(cfg => this._connectOne(cfg)));
+    for (const cfg of enabled) {
+      await this._connectOne(cfg);
+    }
   }
 
   async _connectOne(cfg) {
@@ -264,7 +273,7 @@ class MCPManager {
 
   async toggleServer(id, enabled, cfg) {
     if (enabled) {
-      await this._connectOne(cfg);
+      await this._connectOne({ ...cfg, id });
     } else {
       const conn = this._connections.get(id);
       if (conn) await conn.disconnect();
