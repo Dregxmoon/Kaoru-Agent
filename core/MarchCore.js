@@ -59,6 +59,7 @@ let _app         = null;
 let _configPath  = null;
 let _detector    = null;
 let _mcp         = null;
+let _mcpReadyPromise = Promise.resolve();
 let _openclawProcess = null;
 
 let _initialized  = false;
@@ -165,6 +166,28 @@ if (process.env.DEBUG) console.log('[march-core] graph.usingFallback:', _graph.u
   _startOpenClaw();
   _proactive.start();
 
+  // Workspace inicial — prioridad: MARCH_WORKSPACE (comando `asistente`
+  // explícito) > último workspace persistido en config.json > default
+  // (carpeta de March, ya asignada arriba vía setProjectCWD(projectCWD)).
+  // Se espera a _mcpReadyPromise antes de tocar los servidores MCP para
+  // no pisar la conexión inicial a mitad de camino (causaba el
+  // "error conectando a filesystem: Not connected" intermitente).
+  const _envWorkspace = process.env.MARCH_WORKSPACE;
+  let _persistedWorkspace = null;
+  if (!_envWorkspace && _configPath && fs.existsSync(_configPath)) {
+    try {
+      const cfg = JSON.parse(fs.readFileSync(_configPath, 'utf-8'));
+      if (cfg.activeWorkspace && cfg.activeWorkspace !== projectCWD) _persistedWorkspace = cfg.activeWorkspace;
+    } catch(_) {}
+  }
+  const _initialWorkspace = _envWorkspace || _persistedWorkspace;
+  if (_initialWorkspace) {
+    _mcpReadyPromise.then(() => setActiveWorkspace(_initialWorkspace)).then(r => {
+      if (r.ok) console.log(`[march-core] workspace inicial (${_envWorkspace ? 'MARCH_WORKSPACE' : 'persistido'}):`, r.path);
+      else console.warn('[march-core] workspace inicial inválido:', r.error);
+    });
+  }
+
   if (_graph.usingFallback) {
     console.error('');
     console.error('╔══════════════════════════════════════════════════════════╗');
@@ -217,13 +240,14 @@ function reloadLLMConfig() { _loadLLMConfig(); }
 // nunca un requisito).
 function _loadMCPConfig() {
   try {
-    if (!_configPath || !fs.existsSync(_configPath)) return;
+    if (!_configPath || !fs.existsSync(_configPath)) { _mcpReadyPromise = Promise.resolve(); return; }
     const cfg = JSON.parse(fs.readFileSync(_configPath, 'utf-8'));
     const servers = cfg?.mcp?.servers || [];
-    if (!servers.length) return;
-    _mcp.init(servers).catch(e => console.warn('[march-core] error inicializando servidores MCP:', e.message));
+    if (!servers.length) { _mcpReadyPromise = Promise.resolve(); return; }
+    _mcpReadyPromise = _mcp.init(servers).catch(e => console.warn('[march-core] error inicializando servidores MCP:', e.message));
   } catch(e) {
     console.warn('[march-core] error leyendo config de MCP:', e.message);
+    _mcpReadyPromise = Promise.resolve();
   }
 }
 
@@ -250,6 +274,41 @@ async function mcpSearchRegistry(query) {
 
 function mcpListAllTools() {
   return _mcp ? _mcp.listAllTools() : [];
+}
+
+// ── Workspace ──────────────────────────────────────────────────────────────
+// Cambia el repo/carpeta sobre el que March trabaja como agente de código.
+// La usan tanto el picker del UI como el comando de terminal `asistente`.
+async function setActiveWorkspace(newPath) {
+  const resolved = path.resolve(newPath);
+  if (!fs.existsSync(resolved) || !fs.statSync(resolved).isDirectory()) {
+    return { ok: false, error: `"${resolved}" no existe o no es una carpeta` };
+  }
+
+  setProjectCWD(resolved);
+
+  if (_mcp) {
+    const fsServer = _mcp.listServers().find(s => s.name === 'filesystem');
+    if (fsServer) await _mcp.removeServer(fsServer.id);
+    await _mcp.addServer({
+      name: 'filesystem',
+      command: 'npx',
+      args: ['-y', '@modelcontextprotocol/server-filesystem', resolved],
+      env: {},
+    });
+  }
+
+  if (_configPath) {
+    try {
+      const cfg = fs.existsSync(_configPath) ? JSON.parse(fs.readFileSync(_configPath, 'utf-8')) : {};
+      cfg.activeWorkspace = resolved;
+      fs.writeFileSync(_configPath, JSON.stringify(cfg, null, 2));
+    } catch(e) { console.warn('[march-core] no se pudo persistir workspace:', e.message); }
+  }
+
+  _bus.emit('workspace:changed', { path: resolved });
+  console.log('[march-core] workspace activo:', resolved);
+  return { ok: true, path: resolved };
 }
 
 // ── Sesión ────────────────────────────────────────────────────────────────────
@@ -655,4 +714,5 @@ module.exports = {
   mcpToggleServer,
   mcpSearchRegistry,
   mcpListAllTools,
+  setActiveWorkspace,
 };

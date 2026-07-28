@@ -1,6 +1,6 @@
 const {
   app, BrowserWindow, ipcMain, screen,
-  Tray, Menu, nativeImage, session, globalShortcut
+  Tray, Menu, nativeImage, session, globalShortcut, dialog
 } = require('electron');
 const path = require('path');
 const http = require('http');
@@ -630,6 +630,12 @@ ipcMain.handle('openclaw-plan-history', () => {
 // no esté corriendo. La config (qué servidores hay, cuáles están enabled)
 // vive en config.json bajo `mcp.servers`, igual que las apiKeys de LLM.
 
+ipcMain.handle('pick-workspace-folder', async () => {
+  const result = await dialog.showOpenDialog(chatWindow, { properties: ['openDirectory'] });
+  if (result.canceled || !result.filePaths.length) return null;
+  return MarchCore.setActiveWorkspace(result.filePaths[0]);
+});
+
 ipcMain.handle('mcp-list-servers', async () => {
   try { return await MarchCore.mcpListServers(); }
   catch (err) { console.error('[main] error en mcp-list-servers:', err.message); return []; }
@@ -733,6 +739,7 @@ const HELP_TEXT = `
   curl "http://localhost:3131/chat?action=open"
   curl "http://localhost:3131/chat?action=close"
   curl "http://localhost:3131/mic?index=0"
+  curl "http://localhost:3131/workspace?path=/ruta/al/proyecto"
 `;
 
 function startControlServer() {
@@ -764,6 +771,15 @@ function startControlServer() {
         }
       } else toggleChatWindow();
       res.writeHead(200); res.end(`ok: chat ${action || 'toggled'}`); return;
+    }
+    if (url.pathname === '/workspace') {
+      const p = url.searchParams.get('path');
+      if (!p) { res.writeHead(400); res.end('falta ?path='); return; }
+      MarchCore.setActiveWorkspace(p).then(result => {
+        res.writeHead(result.ok ? 200 : 400);
+        res.end(result.ok ? `ok: workspace -> ${result.path}` : `error: ${result.error}`);
+      });
+      return;
     }
     if (url.pathname === '/mic') {
       const idx = parseInt(url.searchParams.get('index') || '-1', 10);
@@ -976,6 +992,12 @@ app.whenReady().then(() => {
   MarchCore.getEventBus().on('openclaw:available', (payload) => {
     if (chatWindow && !chatWindow.isDestroyed()) {
       chatWindow.webContents.send('openclaw-status', payload);
+    }
+  });
+
+  MarchCore.getEventBus().on('workspace:changed', (payload) => {
+    if (chatWindow && !chatWindow.isDestroyed()) {
+      chatWindow.webContents.send('workspace-changed', payload);
     }
   });
 

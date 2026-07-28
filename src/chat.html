@@ -319,6 +319,7 @@ body::before { content:''; position:fixed; inset:0; background:var(--grain); poi
     <div class="header-spacer"></div>
     <span id="openclaw-badge" class="openclaw-badge offline" title="OpenClaw no disponible">NO TOOLS</span>
     <button id="mcp-btn" class="mcp-badge" title="Servidores MCP">🔌 MCP <span id="mcp-count">0</span></button>
+    <button id="workspace-btn" class="mcp-badge" title="Elegir carpeta de proyecto">📁 Workspace</button>
     <button id="mode-toggle" class="mode-toggle" title="Modo conversación: rápido y económico. Clic para pasar a modo tareas (GPT-OSS 120B).">
       <span class="mode-icon">💬</span><span class="mode-label">Conversación</span>
     </button>
@@ -707,6 +708,23 @@ function showThinking() {
 function removeThinking() { const t = document.getElementById('thinking-msg'); if (t) t.remove(); }
 
 // ── Config LLM ────────────────────────────────────────────────────────────────
+// Nombre corto de un workspace: solo el último segmento de la ruta
+// ("/home/panfilo/Projects/sae" -> "sae"). Sirve tanto para rutas con /
+// como con \\ (por si algún día corre en Windows).
+function _workspaceName(fullPath) {
+  if (!fullPath) return 'Workspace';
+  const parts = fullPath.split(/[\\/]/).filter(Boolean);
+  return parts.length ? parts[parts.length - 1] : fullPath;
+}
+
+function _applyWorkspaceUI(fullPath) {
+  const btn = document.getElementById('workspace-btn');
+  if (!btn) return;
+  const name = _workspaceName(fullPath);
+  btn.innerHTML = `📁 ${name}`;
+  btn.title = fullPath;
+}
+
 async function loadLLMConfig() {
   try {
     const cfg = await ipcRenderer.invoke('get-config');
@@ -716,6 +734,7 @@ async function loadLLMConfig() {
     } else {
       updateKeysBanner(null);
     }
+    if (cfg && cfg.activeWorkspace) _applyWorkspaceUI(cfg.activeWorkspace);
   } catch(e) {
     console.warn('[llm] error cargando config:', e.message);
     updateKeysBanner(null);
@@ -907,6 +926,20 @@ function openMcpModal() {
 function closeMcpModal() { mcpModal.classList.remove('visible'); }
 
 document.getElementById('mcp-btn').addEventListener('click', openMcpModal);
+
+document.getElementById('workspace-btn').addEventListener('click', async () => {
+  const res = await ipcRenderer.invoke('pick-workspace-folder');
+  if (res && !res.ok) addMessage('march', `No pude cambiar de workspace: ${res.error}`);
+  // Si sí funcionó, el mensaje y el botón se actualizan solos vía el
+  // evento 'workspace-changed' de abajo — misma fuente de verdad sin
+  // importar si el cambio vino de este botón, de `asistente`, o de
+  // restaurar el workspace persistido al arrancar.
+});
+
+ipcRenderer.on('workspace-changed', (e, { path }) => {
+  _applyWorkspaceUI(path);
+  addMessage('march', `Ahora estoy trabajando en \`${_workspaceName(path)}\``);
+});
 mcpModal.addEventListener('click', (e) => { if (e.target === mcpModal) closeMcpModal(); });
 
 document.getElementById('mcp-add-toggle-btn').addEventListener('click', () => {

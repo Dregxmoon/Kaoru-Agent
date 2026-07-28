@@ -3,6 +3,9 @@
   "version": "1.0.0",
   "description": "Overlay VTuber Live2D siempre encima de otras ventanas",
   "main": "main.js",
+  "bin": {
+    "asistente": "./bin/asistente.js"
+  },
   "license": "MIT",
   "scripts": {
     "start": "ELECTRON_DISABLE_SECURITY_WARNINGS=1 electron . 2>&1 | grep -vE 'Fontconfig warning|invalid (attribute|constant used)'",
