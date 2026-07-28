@@ -43,7 +43,7 @@ const INTENT_PATTERNS = [
   { pattern: /\b(quién soy|mi nombre|cómo me llamo|who am i|me llamo)\b/i,             types: ['User'] },
   { pattern: /\b(código|programar|bug|error|función|debug|script|repo|git)\b/i,        types: ['Project', 'Belief'] },
   { pattern: /\b(ayer|antes|última vez|last time|semana pasada|hace días|dijiste)\b/i, types: ['Episode'] },
-  { pattern: /\b(cómo estoy|cómo me ves|qué piensas de mí|qué sabes de mí)\b/i,      types: ['User', 'Belief'] },
+  { pattern: /\b(cómo estoy|cómo me ves|qué piensas de mí|qué sabes de mí|how (?:am i|do you see me)|what do you (?:know|think) (?:about|of) me)\b/i, types: ['User', 'Belief'] },
   { pattern: /\b(trabajo|empleo|empresa|cliente|reunión|jefe|equipo|meeting)\b/i,      types: ['User', 'Project'] },
 ];
 

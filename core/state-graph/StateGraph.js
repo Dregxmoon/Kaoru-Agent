@@ -58,10 +58,18 @@ const RECENCY_HALFLIFE_DAYS = 21;
 const SEMANTIC_CANDIDATES   = 24; // cuántos candidatos trae sqlite-vec antes de re-rankear
 
 // ── DB en memoria como fallback ───────────────────────────────────────────────
+let _memoryDBSilentWarningShown = false;
+
 class MemoryDB {
   constructor() {
     this._nodes  = new Map();
     this._nextId = 1;
+    if (!_memoryDBSilentWarningShown) {
+      _memoryDBSilentWarningShown = true;
+      setInterval(() => {
+        console.warn('[state-graph] ⚠ MemoryDB activo — los datos NO persisten en disco. better-sqlite3 no está disponible.');
+      }, 5 * 60 * 1000);
+    }
   }
   prepare(sql) {
     const db = this;
@@ -818,6 +826,35 @@ class StateGraph {
     } catch {
       return { total: 0, active: 0, byType: [], appHistoryToday: 0, appHistoryTotal: 0, usingFallback: this.usingFallback };
     }
+  }
+
+  _findActiveNodeByLabel(label) {
+    if (this.usingFallback) return null;
+    return this._db.prepare(
+      'SELECT * FROM nodes WHERE label=? AND archived=0 ORDER BY importance DESC LIMIT 1'
+    ).get(label);
+  }
+
+  _archiveNode(id) {
+    if (this.usingFallback) return;
+    this._db.prepare(
+      'UPDATE nodes SET archived=1, updated_at=? WHERE id=?'
+    ).run(Date.now(), id);
+  }
+
+  _findDuplicateLabels() {
+    if (this.usingFallback) return [];
+    return this._db.prepare(`
+      SELECT label, COUNT(*) as cnt
+      FROM nodes WHERE archived=0 GROUP BY label HAVING cnt > 1
+    `).all();
+  }
+
+  _findNodesByLabel(label) {
+    if (this.usingFallback) return [];
+    return this._db.prepare(`
+      SELECT id FROM nodes WHERE label=? AND archived=0 ORDER BY updated_at DESC
+    `).all(label);
   }
 
   close() {

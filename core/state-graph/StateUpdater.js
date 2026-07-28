@@ -77,43 +77,51 @@ function isValidLabel(label) {
 //  matchean el mismo mensaje, gana el más específico gracias al guard de abajo)
 const INSTANT_PATTERNS = [
   {
-    regex: /(?:me llamo|mi nombre es)\s+([A-Za-záéíóúÁÉÍÓÚñÑ]{2,20})\b/i,
+    regex: /(?:me llamo|mi nombre es|my name is|i'?m called|call me)\s+([A-Za-záéíóúÁÉÍÓÚñÑ]{2,30})\b/i,
     node: (m) => ({ type: 'User', label: 'nombre_usuario', content: `El usuario se llama ${m[1]}`, importance: 0.95, tags: ['nombre'] }),
   },
   {
-    regex: /(?:en realidad |ahora |ya )?tengo\s+(\d{1,3})\s+años/i,
-    node: (m) => ({ type: 'User', label: 'edad_usuario', content: `El usuario tiene ${m[1]} años`, importance: 0.85, tags: ['edad'] }),
+    regex: /(?:en realidad |ahora |ya )?tengo\s+(\d{1,3})\s+años|(?:actually |now )?i'?m\s+(\d{1,3})\s+(?:years old|years?\s*yo)/i,
+    node: (m) => {
+      const edad = m[1] || m[2];
+      return { type: 'User', label: 'edad_usuario', content: `El usuario tiene ${edad} años`, importance: 0.85, tags: ['edad'] };
+    },
   },
   {
-    regex: /(?:(?:el\s+)?(\d{1,2})\s+de\s+(enero|febrero|marzo|abril|mayo|junio|julio|agosto|septiembre|octubre|noviembre|diciembre).*cumplea[ñn]os|cumplea[ñn]os.*(?:el\s+)?(\d{1,2})\s+de\s+(enero|febrero|marzo|abril|mayo|junio|julio|agosto|septiembre|octubre|noviembre|diciembre))/i,
+    regex: /(?:(?:el\s+)?(\d{1,2})\s+de\s+(enero|febrero|marzo|abril|mayo|junio|julio|agosto|septiembre|octubre|noviembre|diciembre).*cumplea[ñn]os|cumplea[ñn]os.*(?:el\s+)?(\d{1,2})\s+de\s+(enero|febrero|marzo|abril|mayo|junio|julio|agosto|septiembre|octubre|noviembre|diciembre)|(?:my )?birthday\s+(?:is\s+)?(?:on\s+)?(?:the\s+)?(\d{1,2})(?:st|nd|rd|th)?\s+of\s+(january|february|march|april|may|june|july|august|september|october|november|december))/i,
     node: (m) => {
-      const dia = m[1] || m[3]; const mes = m[2] || m[4];
-      return { type: 'User', label: 'cumpleanos_usuario', content: `Cumpleaños: ${dia} de ${mes}`, importance: 0.92, tags: ['cumpleaños'] };
+      const dia = m[1] || m[3] || m[5]; const mes = m[2] || m[4] || m[6];
+      const mesesEn = { january:'enero', february:'febrero', march:'marzo', april:'abril', may:'mayo', june:'junio', july:'julio', august:'agosto', september:'septiembre', october:'octubre', november:'noviembre', december:'diciembre' };
+      const mesStr = mesesEn[mes?.toLowerCase()] || mes;
+      return { type: 'User', label: 'cumpleanos_usuario', content: `Cumpleaños: ${dia} de ${mesStr}`, importance: 0.92, tags: ['cumpleaños'] };
     },
   },
   {
     // Patrón de corrección — va antes del genérico a propósito
-    regex: /(?:en realidad|ahora)\s+(?:mis?\s+colou?r(?:es)?\s+(?:favorito(?:s)?\s+)?(?:son|es|me gustan?)|(?:no\s+)?me\s+gusta(?:n)?\s+(?:el\s+|los\s+)?(?:azul|rojo|verde|amarillo|negro|blanco|morado|rosa|naranja|café|gris))\s*(?:,?\s*(?:sino|si no|pero sí|y)?\s*(?:son|es)?\s*)?(.{3,50})/i,
+    regex: /(?:en realidad|ahora|actually)\s+(?:mis?\s+colou?r(?:es)?\s+(?:favorito(?:s)?\s+)?(?:son|es|me gustan?|are|is)|(?:no\s+)?me\s+gusta(?:n)?\s+(?:el\s+|los\s+)?(?:azul|rojo|verde|amarillo|negro|blanco|morado|rosa|naranja|café|gris|blue|red|green|yellow|black|white|purple|pink|orange|brown|gray|grey))\s*(?:,?\s*(?:sino|si no|pero sí|y|but|and|actually)?\s*(?:son|es|are|is)?\s*)?(.{3,50})/i,
     node: (m) => ({ type: 'Preference', label: 'color_favorito', content: `Colores favoritos: ${m[1].trim()}`, importance: 0.88, tags: ['color'] }),
   },
   {
-    regex: /(?:mi\s+)?colou?r(?:es)?\s+favorito(?:s)?\s+(?:es|son|:)\s*(.{3,50})/i,
-    node: (m) => ({ type: 'Preference', label: 'color_favorito', content: `Colores favoritos: ${m[1].trim()}`, importance: 0.75, tags: ['color'] }),
+    regex: /(?:mi\s+)?(?:colou?r|favou?rite colou?r)(?:es)?\s+favo(u)?rito(?:s)?\s+(?:es|son|:|\s+is\s+|\s+are\s+)\s*(.{3,50})/i,
+    node: (m) => ({ type: 'Preference', label: 'color_favorito', content: `Colores favoritos: ${m[2].trim()}`, importance: 0.75, tags: ['color'] }),
   },
   {
-    regex: /(?:trabajo como|me dedico a|soy\s+(?:un\s+|una\s+)?(?:desarrollador|programador|diseñador|ingeniero|doctor|maestro|estudiante))/i,
+    regex: /(?:trabajo como|me dedico a|soy\s+(?:un\s+|una\s+)?(?:desarrollador|programador|diseñador|ingeniero|doctor|maestro|estudiante)|i work as|i'?m a\s+(?:developer|programmer|designer|engineer|doctor|teacher|student))/i,
     node: (m) => ({ type: 'User', label: 'trabajo_usuario', content: `Trabajo: ${m[0].trim()}`, importance: 0.8, tags: ['trabajo'] }),
   },
   {
-    regex: /(?:estoy (?:desarrollando|construyendo|trabajando en|programando)|mi proyecto(?:\s+principal)? (?:es|se llama))\s*(?:un\s+|una\s+)?(.{3,60})/i,
-    node: (m) => ({ type: 'Project', label: 'proyecto_principal', content: `Proyecto: ${m[1].trim()}`, importance: 0.82, tags: ['proyecto'] }),
+    regex: /(?:estoy (?:desarrollando|construyendo|trabajando en|programando)|mi proyecto(?:\s+principal)? (?:es|se llama)|i'?m (?:developing|building|working on)|my (?:main\s+)?project (?:is|called))\s*(?:un\s+|una\s+|an?\s+)?(.{3,60})/i,
+    node: (m) => {
+      const proj = m[1] || m[2];
+      return { type: 'Project', label: 'proyecto_principal', content: `Proyecto: ${proj.trim()}`, importance: 0.82, tags: ['proyecto'] };
+    },
   },
   {
-    regex: /(?:vivo en|soy de)\s+([A-Za-záéíóúÁÉÍÓÚñÑ\s,]{3,40})/i,
+    regex: /(?:vivo en|soy de|i live in|i'?m from)\s+([A-Za-záéíóúÁÉÍÓÚñÑ\s,]{3,40})/i,
     node: (m) => ({ type: 'User', label: 'ubicacion_usuario', content: `Vive en: ${m[1].trim()}`, importance: 0.7, tags: ['ubicación'] }),
   },
   {
-    regex: /(?:recuerda(?:lo|la)?|no olvides)\s+(?:que\s+)?(.{5,100})/i,
+    regex: /(?:recuerda(?:lo|la)?|no olvides|remember|don'?t forget)\s+(?:que\s+|that\s+)?(.{5,100})/i,
     node: (m) => ({ type: 'Belief', label: `recordar_${Date.now()}`, content: `Pidió recordar: ${m[1].trim()}`, importance: 0.88, tags: ['recordar'] }),
   },
 ];
@@ -230,15 +238,18 @@ class StateUpdater {
       `${m.role === 'user' ? 'Usuario' : 'March'}: ${m.content}`
     ).join('\n');
 
-    // NOTA: LLMProvider.complete(messages, systemPrompt) solo acepta esos
-    // dos parámetros — antes había un tercer argumento { max_tokens: 256 }
-    // acá que se ignoraba en silencio (JS no protesta por argumentos de
-    // más). No cambia el comportamiento real: modo 'fast' ya reserva un
-    // máximo razonable por defecto, de sobra para este JSON compacto.
-    const raw = await LLMProvider.complete(
-      [{ role: 'user', content: `Conversación:\n\n${conversation}` }],
-      EXTRACTION_SYSTEM
-    );
+    // Para sesiones largas (> 20 turnos), usar smart mode para mejor
+    // razonamiento sobre el contexto completo.
+    const useSmart = history.length > 20;
+    const raw = useSmart
+      ? await LLMProvider.completeTask(
+          [{ role: 'user', content: `Conversación:\n\n${conversation}` }],
+          EXTRACTION_SYSTEM
+        )
+      : await LLMProvider.complete(
+          [{ role: 'user', content: `Conversación:\n\n${conversation}` }],
+          EXTRACTION_SYSTEM
+        );
     return this._parseJSON(raw);
   }
 

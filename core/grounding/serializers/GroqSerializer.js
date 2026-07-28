@@ -250,7 +250,7 @@ function _buildMemorySection(persistentMemory) {
     parts.push('## Lo que sé del usuario y sus proyectos');
     for (const node of persistentMemory.nodes.slice(0, 8)) {
       const label = node.label || node.id;
-      const props = node.properties ? JSON.stringify(node.properties).slice(0, 200) : '';
+      const props = node.content ? node.content.slice(0, 200) : '';
       parts.push(`- **${label}** (${node.type}): ${props}`);
     }
   }
@@ -259,9 +259,9 @@ function _buildMemorySection(persistentMemory) {
     parts.push('', '## Episodios recientes relevantes');
     for (const ep of persistentMemory.episodes.slice(0, 5)) {
       const when = ep.created_at
-        ? new Date(ep.created_at * 1000).toLocaleDateString('es-MX')
+        ? new Date(ep.created_at).toLocaleDateString('es-MX')
         : 'antes';
-      parts.push(`- [${when}] ${ep.label || ep.summary || ep.id}`);
+      parts.push(`- [${when}] ${ep.label || ep.content.slice(0, 100) || '(sin detalle)'}`);
     }
   }
 

@@ -61,10 +61,7 @@ class ContradictionResolver {
 
     const { type, label, content, importance, tags = [] } = newNode;
 
-    // Buscar nodo existente con el mismo label
-    const existing = this._graph._db.prepare(
-      'SELECT * FROM nodes WHERE label=? AND archived=0 ORDER BY importance DESC LIMIT 1'
-    ).get(label);
+    const existing = this._graph._findActiveNodeByLabel(label);
 
     // Si no existe, crear directamente
     if (!existing) {
@@ -108,11 +105,7 @@ class ContradictionResolver {
       }
 
       case 'archive_and_replace': {
-        // Archivar el nodo viejo
-        this._graph._db.prepare(
-          'UPDATE nodes SET archived=1, updated_at=? WHERE id=?'
-        ).run(Date.now(), existing.id);
-        // Crear el nodo nuevo como activo
+        this._graph._archiveNode(existing.id);
         const newId = this._graph.createNode({ type, label, content, importance, tags });
         console.log(`[resolver] archive_and_replace: ${label} — viejo archivado, nuevo creado`);
         return newId;
@@ -150,28 +143,14 @@ class ContradictionResolver {
     if (!this._graph?._ready) return;
 
     try {
-      // Encontrar labels con múltiples nodos activos
-      const duplicates = this._graph._db.prepare(`
-        SELECT label, COUNT(*) as cnt
-        FROM nodes
-        WHERE archived=0
-        GROUP BY label
-        HAVING cnt > 1
-      `).all();
+      const duplicates = this._graph._findDuplicateLabels();
 
       for (const { label } of duplicates) {
-        const nodes = this._graph._db.prepare(`
-          SELECT id FROM nodes
-          WHERE label=? AND archived=0
-          ORDER BY updated_at DESC
-        `).all(label);
+        const nodes = this._graph._findNodesByLabel(label);
 
-        // Conservar el primero (más reciente), archivar el resto
         const toArchive = nodes.slice(1);
         for (const { id } of toArchive) {
-          this._graph._db.prepare(
-            'UPDATE nodes SET archived=1, updated_at=? WHERE id=?'
-          ).run(Date.now(), id);
+          this._graph._archiveNode(id);
         }
 
         if (toArchive.length > 0) {

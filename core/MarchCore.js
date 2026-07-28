@@ -42,7 +42,13 @@ const LLMProvider                      = require('./llm/LLMProvider.js');
 // dentro de GroqSerializer.js y se aplicaba antes de pegar BehaviorModel,
 // las reglas de OpenClaw y el catálogo MCP. Ahora se aplica aquí, al
 // final de buildContext(), sobre el prompt ya ensamblado del todo.
-const MAX_SYSTEM_CHARS = 14_000; // ~3.5k tokens — conservador pero amplio
+// Se puede cambiar en caliente vía setMaxSystemChars().
+let MAX_SYSTEM_CHARS = 14_000; // ~3.5k tokens — conservador pero amplio
+
+function setMaxSystemChars(chars) {
+  MAX_SYSTEM_CHARS = Math.max(2000, Math.min(100_000, chars));
+  console.log(`[march-core] MAX_SYSTEM_CHARS = ${MAX_SYSTEM_CHARS}`);
+}
 
 let _graph       = null;
 let _grounding   = null;
@@ -419,15 +425,14 @@ function _startOpenClaw() {
 }
 
 function _stopOpenClaw() {
-  if (_openclawProcess) {
+  const process = _openclawProcess;
+  if (process) {
     console.log('[march-core] deteniendo OpenClaw...');
+    _openclawProcess = null;
     try {
-      _openclawProcess.kill('SIGTERM');
+      process.kill('SIGTERM');
       setTimeout(() => {
-        if (_openclawProcess) {
-          try { _openclawProcess.kill('SIGKILL'); } catch (_) {}
-          _openclawProcess = null;
-        }
+        try { process.kill('SIGKILL'); } catch (_) {}
       }, 3000);
     } catch (e) {
       console.warn('[march-core] error deteniendo OpenClaw:', e.message);
@@ -687,6 +692,7 @@ function getBridge()        { return _bridge;    }
 module.exports = {
   init,
   shutdown,
+  setMaxSystemChars,
   startSession,
   closeSession,
   addTurn,

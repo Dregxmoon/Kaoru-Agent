@@ -97,6 +97,13 @@
 const https = require('https');
 const http  = require('http');
 
+const KEEP_ALIVE_AGENT = new https.Agent({ keepAlive: true, maxSockets: 4 });
+const KEEP_ALIVE_AGENT_HTTP = new http.Agent({ keepAlive: true, maxSockets: 4 });
+const AGENT_BY_PROTOCOL = {
+  'https:': KEEP_ALIVE_AGENT,
+  'http:': KEEP_ALIVE_AGENT_HTTP,
+};
+
 // ── Modelos por proveedor ─────────────────────────────────────────────────────
 const MODELS = {
   groq: {
@@ -198,6 +205,7 @@ function post(url, headers, body, timeoutMs = 20_000) {
       method:   'POST',
       headers:  { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(payload), ...headers },
     };
+    options.agent = AGENT_BY_PROTOCOL[parsed.protocol] || lib.globalAgent;
     const req = lib.request(options, (res) => {
       let data = '';
       res.on('data', c => data += c);

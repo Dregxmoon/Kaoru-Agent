@@ -29,11 +29,18 @@
 
 'use strict';
 
-const { TokenBudget }        = require('./TokenBudget.js');
-const { createDefaultBlocks } = require('./blocks/index.js');
-const { getAdapter }          = require('./adapters/index.js');
-const { getSerializer }       = require('./serializers/index.js');
-const { exportDebug }         = require('./DebugExporter.js');
+console.warn('[prompt-composer] ⚠ SUBSISTEMA DEPRECADO — el pipeline real usa GroundingEngine → ContextAssembler → GroqSerializer. Este módulo no está integrado y sus imports están incompletos.');
+
+const { TokenBudget } = require('./TokenBudget.js');
+
+function _notImplemented(name) {
+  return () => { throw new Error(`[prompt-composer] ${name} no implementado — subsistema deprecado`); };
+}
+
+const createDefaultBlocks = _notImplemented('blocks/index.js');
+const getAdapter = _notImplemented('adapters/index.js');
+const getSerializer = _notImplemented('serializers/index.js');
+const exportDebug = _notImplemented('DebugExporter.js');
 
 const DEFAULT_MAX_TOKENS = 6000; // ~24k chars — conservador para dejar espacio a historial+respuesta
 

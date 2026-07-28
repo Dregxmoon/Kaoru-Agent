@@ -269,7 +269,7 @@ class StructuredActionParser {
     // ── 2. Fallback: ActionParser original (regex) ────────────────────────────
     // Solo si no hay bloque estructurado — compatibilidad hacia atrás.
     try {
-      const { ActionParser } = require('../planner/Planner.js');
+      const { ActionParser } = require('./ActionParser.js');
       const legacyActions = ActionParser.parse(llmResponse, userGoal);
 
       if (legacyActions.length > 0) {
@@ -420,7 +420,11 @@ class StructuredActionParser {
 let _instance = null;
 
 function getStructuredActionParser(projectCwd = null) {
-  if (!_instance) _instance = new StructuredActionParser(projectCwd);
+  if (!_instance) {
+    _instance = new StructuredActionParser(projectCwd);
+  } else if (projectCwd && _instance._cwd !== projectCwd) {
+    _instance._cwd = projectCwd;
+  }
   return _instance;
 }
 
