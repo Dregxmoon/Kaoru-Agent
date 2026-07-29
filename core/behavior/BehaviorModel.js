@@ -1,20 +1,5 @@
 'use strict';
 
-const TOOL_TRIGGERS = [
-  { pattern: /busca(r|me)?\s+en\s+(la\s+)?web/i,       hint: 'web_search'    },
-  { pattern: /abre?\s+(el\s+)?(navegador|chrome|edge)/i, hint: 'browser'      },
-  { pattern: /ejecuta?\s+|corre?\s+|lanza?\s+/i,         hint: 'exec'         },
-  { pattern: /crea?\s+(un\s+)?(archivo|carpeta|fichero)/i, hint: 'write'       },
-  { pattern: /lee?\s+(el\s+)?(archivo|fichero|documento)/i, hint: 'read'       },
-  { pattern: /instala?\s+|npm\s+install|pip\s+install/i,  hint: 'exec'         },
-  { pattern: /escribe?\s+(en|al?)\s+(archivo|fichero)/i,  hint: 'write'        },
-  { pattern: /busca?\s+(en\s+)?(google|bing|internet)/i, hint: 'web_search'    },
-  { pattern: /abre?\s+(la\s+)?terminal|consola/i,         hint: 'exec'         },
-  { pattern: /git\s+(add|commit|push|pull|status|log)/i,  hint: 'exec'         },
-  { pattern: /toma?\s+una\s+(captura|screenshot)/i,       hint: 'browser'      },
-  { pattern: /descarga?\s+|download\s+/i,                 hint: 'browser'      },
-];
-
 const TONE_RULES = [
   { pattern: /no\s+(me\s+)?funciona|error|fallo|rompi|bug|crash|exploto/i, tone: 'empathic', score: 5 },
   { pattern: /^(qu[eé]|c[oó]mo|cu[aá]ndo|d[oó]nde|qui[eén])\s+/i,        tone: 'direct',   score: 4 },
@@ -44,19 +29,17 @@ class BehaviorModel {
 
     const tone          = this._detectTone(text, osContext, history);
     const responseLength = this._detectLength(text);
-    const { useTools, toolHint } = this._detectTools(text);
     const urgency       = this._detectUrgency(text, osContext, history);
-    const notes         = this._buildNotes(tone, osContext, history, useTools);
+    const notes         = this._buildNotes(tone, osContext, history);
     const proactiveScore = this._computeProactiveScore(osContext, history, urgency);
 
     this._lastTone = tone;
     this._lastToneCount++;
 
-    const ctx = { tone, responseLength, useTools, toolHint, urgency, notes, proactiveScore };
+    const ctx = { tone, responseLength, urgency, notes, proactiveScore };
 
     console.log(
-      `[behavior] tone=${tone} length=${responseLength} tools=${useTools}` +
-      (toolHint ? `(${toolHint})` : '') +
+      `[behavior] tone=${tone} length=${responseLength}` +
       ` urgency=${urgency} proactive=${proactiveScore.toFixed(2)}`
     );
 
@@ -106,13 +89,6 @@ class BehaviorModel {
     if (text.length < 20) return 'brief';
     if (text.length > 200) return 'detailed';
     return 'normal';
-  }
-
-  _detectTools(text) {
-    for (const { pattern, hint } of TOOL_TRIGGERS) {
-      if (pattern.test(text)) return { useTools: true, toolHint: hint };
-    }
-    return { useTools: false, toolHint: null };
   }
 
   _detectUrgency(text, osContext, history) {
@@ -177,7 +153,7 @@ class BehaviorModel {
     return this._lastTone;
   }
 
-  _buildNotes(tone, osContext, history, useTools) {
+  _buildNotes(tone, osContext, history) {
     const notes = [];
 
     if (tone === 'focused') {
@@ -188,9 +164,6 @@ class BehaviorModel {
     }
     if (tone === 'playful') {
       notes.push('Puedes ser más desenfadada. El humor seco de March está bien aquí.');
-    }
-    if (useTools) {
-      notes.push('El usuario pide una acción. Responde que la vas a ejecutar antes de hacerlo.');
     }
     if (history.length === 0) {
       notes.push('Primer mensaje de la sesión. No te presentes; simplemente responde.');
@@ -224,10 +197,6 @@ class BehaviorModel {
       detailed: 'Respuesta extensa — el usuario quiere detalle.',
     };
     lines.push(`Extensión: ${lenDesc[behaviorCtx.responseLength] || 'Normal.'}`);
-
-    if (behaviorCtx.useTools) {
-      lines.push(`Herramienta sugerida: ${behaviorCtx.toolHint || 'general'}. Anuncia la acción antes de ejecutarla.`);
-    }
 
     if (behaviorCtx.notes?.length) {
       behaviorCtx.notes.forEach(n => lines.push(`- ${n}`));

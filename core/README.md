@@ -35,5 +35,5 @@ Archivador central e inicializador de todos los subsistemas. Su función `init()
 | `llm/` | Abstracción de proveedores de LLM |
 | `mcp/` | Cliente Model Context Protocol |
 | `planner/` | Parseo y ejecución de acciones |
-| `prompt-composer/` | Subsistema de composición de prompts |
+| `prompt-composer/` | (eliminado — era dead code; el pipeline real usa GroqSerializer) |
 | `state-graph/` | Grafo de conocimiento persistente (SQLite) |

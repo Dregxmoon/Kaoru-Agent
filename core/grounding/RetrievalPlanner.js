@@ -185,8 +185,8 @@ class RetrievalPlanner {
       addAll(this._graph.queryNodes({ type: 'Preference', limit: 2 }));
     }
 
-    // 6. Episodios recientes
-    const episodes = this._graph.getRecentEpisodes(6);
+    // 6. Episodios recientes (GroqSerializer solo usa hasta 3)
+    const episodes = this._graph.getRecentEpisodes(3);
 
     // Ordenar por importancia y recortar
     const sortedNodes = nodes

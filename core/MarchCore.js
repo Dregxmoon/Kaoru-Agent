@@ -38,6 +38,8 @@ const { getOpenClawBridge }            = require('./planner/OpenClawBridge.js');
 const { getMCPManager }                = require('./mcp/MCPManager.js');
 const LLMProvider                      = require('./llm/LLMProvider.js');
 const KeychainManager                  = require('../infrastructure/keychain/KeychainManager.js');
+const TaskDetector                     = require('./task/TaskDetector.js');
+const { getToolRegistry }              = require('./task/ToolRegistry.js');
 
 // FIX: presupuesto de tokens del system prompt COMPLETO — antes vivía
 // dentro de GroqSerializer.js y se aplicaba antes de pegar BehaviorModel,
@@ -64,10 +66,12 @@ let _bridge      = null;
 let _bus         = null;
 let _app         = null;
 let _configPath  = null;
-let _detector    = null;
-let _mcp         = null;
+let _detector     = null;
+let _mcp          = null;
 let _mcpReadyPromise = Promise.resolve();
 let _openclawProcess = null;
+let _taskDetector = null;
+let _toolRegistry = null;
 
 let _pruneTimer   = null;
 let _initialized  = false;
@@ -119,6 +123,10 @@ if (process.env.DEBUG) console.log('[march-core] graph.usingFallback:', _graph.u
   _planner  = getPlanner();
   _bridge   = getOpenClawBridge();
   _mcp      = getMCPManager();
+  _taskDetector = TaskDetector;
+  _toolRegistry = getToolRegistry();
+  _toolRegistry.setMCPManager(_mcp);
+  _toolRegistry.setOpenClawBridge(_bridge);
 
   const projectCWD = app ? app.getAppPath() : process.cwd();
   setProjectCWD(projectCWD);
@@ -465,8 +473,10 @@ function detectInstant(userMessage) {
 
 // ── Context ───────────────────────────────────────────────────────────────────
 
-async function buildContext(sessionHistory, activeProvider) {
+async function buildContext(sessionHistory, activeProvider, options = {}) {
   const provider = activeProvider || LLMProvider.getActiveProvider() || 'groq';
+  const mode = options.mode || 'chat'; // 'plan' | 'execute' | 'chat'
+  const approvedPlan = options.plan || null;
 
   const lastUserMsg = [...sessionHistory].reverse().find(m => m.role === 'user');
   const userText    = lastUserMsg?.content || '';
@@ -500,6 +510,20 @@ async function buildContext(sessionHistory, activeProvider) {
     }
   }
 
+  // TaskDetector — detecta si el usuario quiere hacer una tarea (no solo charlar)
+  let taskIntent = null;
+  try {
+    taskIntent = _taskDetector.detect(userText);
+    if (taskIntent.isTask) {
+      console.log(
+        `[march-core] taskIntent: ${taskIntent.domain?.id || 'indefinido'}` +
+        ` (confianza: ${taskIntent.confidence})`
+      );
+    }
+  } catch(e) {
+    console.warn('[march-core] TaskDetector error:', e.message);
+  }
+
   // GroundingEngine
   let result;
   if (_grounding) {
@@ -517,51 +541,128 @@ async function buildContext(sessionHistory, activeProvider) {
     }
   }
 
-  // OpenClaw — instrucciones de formato para acciones, solo cuando el usuario
-  // muestra intención de hacer algo (evita quemar tokens en cada turno casual)
-  if (_bridge?.getStats()?.available && toolIntent?.detected) {
+  // ── MODE: PLAN ─────────────────────────────────────────────────────────────
+  // Cuando el modo es 'plan', se inyecta el catálogo de herramientas pero
+  // con instrucciones de SOLO planificar, sin ejecutar nada. El LLM debe
+  // devolver un bloque ```plan con los pasos.
+  if (mode === 'plan') {
+    const catalog = _toolRegistry.serializeToPrompt(taskIntent?.domain || null);
+    if (catalog) {
+      result.systemPrompt += '\n\n' + catalog;
+    }
     result.systemPrompt +=
-      '\n\n# HERRAMIENTAS DISPONIBLES — REGLAS ESTRICTAS\n' +
-      'Tienes acceso a OpenClaw para ejecutar acciones reales en el PC del usuario.\n\n' +
-      'REGLA 1 — ANUNCIA, NO EJECUTES EN PROSA:\n' +
-      'Para ejecutar un comando di EXACTAMENTE: "Ejecutar: git status"\n' +
-      'Para leer un archivo di EXACTAMENTE: "Voy a leer el archivo README.md"\n' +
-      'Para editar un archivo di EXACTAMENTE: "Voy a escribir el archivo README.md"\n\n' +
-      'REGLA 2 — NUNCA INVENTES RESULTADOS:\n' +
-      'JAMÁS describas el resultado de un comando antes de ejecutarlo.\n' +
-      'JAMÁS escribas output de comandos inventado (hashes de commit, listas de archivos, etc).\n' +
-      'Si el usuario pide git add + git commit, anuncia cada comando por separado.\n' +
-      'El sistema ejecutará los comandos y tú recibirás el resultado real.\n\n' +
-      'REGLA 3 — SECUENCIA DE COMANDOS:\n' +
-      'Si el usuario pide varios comandos en orden, anúncialos TODOS en la misma respuesta, uno por línea.\n' +
-      'Formato exacto para múltiples comandos:\n' +
-      'Ejecutar: git add .\n' +
-      'Ejecutar: git commit -m "mensaje"\n' +
-      'Ejecutar: git push origin 7March\n' +
-      'El sistema los ejecutará en orden automáticamente.';
-  }
-
-  // MCP — independiente de toolIntent y de si OpenClaw está disponible.
-  // Si hay servidores MCP conectados, sus tools se suman siempre — esa es
-  // justo la idea: otra fuente de herramientas, no otra dependencia.
-  if (_mcp?.hasConnectedServers()) {
-    const mcpTools = _mcp.listAllTools();
-    if (mcpTools.length) {
-      result.systemPrompt += _buildMCPCatalogPrompt(mcpTools);
+      '\n\n# MODO PLAN — SOLO PLANIFICA, NO EJECUTES\n' +
+      'Estás en MODO PLAN. Tu única tarea es GENERAR UN PLAN con los pasos necesarios.\n' +
+      'NO ejecutes ninguna acción. NO uses herramientas. NO anuncies comandos.\n' +
+      'Solamente genera el plan en este formato:\n' +
+      '```plan\n' +
+      '- [ ] Paso 1: Descripción clara\n' +
+      '- [ ] Paso 2: Siguiente acción\n' +
+      '```\n' +
+      'Cada paso debe ser una acción concreta y ejecutable.\n';
+    if (approvedPlan) {
+      result.systemPrompt +=
+        '\nPlan ya aprobado por el usuario — continúa con los siguientes pasos pendientes:\n' +
+        approvedPlan.steps.filter(s => !s.done).map((s, i) => `  ${i+1}. ${s.description}`).join('\n') + '\n';
     }
   }
 
-  // FIX: truncado del prompt COMPLETO, aquí al final — antes esto pasaba
-  // dentro de GroqSerializer.serialize(), antes de que se pegaran
-  // BehaviorModel, las reglas de OpenClaw y el catálogo MCP, así que el
-  // presupuesto de tokens nunca contaba esas secciones (podían crecer sin
-  // límite real). Ver GroqSerializer.js — ahí se quitó el truncado viejo.
-  if (result.systemPrompt.length > MAX_SYSTEM_CHARS) {
-    console.warn(`[march-core] system prompt truncado: ${result.systemPrompt.length} → ${MAX_SYSTEM_CHARS} chars`);
-    result.systemPrompt = result.systemPrompt.slice(0, MAX_SYSTEM_CHARS) + '\n\n[contexto truncado por longitud]';
+  // ── MODE: EXECUTE ──────────────────────────────────────────────────────────
+  // Cuando el modo es 'execute', se inyecta el catálogo con instrucciones de
+  // ejecución y el plan aprobado como contexto.
+  if (mode === 'execute') {
+    const catalog = _toolRegistry.serializeToPrompt(taskIntent?.domain || null);
+    if (catalog) {
+      result.systemPrompt += '\n\n' + catalog;
+    }
+    result.systemPrompt +=
+      '\n\n# MODO EJECUCIÓN\n' +
+      'Ejecuta el siguiente plan paso a paso.\n' +
+      'Usa las herramientas disponibles para completar cada paso.\n' +
+      'Anuncia cada acción antes de ejecutarla.\n' +
+      'Espera el resultado de cada paso antes de continuar con el siguiente.\n';
+    if (approvedPlan) {
+      result.systemPrompt +=
+        '\n## Plan a ejecutar\n' +
+        approvedPlan.steps.filter(s => !s.done).map((s, i) => `  ${i+1}. ${s.description}`).join('\n') + '\n';
+    }
   }
 
-  return { ...result, behaviorCtx, toolIntent };
+  // ── MODE: CHAT (modo normal, sin planificación) ────────────────────────────
+  // En modo conversacional normal, se inyectan OpenClaw y MCP solo si
+  // IntentDetector detectó intención de herramienta.
+  if (mode === 'chat') {
+    if (_bridge?.getStats()?.available && toolIntent?.detected) {
+      result.systemPrompt +=
+        '\n\n# HERRAMIENTAS DISPONIBLES — REGLAS ESTRICTAS\n' +
+        'Tienes acceso a OpenClaw para ejecutar acciones reales en el PC del usuario.\n\n' +
+        'REGLA 1 — ANUNCIA, NO EJECUTES EN PROSA:\n' +
+        'Para ejecutar un comando di EXACTAMENTE: "Ejecutar: git status"\n' +
+        'Para leer un archivo di EXACTAMENTE: "Voy a leer el archivo README.md"\n' +
+        'Para editar un archivo di EXACTAMENTE: "Voy a escribir el archivo README.md"\n\n' +
+        'REGLA 2 — NUNCA INVENTES RESULTADOS:\n' +
+        'JAMÁS describas el resultado de un comando antes de ejecutarlo.\n' +
+        'JAMÁS escribas output de comandos inventado (hashes de commit, listas de archivos, etc).\n' +
+        'Si el usuario pide git add + git commit, anuncia cada comando por separado.\n' +
+        'El sistema ejecutará los comandos y tú recibirás el resultado real.\n\n' +
+        'REGLA 3 — SECUENCIA DE COMANDOS:\n' +
+        'Si el usuario pide varios comandos en orden, anúncialos TODOS en la misma respuesta, uno por línea.\n' +
+        'Formato exacto para múltiples comandos:\n' +
+        'Ejecutar: git add .\n' +
+        'Ejecutar: git commit -m "mensaje"\n' +
+        'Ejecutar: git push origin 7March\n' +
+        'El sistema los ejecutará en orden automáticamente.';
+    }
+
+    // MCP — independiente de toolIntent y de si OpenClaw está disponible.
+    if (_mcp?.hasConnectedServers()) {
+      const mcpTools = _mcp.listAllTools();
+      if (mcpTools.length) {
+        result.systemPrompt += _buildMCPCatalogPrompt(mcpTools);
+      }
+    }
+  }
+
+  // Truncado inteligente: si el prompt excede MAX_SYSTEM_CHARS, elimina
+  // secciones COMPLETAS empezando por la menos importante, en vez de cortar
+  // a mitad de una instrucción (que rompe el formato estructurado).
+  if (result.systemPrompt.length > MAX_SYSTEM_CHARS) {
+    console.warn(`[march-core] system prompt excede: ${result.systemPrompt.length} > ${MAX_SYSTEM_CHARS} chars, recortando...`);
+    // Orden de sacrificio: MCP → OpenClaw → episodios → memoria → OS → comportamiento → tools intent → identidad
+    const sectionMarkers = [
+      { name: 'MCP',       marker: '# HERRAMIENTAS MCP',            keepIf: null },
+      { name: 'OpenClaw',  marker: '# HERRAMIENTAS DISPONIBLES',    keepIf: null },
+      { name: 'Plan',      marker: '# MODO PLAN',                   keepIf: null },
+      { name: 'Execute',   marker: '# MODO EJECUCIÓN',              keepIf: null },
+      { name: 'Episodios', marker: '## Episodios recientes',        keepIf: null },
+      { name: 'Memoria',   marker: '## Lo que sé del usuario',      keepIf: null },
+      { name: 'OS',        marker: '## Contexto actual',            keepIf: null },
+      { name: 'Behavior',  marker: '# COMPORTAMIENTO ESTE TURNO',   keepIf: null },
+      { name: 'Intent',    marker: '## INTENCIÓN DE HERRAMIENTA',   keepIf: null },
+    ];
+    for (const section of sectionMarkers) {
+      if (result.systemPrompt.length <= MAX_SYSTEM_CHARS) break;
+      const markerIdx = result.systemPrompt.indexOf(section.marker);
+      if (markerIdx === -1) continue;
+      // Encontrar el inicio de la sección (línea anterior ---\n\n o principio)
+      const sectionStart = result.systemPrompt.lastIndexOf('\n\n---\n\n', markerIdx);
+      const from = sectionStart >= 0 ? sectionStart + 6 : markerIdx;
+      // Encontrar el fin (siguiente --- o fin del string)
+      const remaining = result.systemPrompt.slice(from + 1);
+      const nextSep = remaining.indexOf('\n\n---\n\n');
+      const sectionEnd = nextSep >= 0 ? from + 1 + nextSep : result.systemPrompt.length;
+      const sectionText = result.systemPrompt.slice(from, sectionEnd);
+      result.systemPrompt = result.systemPrompt.slice(0, from) + result.systemPrompt.slice(sectionEnd);
+      console.log(`[march-core] sección "${section.name}" eliminada (${sectionText.length} chars)`);
+    }
+    // Si sigue excediendo después de eliminar secciones opcionales, truncado duro al final
+    if (result.systemPrompt.length > MAX_SYSTEM_CHARS) {
+      console.warn(`[march-core] truncado duro: ${result.systemPrompt.length} → ${MAX_SYSTEM_CHARS} chars (solo identidad)`);
+      result.systemPrompt = result.systemPrompt.slice(0, MAX_SYSTEM_CHARS) + '\n\n[contexto truncado por longitud]';
+    }
+  }
+
+  return { ...result, behaviorCtx, toolIntent, taskIntent, mode };
 }
 
 /**
@@ -596,6 +697,56 @@ function _buildMCPCatalogPrompt(mcpTools) {
 async function isOpenClawAvailable() {
   if (!_bridge) return false;
   return _bridge.isAvailable();
+}
+
+/**
+ * Genera un plan estructurado para una tarea detectada.
+ * Fase 1 del sistema de dos fases (plan → ejecución).
+ * 
+ * @param {string} userGoal - El mensaje del usuario
+ * @param {object} taskIntent - Resultado de TaskDetector.detect()
+ * @param {Array} sessionHistory - Historial de la sesión
+ * @returns {Promise<{plan: object|null, llmResponse: string|null, error: string|null}>}
+ */
+async function generatePlan(userGoal, taskIntent, sessionHistory = []) {
+  if (!_planner) return { plan: null, llmResponse: null, error: 'Planner no disponible' };
+
+  try {
+    const { parsePlan } = require('./task/PlanParser.js');
+    const context = await buildContext(sessionHistory, null, { mode: 'plan' });
+    if (!context || !context.systemPrompt) {
+      return { plan: null, llmResponse: null, error: 'No se pudo construir contexto' };
+    }
+
+    console.log('[march-core] generando plan para:', userGoal.slice(0, 80));
+    const llmResponse = await LLMProvider.completeTask(
+      context.messages,
+      context.systemPrompt + '\n\n## Solicitud del usuario\n' + userGoal
+    );
+
+    if (!llmResponse) {
+      return { plan: null, llmResponse: null, error: 'LLM no respondió' };
+    }
+
+    console.log('[march-core] respuesta del plan:', llmResponse.slice(0, 200));
+    const plan = parsePlan(llmResponse);
+
+    if (plan && plan.steps?.length > 0) {
+      _bus.emit('plan:generated', { goal: userGoal, plan, llmResponse });
+      return { plan, llmResponse, error: null };
+    }
+
+    const fallbackPlan = _planner.planFromLLMResponse(llmResponse, userGoal, null);
+    if (fallbackPlan && fallbackPlan.steps?.length > 0) {
+      _bus.emit('plan:generated', { goal: userGoal, plan: fallbackPlan, llmResponse });
+      return { plan: { steps: fallbackPlan.steps.map(s => ({ done: false, description: s.description || s.tool })) }, llmResponse, error: null };
+    }
+
+    return { plan: null, llmResponse, error: 'No se pudo extraer un plan de la respuesta' };
+  } catch (e) {
+    console.error('[march-core] error generando plan:', e.message);
+    return { plan: null, llmResponse: null, error: e.message };
+  }
 }
 
 function parsePlanFromResponse(llmResponse, userGoal, toolIntent = null) {
@@ -702,6 +853,7 @@ function getEventBus_()     { return _bus;       }
 function getBehaviorModel() { return _behavior;  }
 function getPlanner_()      { return _planner;   }
 function getBridge()        { return _bridge;    }
+function getTaskDetector_() { return _taskDetector; }
 
 module.exports = {
   init,
@@ -720,11 +872,13 @@ module.exports = {
   getBehaviorModel,
   getPlanner:       getPlanner_,
   getBridge,
+  getTaskDetector:  getTaskDetector_,
   onInitiative,
   setChatOpen,
   reloadLLMConfig,
   forceProactive,
   isOpenClawAvailable,
+  generatePlan,
   parsePlanFromResponse,
   executePlan,
   executeTool,

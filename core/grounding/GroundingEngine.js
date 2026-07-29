@@ -79,15 +79,10 @@ class GroundingEngine {
       time: now.toLocaleTimeString('es-MX', { hour:'2-digit', minute:'2-digit' }),
       timeOfDay,
       dayName: days[now.getDay()],
-      formatted: `Son las ${now.toLocaleTimeString('es-MX', { hour:'2-digit', minute:'2-digit' })} del ${days[now.getDay()]} por la ${timeOfDay}.`,
+      timeFormatted: `Son las ${now.toLocaleTimeString('es-MX', { hour:'2-digit', minute:'2-digit' })} del ${days[now.getDay()]} por la ${timeOfDay}.`,
       app: null, friendlyName: null, category: null, elapsed: 0,
     };
   }
-}
-
-async function buildContext(sessionHistory = []) {
-  const engine = new GroundingEngine(null);
-  return engine.buildContext(sessionHistory);
 }
 
 function getOSContextPublic() {
@@ -103,4 +98,4 @@ function getIdentity() {
   }
 }
 
-module.exports = { GroundingEngine, buildContext, getOSContext: getOSContextPublic, getIdentity };
+module.exports = { GroundingEngine, getOSContext: getOSContextPublic, getIdentity };

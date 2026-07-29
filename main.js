@@ -520,10 +520,19 @@ ipcMain.handle('memory-stats', () => MarchCore.getStats());
 // ── IPC: grounding ────────────────────────────────────────────────────────────
 // FIX Fase 3: async/await porque buildContext ahora es async
 // (necesita await para IntentDetector.detect())
-ipcMain.handle('grounding-build-context', async (e, { sessionHistory, activeProvider }) => {
-  const ctx = await MarchCore.buildContext(sessionHistory, activeProvider);
-  console.log('[grounding-ipc] provider:', activeProvider, '| systemPrompt:', ctx?.systemPrompt?.length, 'chars');
+ipcMain.handle('grounding-build-context', async (e, { sessionHistory, activeProvider, mode, plan }) => {
+  const ctx = await MarchCore.buildContext(sessionHistory, activeProvider, { mode, plan });
+  console.log('[grounding-ipc] provider:', activeProvider, '| mode:', mode || 'chat', '| systemPrompt:', ctx?.systemPrompt?.length, 'chars');
   return ctx;
+});
+
+// Genera un plan (fase 1 del sistema de dos fases). Usa MarchCore.generatePlan()
+// internamente: construye contexto en modo 'plan', llama al LLM y parsea el plan.
+ipcMain.handle('march-generate-plan', async (e, { sessionHistory, userGoal }) => {
+  const taskDetector = MarchCore.getTaskDetector?.();
+  const taskIntent = taskDetector ? taskDetector.detect(userGoal) : null;
+  const result = await MarchCore.generatePlan(userGoal, taskIntent, sessionHistory);
+  return result;
 });
 
 // ── IPC: OS Sensor ────────────────────────────────────────────────────────────

@@ -40,18 +40,28 @@
 const fs   = require('fs');
 const path = require('path');
 
-// ── Identity ──────────────────────────────────────────────────────────────────
+// ── Identity (cacheada) ───────────────────────────────────────────────────────
+// La identidad NO cambia entre turnos. Se serializa UNA SOLA VEZ al cargar
+// el módulo y se reusa en cada llamada, ahorrando ~400-600 tokens por turno.
 const IDENTITY_PATH = path.join(__dirname, '../identity/identity.json');
-let _identityCache = null;
+
+let _serializedIdentity = null; // cache de la sección ya formateada
+let _identityRawCache   = null;
 
 function _getIdentity() {
-  if (_identityCache) return _identityCache;
+  if (_identityRawCache) return _identityRawCache;
   try {
-    _identityCache = JSON.parse(fs.readFileSync(IDENTITY_PATH, 'utf-8'));
+    _identityRawCache = JSON.parse(fs.readFileSync(IDENTITY_PATH, 'utf-8'));
   } catch {
-    _identityCache = { name: 'March 7th', core: 'Soy March 7th.' };
+    _identityRawCache = { name: 'March 7th', core: 'Soy March 7th.' };
   }
-  return _identityCache;
+  return _identityRawCache;
+}
+
+function _getSerializedIdentity() {
+  if (_serializedIdentity) return _serializedIdentity;
+  _serializedIdentity = _buildIdentitySection(_getIdentity());
+  return _serializedIdentity;
 }
 
 // Acciones cuyo campo ARCHIVO puede referirse a una carpeta especial del
@@ -249,9 +259,9 @@ function _buildMemorySection(persistentMemory) {
   if (persistentMemory.nodes?.length > 0) {
     parts.push('## Lo que sé del usuario y sus proyectos');
     for (const node of persistentMemory.nodes.slice(0, 8)) {
-      const label = node.label || node.id;
+      const type = node.type || 'Dato';
       const props = node.content ? node.content.slice(0, 200) : '';
-      parts.push(`- **${label}** (${node.type}): ${props}`);
+      parts.push(`- (${type}): ${props}`);
     }
   }
 
@@ -267,7 +277,7 @@ function _buildMemorySection(persistentMemory) {
         const when = ep.created_at
           ? new Date(ep.created_at).toLocaleDateString('es-MX')
           : 'antes';
-        const preview = (ep.content || '').slice(0, 150);
+        const preview = (ep.content || '').slice(0, 200);
         parts.push(`- [${when}] ${preview}`);
       }
     }
@@ -315,11 +325,11 @@ class GroqSerializer {
       toolIntent      = null,   // ← nuevo en Fase 3
     } = contextPackage;
 
-    const id = identity ?? _getIdentity();
-
     // Construir secciones del system prompt
+    // Identidad: cacheada (se genera UNA VEZ), NO se recalcula por turno
+    // OS/Memoria/Intención: dinámicas, se regeneran cada turno
     const sections = [
-      _buildIdentitySection(id),
+      _getSerializedIdentity(),
       _buildOSSection(osContext),
       _buildMemorySection(persistentMemory),
       _buildToolIntentSection(toolIntent),   // ← inyección Fase 3

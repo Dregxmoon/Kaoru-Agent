@@ -15,17 +15,7 @@ Prueba el pipeline completo de detección semántica de intenciones:
 
 Dependencias: IntentDetector, sqlite-vec, base de datos vectorial poblada.
 
-### test_prompt_composer.js  
-Prueba el subsistema PromptComposer:
-- Asignación de presupuesto de tokens
-- Ordenamiento de bloques por prioridad
-- Adaptadores de proveedor (Claude, OpenAI, Gemini, Groq)
-- Formatos de serialización (markdown, xml, json-sections)
-- Modo debug (inspección de bloques individuales)
-- Compatibilidad con el formato legacy de ContextAssembler
-
 **Ejecución:**
 ```bash
 node tests/test_intent_detection.js
-node tests/test_prompt_composer.js
 ```
