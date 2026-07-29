@@ -43,6 +43,7 @@ class SessionManager {
       this._history   = resumable.history;
       this._turnCount = resumable.turnCount;
       this._resolver.deduplicateNodes();
+      this._updater.cleanupMemoryArtifacts();
       this._maybeRunDecay(app);
       return { sessionId: this._sessionId, resumed: true, history: resumable.history };
     }
@@ -53,6 +54,7 @@ class SessionManager {
     console.log(`[session] sesión ${this._sessionId} iniciada`);
 
     this._resolver.deduplicateNodes();
+    this._updater.cleanupMemoryArtifacts();
 
     this._maybeRunDecay(app);
     return { sessionId: this._sessionId, resumed: false, history: [] };

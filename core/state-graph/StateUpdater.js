@@ -71,6 +71,26 @@ const LEGACY_LABELS = new Map([
 // a propósito, para ir "aprendiendo" cosas del usuario sin tocar los hechos fijos.
 const DYNAMIC_PREFIXES = ['proyecto_', 'preferencia_'];
 
+// Patrones de contenido técnico/comando — mismo set que ContradictionResolver
+// pero definido localmente para evitar acoplamiento circular
+const COMMAND_PATTERNS = [
+  /^Ejecutar:\s/i,
+  /^Voy a (leer|escribir|ejecutar)\s/i,
+  /^(git|npm|node|ls|cd|cat|echo|mkdir|rm|cp|mv|docker|kubectl|pip|npx|yarn)\s/i,
+  /^No (encontré|pude|se)\s/i,
+  /^Lo siento/i,
+  /^El comando no/i,
+  /^Parece que no/i,
+  /^No obtuve/i,
+  /^El sistema no/i,
+  /falló\.?$/i,
+  /^\[object Object\]/i,
+];
+
+function _isCommandContent(text) {
+  return COMMAND_PATTERNS.some(p => p.test(text.trim()));
+}
+
 function isValidLabel(label) {
   if (FIXED_LABELS.has(label)) return true;
   if (LEGACY_LABELS.has(label)) return true;
@@ -295,6 +315,55 @@ class StateUpdater {
   }
 
   runDecay() { this._graph.applyDecay(); }
+
+  /**
+   * Limpieza de memoria: encuentra nodos cuyo contenido son artefactos de
+   * comandos ejecutados (fallos del agente, ejecuciones aisladas, etc.)
+   * y los archiva o limpia. Esto evita que la memoria persistente se
+   * llene de "Ejecutar: git status | Actualizado: Lo siento..." que
+   * contamina el contexto del LLM en cada turno.
+   *
+   * @returns {{ archived: number, cleaned: number }}
+   */
+  cleanupMemoryArtifacts() {
+    if (!this._graph?._ready) return { archived: 0, cleaned: 0 };
+    let archived = 0, cleaned = 0;
+
+    try {
+      // Obtener TODOS los nodos activos con label dinámico (proyecto_*, preferencia_*)
+      // que son los más propensos a contaminarse con comandos
+      const allNodes = this._graph._db.prepare(`
+        SELECT id, label, content FROM nodes WHERE archived=0 AND (label LIKE 'proyecto_%' OR label LIKE 'preferencia_%')
+      `).all();
+
+      for (const node of allNodes) {
+        if (!node.content) continue;
+
+        // Si TODO el contenido es basura de comando, archivar el nodo entero
+        const lines = node.content.split(/\s*\|\s*Actualizado:\s*/);
+        const allAreCommands = lines.length > 0 && lines.every(l => _isCommandContent(l.trim()));
+        if (allAreCommands) {
+          console.log(`[state-updater] archivando nodo contaminado: ${node.label} — "${node.content.slice(0, 80)}"`);
+          this._graph._archiveNode(node.id);
+          archived++;
+          continue;
+        }
+
+        // Si hay mezcla, filtrar solo los segmentos de comando
+        const filtered = lines.filter(l => !_isCommandContent(l.trim()));
+        if (filtered.length > 0 && filtered.length < lines.length) {
+          const newContent = filtered.join(' | ');
+          console.log(`[state-updater] limpiando nodo: ${node.label} — ${lines.length - filtered.length} segmento(s) de comando eliminados`);
+          this._graph.updateNode(node.id, { content: newContent });
+          cleaned++;
+        }
+      }
+    } catch(e) {
+      console.warn('[state-updater] error en cleanupMemoryArtifacts:', e.message);
+    }
+
+    return { archived, cleaned };
+  }
 }
 
 module.exports = { StateUpdater, isValidLabel, migrateLabel, FIXED_LABELS, DYNAMIC_PREFIXES };
