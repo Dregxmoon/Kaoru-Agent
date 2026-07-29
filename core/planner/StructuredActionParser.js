@@ -62,6 +62,9 @@ const ACTION_TO_TOOL = {
   install_package:  'exec',
   web_search:       'web_search',
   navigate_browser: 'browser',
+  browser_action:   'browser',
+  apply_patch:      'apply_patch',
+  run_code:         'code_execution',
 
   // MCP — independiente de OpenClaw. 'mcp' es un pseudo-tool, manejado
   // especialmente en Planner._executeMCP (ver ahí), no por OpenClawBridge.
@@ -84,6 +87,9 @@ function _buildDescription(action, fields) {
     case 'install_package':  return `Instalar paquete: ${f.COMANDO || '(sin comando)'}`;
     case 'web_search':       return `Buscar en la web: "${f.QUERY || ''}"`;
     case 'navigate_browser': return `Navegar a: ${f.URL || '(sin URL)'}`;
+    case 'browser_action':   return `Navegador: ${f.ACCION || f.ACTION || f.URL || '(sin acción)'}`;
+    case 'apply_patch':      return `Aplicar patch a: ${f.ARCHIVO || '(sin archivo)'}`;
+    case 'run_code':         return `Ejecutar código: ${(f.CÓDIGO || f.CODIGO || f.CODE || '').slice(0, 60)}`;
     case 'mcp_call':         return `MCP · ${f.SERVIDOR || f.SERVER || '?'}: ${f.HERRAMIENTA || f.TOOL || '?'}`;
     default:                 return action;
   }
@@ -231,7 +237,14 @@ function _buildParams(action, fields, userGoal, projectCwd) {
       return { query: fields.QUERY, max_results: 5 };
 
     case 'navigate_browser':
-      return { action: 'navigate', url: fields.URL };
+    case 'browser_action':
+      return { action: fields.ACCION?.toLowerCase() || fields.ACTION?.toLowerCase() || 'navigate', url: fields.URL };
+
+    case 'apply_patch':
+      return { path: fields.ARCHIVO, patch: fields.PATCH || fields.DIFF };
+
+    case 'run_code':
+      return { code: fields.CÓDIGO || fields.CODIGO || fields.CODE };
 
     default:
       return { raw: fields };
@@ -394,8 +407,20 @@ class StructuredActionParser {
       return null;
     }
 
-    if (action === 'navigate_browser' && !fields.URL) {
-      console.warn('[structured-parser] navigate_browser sin campo URL');
+    if (action === 'navigate_browser' || action === 'browser_action') {
+      if (!fields.URL && !fields.ACCION && !fields.ACTION) {
+        console.warn('[structured-parser] browser sin URL ni ACCION');
+        return null;
+      }
+    }
+
+    if (action === 'apply_patch' && !fields.ARCHIVO) {
+      console.warn('[structured-parser] apply_patch sin campo ARCHIVO');
+      return null;
+    }
+
+    if (action === 'run_code' && !fields.CÓDIGO && !fields.CODIGO && !fields.CODE) {
+      console.warn('[structured-parser] run_code sin campo CÓDIGO');
       return null;
     }
 

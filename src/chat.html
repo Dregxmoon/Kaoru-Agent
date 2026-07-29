@@ -254,6 +254,16 @@ body::before { content:''; position:fixed; inset:0; background:var(--grain); poi
 #msg-input:focus { border-color:var(--accent); box-shadow:0 0 0 2px var(--accent-glow); }
 #msg-input::placeholder { color:var(--text-secondary); opacity:.6; }
 
+#at-suggestions { position:absolute; bottom:100%; left:14px; right:14px; max-height:200px; overflow-y:auto; background:var(--bg-panel); border:1px solid var(--border); border-radius:8px; box-shadow:0 4px 20px rgba(0,0,0,.3); z-index:100; display:none; }
+.at-suggestion-item { padding:8px 14px; cursor:pointer; display:flex; align-items:center; gap:8px; font-size:13px; color:var(--text-primary); border-bottom:1px solid var(--border); transition:background .15s; }
+.at-suggestion-item:last-child { border-bottom:none; }
+.at-suggestion-item:hover,
+.at-suggestion-item.selected { background:var(--accent); color:#fff; }
+.at-suggestion-item .file-icon { opacity:.7; font-size:14px; }
+.at-suggestion-item .file-path { opacity:.7; font-size:11px; margin-left:auto; }
+.at-suggestion-item .file-type { font-size:10px; opacity:.8; background:var(--bg-input); border-radius:4px; padding:1px 6px; margin-left:6px; }
+.at-suggestion-loading { padding:14px; text-align:center; color:var(--text-secondary); font-size:12px; }
+
 .input-btn { width:38px; height:38px; border-radius:8px; border:1px solid var(--border); background:var(--bg-panel); cursor:pointer; display:flex; align-items:center; justify-content:center; transition:all .2s; flex-shrink:0; color:var(--text-secondary); }
 .input-btn:hover { border-color:var(--accent); color:var(--accent); }
 .input-btn svg { width:16px; height:16px; }
@@ -367,6 +377,7 @@ body::before { content:''; position:fixed; inset:0; background:var(--grain); poi
     <div id="attachments-bar"></div>
 
     <div id="input-area">
+      <div id="at-suggestions" class="at-suggestions" style="display:none"></div>
       <div id="input-row">
         <button class="input-btn" id="voice-btn" title="Hablar">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
@@ -394,7 +405,7 @@ body::before { content:''; position:fixed; inset:0; background:var(--grain); poi
         </button>
       </div>
       <div id="input-info">
-        <span class="input-hint" id="input-hint-text">Enter ↵ enviar · Shift+Enter nueva línea · arrastra archivos aquí</span>
+        <span class="input-hint" id="input-hint-text">Enter ↵ enviar · Shift+Enter nueva línea · arrastra archivos · @archivo para contexto</span>
         <span id="char-count">0</span>
       </div>
     </div>
@@ -546,7 +557,10 @@ const VIEW_PERSONALITY = {
   duration: { full:{min:30,max:80}, half:{min:18,max:45}, head:{min:10,max:25} },
 };
 
-const LLMProvider = require('../core/llm/LLMProvider.js');
+const LLMProvider     = require('../core/llm/LLMProvider.js');
+const CommandRegistry = require('../core/commands/CommandRegistry.js');
+const FileResolver    = require('../core/commands/FileResolver.js');
+const AgentManager    = require('../core/agents/AgentManager.js');
 
 // ── Estado global ─────────────────────────────────────────────────────────────
 let pixiApp, model, modelNaturalH;
@@ -780,19 +794,12 @@ ipcRenderer.on('memory-status', (e, { usingFallback }) => {
 // LLM, para que la conversación siga exactamente donde se quedó.
 ipcRenderer.on('resumed-session', (e, { history }) => {
   if (!Array.isArray(history) || !history.length) return;
-  console.log(`restaurando sesión interrumpida: ${history.length} mensajes`);
-
-  const divider = document.createElement('div');
-  divider.className = 'session-resume-divider';
-  divider.textContent = '· sesión anterior recuperada ·';
-  messagesEl.appendChild(divider);
+  console.log(`sesión retomada: ${history.length} mensajes en contexto (no se muestran)`);
 
   for (const turn of history) {
     if (!turn?.content) continue;
-    addMessage(turn.role === 'user' ? 'user' : 'march', turn.content);
     sessionHistory.push(turn);
   }
-  messagesEl.scrollTop = messagesEl.scrollHeight;
 });
 
 // ── Settings modal ────────────────────────────────────────────────────────────
@@ -1145,11 +1152,42 @@ async function processMessage(text, files = []) {
   const trimmed = text.trim();
   if (!trimmed && files.length === 0) return;
 
+  // ── Comandos / (no usan LLM ni context building) ────────────────
+  if (trimmed.startsWith('/')) {
+    addMessage('user', trimmed);
+    const cmdCtx = {
+      sessionHistory, pushToSession, chatMode, applyModeUI,
+      LLMProvider, ipcRenderer,
+      sendIPC: (ch, d) => ipcRenderer.send(ch, d),
+      addMessage, processMessage,
+      fs, path,
+      process: { cwd: () => process.cwd() },
+    };
+
+    // Also pass ipcRenderer for commands that use IPC (like /undo)
+    cmdCtx.ipcRenderer = ipcRenderer;
+    const cmdResult = await CommandRegistry.execute(trimmed, cmdCtx);
+    const asstMsg = cmdResult.error
+      ? `⚠️ ${cmdResult.error}`
+      : cmdResult.result || '(sin respuesta)';
+    addMessage('assistant', asstMsg);
+    pushToSession('assistant', `[comando] ${asstMsg}`);
+    return;
+  }
+
+  // ── @ file references ──────────────────────────────────────────────
+  const fileResult = FileResolver.buildFileContext(trimmed, process.cwd());
+
   addMessage('user', trimmed || '(archivo adjunto)', files);
 
   if (trimmed) {
-    pushToSession('user', trimmed);
-    ipcRenderer.send('memory-add-turn', { role: 'user', content: trimmed });
+    const sessionMsg = fileResult.contexts.length > 0
+      ? trimmed + '\n\n' + fileResult.contexts.map(c =>
+          `[Contexto: ${c.path}]\n\`\`\`\n${c.content}\n\`\`\``
+        ).join('\n\n')
+      : trimmed;
+    pushToSession('user', sessionMsg);
+    ipcRenderer.send('memory-add-turn', { role: 'user', content: sessionMsg });
   }
 
   showThinking();
@@ -1166,7 +1204,14 @@ async function processMessage(text, files = []) {
     if (!context || !context.messages || !context.systemPrompt) {
       throw new Error('context inválido');
     }
-    console.log('generando respuesta en modo:', chatMode);
+
+    // Override system prompt with active agent prompt
+    const agentPrompt = AgentManager.getSystemPrompt();
+    if (agentPrompt) {
+      context.systemPrompt = `${agentPrompt}\n\n---\n\n${context.systemPrompt}`;
+    }
+
+    console.log('generando respuesta en modo:', chatMode, 'agente:', AgentManager.getActive().name);
     response = chatMode === 'task'
       ? await LLMProvider.completeTask(context.messages, context.systemPrompt)
       : await LLMProvider.complete(context.messages, context.systemPrompt);
@@ -1510,17 +1555,114 @@ const sendBtn   = document.getElementById('send-btn');
 const charCount = document.getElementById('char-count');
 const hintEl    = document.getElementById('input-hint-text');
 
+let _atProjectFiles = null;
+let _atSelectedIdx = -1;
+let _atQuery = '';
+
+function _getProjectFiles() {
+  if (_atProjectFiles) return _atProjectFiles;
+  try {
+    _atProjectFiles = FileResolver.listProjectFiles(process.cwd());
+  } catch { _atProjectFiles = []; }
+  return _atProjectFiles;
+}
+
+function _showAtSuggestions(query) {
+  _atQuery = query;
+  const el = document.getElementById('at-suggestions');
+  if (!query) { el.style.display = 'none'; return; }
+
+  const files = _getProjectFiles().filter(f =>
+    f.path.toLowerCase().includes(query.toLowerCase())
+  ).slice(0, 20);
+
+  if (files.length === 0) { el.style.display = 'none'; return; }
+
+  el.innerHTML = files.map((f, i) =>
+    `<div class="at-suggestion-item" data-index="${i}" data-path="${f.path.replace(/"/g, '&quot;')}">
+      <span class="file-icon">${f.type === 'directory' ? '📁' : '📄'}</span>
+      <span>${_highlightMatch(f.name, query)}</span>
+      <span class="file-path">${f.path.split('/').slice(0, -1).join('/') || '.'}</span>
+    </div>`
+  ).join('');
+  el.style.display = 'block';
+  _atSelectedIdx = -1;
+}
+
+function _highlightMatch(name, query) {
+  const idx = name.toLowerCase().indexOf(query.toLowerCase());
+  if (idx === -1) return name.replace(/</g, '&lt;');
+  return name.slice(0, idx) + '<strong>' + name.slice(idx, idx + query.length) + '</strong>' + name.slice(idx + query.length);
+}
+
+function _applyAtSuggestion(path) {
+  const el = document.getElementById('at-suggestions');
+  el.style.display = 'none';
+
+  const cursorPos = input.selectionStart;
+  const text = input.value;
+  const before = text.slice(0, cursorPos);
+  const after = text.slice(cursorPos);
+
+  const atIdx = before.lastIndexOf('@');
+  if (atIdx === -1) return;
+
+  const newText = before.slice(0, atIdx + 1) + path + after;
+  input.value = newText;
+  const newPos = atIdx + 1 + path.length;
+  input.setSelectionRange(newPos, newPos);
+  input.dispatchEvent(new Event('input'));
+  input.focus();
+}
+
 input.addEventListener('input', () => {
   charCount.textContent = input.value.length;
   input.style.height = 'auto';
   input.style.height = Math.min(input.scrollHeight, 120) + 'px';
+
+  const cursorPos = input.selectionStart;
+  const textBeforeCursor = input.value.slice(0, cursorPos);
+  const atIdx = textBeforeCursor.lastIndexOf('@');
+  if (atIdx === -1 || textBeforeCursor.slice(atIdx).includes(' ')) {
+    document.getElementById('at-suggestions').style.display = 'none';
+    return;
+  }
+  const query = textBeforeCursor.slice(atIdx + 1);
+  _showAtSuggestions(query);
 });
 input.addEventListener('keydown', (e) => {
   if (e.key === 'Enter' && !e.shiftKey) {
+    const atEl = document.getElementById('at-suggestions');
+    if (atEl.style.display === 'block') {
+      e.preventDefault();
+      const selected = atEl.querySelector('.at-suggestion-item.selected');
+      if (selected) {
+        _applyAtSuggestion(selected.dataset.path);
+        return;
+      }
+    }
     e.preventDefault();
     const text = input.value;
     input.value = ''; input.style.height = 'auto'; charCount.textContent = '0';
+    document.getElementById('at-suggestions').style.display = 'none';
     sendMessage(text);
+  }
+  if (e.key === 'Tab' || e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+    const atEl = document.getElementById('at-suggestions');
+    if (atEl.style.display !== 'block') return;
+    e.preventDefault();
+    const items = atEl.querySelectorAll('.at-suggestion-item');
+    if (items.length === 0) return;
+    if (e.key === 'Tab' || e.key === 'ArrowDown') {
+      _atSelectedIdx = (_atSelectedIdx + 1) % items.length;
+    } else {
+      _atSelectedIdx = (_atSelectedIdx - 1 + items.length) % items.length;
+    }
+    items.forEach((el, i) => el.classList.toggle('selected', i === _atSelectedIdx));
+    if (items[_atSelectedIdx]) items[_atSelectedIdx].scrollIntoView({ block: 'nearest' });
+  }
+  if (e.key === 'Escape') {
+    document.getElementById('at-suggestions').style.display = 'none';
   }
 });
 sendBtn.addEventListener('click', () => {

@@ -648,12 +648,30 @@ function createTables(db) {
     );
   `);
 
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS skill_catalog (
+      id          INTEGER PRIMARY KEY AUTOINCREMENT,
+      name        TEXT NOT NULL UNIQUE,
+      description TEXT NOT NULL DEFAULT '',
+      version     TEXT NOT NULL DEFAULT '1.0.0',
+      domains     TEXT NOT NULL DEFAULT '[]',
+      content     TEXT NOT NULL DEFAULT '',
+      created_at  INTEGER DEFAULT (strftime('%s', 'now'))
+    );
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_skill_catalog_name ON skill_catalog(name);
+    CREATE VIRTUAL TABLE IF NOT EXISTS skill_vectors USING vec0(
+      embedding float[384]
+    );
+  `);
+
   console.log('[init-vectors] Tablas creadas (o ya existían).');
 }
 
 function clearTables(db) {
   db.exec(`DELETE FROM intent_catalog;`);
   db.exec(`DELETE FROM intent_vectors;`);
+  db.exec(`DELETE FROM skill_catalog;`);
+  db.exec(`DELETE FROM skill_vectors;`);
   console.log('[init-vectors] Tablas limpiadas para repoblar.');
 }
 

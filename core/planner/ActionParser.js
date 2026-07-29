@@ -61,7 +61,10 @@ function isHighImpact(tool, params) {
     return HIGH_IMPACT_PATTERNS.some(p => p.test(params.command));
 
   if (tool === 'write' && params.path)
-    return HIGH_IMPACT_PATTERNS.some(p => p.test(params.path)) || _isOutsideProject(params.path);
+    return _isSensitivePath(params.path) || HIGH_IMPACT_PATTERNS.some(p => p.test(params.path)) || _isOutsideProject(params.path);
+
+  if (tool === 'edit' && params.path)
+    return _isSensitivePath(params.path) || _isOutsideProject(params.path);
 
   if (tool === 'read' && params.path)
     return _isOutsideProject(params.path);

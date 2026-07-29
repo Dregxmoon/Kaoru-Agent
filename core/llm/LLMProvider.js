@@ -326,6 +326,172 @@ const PROVIDERS = {
   openai: callOpenAI,
 };
 
+// ── Tool-calling ──────────────────────────────────────────────────────────────
+
+const { TOOL_SCHEMAS } = require('./ToolSchemas.js');
+
+function _buildOpenAITools(tools) {
+  return tools.map(t => ({
+    type: 'function',
+    function: {
+      name: t.name,
+      description: (t.description || '').slice(0, 1024),
+      parameters: t.inputSchema,
+    },
+  }));
+}
+
+function _buildGeminiTools(tools) {
+  return [{
+    function_declarations: tools.map(t => ({
+      name: t.name,
+      description: (t.description || '').slice(0, 1024),
+      parameters: t.inputSchema,
+    })),
+  }];
+}
+
+function _normalizeOpenAIResponse(body) {
+  const choice = body.choices?.[0];
+  if (!choice) return { content: null, toolCalls: null };
+  const msg = choice.message;
+  if (!msg) return { content: null, toolCalls: null };
+
+  const content = msg.content || null;
+  const rawCalls = msg.tool_calls;
+  if (!rawCalls || rawCalls.length === 0) return { content, toolCalls: null };
+
+  const toolCalls = rawCalls
+    .filter(tc => tc.type === 'function')
+    .map(tc => {
+      try {
+        const params = JSON.parse(tc.function.arguments);
+        return { tool: tc.function.name, params, id: tc.id };
+      } catch {
+        return null;
+      }
+    })
+    .filter(Boolean);
+
+  return { content, toolCalls: toolCalls.length > 0 ? toolCalls : null };
+}
+
+function _normalizeGeminiResponse(body) {
+  const candidate = body.candidates?.[0];
+  if (!candidate) return { content: null, toolCalls: null };
+  const parts = candidate.content?.parts;
+  if (!parts) return { content: null, toolCalls: null };
+
+  let content = null;
+  const toolCalls = [];
+
+  for (const part of parts) {
+    if (part.text !== undefined) {
+      content = (content || '') + part.text;
+    }
+    if (part.functionCall) {
+      toolCalls.push({
+        tool: part.functionCall.name,
+        params: part.functionCall.args || {},
+      });
+    }
+  }
+
+  return { content: (content || '').trim() || null, toolCalls: toolCalls.length > 0 ? toolCalls : null };
+}
+
+async function callGroqWithTools(messages, systemPrompt, mode, tools) {
+  const key = _config.apiKeys.groq;
+  if (!key) throw new Error('No Groq API key');
+
+  const model     = MODELS.groq[mode];
+  const maxTokens = MAX_OUTPUT[mode];
+  const timeoutMs = TIMEOUT_MS[mode] ?? TIMEOUT_MS.fast;
+  const history   = _trimHistoryForMode(messages, mode);
+  const msgs      = [{ role: 'system', content: systemPrompt }, ...history];
+
+  const body = {
+    model, messages: msgs,
+    max_tokens: maxTokens, temperature: 0.85,
+    tools: _buildOpenAITools(tools),
+    tool_choice: 'auto',
+  };
+
+  console.log(`[llm] groq tool-calling model: ${model} (${mode}, ${tools.length} tools)`);
+
+  const res = await post(
+    'https://api.groq.com/openai/v1/chat/completions',
+    { Authorization: `Bearer ${key}` },
+    body, timeoutMs
+  );
+  if (res.status !== 200) throw new Error(`Groq ${res.status}: ${JSON.stringify(res.body)}`);
+  return _normalizeOpenAIResponse(res.body);
+}
+
+async function callGeminiWithTools(messages, systemPrompt, mode, tools) {
+  const key = _config.apiKeys.gemini;
+  if (!key) throw new Error('No Gemini API key');
+
+  const model     = MODELS.gemini[mode];
+  const maxTokens = MAX_OUTPUT[mode];
+  const timeoutMs = TIMEOUT_MS[mode] ?? TIMEOUT_MS.fast;
+  const history   = _trimHistoryForMode(messages, mode);
+  const contents  = history.map(m => ({
+    role:  m.role === 'assistant' ? 'model' : 'user',
+    parts: [{ text: m.content }],
+  }));
+
+  const body = {
+    system_instruction: { parts: [{ text: systemPrompt }] },
+    contents,
+    tools: _buildGeminiTools(tools),
+    generationConfig: { maxOutputTokens: maxTokens, temperature: 0.85 },
+  };
+
+  console.log(`[llm] gemini tool-calling model: ${model} (${mode}, ${tools.length} tools)`);
+
+  const res = await post(
+    `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${key}`,
+    {}, body, timeoutMs
+  );
+  if (res.status !== 200) throw new Error(`Gemini ${res.status}: ${JSON.stringify(res.body)}`);
+  return _normalizeGeminiResponse(res.body);
+}
+
+async function callOpenAIWithTools(messages, systemPrompt, mode, tools) {
+  const key = _config.apiKeys.openai;
+  if (!key) throw new Error('No OpenAI API key');
+
+  const model     = MODELS.openai[mode];
+  const maxTokens = MAX_OUTPUT[mode];
+  const timeoutMs = TIMEOUT_MS[mode] ?? TIMEOUT_MS.fast;
+  const history   = _trimHistoryForMode(messages, mode);
+  const msgs      = [{ role: 'system', content: systemPrompt }, ...history];
+
+  const body = {
+    model, messages: msgs,
+    max_tokens: maxTokens, temperature: 0.85,
+    tools: _buildOpenAITools(tools),
+    tool_choice: 'auto',
+  };
+
+  console.log(`[llm] openai tool-calling model: ${model} (${mode}, ${tools.length} tools)`);
+
+  const res = await post(
+    'https://api.openai.com/v1/chat/completions',
+    { Authorization: `Bearer ${key}` },
+    body, timeoutMs
+  );
+  if (res.status !== 200) throw new Error(`OpenAI ${res.status}: ${JSON.stringify(res.body)}`);
+  return _normalizeOpenAIResponse(res.body);
+}
+
+const PROVIDERS_WITH_TOOLS = {
+  groq:   callGroqWithTools,
+  gemini: callGeminiWithTools,
+  openai: callOpenAIWithTools,
+};
+
 // ── API pública ───────────────────────────────────────────────────────────────
 
 /**
@@ -440,6 +606,64 @@ async function completeTask(messages, systemPrompt) {
   return _callWithFallback(messages, systemPrompt, 'smart');
 }
 
+/**
+ * Llama al LLM con herramientas (tool-calling nativo).
+ * Retorna { content: string|null, toolCalls: Array<{tool, params}>|null }
+ *
+ * Si el proveedor activo o el modelo no soporta tool-calling,
+ * devuelve { content, toolCalls: null } — el llamador debe tener
+ * un fallback a parsing de texto (StructuredActionParser).
+ */
+async function _callWithFallbackTools(messages, systemPrompt, mode = 'smart', tools) {
+  if (!tools || tools.length === 0) {
+    const text = await _callWithFallback(messages, systemPrompt, mode);
+    return { content: text, toolCalls: null };
+  }
+
+  const order = [_config.primary, ...(_config.fallback || [])];
+  const tried = [];
+
+  for (const providerName of order) {
+    const fn = PROVIDERS_WITH_TOOLS[providerName];
+    if (!fn) continue;
+    const key = _config.apiKeys[providerName];
+    if (!key || key.trim() === '') continue;
+
+    for (let attempt = 0; attempt <= MAX_RETRIES_PER_PROVIDER; attempt++) {
+      try {
+        if (attempt > 0) {
+          const waitMs = _backoffWithJitter(attempt - 1);
+          await _sleep(waitMs);
+        }
+        const result = await fn(messages, systemPrompt, mode, tools);
+        return result;
+      } catch(e) {
+        const retryable = _isRetryableError(e);
+        if (!retryable || attempt === MAX_RETRIES_PER_PROVIDER) {
+          tried.push(providerName);
+          break;
+        }
+      }
+    }
+  }
+
+  console.warn(`[llm] tool-calling falló en todos los providers (${tried.join(', ')}), haciendo fallback a texto`);
+  const text = await _callWithFallback(messages, systemPrompt, mode);
+  return { content: text, toolCalls: null };
+}
+
+/**
+ * Completa con herramientas (tool-calling nativo).
+ * Las tools son el array de schemas de ToolSchemas.js.
+ * Retorna { content: string|null, toolCalls: Array<{tool, params}>|null }
+ *
+ * Si el modelo no soporta tool-calling o no devuelve tool_calls,
+ * toolCalls será null y content tendrá la respuesta textual.
+ */
+async function completeWithTools(messages, systemPrompt, tools = []) {
+  return _callWithFallbackTools(messages, systemPrompt, 'smart', tools);
+}
+
 function getActiveProvider() {
   const order = [_config.primary, ...(_config.fallback || [])];
   for (const name of order) {
@@ -460,7 +684,13 @@ function getActiveModel(mode = 'fast') {
 }
 
 module.exports = {
-  configure, complete, completeTask, getActiveProvider, getActiveModel,
+  configure, complete, completeTask, completeWithTools,
+  getActiveProvider, getActiveModel,
+  getToolSchemas: () => require('./ToolSchemas.js').TOOL_SCHEMAS,
   _debug_isRetryableError: _isRetryableError,
   _debug_backoffWithJitter: _backoffWithJitter,
+  _debug_normalizeOpenAI: _normalizeOpenAIResponse,
+  _debug_normalizeGemini: _normalizeGeminiResponse,
+  _debug_buildOpenAITools: _buildOpenAITools,
+  _debug_buildGeminiTools: _buildGeminiTools,
 };

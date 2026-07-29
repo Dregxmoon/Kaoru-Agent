@@ -119,12 +119,62 @@ const TOOL_SCHEMAS = [
     ],
     highImpact: false,
   },
+  // ── LSP tools (Fase 7) ─────────────────────────────────────────────────────
+  {
+    id: 'lsp.get_diagnostics',
+    name: 'get_diagnostics',
+    domain: ['code', 'lsp'],
+    source: 'lsp',
+    description: 'Obtiene diagnósticos (errores, advertencias) de un archivo a través del servidor LSP',
+    params: [
+      { name: 'filePath', type: 'string', description: 'Ruta del archivo a diagnosticar', required: true },
+    ],
+    highImpact: false,
+  },
+  {
+    id: 'lsp.go_to_definition',
+    name: 'go_to_definition',
+    domain: ['code', 'lsp'],
+    source: 'lsp',
+    description: 'Navega a la definición de un símbolo en una posición específica',
+    params: [
+      { name: 'filePath', type: 'string', description: 'Ruta del archivo', required: true },
+      { name: 'line', type: 'number', description: 'Línea (0-indexed)', required: true },
+      { name: 'character', type: 'number', description: 'Columna (0-indexed)', required: true },
+    ],
+    highImpact: false,
+  },
+  {
+    id: 'lsp.find_references',
+    name: 'find_references',
+    domain: ['code', 'lsp'],
+    source: 'lsp',
+    description: 'Encuentra todas las referencias a un símbolo en el proyecto',
+    params: [
+      { name: 'filePath', type: 'string', description: 'Ruta del archivo', required: true },
+      { name: 'line', type: 'number', description: 'Línea (0-indexed)', required: true },
+      { name: 'character', type: 'number', description: 'Columna (0-indexed)', required: true },
+    ],
+    highImpact: false,
+  },
+  {
+    id: 'lsp.get_symbols',
+    name: 'get_symbols',
+    domain: ['code', 'lsp'],
+    source: 'lsp',
+    description: 'Obtiene la lista de símbolos (funciones, clases, variables) de un archivo',
+    params: [
+      { name: 'filePath', type: 'string', description: 'Ruta del archivo', required: true },
+    ],
+    highImpact: false,
+  },
 ];
 
 class ToolRegistry {
   constructor() {
     this._mcpManager = null;
     this._bridge = null;
+    this._lspManager = null;
   }
 
   setMCPManager(mcp) {
@@ -135,6 +185,10 @@ class ToolRegistry {
     this._bridge = bridge;
   }
 
+  setLSPManager(lsp) {
+    this._lspManager = lsp;
+  }
+
   _getOpenClawTools() {
     let available = false;
     if (this._bridge) {
@@ -143,11 +197,16 @@ class ToolRegistry {
         available = stats?.available ?? false;
       } catch(e) {}
     }
-    return TOOL_SCHEMAS.map(s => ({
-      ...s,
-      available,
-      source: 'openclaw',
-    }));
+    return TOOL_SCHEMAS
+      .filter(s => (s.source || 'openclaw') === 'openclaw')
+      .map(s => ({ ...s, available }));
+  }
+
+  _getLSPTools() {
+    const lspAvailable = this._lspManager?.isRunning || false;
+    return TOOL_SCHEMAS
+      .filter(s => s.source === 'lsp')
+      .map(s => ({ ...s, available: lspAvailable }));
   }
 
   _getMCPTools() {
@@ -179,8 +238,9 @@ class ToolRegistry {
 
   getCatalog(domain = null) {
     const openclaw = this._getOpenClawTools();
+    const lsp = this._getLSPTools();
     const mcp = this._getMCPTools();
-    let all = [...openclaw, ...mcp];
+    let all = [...openclaw, ...lsp, ...mcp];
 
     if (domain && domain.id) {
       all = all.filter(t => t.domain.includes(domain.id));
@@ -190,9 +250,11 @@ class ToolRegistry {
       tools: all,
       total: all.length,
       openclawAvailable: openclaw.some(t => t.available),
+      lspAvailable: lsp.some(t => t.available),
       mcpAvailable: mcp.length > 0,
       bySource: {
         openclaw: openclaw.length,
+        lsp: lsp.length,
         mcp: mcp.length,
       },
     };
@@ -203,7 +265,7 @@ class ToolRegistry {
   }
 
   getToolById(id) {
-    const all = this._getOpenClawTools().concat(this._getMCPTools());
+    const all = this._getOpenClawTools().concat(this._getLSPTools()).concat(this._getMCPTools());
     return all.find(t => t.id === id) || null;
   }
 
@@ -219,6 +281,7 @@ class ToolRegistry {
     lines.push('');
 
     const openclawTools = catalog.tools.filter(t => t.source === 'openclaw');
+    const lspTools = catalog.tools.filter(t => t.source === 'lsp');
     const mcpTools = catalog.tools.filter(t => t.source === 'mcp');
 
     if (openclawTools.length > 0) {
@@ -232,8 +295,19 @@ class ToolRegistry {
       lines.push('');
     }
 
+    if (lspTools.length > 0) {
+      lines.push('## Herramientas LSP (análisis de código)');
+      for (const t of lspTools) {
+        let line = `  - ${t.name}`;
+        if (t.description) line += `: ${t.description}`;
+        if (!catalog.lspAvailable) line += ' (LSP no activo)';
+        lines.push(line);
+      }
+      lines.push('');
+    }
+
     if (mcpTools.length > 0) {
-      const capped = mcpTools.slice(0, maxTools - openclawTools.length);
+      const capped = mcpTools.slice(0, maxTools - openclawTools.length - lspTools.length);
       lines.push('## Herramientas MCP externas');
       for (const t of capped) {
         let line = `  - [${t.server}] ${t.name}`;

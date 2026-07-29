@@ -18,9 +18,10 @@
  * completo. Ver GroqSerializer.js para el otro lado de este mismo fix.
  */
 
-const path = require('path');
-const fs   = require('fs');
-const cp   = require('child_process');
+const path   = require('path');
+const fs     = require('fs');
+const cp     = require('child_process');
+const crypto = require('crypto');
 
 const { getIntentDetector }            = require('./grounding/IntentDetector.js');
 const { getStateGraph }                = require('./state-graph/StateGraph.js');
@@ -35,11 +36,13 @@ const { ProactiveEngine }              = require('./behavior/ProactiveEngine.js'
 const { BehaviorModel }                = require('./behavior/BehaviorModel.js');
 const { getPlanner, setProjectCWD, isHighImpact } = require('./planner/Planner.js');
 const { getOpenClawBridge }            = require('./planner/OpenClawBridge.js');
+const { AgentLoop }                    = require('./planner/AgentLoop.js');
 const { getMCPManager }                = require('./mcp/MCPManager.js');
 const LLMProvider                      = require('./llm/LLMProvider.js');
 const KeychainManager                  = require('../infrastructure/keychain/KeychainManager.js');
 const TaskDetector                     = require('./task/TaskDetector.js');
 const { getToolRegistry }              = require('./task/ToolRegistry.js');
+const { resolveToolset }               = require('./task/ToolResolver.js');
 
 // FIX: presupuesto de tokens del system prompt COMPLETO — antes vivía
 // dentro de GroqSerializer.js y se aplicaba antes de pegar BehaviorModel,
@@ -72,10 +75,12 @@ let _mcpReadyPromise = Promise.resolve();
 let _openclawProcess = null;
 let _taskDetector = null;
 let _toolRegistry = null;
+let _lspManager = null;
 
 let _pruneTimer   = null;
 let _initialized  = false;
 let _onInitiative = null;
+let _skillManager = null;
 
 function init(app) {
   if (_initialized) {
@@ -127,6 +132,24 @@ if (process.env.DEBUG) console.log('[march-core] graph.usingFallback:', _graph.u
   _toolRegistry = getToolRegistry();
   _toolRegistry.setMCPManager(_mcp);
   _toolRegistry.setOpenClawBridge(_bridge);
+
+  _lspManager = new (require('./lsp/LSPManager.js').LSPManager)();
+  _toolRegistry.setLSPManager(_lspManager);
+
+  _skillManager = new (require('./skills/SkillManager.js').SkillManager)({
+    skillsDir: path.join(__dirname, '..', 'skills'),
+    db: (!_graph.usingFallback && _graph._db) ? _graph._db : null,
+    threshold: 0.72,
+    topK: 3,
+  });
+  if (!_graph.usingFallback && _graph._db) {
+    _skillManager.scan(true).then(() => {
+      console.log('[march-core] skills escaneadas');
+      _skillManager.index().then(() => {
+        console.log('[march-core] skills indexadas');
+      }).catch(e => console.warn('[march-core] error indexando skills:', e.message));
+    }).catch(e => console.warn('[march-core] error escaneando skills:', e.message));
+  }
 
   const projectCWD = app ? app.getAppPath() : process.cwd();
   setProjectCWD(projectCWD);
@@ -331,6 +354,14 @@ async function setActiveWorkspace(newPath) {
     } catch(e) { console.warn('[march-core] no se pudo persistir workspace:', e.message); }
   }
 
+  // ── LSP: arrancar servidor para el nuevo workspace ─────────────────
+  if (_lspManager) {
+    _lspManager.stop().catch(() => {});
+    _lspManager.start(resolved, 'typescript').then(() => {
+      console.log('[march-core] LSP listo para', resolved);
+    }).catch(e => console.warn('[march-core] LSP no disponible:', e.message));
+  }
+
   _bus.emit('workspace:changed', { path: resolved });
   console.log('[march-core] workspace activo:', resolved);
   return { ok: true, path: resolved };
@@ -375,6 +406,9 @@ async function shutdown() {
   if (_osSensor) {
     try { _osSensor.stop(); } catch(e) { console.warn('[march-core] error deteniendo sensor:', e.message); }
   }
+  if (_lspManager) {
+    try { await _lspManager.stop(); } catch(e) { console.warn('[march-core] error cerrando LSP:', e.message); }
+  }
   _proactive?.stop();
   if (_pruneTimer) { clearInterval(_pruneTimer); _pruneTimer = null; }
 }
@@ -389,8 +423,15 @@ function _startOpenClaw() {
     return;
   }
 
+  // Generar API key para openclaw-server y pasarla vía entorno
+  const apiKey = crypto.randomBytes(32).toString('hex');
+  process.env.OPENCLAW_API_KEY = apiKey;
+
   try {
-    _openclawProcess = cp.fork(serverPath, [], { stdio: 'pipe' });
+    _openclawProcess = cp.fork(serverPath, [], {
+      stdio: 'pipe',
+      env: { ...process.env, OPENCLAW_API_KEY: apiKey },
+    });
 
     _openclawProcess.stdout?.on('data', (d) => {
       const msg = d.toString().trim();
@@ -541,14 +582,58 @@ async function buildContext(sessionHistory, activeProvider, options = {}) {
     }
   }
 
+  // ── MODE: AGENT (loop cerrado) ─────────────────────────────────────────
+  // AgentLoop maneja su propia inyección de skills y herramientas.
+  // Devolvemos el contexto base (identidad + comportamiento) sin duplicar.
+  if (mode === 'agent') {
+    if (result.systemPrompt.length > MAX_SYSTEM_CHARS) {
+      result.systemPrompt = result.systemPrompt.slice(0, MAX_SYSTEM_CHARS) + '\n\n[contexto truncado por longitud]';
+      console.warn(`[march-core] system prompt truncado modo agent: ${result.systemPrompt.length} chars`);
+    }
+    return { ...result, behaviorCtx, toolIntent, taskIntent, mode, nativeToolSchemas: null };
+  }
+
+  // ── Skill knowledge injection (Fase 4) ──────────────────────────────────
+  if (_skillManager && typeof _skillManager.buildInjection === 'function') {
+    try {
+      const skillBlock = await _skillManager.buildInjection(userText, (_graph && !_graph.usingFallback && _graph._db) ? _graph._db : null);
+      if (skillBlock) {
+        result.systemPrompt += '\n\n' + skillBlock;
+      }
+    } catch(e) {
+      console.warn('[march-core] error inyectando skills:', e.message);
+    }
+  }
+
+  // ── Tool Resolution (Fase 5): Skill > MCP > OpenClaw ────────────────────
+  let toolCatalog = null;
+  let resolvedTools = null;
+  if (mode !== 'chat') {
+    try {
+      resolvedTools = await resolveToolset({
+        userMessage: userText,
+        domain: taskIntent?.domain || null,
+        toolRegistry: _toolRegistry,
+        skillManager: _skillManager || null,
+        mcpManager: _mcp || null,
+        db: (_graph && !_graph.usingFallback && _graph._db) ? _graph._db : null,
+      });
+      toolCatalog = resolvedTools?.promptCatalog || null;
+    } catch(e) {
+      console.warn('[march-core] error en resolución de herramientas:', e.message);
+    }
+  }
+  if (!toolCatalog) {
+    toolCatalog = _toolRegistry.serializeToPrompt(taskIntent?.domain || null);
+  }
+
   // ── MODE: PLAN ─────────────────────────────────────────────────────────────
   // Cuando el modo es 'plan', se inyecta el catálogo de herramientas pero
   // con instrucciones de SOLO planificar, sin ejecutar nada. El LLM debe
   // devolver un bloque ```plan con los pasos.
   if (mode === 'plan') {
-    const catalog = _toolRegistry.serializeToPrompt(taskIntent?.domain || null);
-    if (catalog) {
-      result.systemPrompt += '\n\n' + catalog;
+    if (toolCatalog) {
+      result.systemPrompt += '\n\n' + toolCatalog;
     }
     result.systemPrompt +=
       '\n\n# MODO PLAN — SOLO PLANIFICA, NO EJECUTES\n' +
@@ -571,9 +656,8 @@ async function buildContext(sessionHistory, activeProvider, options = {}) {
   // Cuando el modo es 'execute', se inyecta el catálogo con instrucciones de
   // ejecución y el plan aprobado como contexto.
   if (mode === 'execute') {
-    const catalog = _toolRegistry.serializeToPrompt(taskIntent?.domain || null);
-    if (catalog) {
-      result.systemPrompt += '\n\n' + catalog;
+    if (toolCatalog) {
+      result.systemPrompt += '\n\n' + toolCatalog;
     }
     result.systemPrompt +=
       '\n\n# MODO EJECUCIÓN\n' +
@@ -662,7 +746,7 @@ async function buildContext(sessionHistory, activeProvider, options = {}) {
     }
   }
 
-  return { ...result, behaviorCtx, toolIntent, taskIntent, mode };
+  return { ...result, behaviorCtx, toolIntent, taskIntent, mode, nativeToolSchemas: resolvedTools?.nativeToolSchemas || null };
 }
 
 /**
@@ -801,6 +885,53 @@ async function executeTool(tool, params) {
   return _bridge.execute(tool, params);
 }
 
+// ── AgentLoop (loop cerrado con tool-calling, skills y precedencia) ───────────
+
+/**
+ * Ejecuta el loop cerrado de agente para un mensaje del usuario.
+ * Reemplaza el flujo plan→execute con un loop single-step donde el LLM
+ * decide tool por tool, condicionado por el resultado real del paso anterior.
+ *
+ * @param {string} userMessage - Mensaje del usuario
+ * @param {object} [opts] - Opciones
+ * @param {function} [opts.onApprovalNeeded] - Callback de aprobación
+ * @param {function} [opts.onProgress] - Callback de progreso
+ * @param {number} [opts.maxIterations] - Máximo de iteraciones
+ * @returns {Promise<{response, iterations, toolResults, error}>}
+ */
+async function runAgent(userMessage, opts = {}) {
+  const sessionHistory = _session?.getHistory() || [];
+
+  const context = await buildContext(sessionHistory, null, {
+    mode: 'agent',
+  });
+
+  if (!context || !context.systemPrompt) {
+    return { response: null, iterations: 0, toolResults: [], error: 'No se pudo construir contexto' };
+  }
+
+  const loop = new AgentLoop({
+    maxIterations: opts.maxIterations || 25,
+    bridge: _bridge,
+  });
+
+  const result = await loop.run(
+    userMessage,
+    context.systemPrompt,
+    context.messages || [],
+    {
+      ...opts,
+      toolResolver: { resolveToolset },
+      skillManager: _skillManager || null,
+      mcpManager: _mcp || null,
+      skillDb: (_graph && !_graph.usingFallback && _graph._db) ? _graph._db : null,
+    }
+  );
+
+  _bus.emit('agent:completed', { iterations: result.iterations, error: result.error });
+  return result;
+}
+
 // ── Stats ─────────────────────────────────────────────────────────────────────
 
 function getStats() {
@@ -824,6 +955,7 @@ function getStats() {
     planner:        _planner?.getStats()            ?? null,
     openclaw:       _bridge?.getStats()             ?? null,
     intentDetector: _detector ? { ready: _detector._ready } : null,
+    lsp:            _lspManager ? { running: _lspManager.isRunning, filePatterns: _lspManager.supportedFilePatterns } : null,
     eventBus:       busEvents,
     provider:       LLMProvider.getActiveProvider() ?? 'groq',
     usingFallback:  _graph?.usingFallback           ?? false,
@@ -881,6 +1013,7 @@ module.exports = {
   generatePlan,
   parsePlanFromResponse,
   executePlan,
+  runAgent,
   executeTool,
   mcpListServers,
   mcpAddServer,

@@ -792,6 +792,31 @@ ipcMain.handle('fase3-stats', () => {
   };
 });
 
+ipcMain.handle('get-bridge-stats', () => {
+  try {
+    const stats = MarchCore.getStats();
+    return stats.openclaw || { error: 'no disponible' };
+  } catch (e) {
+    return { error: `MarchCore no inicializado: ${e.message}` };
+  }
+});
+
+ipcMain.handle('exec-command', async (e, { command, timeout }) => {
+  const util = require('util');
+  const exec = util.promisify(require('child_process').exec);
+  const safeTimeout = Math.min(timeout || 10, 60) * 1000;
+  try {
+    const { stdout, stderr } = await exec(command, { timeout: safeTimeout, maxBuffer: 1024 * 1024 });
+    return { exitCode: 0, stdout: stdout || '', stderr: stderr || '' };
+  } catch (err) {
+    return {
+      exitCode: err.code || 1,
+      stdout: err.stdout || '',
+      stderr: err.stderr || err.message || '',
+    };
+  }
+});
+
 const IPC_RESULT_LIMIT = 512 * 1024;
 
 function _serializeResult(result) {

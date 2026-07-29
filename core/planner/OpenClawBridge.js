@@ -39,6 +39,7 @@ const BrowserBridge = require('./BrowserBridge.js');
 
 const OPENCLAW_BASE   = 'http://127.0.0.1:18789';
 const DEFAULT_TIMEOUT = 30_000;
+const API_KEY         = process.env.OPENCLAW_API_KEY || null;
 
 // Herramientas que se resuelven con el navegador propio de March,
 // no con el servidor HTTP de OpenClaw/mock.
@@ -89,15 +90,21 @@ function postJSON(url, body, timeoutMs = DEFAULT_TIMEOUT) {
     const payload = JSON.stringify(body);
     const parsed  = new URL(url);
 
+    const headers = {
+      'Content-Type':   'application/json',
+      'Content-Length': Buffer.byteLength(payload),
+    };
+    if (API_KEY) {
+      headers['X-Api-Key'] = API_KEY;
+      headers['Authorization'] = `Bearer ${API_KEY}`;
+    }
+
     const options = {
       hostname: parsed.hostname,
       port:     Number(parsed.port) || 18789,
       path:     parsed.pathname,
       method:   'POST',
-      headers: {
-        'Content-Type':   'application/json',
-        'Content-Length': Buffer.byteLength(payload),
-      },
+      headers,
     };
 
     const req = http.request(options, (res) => {
