@@ -186,6 +186,17 @@ function configure(cfg) {
     _config = { ..._config, ...cfg.llm };
     if (cfg.llm.apiKeys) _config.apiKeys = { ..._config.apiKeys, ...cfg.llm.apiKeys };
   }
+  // Fallback a variables de entorno si alguna key quedó vacía
+  const envFallback = {
+    groq:   process.env.LLM_KEY_GROQ,
+    gemini: process.env.LLM_KEY_GEMINI,
+    openai: process.env.LLM_KEY_OPENAI,
+  };
+  for (const [provider, value] of Object.entries(envFallback)) {
+    if ((!_config.apiKeys[provider] || _config.apiKeys[provider].trim() === '') && value && value.trim()) {
+      _config.apiKeys[provider] = value.trim();
+    }
+  }
 }
 
 // ── Helper HTTP ───────────────────────────────────────────────────────────────

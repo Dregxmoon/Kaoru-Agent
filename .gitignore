@@ -3,6 +3,8 @@ dist/
 
 # Archivos sensibles
 *.env
+!.env.example
+.march7th/
 config.json
 
 # Modelos de voz (se descargan automático)

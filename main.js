@@ -10,6 +10,7 @@ const { URL } = require('url');
 const { spawnSync } = require('child_process');
 
 const MarchCore = require('./core/MarchCore.js');
+const KeychainManager = require('./infrastructure/keychain/KeychainManager.js');
 
 // ── Manejo global de errores ──────────────────────────────────────────────────
 // Antes no había NINGÚN handler de uncaughtException/unhandledRejection — un
@@ -109,6 +110,17 @@ function resolvePythonBin() {
 
 const PYTHON_BIN = resolvePythonBin();
 
+// ── Cargar .env (múltiples ubicaciones) ─────────────────────────────────────
+// Busca .env en el directorio del proyecto y en userData (si app ya está lista).
+// dotenv no sobreescribe vars ya definidas — la primera fuente gana.
+const dotenv = require('dotenv');
+const _appRoot = __dirname;
+dotenv.config({ path: path.join(_appRoot, '.env'), override: false });
+// Nota: también se cargará desde userData en app.whenReady() más abajo.
+
+// ── Fuente de keys activa — para el IPC get-key-source ──────────────────────
+let _keySource = 'config.json';
+
 // ── Constantes ────────────────────────────────────────────────────────────────
 const MARGIN  = 12;
 const WIN_W   = 380;
@@ -125,6 +137,36 @@ function loadConfig() {
       return JSON.parse(fs.readFileSync(CONFIG_PATH, 'utf-8'));
   } catch (e) { console.log('[config] error leyendo config.json:', e.message); }
   return {};
+}
+
+function loadEffectiveConfig() {
+  const cfg = loadConfig();
+
+  // Merge con variables de entorno (prioridad media)
+  if (!cfg.llm) cfg.llm = {};
+  if (!cfg.llm.apiKeys) cfg.llm.apiKeys = {};
+  const envKeys = {
+    groq:   process.env.LLM_KEY_GROQ,
+    gemini: process.env.LLM_KEY_GEMINI,
+    openai: process.env.LLM_KEY_OPENAI,
+  };
+  for (const [k, v] of Object.entries(envKeys)) {
+    if (v && v.trim()) {
+      cfg.llm.apiKeys[k] = v.trim();
+      _keySource = '.env / variable de entorno';
+    }
+  }
+
+  // Merge con llavero del sistema (máxima prioridad)
+  const keychainKeys = KeychainManager.getAllKeys(['groq', 'gemini', 'openai']);
+  for (const [k, v] of Object.entries(keychainKeys)) {
+    if (v) {
+      cfg.llm.apiKeys[k] = v;
+      _keySource = 'llavero del sistema';
+    }
+  }
+
+  return cfg;
 }
 
 function saveConfig(data) {
@@ -492,13 +534,28 @@ ipcMain.handle('march-get-stats', () => {
 });
 
 // ── IPC: config y keys ────────────────────────────────────────────────────────
-ipcMain.handle('get-config', () => loadConfig());
+ipcMain.handle('get-config', () => loadEffectiveConfig());
 
-ipcMain.handle('save-llm-keys', (e, { groq, gemini, openai }) => {
+ipcMain.handle('save-llm-keys', (e, { groq, gemini, openai, useKeychain }) => {
   saveConfig({ llm: { primary: 'groq', apiKeys: { groq, gemini, openai }, fallback: ['gemini', 'openai'] } });
+
+  // También guardar en el llavero del sistema si está disponible
+  if (useKeychain && KeychainManager.isAvailable()) {
+    const saved = KeychainManager.setAllKeys({ groq, gemini, openai });
+    const ok = Object.values(saved).every(Boolean);
+    console.log('[config] keys guardadas en llavero del sistema:', ok ? 'OK' : 'parcial');
+  }
+
   console.log('[config] keys LLM actualizadas');
   MarchCore.reloadLLMConfig();
   return true;
+});
+
+ipcMain.handle('get-key-source', () => {
+  return {
+    source: _keySource,
+    keychainAvailable: KeychainManager.isAvailable(),
+  };
 });
 
 // ── IPC: ruta de Python ya resuelta (ver resolvePythonBin arriba) ─────────────
@@ -986,8 +1043,17 @@ ipcMain.on('stt-stop', () => {
 
 // ── App init ──────────────────────────────────────────────────────────────────
 app.whenReady().then(() => {
+  // Cargar .env desde el directorio userData (además del que ya se cargó
+  // desde __dirname al inicio del módulo). Las vars de userData tienen
+  // prioridad sobre las del proyecto (override=true para esta segunda carga).
+  const userDataPath = app.getPath('userData');
+  dotenv.config({ path: path.join(userDataPath, '.env'), override: true });
+
   ensureLLMConfig();
   setupMicPermissions();
+
+  const keychainAvail = KeychainManager.isAvailable();
+  console.log(`[config] fuente de keys: ${_keySource} | llavero del SO: ${keychainAvail ? 'disponible' : 'no disponible'}`);
 
   MarchCore.init(app);
 

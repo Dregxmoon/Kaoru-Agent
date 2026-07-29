@@ -106,6 +106,10 @@ body::before { content:''; position:fixed; inset:0; background:var(--grain); poi
 .btn-save { padding:8px 16px; border-radius:6px; border:none; background:var(--accent); color:white; font-family:var(--font-mono); font-size:11px; cursor:pointer; transition:all .2s; box-shadow:0 2px 8px var(--accent-glow); }
 .btn-save:hover { filter:brightness(1.15); }
 .settings-status { font-family:var(--font-mono); font-size:10px; margin-top:12px; min-height:16px; }
+.settings-source { font-family:var(--font-mono); font-size:9px; color:var(--accent); margin-bottom:16px; min-height:14px; }
+.settings-keychain-row { margin-bottom:10px; }
+.settings-checkbox { display:flex; align-items:center; gap:6px; font-family:var(--font-mono); font-size:10px; color:var(--text-secondary); cursor:pointer; }
+.settings-checkbox input[type="checkbox"] { accent-color:var(--accent); cursor:pointer; }
 
 /* ── MCP ─────────────────────────────────────────────────────────────────── */
 .mcp-badge { display:inline-flex; align-items:center; gap:5px; font-family:var(--font-mono); font-size:9px; color:var(--text-secondary); background:var(--tag-bg); border:1px solid var(--border); border-radius:3px; padding:2px 8px; cursor:pointer; -webkit-app-region:no-drag; transition:all .2s; margin-right:6px; }
@@ -414,7 +418,8 @@ body::before { content:''; position:fixed; inset:0; background:var(--grain); poi
 <div id="settings-modal">
   <div id="settings-box">
     <div class="settings-title">API Keys</div>
-    <div class="settings-sub">LAS KEYS SE GUARDAN EN CONFIG.JSON · NUNCA SALEN DE TU EQUIPO</div>
+    <div class="settings-sub">SE PRIORIZA: LLAVERO DEL SO &gt; .ENV &gt; CONFIG.JSON · NUNCA SALEN DE TU EQUIPO</div>
+    <div class="settings-source" id="settings-source"></div>
     <div class="settings-field">
       <div class="settings-label">GROQ <span class="pill primary">PRINCIPAL · GRATIS</span></div>
       <input class="settings-input" id="key-groq" type="password" placeholder="gsk_...">
@@ -426,6 +431,12 @@ body::before { content:''; position:fixed; inset:0; background:var(--grain); poi
     <div class="settings-field">
       <div class="settings-label">OPENAI <span class="pill">FALLBACK 2 · DE PAGO</span></div>
       <input class="settings-input" id="key-openai" type="password" placeholder="sk-proj-...">
+    </div>
+    <div class="settings-keychain-row" id="settings-keychain-row" style="display:none;">
+      <label class="settings-checkbox">
+        <input type="checkbox" id="use-keychain" checked>
+        <span>Guardar también en el llavero del sistema</span>
+      </label>
     </div>
     <div class="settings-status" id="settings-status"></div>
     <div class="settings-actions">
@@ -791,6 +802,23 @@ function openSettings() {
     document.getElementById('key-openai').value = keys.openai || '';
     settingsStatus.textContent = '';
   });
+
+  ipcRenderer.invoke('get-key-source').then(info => {
+    const el = document.getElementById('settings-source');
+    const keychainRow = document.getElementById('settings-keychain-row');
+    const useKeychainChk = document.getElementById('use-keychain');
+    if (info.keychainAvailable) {
+      keychainRow.style.display = '';
+      useKeychainChk.checked = info.source === 'llavero del sistema';
+    } else {
+      keychainRow.style.display = 'none';
+    }
+    let label = 'config.json';
+    if (info.source === 'llavero del sistema') label = '🔐 llavero del sistema';
+    else if (info.source === '.env / variable de entorno') label = '📄 .env';
+    el.textContent = 'Fuente activa: ' + label;
+  });
+
   settingsModal.classList.add('visible');
 }
 function closeSettings() { settingsModal.classList.remove('visible'); }
@@ -811,7 +839,8 @@ document.getElementById('save-settings').addEventListener('click', async () => {
   settingsStatus.textContent = 'Guardando...';
   settingsStatus.style.color = 'var(--text-secondary)';
   try {
-    await ipcRenderer.invoke('save-llm-keys', { groq, gemini, openai });
+    const useKeychain = document.getElementById('use-keychain').checked;
+    await ipcRenderer.invoke('save-llm-keys', { groq, gemini, openai, useKeychain });
     await loadLLMConfig();
     settingsStatus.textContent = '✓ Keys guardadas. March está lista.';
     settingsStatus.style.color = '#10b981';

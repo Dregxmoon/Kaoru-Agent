@@ -37,6 +37,7 @@ const { getPlanner, setProjectCWD, isHighImpact } = require('./planner/Planner.j
 const { getOpenClawBridge }            = require('./planner/OpenClawBridge.js');
 const { getMCPManager }                = require('./mcp/MCPManager.js');
 const LLMProvider                      = require('./llm/LLMProvider.js');
+const KeychainManager                  = require('../infrastructure/keychain/KeychainManager.js');
 
 // FIX: presupuesto de tokens del system prompt COMPLETO — antes vivía
 // dentro de GroqSerializer.js y se aplicaba antes de pegar BehaviorModel,
@@ -227,6 +228,15 @@ function _loadLLMConfig() {
   try {
     if (!_configPath || !fs.existsSync(_configPath)) return;
     const cfg = JSON.parse(fs.readFileSync(_configPath, 'utf-8'));
+
+    // Merge con keys del llavero del sistema (máxima prioridad)
+    if (cfg?.llm?.apiKeys) {
+      const keychainKeys = KeychainManager.getAllKeys(['groq', 'gemini', 'openai']);
+      for (const [k, v] of Object.entries(keychainKeys)) {
+        if (v) cfg.llm.apiKeys[k] = v;
+      }
+    }
+
     if (cfg?.llm) {
       LLMProvider.configure(cfg);
       console.log('[march-core] LLMProvider configurado, provider:', LLMProvider.getActiveProvider());
