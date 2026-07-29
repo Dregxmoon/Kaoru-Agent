@@ -27,7 +27,7 @@ LABELS PERMITIDOS (usa EXACTAMENTE estos):
 - color_favorito → colores favoritos
 - musica_favorita → música o artistas favoritos
 - proyecto_principal → proyecto más importante activo
-- personalidad_observada → rasgos de carácter observados
+- observaciones_usuario → rasgos de carácter observados del usuario (NO de March)
 Para proyectos secundarios: proyecto_[nombre] (ej: proyecto_march7th)
 Para preferencias extra: preferencia_[tema] (ej: preferencia_anime)
 
@@ -60,7 +60,11 @@ JSON válido únicamente, sin texto extra ni backticks:
 const FIXED_LABELS = new Set([
   'nombre_usuario', 'edad_usuario', 'cumpleanos_usuario', 'ubicacion_usuario',
   'trabajo_usuario', 'proyecto_principal', 'color_favorito', 'musica_favorita',
-  'comida_favorita', 'personalidad_observada',
+  'comida_favorita', 'observaciones_usuario',
+]);
+// Legacy: aceptar también el label antiguo
+const LEGACY_LABELS = new Map([
+  ['personalidad_observada', 'observaciones_usuario'], // migrar al nuevo nombre
 ]);
 
 // Prefijos dinámicos permitidos: el LLM SÍ puede crear labels nuevos aquí,
@@ -69,7 +73,12 @@ const DYNAMIC_PREFIXES = ['proyecto_', 'preferencia_'];
 
 function isValidLabel(label) {
   if (FIXED_LABELS.has(label)) return true;
+  if (LEGACY_LABELS.has(label)) return true;
   return DYNAMIC_PREFIXES.some(prefix => label.startsWith(prefix));
+}
+
+function migrateLabel(label) {
+  return LEGACY_LABELS.get(label) || label;
 }
 
 // Patrones de guardado inmediato — sin LLM
@@ -224,9 +233,12 @@ class StateUpdater {
           continue;
         }
 
+        // Migrar labels legacy (ej. personalidad_observada → observaciones_usuario)
+        const migratedLabel = migrateLabel(label);
+
         this._resolver.resolve({
           type:       node.type,
-          label,
+          label:      migratedLabel,
           content:    node.content,
           importance: Math.min(1.0, Math.max(0.1, node.importance ?? 0.6)),
           tags:       Array.isArray(node.tags) ? node.tags : [],
@@ -285,4 +297,4 @@ class StateUpdater {
   runDecay() { this._graph.applyDecay(); }
 }
 
-module.exports = { StateUpdater, isValidLabel, FIXED_LABELS, DYNAMIC_PREFIXES };
+module.exports = { StateUpdater, isValidLabel, migrateLabel, FIXED_LABELS, DYNAMIC_PREFIXES };

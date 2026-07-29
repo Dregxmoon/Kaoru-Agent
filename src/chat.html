@@ -1089,6 +1089,52 @@ document.getElementById('mcp-json-add-btn').addEventListener('click', async () =
 refreshMcpBadge();
 setInterval(refreshMcpBadge, 15000);
 
+// ── Compresión de historial ───────────────────────────────────────────────────
+// Comprime mensajes de assistant repetitivos (fallos, "lo siento"s) para no
+// saturar el contexto del LLM con ruido auto-generado.
+function _compressHistory(history) {
+  const FAIL_PATTERNS = [
+    /^Lo siento/i,
+    /^No (encontré|pude|se)\s/i,
+    /^El comando no/i,
+    /^Parece que no/i,
+    /^No obtuve/i,
+    /^El sistema no/i,
+    /falló\.?$/i,
+  ];
+  function isFailure(msg) {
+    return msg.role === 'assistant' && FAIL_PATTERNS.some(p => p.test(msg.content.trim()));
+  }
+  const result = [];
+  let failRun = [];
+  for (const msg of history) {
+    if (isFailure(msg)) {
+      failRun.push(msg);
+    } else {
+      if (failRun.length > 1) {
+        result.push({
+          role: 'assistant',
+          content: `[${failRun.length} intentos fallidos consecutivos — comprimido]`,
+        });
+      } else if (failRun.length === 1) {
+        result.push(failRun[0]);
+      }
+      failRun = [];
+      result.push(msg);
+    }
+  }
+  // Flush pending failures
+  if (failRun.length > 1) {
+    result.push({
+      role: 'assistant',
+      content: `[${failRun.length} intentos fallidos consecutivos — comprimido]`,
+    });
+  } else if (failRun.length === 1) {
+    result.push(failRun[0]);
+  }
+  return result;
+}
+
 // ── processMessage ────────────────────────────────────────────────────────────
 async function processMessage(text, files = []) {
   const trimmed = text.trim();
@@ -1107,8 +1153,9 @@ async function processMessage(text, files = []) {
   let response;
   let context;
   try {
+    const compressedHistory = _compressHistory([...sessionHistory]);
     context = await ipcRenderer.invoke('grounding-build-context', {
-      sessionHistory: [...sessionHistory],
+      sessionHistory: compressedHistory,
       activeProvider: LLMProvider.getActiveProvider(),
     });
     if (!context || !context.messages || !context.systemPrompt) {

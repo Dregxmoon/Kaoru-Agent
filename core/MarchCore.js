@@ -517,8 +517,9 @@ async function buildContext(sessionHistory, activeProvider) {
     }
   }
 
-  // OpenClaw — solo si no hay toolIntent detectado
-  if (_bridge?.getStats()?.available && !toolIntent?.detected) {
+  // OpenClaw — instrucciones de formato para acciones, solo cuando el usuario
+  // muestra intención de hacer algo (evita quemar tokens en cada turno casual)
+  if (_bridge?.getStats()?.available && toolIntent?.detected) {
     result.systemPrompt +=
       '\n\n# HERRAMIENTAS DISPONIBLES — REGLAS ESTRICTAS\n' +
       'Tienes acceso a OpenClaw para ejecutar acciones reales en el PC del usuario.\n\n' +

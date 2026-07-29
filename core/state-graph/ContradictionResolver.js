@@ -35,6 +35,26 @@ const RECONCILIATION_POLICY = {
   default:              'append',
 };
 
+// ── Detección de comandos técnicos ──────────────────────────────────────────
+// Evita que outputs de comandos ejecutados se concatenen como "memoria" del
+// proyecto. Si el contenido nuevo parece un comando/respuesta técnica, se
+// descarta en vez de appendear — esos son artefactos transitorios del agente,
+// no información que el usuario compartió.
+const COMMAND_PATTERNS = [
+  /^Ejecutar:\s/i,
+  /^Voy a (leer|escribir|ejecutar)\s/i,
+  /^(git|npm|node|ls|cd|cat|echo|mkdir|rm|cp|mv|docker|kubectl|pip|npx|yarn)\s/i,
+  /^No (encontré|pude|se)\s/i,
+  /^Lo siento/i,
+  /^El comando no/i,
+  /^Parece que no/i,
+  /^\d+[smh] .*(?:comando|ejecutar)/i,
+];
+
+function _isCommandContent(text) {
+  return COMMAND_PATTERNS.some(p => p.test(text.trim()));
+}
+
 // ── Cap para la política append ───────────────────────────────────────────────
 // Evita que un nodo (típicamente proyecto_*/preferencia_*) crezca sin límite
 // a lo largo de meses de "Actualizado: X | Actualizado: Y | ...". Se conserva
@@ -114,6 +134,13 @@ class ContradictionResolver {
       }
 
       case 'append': {
+        // Si el contenido nuevo parece un comando técnico, descartarlo —
+        // esos son artefactos del agente, no memoria del usuario
+        if (_isCommandContent(content)) {
+          console.log(`[resolver] append ignorado — contenido parece comando: "${content.slice(0, 60)}"`);
+          return existing.id;
+        }
+
         // Fusionar el contenido viejo y nuevo, pero con tope — se conservan
         // solo los últimos MAX_APPEND_SEGMENTS fragmentos, nunca crece infinito.
         // Mismo fix que 'overwrite' arriba — updateNode() en vez de SQL

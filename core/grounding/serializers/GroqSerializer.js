@@ -256,12 +256,20 @@ function _buildMemorySection(persistentMemory) {
   }
 
   if (persistentMemory.episodes?.length > 0) {
-    parts.push('', '## Episodios recientes relevantes');
-    for (const ep of persistentMemory.episodes.slice(0, 5)) {
-      const when = ep.created_at
-        ? new Date(ep.created_at).toLocaleDateString('es-MX')
-        : 'antes';
-      parts.push(`- [${when}] ${ep.label || (ep.content || '').slice(0, 100) || '(sin detalle)'}`);
+    // Filtrar episodios sin resumen: solo los que tienen contenido útil
+    const withContent = persistentMemory.episodes.filter(ep => {
+      const c = (ep.content || '').trim();
+      return c.length > 15 && !c.endsWith('null"') && !c.endsWith('null') && !/^\[.+\]\s*null/.test(c);
+    });
+    if (withContent.length > 0) {
+      parts.push('', '## Episodios recientes relevantes');
+      for (const ep of withContent.slice(0, 3)) {
+        const when = ep.created_at
+          ? new Date(ep.created_at).toLocaleDateString('es-MX')
+          : 'antes';
+        const preview = (ep.content || '').slice(0, 150);
+        parts.push(`- [${when}] ${preview}`);
+      }
     }
   }
 
