@@ -113,6 +113,7 @@ class IntentDetector {
     this._db    = db;
     this._ready = false;
     this._cache = new Map(); // cache LRU simple para mensajes recientes
+    this._cacheMaxAgeMs = 5 * 60 * 1000; // 5 minutos TTL
 
     this._init();
   }
@@ -201,10 +202,10 @@ class IntentDetector {
       return _none('IntentDetector no inicializado (faltan tablas o modelo)');
     }
 
-    // Cache: mensajes idénticos no re-embedean
+    // Cache: mensajes idénticos no re-embedean (TTL 5 min)
     const cacheKey = userMessage.trim().toLowerCase();
-    if (this._cache.has(cacheKey)) {
-      const cached = this._cache.get(cacheKey);
+    const cached = this._cache.get(cacheKey);
+    if (cached && Date.now() - cached._cachedAt < this._cacheMaxAgeMs) {
       return { ...cached, elapsed: Date.now() - t0, _cached: true };
     }
 
@@ -302,10 +303,19 @@ class IntentDetector {
       elapsed:     Date.now() - t0,
     };
 
-    // Cache: guardar resultado (LRU simple: máx 50 entradas)
+    // Cache: guardar resultado (LRU simple: máx 50 entradas, TTL 5 min)
+    result._cachedAt = Date.now();
     if (this._cache.size >= 50) {
-      const firstKey = this._cache.keys().next().value;
-      this._cache.delete(firstKey);
+      // Limpiar entradas expiradas cada vez que se llena
+      const now = Date.now();
+      for (const [k, v] of this._cache) {
+        if (now - v._cachedAt >= this._cacheMaxAgeMs) this._cache.delete(k);
+      }
+      // Si sigue lleno, eliminar la más vieja
+      if (this._cache.size >= 50) {
+        const firstKey = this._cache.keys().next().value;
+        this._cache.delete(firstKey);
+      }
     }
     this._cache.set(cacheKey, result);
 

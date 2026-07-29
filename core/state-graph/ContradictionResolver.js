@@ -70,9 +70,11 @@ class ContradictionResolver {
       return id;
     }
 
-    // Si el contenido es idéntico, solo reforzar importancia
+    // Si el contenido es idéntico, no hay nada que hacer — no se infla
+    // importance artificialmente (eso antes creaba un efecto ratchet
+    // que impedía que el decay funcionara). El touch de last_accessed_at
+    // ya ocurrió cuando se leyó el nodo en el flujo de retrieval.
     if (existing.content === content) {
-      this._graph.updateNode(existing.id, { importance: Math.min(1.0, existing.importance + 0.1) });
       return existing.id;
     }
 

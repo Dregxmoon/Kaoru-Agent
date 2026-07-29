@@ -8,7 +8,7 @@ const { ContradictionResolver } = require('./ContradictionResolver.js');
 const DECAY_INTERVAL_HOURS = 20;
 
 class SessionManager {
-  constructor(stateGraph, groundingEngine) {
+  constructor(stateGraph, groundingEngine, { resumeMaxAgeHours = 48 } = {}) {
     this._graph        = stateGraph;
     this._grounding    = groundingEngine;
     this._updater      = new StateUpdater(stateGraph);
@@ -18,6 +18,7 @@ class SessionManager {
     this._turnCount    = 0;
     this._isClosing    = false;
     this._closePromise = null;
+    this._resumeMaxAgeHours = resumeMaxAgeHours;
   }
 
   /**
@@ -35,7 +36,7 @@ class SessionManager {
       this._closePromise = null;
     }
 
-    const resumable = this._graph.findResumableSession(12);
+    const resumable = this._graph.findResumableSession(this._resumeMaxAgeHours);
     if (resumable) {
       console.log(`[session] reanudando sesión interrumpida ${resumable.id} (${resumable.history.length} mensajes)`);
       this._sessionId = resumable.id;

@@ -120,6 +120,7 @@ dotenv.config({ path: path.join(_appRoot, '.env'), override: false });
 
 // ── Fuente de keys activa — para el IPC get-key-source ──────────────────────
 let _keySource = 'config.json';
+let _keySourcesByProvider = {}; // { groq: 'config.json'|'.env'|'keychain', ... }
 
 // ── Constantes ────────────────────────────────────────────────────────────────
 const MARGIN  = 12;
@@ -153,7 +154,7 @@ function loadEffectiveConfig() {
   for (const [k, v] of Object.entries(envKeys)) {
     if (v && v.trim()) {
       cfg.llm.apiKeys[k] = v.trim();
-      _keySource = '.env / variable de entorno';
+      _keySourcesByProvider[k] = '.env / variable de entorno';
     }
   }
 
@@ -162,9 +163,18 @@ function loadEffectiveConfig() {
   for (const [k, v] of Object.entries(keychainKeys)) {
     if (v) {
       cfg.llm.apiKeys[k] = v;
-      _keySource = 'llavero del sistema';
+      _keySourcesByProvider[k] = 'llavero del sistema';
     }
   }
+
+  // Para providers sin key explícita, asumir config.json (default)
+  for (const provider of ['groq', 'gemini', 'openai']) {
+    if (!_keySourcesByProvider[provider]) _keySourcesByProvider[provider] = 'config.json';
+  }
+
+  // _keySource: resumen para UI — muestra la fuente más relevante
+  const uniqueSources = [...new Set(Object.values(_keySourcesByProvider))];
+  _keySource = uniqueSources.length === 1 ? uniqueSources[0] : 'mixto';
 
   return cfg;
 }
@@ -537,7 +547,14 @@ ipcMain.handle('march-get-stats', () => {
 ipcMain.handle('get-config', () => loadEffectiveConfig());
 
 ipcMain.handle('save-llm-keys', (e, { groq, gemini, openai, useKeychain }) => {
-  saveConfig({ llm: { primary: 'groq', apiKeys: { groq, gemini, openai }, fallback: ['gemini', 'openai'] } });
+  // DESTRUCTURAR primero para evitar referencias colgadas
+  let { groq: _groq, gemini: _gemini, openai: _openai, useKeychain: _useKeychain } = { groq, gemini, openai, useKeychain };
+  // no-op solo para silenciar warnings de variables sin usar
+  void _groq; void _gemini; void _openai; void _useKeychain;
+  const currentCfg = loadConfig();
+  const existingPrimary = currentCfg.llm?.primary || 'groq';
+  const existingFallback = currentCfg.llm?.fallback || ['gemini', 'openai'];
+  saveConfig({ llm: { primary: existingPrimary, apiKeys: { groq, gemini, openai }, fallback: existingFallback } });
 
   // También guardar en el llavero del sistema si está disponible
   if (useKeychain && KeychainManager.isAvailable()) {
@@ -554,6 +571,7 @@ ipcMain.handle('save-llm-keys', (e, { groq, gemini, openai, useKeychain }) => {
 ipcMain.handle('get-key-source', () => {
   return {
     source: _keySource,
+    byProvider: _keySourcesByProvider,
     keychainAvailable: KeychainManager.isAvailable(),
   };
 });

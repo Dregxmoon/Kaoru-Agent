@@ -98,6 +98,9 @@ class StateGraph {
     // a la búsqueda LIKE de siempre, sin romper nada.
     this._vectorReady = false;
     this._vectorReadyPromise = Promise.resolve();
+    this._embeddingQueue = [];
+    this._embeddingInFlight = 0;
+    this._embeddingMaxConcurrent = 2;
   }
 
   init() {
@@ -292,12 +295,37 @@ class StateGraph {
     }
   }
 
+  // ── Cola de embeddings con control de concurrencia ──────────────────────
+  // Evita saturar el modelo (23MB + ONNX runtime) en hardware limitado.
+  // Máximo 2 embeddings simultáneos; los demás encolan.
+
+  _processEmbeddingQueue() {
+    while (this._embeddingInFlight < this._embeddingMaxConcurrent && this._embeddingQueue.length > 0) {
+      const job = this._embeddingQueue.shift();
+      this._embeddingInFlight++;
+      this._runEmbedding(job.id, job.content).finally(() => {
+        this._embeddingInFlight--;
+        this._processEmbeddingQueue();
+      });
+    }
+  }
+
+  async _runEmbedding(id, content) {
+    try {
+      const { embedText, float32ToBuffer } = require('../grounding/IntentDetector.js');
+      const vec = await embedText(content.slice(0, 2000));
+      this._upsertNodeVector(id, float32ToBuffer(vec));
+    } catch(e) {
+      console.warn(`[state-graph] no se pudo embedear nodo ${id}:`, e.message);
+    }
+  }
+
   /**
    * Fire-and-forget: embedea el contenido de un nodo y lo guarda en
-   * node_vectors con rowid = id del nodo (así el JOIN en queryNodesSemantic
-   * es directo, sin tabla intermedia). No bloquea al llamador — createNode/
-   * updateNode siguen siendo síncronos como siempre; el nodo queda
-   * buscable por LIKE de inmediato y por semántica un momento después.
+   * node_vectors con rowid = id del nodo. No bloquea al llamador —
+   * los embeddings se procesan con concurrencia limitada (max 2).
+   * El nodo queda buscable por LIKE de inmediato y por semántica
+   * un momento después.
    *
    * DOS quirks de sqlite-vec (vec0) que costó encontrar, documentados para
    * no volver a pisarlos:
@@ -311,16 +339,8 @@ class StateGraph {
    */
   _scheduleNodeEmbedding(id, content) {
     if (!this._vectorReady || !id || !content) return;
-    setImmediate(async () => {
-      try {
-        const { embedText, float32ToBuffer } = require('../grounding/IntentDetector.js');
-        const vec = await embedText(content.slice(0, 2000)); // cap razonable, no embedear textos gigantes
-        this._upsertNodeVector(id, float32ToBuffer(vec));
-      } catch(e) {
-        // No crítico — el nodo sigue siendo buscable por LIKE aunque esto falle
-        console.warn(`[state-graph] no se pudo embedear nodo ${id}:`, e.message);
-      }
-    });
+    this._embeddingQueue.push({ id, content });
+    this._processEmbeddingQueue();
   }
 
   /** Ver nota de quirks en _scheduleNodeEmbedding — vec0 no soporta OR REPLACE. */
@@ -416,6 +436,24 @@ class StateGraph {
       return { embedded: 0, error: 'node_vectors table not found' };
     }
 
+    // Limpiar vectores huérfanos (nodos que fueron archivados/eliminados
+    // pero su vector quedó en node_vectors)
+    try {
+      const orphaned = this._db.prepare(`
+        SELECT nv.rowid FROM node_vectors nv
+        LEFT JOIN nodes n ON n.id = nv.rowid
+        WHERE n.id IS NULL
+      `).all();
+      for (const row of orphaned) {
+        this._db.prepare('DELETE FROM node_vectors WHERE rowid=?').run(BigInt(row.rowid));
+      }
+      if (orphaned.length > 0) {
+        console.log(`[state-graph] backfill: ${orphaned.length} vectores huérfanos eliminados`);
+      }
+    } catch(e) {
+      console.warn('[state-graph] error limpiando vectores huérfanos:', e.message);
+    }
+
     try {
       const pending = this._db.prepare(`
         SELECT n.id, n.content FROM nodes n
@@ -475,7 +513,7 @@ class StateGraph {
     const node = this.getNode(id);
     if (!node) return false;
 
-    const newImportance = importance ?? Math.min(1.0, node.importance + 0.2);
+    const newImportance = importance ?? node.importance;
     const newContent    = content    ?? node.content;
     const newLabel      = label      ?? node.label;
     const newTags       = tags       ?? JSON.parse(node.tags || '[]');
@@ -500,8 +538,12 @@ class StateGraph {
   }
 
   /**
-   * FIX QW-2c: helper centralizado de "touch" — actualiza last_accessed_at
-   * y access_count de forma lazy/fire-and-forget para una lista de ids.
+   * Helper centralizado de "touch" — actualiza last_accessed_at y
+   * access_count de forma SÍNCRONA para una lista de ids. Better-sqlite3
+   * es síncrono, así que la escritura es inmediata y no se pierde en
+   * shutdown. Antes era fire-and-forget con setImmediate, lo que causaba
+   * que los touches se perdieran si la app se cerraba antes de ejecutar
+   * la callback.
    *
    * Extraído de queryNodes()/getRecentEpisodes() (donde estaba duplicado
    * literalmente) y aplicado también en getWorldModel(), que antes no
@@ -518,18 +560,15 @@ class StateGraph {
    */
   _touchNodes(ids, label = '') {
     if (!ids?.length || this.usingFallback) return;
-    const now = Date.now();
-    setImmediate(() => {
-      try {
-        const placeholders = ids.map(() => '?').join(',');
-        this._db.prepare(
-          `UPDATE nodes SET last_accessed_at=?, access_count=access_count+1 WHERE id IN (${placeholders}) AND archived=0`
-        ).run(now, ...ids);
-      } catch(e) {
-        // No crítico — el decay simplemente no ve este acceso
-        console.warn(`[state-graph] error actualizando last_accessed_at (${label || 'touch'}):`, e.message);
-      }
-    });
+    try {
+      const now = Date.now();
+      const placeholders = ids.map(() => '?').join(',');
+      this._db.prepare(
+        `UPDATE nodes SET last_accessed_at=?, access_count=access_count+1 WHERE id IN (${placeholders}) AND archived=0`
+      ).run(now, ...ids);
+    } catch(e) {
+      console.warn(`[state-graph] error actualizando last_accessed_at (${label || 'touch'}):`, e.message);
+    }
   }
 
   /**
@@ -766,32 +805,33 @@ class StateGraph {
       'SELECT id, importance, decay_rate, last_accessed_at FROM nodes WHERE archived=0'
     ).all();
 
-    const update  = this._db.prepare('UPDATE nodes SET importance=?, updated_at=? WHERE id=?');
-    const archive = this._db.prepare('UPDATE nodes SET archived=1, updated_at=? WHERE id=?');
+    // SOLO se actualiza importance — updated_at queda intacto para no
+    // corromper la métrica de "última modificación real". El orden de
+    // deduplicación usa last_accessed_at (ver deduplicateNodes).
+    const update  = this._db.prepare('UPDATE nodes SET importance=? WHERE id=?');
+    const archive = this._db.prepare('UPDATE nodes SET archived=1 WHERE id=?');
 
     const runDecay = this._db.transaction(() => {
       let decayed = 0, archived = 0;
 
       for (const node of nodes) {
-        // FIX QW-2: daysSince usa last_accessed_at (que ahora se actualiza
-        // también en queryNodes/getRecentEpisodes/getWorldModel), no solo
-        // updated_at. Un nodo leído frecuentemente no decae como si fuera
-        // abandonado.
         const daysSince = (now - node.last_accessed_at) / (1000 * 60 * 60 * 24);
         if (daysSince < 1) continue;
 
         const newImportance = node.importance * Math.pow(1 - node.decay_rate, daysSince);
 
         if (newImportance < ARCHIVE_THRESHOLD) {
-          archive.run(now, node.id);
+          archive.run(node.id);
           archived++;
         } else {
-          update.run(Math.round(newImportance * 10000) / 10000, now, node.id);
+          update.run(Math.round(newImportance * 10000) / 10000, node.id);
           decayed++;
         }
       }
 
-      console.log(`[state-graph] decay: ${decayed} actualizados, ${archived} archivados`);
+      if (decayed + archived > 0) {
+        console.log(`[state-graph] decay: ${decayed} actualizados, ${archived} archivados`);
+      }
     });
 
     runDecay();
@@ -862,7 +902,7 @@ class StateGraph {
   _findNodesByLabel(label) {
     if (this.usingFallback) return [];
     return this._db.prepare(`
-      SELECT id FROM nodes WHERE label=? AND archived=0 ORDER BY updated_at DESC
+      SELECT id FROM nodes WHERE label=? AND archived=0 ORDER BY last_accessed_at DESC, importance DESC
     `).all(label);
   }
 

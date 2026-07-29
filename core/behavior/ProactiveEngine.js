@@ -548,35 +548,37 @@ No expliques por qué escribes. No anuncies que eres proactiva. Solo di lo que d
           if (byType[node.type]) byType[node.type].push(node.content);
         }
 
+        // Límite por tipo para no saturar el prompt del LLM
+        const MAX_PER_TYPE = 3;
         if (byType.User.length) {
           lines.push('Lo que sabes del usuario:');
-          byType.User.forEach(c => lines.push(`- ${c}`));
+          byType.User.slice(-MAX_PER_TYPE).forEach(c => lines.push(`- ${c}`));
         }
         if (byType.Project.length) {
           lines.push('Proyectos activos:');
-          byType.Project.forEach(c => lines.push(`- ${c}`));
+          byType.Project.slice(-MAX_PER_TYPE).forEach(c => lines.push(`- ${c}`));
         }
         if (byType.Preference.length) {
           lines.push('Preferencias observadas:');
-          byType.Preference.forEach(c => lines.push(`- ${c}`));
+          byType.Preference.slice(-MAX_PER_TYPE).forEach(c => lines.push(`- ${c}`));
         }
         if (byType.Belief.length) {
           lines.push('Cosas que crees sobre el usuario:');
-          byType.Belief.forEach(c => lines.push(`- ${c}`));
+          byType.Belief.slice(-MAX_PER_TYPE).forEach(c => lines.push(`- ${c}`));
         }
       }
 
       const episodes = this._graph.getRecentEpisodes?.(5) ?? [];
       if (episodes.length) {
         lines.push('Sesiones recientes (episodios):');
-        episodes.forEach(e => lines.push(`- ${e.content.slice(0, 160)}`));
+        episodes.slice(-3).forEach(e => lines.push(`- ${e.content.slice(0, 160)}`));
       }
 
       const lastSessions = this._graph.getLastSessions?.(3) ?? [];
       const withSummary  = lastSessions.filter(s => s.summary);
       if (withSummary.length) {
         lines.push('Resumen de las últimas sesiones de chat:');
-        withSummary.forEach(s => {
+        withSummary.slice(-2).forEach(s => {
           const when = new Date(s.started_at).toLocaleString('es-MX', { weekday: 'short', hour: '2-digit', minute: '2-digit' });
           lines.push(`- [${when}] ${s.summary}`);
         });

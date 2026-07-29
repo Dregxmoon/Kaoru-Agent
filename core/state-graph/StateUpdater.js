@@ -171,6 +171,11 @@ class StateUpdater {
    * Todo pasa por el resolver, y los labels se validan antes — si el LLM
    * inventa una variante de un label fijo, se descarta en vez de crear
    * un duplicado que nunca se reconcilia con el hecho canónico.
+   *
+   * OPTIMIZACIÓN: antes de llamar al LLM, se ejecuta detectAndSaveInstant
+   * sobre los mensajes del usuario para capturar patrones triviales (nombre,
+   * edad, color favorito, etc.) sin gastar tokens. Si no hay mensajes del
+   * usuario (sesión de solo March), se omite el LLM por completo.
    */
   async processSession(sessionId, history, turnCount) {
     if (!history || history.length < 2) {
@@ -179,7 +184,23 @@ class StateUpdater {
       return { saved: 0, skipped: true };
     }
 
-    console.log(`[state-updater] analizando sesión (${history.length} mensajes)...`);
+    // Pre-filtro barato: detectar patrones sin LLM
+    let instantSaved = 0;
+    for (const turn of history) {
+      if (turn.role === 'user') {
+        instantSaved += this.detectAndSaveInstant(turn.content);
+      }
+    }
+
+    // Si no hay mensajes del usuario, no tiene sentido llamar al LLM
+    const userMessages = history.filter(t => t.role === 'user');
+    if (userMessages.length === 0) {
+      console.log('[state-updater] sin mensajes de usuario — omitiendo LLM');
+      this._graph.endSession(sessionId, { turnCount, summary: null });
+      return { saved: instantSaved, skipped: true };
+    }
+
+    console.log(`[state-updater] analizando sesión (${history.length} mensajes, ${instantSaved} instantáneos)...`);
 
     let extracted;
     try {
@@ -187,7 +208,7 @@ class StateUpdater {
     } catch(e) {
       console.error('[state-updater] error LLM:', e.message);
       this._graph.endSession(sessionId, { turnCount, summary: null });
-      return { saved: 0, error: e.message };
+      return { saved: instantSaved, error: e.message };
     }
 
     let saved = 0, discarded = 0;
