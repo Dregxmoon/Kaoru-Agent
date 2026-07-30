@@ -3,7 +3,7 @@ dist/
 
 # Archivos sensibles
 *.env
-!.env.example
+.env.example
 .march7th/
 config.json
 
