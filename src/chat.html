@@ -11,7 +11,7 @@
 [data-theme="dark"] {
   --bg-base:#000000;--bg-panel:#0a0a0a;--bg-input:#111111;
   --border:#1a1a1a;--border-accent:#2a2a2a;
-  --text-primary:#c0c0c0;--text-secondary:#555555;
+  --text-primary:#e0e0e0;--text-secondary:#777777;
   --accent:#5b6ef5;--accent-glow:rgba(91,110,245,0.25);
   --scrollbar:#1a1a1a;--tag-bg:#0d0d0d;
   --font-mono:'Share Tech Mono',monospace;
@@ -20,7 +20,7 @@
 [data-theme="sakura"] {
   --bg-base:#050505;--bg-panel:#0a0a0a;--bg-input:#111111;
   --border:#1a1a1a;--border-accent:#2a2a2a;
-  --text-primary:#c0c0c0;--text-secondary:#555555;
+  --text-primary:#e0e0e0;--text-secondary:#777777;
   --accent:#d060a0;--accent-glow:rgba(208,96,160,0.2);
   --scrollbar:#1a1a1a;--tag-bg:#0d0d0d;
   --font-mono:'Share Tech Mono',monospace;
@@ -73,6 +73,9 @@ html,body { width:100%; height:100%; overflow:hidden; background:var(--bg-base);
 .settings-label { font-family:var(--font-mono); font-size:10px; color:var(--text-secondary); letter-spacing:.06em; margin-bottom:5px; display:flex; align-items:center; gap:6px; }
 .settings-label .pill { padding:1px 6px; border-radius:3px; font-size:9px; background:var(--tag-bg); border:1px solid var(--border); }
 .settings-label .pill.primary { background:rgba(91,110,245,0.15); border-color:var(--accent); color:var(--accent); }
+.settings-label .pill.free { background:rgba(16,185,129,0.15); border-color:#10b981; color:#10b981; }
+.settings-label .pill.builtin { background:rgba(251,191,36,0.1); border-color:#fbbf24; color:#fbbf24; }
+.settings-label .pill.custom { background:rgba(168,85,247,0.1); border-color:#a855f7; color:#a855f7; }
 .settings-input { width:100%; background:var(--bg-input); border:1px solid var(--border); border-radius:6px; padding:8px 12px; color:var(--text-primary); font-family:var(--font-mono); font-size:11px; outline:none; transition:border-color .2s; }
 .settings-input:focus { border-color:var(--accent); box-shadow:0 0 0 2px var(--accent-glow); }
 .settings-input::placeholder { color:var(--text-secondary); opacity:.5; }
@@ -195,17 +198,18 @@ html,body { width:100%; height:100%; overflow:hidden; background:var(--bg-base);
 .attach-chip .chip-del { width:14px; height:14px; border-radius:50%; background:var(--border-accent); display:flex; align-items:center; justify-content:center; cursor:pointer; flex-shrink:0; font-size:9px; color:var(--text-secondary); transition:all .15s; margin-left:2px; }
 .attach-chip .chip-del:hover { background:var(--accent); color:white; }
 
-#input-area { border-top:1px solid var(--border); display:flex; flex-direction:column; background:var(--bg-input); position:relative; }
-#input-row { display:flex; gap:6px; align-items:flex-end; padding:8px 12px 6px; }
-#msg-input { flex:1; background:transparent; border:none; padding:6px 0; color:var(--text-primary); font-family:var(--font-mono); font-size:13px; resize:none; min-height:28px; max-height:120px; outline:none; line-height:1.5; }
-#msg-input::placeholder { color:var(--text-secondary); opacity:.5; }
+#input-area { border-top:1px solid var(--border-accent); display:flex; flex-direction:column; background:var(--bg-input); position:relative; }
+#input-row { display:flex; gap:6px; align-items:flex-end; padding:6px 12px 4px; }
+#msg-input { flex:1; background:transparent; border:none; padding:6px 0; color:var(--text-primary); font-family:var(--font-mono); font-size:13px; resize:none; min-height:28px; max-height:120px; outline:none; line-height:1.5; letter-spacing:.02em; }
+#msg-input::selection { background:var(--accent); color:var(--bg-base); }
+#msg-input::placeholder { color:var(--text-secondary); opacity:.7; }
 
 #at-suggestions { position:absolute; bottom:100%; left:14px; right:14px; max-height:200px; overflow-y:auto; background:var(--bg-panel); border:1px solid var(--border); border-radius:8px; box-shadow:0 4px 20px rgba(0,0,0,.3); z-index:100; display:none; }
 .at-suggestion-item { padding:8px 14px; cursor:pointer; display:flex; align-items:center; gap:8px; font-size:13px; color:var(--text-primary); border-bottom:1px solid var(--border); transition:background .15s; }
 .at-suggestion-item:last-child { border-bottom:none; }
 .at-suggestion-item:hover,
 .at-suggestion-item.selected { background:var(--accent); color:#fff; }
-.at-suggestion-item.selected span { color:#fff !important; }
+.at-suggestion-item.selected > * { color:inherit !important; }
 .at-suggestion-item .file-icon { opacity:.7; font-size:14px; }
 .at-suggestion-item .file-path { opacity:.7; font-size:11px; margin-left:auto; }
 .at-suggestion-item .file-type { font-size:10px; opacity:.8; background:var(--bg-input); border-radius:4px; padding:1px 6px; margin-left:6px; }
@@ -218,9 +222,8 @@ html,body { width:100%; height:100%; overflow:hidden; background:var(--bg-base);
 #send-btn { width:28px; height:28px; border-radius:2px; background:transparent; border:1px solid var(--accent); cursor:pointer; display:flex; align-items:center; justify-content:center; transition:all .2s; flex-shrink:0; color:var(--accent); }
 #send-btn:hover { background:var(--accent); color:var(--bg-base); }
 #send-btn svg { width:13px; height:13px; fill:currentColor; }
-#input-info { display:flex; justify-content:space-between; align-items:center; padding:0 12px 8px; }
-.input-hint { font-family:var(--font-mono); font-size:9px; color:var(--text-secondary); opacity:.4; }
-#char-count { font-family:var(--font-mono); font-size:9px; color:var(--text-secondary); opacity:.3; }
+#input-info { display:flex; justify-content:flex-start; align-items:center; padding:0 12px 8px; }
+.input-hint { font-family:var(--font-mono); font-size:9px; color:var(--text-secondary); opacity:1; }
 #file-input { display:none; }
 
 #model-panel { background:var(--bg-base); display:flex; flex-direction:column; align-items:center; position:relative; overflow:hidden; }
@@ -301,7 +304,11 @@ html,body { width:100%; height:100%; overflow:hidden; background:var(--bg-base);
       <span class="mode-label">fast</span>
     </button>
     <div id="theme-toggle" title="Cambiar tema"></div>
-    <button id="close-btn" title="Cerrar">✕</button>
+    <button id="close-btn" title="Cerrar">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14">
+        <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
+      </svg>
+    </button>
   </header>
 
   <section id="chat-panel">
@@ -313,8 +320,9 @@ html,body { width:100%; height:100%; overflow:hidden; background:var(--bg-base);
     </div>
 
     <div id="keys-banner">
-      Sin API keys — March no puede responder todavía.
-      <button id="open-settings-btn">Configurar</button>
+      <span>Sin API keys — March no puede responder. Configura un proveedor:</span>
+      <button id="open-settings-btn">Abrir configuración</button>
+      <span style="font-size:9px;opacity:.7">o escribe <code>/provider</code></span>
     </div>
 
     <div id="drop-overlay">
@@ -323,7 +331,7 @@ html,body { width:100%; height:100%; overflow:hidden; background:var(--bg-base);
 
     <div id="messages">
       <div id="landing">
-        <div class="landing-content"><span class="prompt-symbol">❯</span> ~ $ <span class="landing-cursor"></span></div>
+        <div class="landing-content"><span class="prompt-symbol">$</span> ~ $ <span class="landing-cursor"></span></div>
       </div>
     </div>
 
@@ -344,8 +352,7 @@ html,body { width:100%; height:100%; overflow:hidden; background:var(--bg-base);
         </button>
       </div>
       <div id="input-info">
-        <span class="input-hint" id="input-hint-text">Enter ↵ enviar · Shift+Enter nueva línea · /help para comandos</span>
-        <span id="char-count">0</span>
+        <span class="input-hint" id="input-hint-text">Cargando...</span>
       </div>
     </div>
   </section>
@@ -359,20 +366,28 @@ html,body { width:100%; height:100%; overflow:hidden; background:var(--bg-base);
 <!-- Modal settings -->
 <div id="settings-modal">
   <div id="settings-box">
-    <div class="settings-title">API Keys</div>
-    <div class="settings-sub">SE PRIORIZA: LLAVERO DEL SO &gt; .ENV &gt; CONFIG.JSON · NUNCA SALEN DE TU EQUIPO</div>
+    <div class="settings-title">Proveedores LLM</div>
+    <div class="settings-sub">CADA PROVEEDOR CON SU PROPIA KEY</div>
+    <div id="settings-guide" style="padding:8px 12px;background:var(--accent-glow);border-radius:6px;margin-bottom:12px;font-size:11px;line-height:1.6;border:1px solid var(--accent);display:none;">
+      <strong>Primeros pasos:</strong><br>
+      1. Elige un proveedor gratis (Groq) y pega tu API key<br>
+      2. Guarda — March se conectará automáticamente<br>
+      3. Si tienes clave de OpenAI/Anthropic/xAI, configura las que quieras<br>
+      4. Usa <code>/model</code> para cambiar entre ellos<br><br>
+      <strong>No tienes keys?</strong><br>
+      Groq: <code>console.groq.com/keys</code> (gratis, sin tarjeta)<br>
+      Gemini: <code>aistudio.google.com</code> (tier gratis)<br>
+      NVIDIA: <code>build.nvidia.com</code> (gratis, recopila logs)<br>
+      Hugging Face: <code>huggingface.co/settings/tokens</code> (gratis)<br>
+      DeepSeek: <code>platform.deepseek.com</code> (free tier)<br>
+      OpenAI: <code>platform.openai.com/api-keys</code><br>
+      Anthropic: <code>console.anthropic.com</code><br>
+      xAI: <code>console.x.ai</code>
+    </div>
     <div class="settings-source" id="settings-source"></div>
-    <div class="settings-field">
-      <div class="settings-label">GROQ <span class="pill primary">PRINCIPAL · GRATIS</span></div>
-      <input class="settings-input" id="key-groq" type="password" placeholder="gsk_...">
-    </div>
-    <div class="settings-field">
-      <div class="settings-label">GEMINI <span class="pill">FALLBACK 1 · GRATIS</span></div>
-      <input class="settings-input" id="key-gemini" type="password" placeholder="AIza...">
-    </div>
-    <div class="settings-field">
-      <div class="settings-label">OPENAI <span class="pill">FALLBACK 2 · DE PAGO</span></div>
-      <input class="settings-input" id="key-openai" type="password" placeholder="sk-proj-...">
+    <div id="settings-providers-list"></div>
+    <div class="settings-row" style="margin-top:12px;font-size:12px;color:var(--text-secondary)">
+      <span>Para agregar un provider personalizado (Ollama, LM Studio, OpenRouter...): <code>/provider add</code></span>
     </div>
     <div class="settings-keychain-row" id="settings-keychain-row" style="display:none;">
       <label class="settings-checkbox">
@@ -521,7 +536,7 @@ function applyModeUI(mode) {
   const isTask = chatMode === 'task';
   btn.classList.toggle('task', isTask);
   const iconEl = btn.querySelector('.mode-icon');
-  if (iconEl) iconEl.textContent = isTask ? '🛠️' : '💬';
+  if (iconEl) iconEl.textContent = isTask ? '[T]' : '[C]';
   btn.querySelector('.mode-label').textContent = isTask ? 'Tareas (GPT-OSS)' : 'Conversación';
   btn.title = isTask
     ? 'Modo tareas: usa GPT-OSS 120B vía Groq — más lento, mejor para programar, leer documentación y usar herramientas. Clic para volver a conversación.'
@@ -531,6 +546,7 @@ function applyModeUI(mode) {
 document.getElementById('mode-toggle').addEventListener('click', () => {
   const next = chatMode === 'task' ? 'conversational' : 'task';
   applyModeUI(next);
+  updateLlmHint();
   ipcRenderer.send('chat-mode-changed', next);
   console.log('modo cambiado a:', next);
 });
@@ -701,6 +717,8 @@ async function loadLLMConfig() {
     if (cfg && cfg.llm) {
       LLMProvider.configure(cfg);
       updateKeysBanner(LLMProvider.getActiveProvider());
+      _providerNames = LLMProvider.getAvailableProviders().filter(p => p.hasKey).map(p => p.id);
+      updateLlmHint();
     } else {
       updateKeysBanner(null);
     }
@@ -724,7 +742,7 @@ ipcRenderer.on('memory-status', (e, { usingFallback }) => {
   if (!banner) return;
   banner.classList.toggle('visible', !!usingFallback);
   if (usingFallback) {
-    console.warn('[march7th] ⚠ memoria no persistente — better-sqlite3 no cargó, usando MemoryDB');
+    console.warn('[march7th] memoria no persistente — better-sqlite3 no cargó, usando MemoryDB');
   }
 });
 
@@ -747,13 +765,24 @@ const settingsModal  = document.getElementById('settings-modal');
 const settingsStatus = document.getElementById('settings-status');
 
 function openSettings() {
-  ipcRenderer.invoke('get-config').then(cfg => {
-    const keys = cfg?.llm?.apiKeys || {};
-    document.getElementById('key-groq').value   = keys.groq   || '';
-    document.getElementById('key-gemini').value = keys.gemini || '';
-    document.getElementById('key-openai').value = keys.openai || '';
-    settingsStatus.textContent = '';
-  });
+  const providers = LLMProvider.getAvailableProviders();
+  const listEl = document.getElementById('settings-providers-list');
+  const hasAnyKey = providers.some(p => p.hasKey);
+  const guideEl = document.getElementById('settings-guide');
+  guideEl.style.display = hasAnyKey ? 'none' : 'block';
+
+  listEl.innerHTML = providers.map(p => {
+    const isActive = LLMProvider.getActiveProvider() === p.id;
+    const badges = [];
+    if (isActive) badges.push('<span class="pill primary">ACTIVO</span>');
+    if (p.free) badges.push('<span class="pill free">GRATIS</span>');
+    if (p.builtin) badges.push('<span class="pill builtin">BUILT-IN</span>');
+    if (p.custom) badges.push('<span class="pill custom">CUSTOM</span>');
+    return `<div class="settings-field">
+      <div class="settings-label">${p.name} ${badges.join(' ')}</div>
+      <input class="settings-input provider-key" data-provider="${p.id}" type="password" value="${p.apiKey}" placeholder="${p.free ? 'API key (o déjalo vacío si usas March gratis)' : 'API key...'}">
+    </div>`;
+  }).join('');
 
   ipcRenderer.invoke('get-key-source').then(info => {
     const el = document.getElementById('settings-source');
@@ -766,8 +795,8 @@ function openSettings() {
       keychainRow.style.display = 'none';
     }
     let label = 'config.json';
-    if (info.source === 'llavero del sistema') label = '🔐 llavero del sistema';
-    else if (info.source === '.env / variable de entorno') label = '📄 .env';
+    if (info.source === 'llavero del sistema') label = 'llavero del sistema';
+    else if (info.source === '.env / variable de entorno') label = '.env';
     el.textContent = 'Fuente activa: ' + label;
   });
 
@@ -780,10 +809,15 @@ document.getElementById('cancel-settings').addEventListener('click', closeSettin
 settingsModal.addEventListener('click', (e) => { if (e.target === settingsModal) closeSettings(); });
 
 document.getElementById('save-settings').addEventListener('click', async () => {
-  const groq   = document.getElementById('key-groq').value.trim();
-  const gemini = document.getElementById('key-gemini').value.trim();
-  const openai = document.getElementById('key-openai').value.trim();
-  if (!groq && !gemini && !openai) {
+  const keyInputs = document.querySelectorAll('.provider-key');
+  const providers = {};
+  let hasAny = false;
+  for (const inp of keyInputs) {
+    const val = inp.value.trim();
+    providers[inp.dataset.provider] = val;
+    if (val) hasAny = true;
+  }
+  if (!hasAny) {
     settingsStatus.textContent = 'Necesitas al menos una key.';
     settingsStatus.style.color = '#f59e0b'; return;
   }
@@ -791,9 +825,9 @@ document.getElementById('save-settings').addEventListener('click', async () => {
   settingsStatus.style.color = 'var(--text-secondary)';
   try {
     const useKeychain = document.getElementById('use-keychain').checked;
-    await ipcRenderer.invoke('save-llm-keys', { groq, gemini, openai, useKeychain });
+    await ipcRenderer.invoke('save-llm-keys', { providers, useKeychain });
     await loadLLMConfig();
-    settingsStatus.textContent = '✓ Keys guardadas. March está lista.';
+    settingsStatus.textContent = 'Keys guardadas. March esta lista.';
     settingsStatus.style.color = '#10b981';
     setTimeout(closeSettings, 1200);
   } catch(e) {
@@ -809,7 +843,7 @@ function updateOpenClawBadge(available) {
   if (!badge) return;
   if (available) {
     badge.className = 'openclaw-badge';
-    badge.textContent = '⚡ TOOLS';
+    badge.textContent = 'TOOLS';
     badge.title = 'OpenClaw disponible — herramientas activas';
   } else {
     badge.className = 'openclaw-badge offline';
@@ -868,7 +902,7 @@ async function renderMcpServerList() {
         <div class="mcp-server-sub">${s.status === 'connected' ? s.toolCount + ' tools' : (s.error || mcpStatusLabel(s.status))}</div>
       </div>
       <div class="mcp-switch ${s.status !== 'disconnected' && s.status !== 'error' ? 'on' : ''}" data-toggle="${s.id}" title="Activar/desactivar"></div>
-      <button class="mcp-remove-btn" data-remove="${s.id}" title="Quitar">✕</button>
+      <button class="mcp-remove-btn" data-remove="${s.id}" title="Quitar">X</button>
     </div>
   `).join('');
 
@@ -953,7 +987,7 @@ async function mcpAddFromRegistryEntry(entry, btnEl) {
     };
     const res = await ipcRenderer.invoke('mcp-add-server', { serverCfg });
     if (res.ok && res.status?.status === 'connected') {
-      mcpSetStatus(`✓ "${entry.name}" conectado (${res.status.toolCount} tools).`, '#10b981');
+      mcpSetStatus(`"${entry.name}" conectado (${res.status.toolCount} tools).`, '#10b981');
     } else if (res.ok) {
       mcpSetStatus(`"${entry.name}" agregado pero no conectó: ${res.status?.error || 'error desconocido'}.`, '#f59e0b');
     } else {
@@ -1016,7 +1050,7 @@ document.getElementById('mcp-json-add-btn').addEventListener('click', async () =
   try {
     const res = await ipcRenderer.invoke('mcp-add-server', { serverCfg: parsed });
     if (res.ok && res.status?.status === 'connected') {
-      mcpSetStatus(`✓ "${parsed.name}" conectado (${res.status.toolCount} tools).`, '#10b981');
+      mcpSetStatus(`"${parsed.name}" conectado (${res.status.toolCount} tools).`, '#10b981');
       document.getElementById('mcp-json-input').value = '';
     } else if (res.ok) {
       mcpSetStatus(`Agregado pero no conectó: ${res.status?.error || 'error desconocido'}.`, '#f59e0b');
@@ -1108,7 +1142,7 @@ async function processMessage(text, files = []) {
     cmdCtx.ipcRenderer = ipcRenderer;
     const cmdResult = await CommandRegistry.execute(trimmed, cmdCtx);
     const asstMsg = cmdResult.error
-      ? `⚠️ ${cmdResult.error}`
+      ? `Error: ${cmdResult.error}`
       : cmdResult.result || '(sin respuesta)';
     addMessage('march', asstMsg);
     pushToSession('assistant', `[comando] ${asstMsg}`);
@@ -1216,7 +1250,7 @@ async function processMessage(text, files = []) {
       console.error('error LLM:', err.message);
       response = LLMProvider.getActiveProvider()
         ? 'Algo falló al conectar. Revisa tu conexión o la key.'
-        : 'Sin API keys. Usa el botón ⚙ para configurarlas.';
+        : 'Sin API keys. Usa el boton de configuracion (engranaje) para configurarlas.';
     }
   }
 
@@ -1262,7 +1296,7 @@ async function _executePlanWithUI(plan, msgDiv) {
   const header = card.querySelector('.plan-header');
   if (header) header.style.color = result.ok ? '#10b981' : '#ef4444';
   const headerText = card.querySelector('.plan-header');
-  if (headerText) headerText.innerHTML = `<div class="plan-dot" style="background:${result.ok ? '#10b981' : '#ef4444'};animation:none"></div>${result.ok ? '✓ COMPLETADO' : '✗ ERROR'} — ${plan.steps.length} PASO${plan.steps.length !== 1 ? 'S' : ''}`;
+  if (headerText) headerText.innerHTML = `<div class="plan-dot" style="background:${result.ok ? '#10b981' : '#ef4444'};animation:none"></div>${result.ok ? 'COMPLETADO' : 'ERROR'} — ${plan.steps.length} PASO${plan.steps.length !== 1 ? 'S' : ''}`;
 
   if (result.result && result.ok) {
     const txt = typeof result.result === 'string' ? result.result : JSON.stringify(result.result, null, 2);
@@ -1306,7 +1340,7 @@ function _showPlanApprovalCard(plan, msgDiv) {
   card.id = `plan-${plan.id}`;
 
   const stepsHtml = plan.steps.map(s =>
-    `<div class="plan-step"><span class="step-icon">📋</span><span>${s.description}</span></div>`
+    `<div class="plan-step"><span class="step-icon">~</span><span>${s.description}</span></div>`
   ).join('');
 
   card.innerHTML = `
@@ -1316,8 +1350,8 @@ function _showPlanApprovalCard(plan, msgDiv) {
     </div>
     <div class="plan-steps">${stepsHtml}</div>
     <div class="plan-approval-actions" style="display:flex;gap:8px;margin-top:12px;padding-top:12px;border-top:1px solid var(--border)">
-      <button class="btn-approve-plan" style="flex:1;padding:8px 16px;border:none;border-radius:6px;background:#10b981;color:#fff;cursor:pointer;font-weight:600">✓ Aprobar y ejecutar</button>
-      <button class="btn-reject-plan" style="flex:1;padding:8px 16px;border:none;border-radius:6px;background:var(--bg-input);color:var(--text-secondary);cursor:pointer">✗ Cancelar</button>
+      <button class="btn-approve-plan" style="flex:1;padding:8px 16px;border:none;border-radius:6px;background:#10b981;color:#fff;cursor:pointer;font-weight:600">Aprobar y ejecutar</button>
+      <button class="btn-reject-plan" style="flex:1;padding:8px 16px;border:none;border-radius:6px;background:var(--bg-input);color:var(--text-secondary);cursor:pointer">Cancelar</button>
     </div>
   `;
 
@@ -1491,7 +1525,7 @@ function _renderPatchPreview(patchText) {
 
 function _showApprovalCard({ planId, stepId, description, tool, params }) {
   const card = document.createElement('div'); card.className = 'approval-card';
-  card.innerHTML = `<div class="approval-title">⚠ ACCIÓN DE ALTO IMPACTO — APROBACIÓN REQUERIDA</div><div class="approval-cmd">${description}</div><div style="font-size:10px;color:var(--text-secondary);margin-bottom:10px">Herramienta: <b>${tool}</b>${params.command ? ` · <code>${params.command}</code>` : ''}${params.path ? ` · <code>${params.path}</code>` : ''}</div>${_renderPatchPreview(params.patch)}<div class="approval-actions"><button class="btn-approve" id="approve-${stepId}">✓ Ejecutar</button><button class="btn-deny" id="deny-${stepId}">✗ Cancelar</button></div>`;
+  card.innerHTML = `<div class="approval-title">ACCION DE ALTO IMPACTO — APROBACION REQUERIDA</div><div class="approval-cmd">${description}</div><div style="font-size:10px;color:var(--text-secondary);margin-bottom:10px">Herramienta: <b>${tool}</b>${params.command ? ` · <code>${params.command}</code>` : ''}${params.path ? ` · <code>${params.path}</code>` : ''}</div>${_renderPatchPreview(params.patch)}<div class="approval-actions"><button class="btn-approve" id="approve-${stepId}">Ejecutar</button><button class="btn-deny" id="deny-${stepId}">Cancelar</button></div>`;
   messagesEl.appendChild(card);
   messagesEl.scrollTop = messagesEl.scrollHeight;
   document.getElementById(`approve-${stepId}`)?.addEventListener('click', () => {
@@ -1507,8 +1541,20 @@ function _showApprovalCard({ planId, stepId, description, tool, params }) {
 // ── Input ─────────────────────────────────────────────────────────────────────
 const input     = document.getElementById('msg-input');
 const sendBtn   = document.getElementById('send-btn');
-const charCount = document.getElementById('char-count');
 const hintEl    = document.getElementById('input-hint-text');
+
+function updateLlmHint() {
+  const active = LLMProvider.getActiveProvider();
+  const all = LLMProvider.getAvailableProviders();
+  const p = all.find(x => x.id === active);
+  if (p) {
+    const cost = p.free ? 'gratis' : 'pago';
+    const modeLabel = chatMode === 'task' ? 'Tareas' : 'Conversacion';
+    hintEl.textContent = `${p.name} (${cost}) — ${modeLabel} · /help`;
+  } else {
+    hintEl.textContent = 'Sin LLM activo · /help';
+  }
+}
 
 let _atProjectFiles = null;
 let _atSelectedIdx = -1;
@@ -1517,9 +1563,13 @@ let _cmdSuggested = false;
 
 const _cmdNames = CommandRegistry.getNames();
 let _skillNames = [];
+let _providerNames = [];
 ipcRenderer.invoke('list-skills').then(skills => {
   _skillNames = skills.map(s => s.name);
 }).catch(() => {});
+try {
+  _providerNames = LLMProvider.getAvailableProviders().filter(p => p.hasKey).map(p => p.id);
+} catch {};
 
 function _getProjectFiles() {
   if (_atProjectFiles) return _atProjectFiles;
@@ -1542,7 +1592,7 @@ function _showAtSuggestions(query) {
 
   el.innerHTML = files.map((f, i) =>
     `<div class="at-suggestion-item" data-index="${i}" data-path="${f.path.replace(/"/g, '&quot;')}">
-      <span class="file-icon">${f.type === 'directory' ? '📁' : '📄'}</span>
+      <span class="file-icon">${f.type === 'directory' ? '[DIR]' : '[FILE]'}</span>
       <span>${_highlightMatch(f.name, query)}</span>
       <span class="file-path">${f.path.split('/').slice(0, -1).join('/') || '.'}</span>
     </div>`
@@ -1613,6 +1663,8 @@ function _cmdArgCompletions(cmdName) {
   const cmd = CommandRegistry.getCommand(cmdName);
   if (!cmd) return null;
   if (cmdName === 'skill') return _skillNames.length > 0 ? _skillNames : null;
+  if (cmdName === 'model') return _providerNames.length > 0 ? _providerNames : null;
+  if (cmdName === 'provider') return ['set', 'add', 'remove'];
   return cmd.completions || null;
 }
 
@@ -1655,7 +1707,6 @@ function _applyArgSuggestion(arg) {
 }
 
 input.addEventListener('input', () => {
-  charCount.textContent = input.value.length;
   input.style.height = 'auto';
   input.style.height = Math.min(input.scrollHeight, 120) + 'px';
 
@@ -1712,7 +1763,7 @@ input.addEventListener('keydown', (e) => {
     _cmdSuggested = false;
     e.preventDefault();
     const text = input.value;
-    input.value = ''; input.style.height = 'auto'; charCount.textContent = '0';
+    input.value = ''; input.style.height = 'auto';
     document.getElementById('at-suggestions').style.display = 'none';
     sendMessage(text);
   }
@@ -1750,7 +1801,7 @@ document.getElementById('at-suggestions').addEventListener('mousedown', (e) => {
 });
 sendBtn.addEventListener('click', () => {
   const text = input.value;
-  input.value = ''; input.style.height = 'auto'; charCount.textContent = '0';
+  input.value = ''; input.style.height = 'auto';
   sendMessage(text);
 });
 
@@ -1778,7 +1829,7 @@ function renderAttachBar() {
   attachBar.classList.add('has-files');
   pendingFiles.forEach((f, i) => {
     const chip = document.createElement('div'); chip.className = 'attach-chip';
-    chip.innerHTML = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21.44 11.05l-9.19 9.19a6 6 0 01-8.49-8.49l9.19-9.19a4 4 0 015.66 5.66L9.41 17.41a2 2 0 01-2.83-2.83l8.49-8.48"/></svg><span class="chip-name">${f.name}</span><div class="chip-del" data-idx="${i}">✕</div>`;
+    chip.innerHTML = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21.44 11.05l-9.19 9.19a6 6 0 01-8.49-8.49l9.19-9.19a4 4 0 015.66 5.66L9.41 17.41a2 2 0 01-2.83-2.83l8.49-8.48"/></svg><span class="chip-name">${f.name}</span><div class="chip-del" data-idx="${i}">X</div>`;
     attachBar.appendChild(chip);
   });
   attachBar.querySelectorAll('.chip-del').forEach(btn =>
@@ -1849,6 +1900,7 @@ const viewIndicator = document.getElementById('view-indicator');
 
 async function loadModel() {
   await loadLLMConfig();
+  updateLlmHint();
   checkOpenClaw();
 
   if (!fs.existsSync(MODEL_PATH)) { return; }
@@ -1942,7 +1994,7 @@ window.addEventListener('resize', () => {
 // ── IPC listeners ─────────────────────────────────────────────────────────────
 document.getElementById('close-btn').addEventListener('click', () => ipcRenderer.send('chat-close'));
 ipcRenderer.on('init-theme',   (e, theme) => setTheme(theme));
-ipcRenderer.on('init-mode',    (e, mode)  => applyModeUI(mode || 'conversational'));
+ipcRenderer.on('init-mode',    (e, mode)  => { applyModeUI(mode || 'conversational'); updateLlmHint(); });
 ipcRenderer.on('chat-speak',   (e, text)  => speak(text));
 ipcRenderer.on('chat-message', (e, text)  => processMessage(text));
 
@@ -1954,7 +2006,7 @@ ipcRenderer.on('plan-step-start', (e, { planId, stepId }) => {
   const el = document.getElementById(`step-${stepId}`);
   if (!el) return;
   el.className = 'plan-step running';
-  el.querySelector('.step-icon').textContent = '⚙';
+  el.querySelector('.step-icon').textContent = '*';
 });
 
 ipcRenderer.on('plan-step-done', (e, { planId, stepId, status }) => {
@@ -1962,7 +2014,7 @@ ipcRenderer.on('plan-step-done', (e, { planId, stepId, status }) => {
   const el = document.getElementById(`step-${stepId}`);
   if (!el) return;
   el.className = `plan-step ${status}`;
-  el.querySelector('.step-icon').textContent = { done:'✓', failed:'✗', skipped:'○' }[status] || '?';
+  el.querySelector('.step-icon').textContent = { done:'D', failed:'F', skipped:'S' }[status] || '?';
   messagesEl.scrollTop = messagesEl.scrollHeight;
 });
 
@@ -1982,7 +2034,7 @@ function _startSpinner(el) {
 ipcRenderer.on('agent-progress', (e, { iteration, tool, status }) => {
   if (_agentProgressEl) {
     _agentProgressEl.textContent = status === 'ok'
-      ? `✓ Paso ${iteration}: ${tool} completado`
+      ? `Paso ${iteration}: ${tool} completado`
       : `⋯ Paso ${iteration}: ejecutando ${tool}...`;
   }
 });
@@ -2002,7 +2054,7 @@ ipcRenderer.on('march-initiative', (e, payload) => {
     const { bubble } = addMessage('march', '');
     const badge = document.createElement('span');
     badge.style.cssText = 'display:inline-block;font-family:var(--font-mono);font-size:9px;color:var(--accent);border:1px solid var(--border-accent);border-radius:3px;padding:1px 5px;margin-right:6px;opacity:.7;vertical-align:middle;';
-    badge.textContent = '⚡ MARCH';
+    badge.textContent = 'MARCH';
     bubble.classList.add('markdown');
     bubble.appendChild(badge);
     const textSpan = document.createElement('span');

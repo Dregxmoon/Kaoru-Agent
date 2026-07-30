@@ -235,7 +235,7 @@ if (process.env.DEBUG) console.log('[march-core] graph.usingFallback:', _graph.u
   if (_graph.usingFallback) {
     console.error('');
     console.error('╔══════════════════════════════════════════════════════════╗');
-    console.error('║  ⚠  ADVERTENCIA CRÍTICA — MEMORIA NO PERSISTENTE        ║');
+    console.error('║  ADVERTENCIA CRITICA — MEMORIA NO PERSISTENTE        ║');
     console.error('║                                                          ║');
     console.error('║  better-sqlite3 no pudo inicializarse.                  ║');
     console.error('║  March está usando MemoryDB (RAM temporal).             ║');
@@ -1024,6 +1024,16 @@ function listSkills() {
   return _skillManager.getAllSkills();
 }
 
+function storeFact({ type, label, content, importance = 0.85, tags = [] }) {
+  if (!_graph?.isReady) return null;
+  try {
+    return _graph.createNode({ type, label, content, importance, tags });
+  } catch(e) {
+    console.warn('[march-core] error guardando hecho:', e.message);
+    return null;
+  }
+}
+
 module.exports = {
   init,
   shutdown,
@@ -1060,4 +1070,5 @@ module.exports = {
   mcpListAllTools,
   setActiveWorkspace,
   listSkills,
+  storeFact,
 };

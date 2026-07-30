@@ -143,36 +143,41 @@ function loadConfig() {
 function loadEffectiveConfig() {
   const cfg = loadConfig();
 
-  // Merge con variables de entorno (prioridad media)
   if (!cfg.llm) cfg.llm = {};
   if (!cfg.llm.apiKeys) cfg.llm.apiKeys = {};
-  const envKeys = {
-    groq:   process.env.LLM_KEY_GROQ,
-    gemini: process.env.LLM_KEY_GEMINI,
-    openai: process.env.LLM_KEY_OPENAI,
-  };
-  for (const [k, v] of Object.entries(envKeys)) {
-    if (v && v.trim()) {
-      cfg.llm.apiKeys[k] = v.trim();
-      _keySourcesByProvider[k] = '.env / variable de entorno';
+  if (!cfg.llm.providers) cfg.llm.providers = {};
+
+  // Merge all env vars (LLM_KEY_{PROVIDER_ID})
+  for (const envKey of Object.keys(process.env)) {
+    const match = envKey.match(/^LLM_KEY_(.+)$/);
+    if (!match) continue;
+    const providerId = match[1].toLowerCase();
+    const val = process.env[envKey];
+    if (val && val.trim()) {
+      cfg.llm.apiKeys[providerId] = val.trim();
+      if (!cfg.llm.providers[providerId]) cfg.llm.providers[providerId] = {};
+      cfg.llm.providers[providerId].apiKey = val.trim();
+      _keySourcesByProvider[providerId] = '.env / variable de entorno';
     }
   }
 
-  // Merge con llavero del sistema (máxima prioridad)
-  const keychainKeys = KeychainManager.getAllKeys(['groq', 'gemini', 'openai']);
+  // Merge with system keychain (highest priority)
+  const builtinProviders = ['groq', 'gemini', 'openai', 'anthropic', 'xai', 'nvidia', 'huggingface', 'deepseek'];
+  const keychainKeys = KeychainManager.getAllKeys(builtinProviders);
   for (const [k, v] of Object.entries(keychainKeys)) {
     if (v) {
       cfg.llm.apiKeys[k] = v;
+      if (!cfg.llm.providers[k]) cfg.llm.providers[k] = {};
+      cfg.llm.providers[k].apiKey = v;
       _keySourcesByProvider[k] = 'llavero del sistema';
     }
   }
 
-  // Para providers sin key explícita, asumir config.json (default)
-  for (const provider of ['groq', 'gemini', 'openai']) {
+  // For providers without explicit source, assume config.json
+  for (const provider of builtinProviders) {
     if (!_keySourcesByProvider[provider]) _keySourcesByProvider[provider] = 'config.json';
   }
 
-  // _keySource: resumen para UI — muestra la fuente más relevante
   const uniqueSources = [...new Set(Object.values(_keySourcesByProvider))];
   _keySource = uniqueSources.length === 1 ? uniqueSources[0] : 'mixto';
 
@@ -189,7 +194,12 @@ function saveConfig(data) {
 function ensureLLMConfig() {
   const cfg = loadConfig();
   if (!cfg.llm) {
-    saveConfig({ llm: { primary: 'groq', apiKeys: { groq: '', gemini: '', openai: '' }, fallback: ['gemini', 'openai'] } });
+    saveConfig({ llm: {
+      primary: 'groq',
+      fallback: ['gemini'],
+      apiKeys: {},
+      providers: {},
+    } });
     console.log('[config] bloque llm inicializado');
   }
 }
@@ -375,21 +385,21 @@ function toggleChatWindow() {
 function buildTrayMenu() {
   const chatOpen = chatWindow && !chatWindow.isDestroyed() && chatWindow.isVisible();
   return Menu.buildFromTemplate([
-    { label: chatOpen ? '💬 Cerrar chat' : '💬 Abrir chat', click: toggleChatWindow },
+    { label: chatOpen ? 'Cerrar chat' : 'Abrir chat', click: toggleChatWindow },
     { type: 'separator' },
-    { label: isClickThrough ? '🔒 Bloquear (mover overlay)' : '🖱️ Pasar clics', click: () => setClickThrough(!isClickThrough) },
+    { label: isClickThrough ? 'Bloquear (mover overlay)' : 'Pasar clics', click: () => setClickThrough(!isClickThrough) },
     { type: 'separator' },
-    { label: `${currentView === 'full' ? '✓ ' : ''}Cuerpo completo`, click: () => sendView('full') },
-    { label: `${currentView === 'half' ? '✓ ' : ''}Medio cuerpo`,    click: () => sendView('half') },
-    { label: `${currentView === 'head' ? '✓ ' : ''}Solo cabeza`,     click: () => sendView('head') },
+    { label: `${currentView === 'full' ? '> ' : ''}Cuerpo completo`, click: () => sendView('full') },
+    { label: `${currentView === 'half' ? '> ' : ''}Medio cuerpo`,    click: () => sendView('half') },
+    { label: `${currentView === 'head' ? '> ' : ''}Solo cabeza`,     click: () => sendView('head') },
     { type: 'separator' },
-    { label: '🔊 Prueba de voz', submenu: [
+    { label: 'Prueba de voz', submenu: [
       { label: 'Saludo',      click: () => sendSpeak('Hola! Estoy aqui para ayudarte!') },
       { label: 'Emocion sad', click: () => sendSpeak('Lo siento, hubo un error.', 'sad') },
       { label: 'Excited',     click: () => sendSpeak('Perfecto, todo salio bien!', 'excited') },
     ]},
     { type: 'separator' },
-    { label: '📌 Volver a esquina', click: () => { userHasMoved = false; mainWindow.setBounds(getBottomRightBounds()); } },
+    { label: 'Volver a esquina', click: () => { userHasMoved = false; mainWindow.setBounds(getBottomRightBounds()); } },
     { label: 'Mostrar / ocultar overlay', click: () => mainWindow.isVisible() ? mainWindow.hide() : mainWindow.show() },
     { type: 'separator' },
     { label: 'Cerrar todo', click: () => app.quit() },
@@ -505,25 +515,41 @@ ipcMain.handle('march-get-stats', () => {
 });
 
 ipcMain.handle('list-skills', () => MarchCore.listSkills());
+ipcMain.handle('store-fact', (e, fact) => MarchCore.storeFact(fact));
+
+ipcMain.on('set-provider', (e, { primary }) => {
+  if (!primary) return;
+  const LLMProvider = require('./core/llm/LLMProvider.js');
+  LLMProvider.configure({ llm: { primary } });
+  console.log('[config] provedor cambiado a:', primary);
+});
 
 // ── IPC: config y keys ────────────────────────────────────────────────────────
 ipcMain.handle('get-config', () => loadEffectiveConfig());
 
-ipcMain.handle('save-llm-keys', (e, { groq, gemini, openai, useKeychain }) => {
-  // DESTRUCTURAR primero para evitar referencias colgadas
-  let { groq: _groq, gemini: _gemini, openai: _openai, useKeychain: _useKeychain } = { groq, gemini, openai, useKeychain };
-  // no-op solo para silenciar warnings de variables sin usar
-  void _groq; void _gemini; void _openai; void _useKeychain;
+ipcMain.handle('save-llm-keys', (e, { providers, useKeychain }) => {
   const currentCfg = loadConfig();
   const existingPrimary = currentCfg.llm?.primary || 'groq';
-  const existingFallback = currentCfg.llm?.fallback || ['gemini', 'openai'];
-  saveConfig({ llm: { primary: existingPrimary, apiKeys: { groq, gemini, openai }, fallback: existingFallback } });
+  const existingFallback = currentCfg.llm?.fallback || ['gemini'];
 
-  // También guardar en el llavero del sistema si está disponible
+  // Build new providers config from the submitted keys
+  const newProviders = { ...(currentCfg.llm?.providers || {}) };
+  for (const [id, key] of Object.entries(providers || {})) {
+    newProviders[id] = { ...(newProviders[id] || {}), apiKey: key };
+  }
+
+  saveConfig({ llm: {
+    primary: existingPrimary,
+    fallback: existingFallback,
+    providers: newProviders,
+    apiKeys: providers,
+  } });
+
+  // Keychain
   if (useKeychain && KeychainManager.isAvailable()) {
-    const saved = KeychainManager.setAllKeys({ groq, gemini, openai });
-    const ok = Object.values(saved).every(Boolean);
-    console.log('[config] keys guardadas en llavero del sistema:', ok ? 'OK' : 'parcial');
+    for (const [id, key] of Object.entries(providers || {})) {
+      if (key) KeychainManager.setKey(id, key);
+    }
   }
 
   console.log('[config] keys LLM actualizadas');
@@ -984,6 +1010,9 @@ app.whenReady().then(() => {
   createTray();
   startControlServer();
   createChatWindow();
+
+  // Auto-init: escanear proyecto al arrancar y guardar contexto
+  _autoInitProject();
 
   // NUEVO (multiplataforma): en Linux con GNOME (el escritorio más común,
   // p.ej. Ubuntu de fábrica), Electron NO puede mostrar el ícono de la

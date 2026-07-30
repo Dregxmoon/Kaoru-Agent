@@ -67,7 +67,7 @@ class MemoryDB {
     if (!_memoryDBSilentWarningShown) {
       _memoryDBSilentWarningShown = true;
       setInterval(() => {
-        console.warn('[state-graph] ⚠ MemoryDB activo — los datos NO persisten en disco. better-sqlite3 no está disponible.');
+        console.warn('[state-graph] MemoryDB activo — los datos NO persisten en disco. better-sqlite3 no está disponible.');
       }, 5 * 60 * 1000);
     }
   }
@@ -125,7 +125,7 @@ class StateGraph {
       console.log('[state-graph] inicializado (Fase 2):', this._dbPath);
     } catch(e) {
       console.error('[state-graph] ERROR CRÍTICO — cayendo a MemoryDB:', e.message);
-      console.error('[state-graph] ⚠ La memoria de March NO se está guardando en disco.');
+      console.error('[state-graph] La memoria de March NO se esta guardando en disco.');
       this._db           = new MemoryDB();
       this.usingFallback = true;
       this._createSchema();

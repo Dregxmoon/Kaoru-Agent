@@ -1,98 +1,4 @@
-/**
- * LLMProvider.js — Fase 0 v5
- *
- * Cambios v4 → v5 (Kimi K2 para modo 'task'/'smart'):
- *   El usuario pidió poder elegir, desde la interfaz de chat, entre un
- *   modelo "conversacional" (barato, calmado — lo que ya hacía 'fast')
- *   y un modelo "de tareas" para trabajo exhaustivo: programar, leer
- *   documentación, usar OpenClaw. La opción evaluada fue Kimi K2.
- *
- *   Requisito explícito: debía ser gratis o de nivel gratuito.
- *
- *   La API oficial de Moonshot (platform.moonshot.ai) NO tiene nivel
- *   gratuito — exige tarjeta y mínimo $10 de crédito. La alternativa
- *   real es que GROQ hospeda Kimi K2 directamente en su propio tier
- *   gratuito (moonshotai/kimi-k2-instruct-0905, 1000 req/día, 10000
- *   TPM, sin tarjeta) — el MISMO endpoint y la MISMA API key de Groq
- *   que ya está configurada. No se agregó ningún proveedor nuevo ni
- *   ningún campo de key nuevo: Kimi es, para este código, simplemente
- *   otro string de modelo dentro de MODELS.groq.
- *
- *   Se reutilizó el modo 'smart' que ya existía (en vez de crear un
- *   modo nuevo) porque ya significaba exactamente esto: "tareas
- *   complejas... edición de archivos, análisis de código, razonamiento
- *   largo". Ese modo hoy es invocado:
- *     (a) internamente por Planner._llmTransform vía completeTask(), y
- *     (b) ahora también puede invocarse desde el toggle de la UI del
- *         chat (pendiente de conectar en chat.html) cuando el usuario
- *         elija "modo tareas" en vez de "modo conversación".
- *
- *   AVISO DE CAMBIO DE COMPORTAMIENTO: esto significa que las llamadas
- *   YA EXISTENTES de Planner._llmTransform (vía completeTask) dejan de
- *   usar llama-3.3-70b-versatile y pasan a usar Kimi K2. Es una mejora
- *   esperada (Kimi rinde mejor que Llama 3.3 70B en benchmarks de
- *   coding/agentic), pero es un cambio real de comportamiento, no solo
- *   una adición — documentado aquí para que no sea una sorpresa si el
- *   estilo de las transformaciones de archivo cambia ligeramente.
- *
- *   Ajustes de presupuesto para smart/Kimi:
- *     - MAX_OUTPUT.smart: 3072 (sin cambio — Kimi razona internamente
- *       antes de responder, así que más output no necesariamente
- *       ayuda, y el tier gratuito de Groq para este modelo es de
- *       10,000 TPM — hay que ser conservador).
- *     - TIMEOUT_MS.smart: 45s → 60s, porque Kimi puede tardar más en
- *       tareas de razonamiento/herramientas que Llama 3.3 70B.
- *   MODELS.gemini.smart y MODELS.openai.smart quedan sin cambios — son
- *   el fallback si la key de Groq falta o se agota el tier gratuito de
- *   Kimi; en ese caso el modo 'smart' deja de ser "Kimi" y pasa a ser
- *   el modelo smart normal de ese proveedor (no hay Kimi gratis fuera
- *   de Groq, así que el fallback no puede ofrecer Kimi en otro lado).
- *
- * Cambios v3 → v4 (mantenidos):
- *   Sin timeout en la llamada HTTP real — post() nunca tenía un límite
- *   de tiempo propio. Si un proveedor (típicamente Groq) se quedaba
- *   colgado sin responder (no un error, simplemente sin respuesta), la
- *   promesa de post() nunca resolvía ni rechazaba. Como _callWithFallback
- *   solo avanza al siguiente proveedor cuando el await lanza un error
- *   (catch), un colgado sin error nunca disparaba el fallback — el chat
- *   completo se quedaba esperando para siempre una respuesta que no iba
- *   a llegar. Esto también era la causa de fondo de por qué main.js
- *   necesitó un timeout externo de seguridad en closeSession() — esa fue
- *   una curita en el síntoma, esto es el arreglo de la causa real.
- *
- *   Fix: post() ahora acepta un timeoutMs y usa req.setTimeout() (igual
- *   que ya hacía OpenClawBridge.postJSON, que nunca tuvo este problema).
- *   Al vencer el timeout se destruye la request y se rechaza con un
- *   error real — eso sí dispara el catch en _callWithFallback y pasa
- *   correctamente al siguiente proveedor en la lista.
- *
- *   TIMEOUT_MS diferenciado por modo, igual que MAX_OUTPUT: fast es
- *   conversación normal (no debería tardar mucho, 15s es generoso),
- *   smart puede estar generando/transformando archivos grandes
- *   (Planner._llmTransform), así que se le da más margen.
- *
- * Cambios v2 → v3 (mantenidos):
- *   Consumo excesivo de tokens — antes TODAS las llamadas (fast y smart)
- *   reservaban max_tokens: 4096 sin importar la tarea. Eso por sí solo no
- *   gasta tokens si el modelo responde corto, pero combinado con un
- *   historial sin recortar en modo fast, el INPUT crecía con cada turno
- *   de la conversación hasta comerse el límite de TPM de Groq (rate
- *   limit 429 visto en producción con llama-3.1-8b-instant: 20,000 TPM).
- *
- *   Fix aplicado:
- *     1. MAX_OUTPUT diferenciado por modo — fast reserva mucho menos
- *        output que smart, porque una respuesta conversacional normal
- *        no necesita 4096 tokens de salida.
- *     2. Truncado de historial SOLO en modo fast — las tareas smart
- *        (edit_file, completeTask) necesitan el contexto completo para
- *        razonar bien sobre archivos largos, pero el chat normal no
- *        necesita arrastrar toda la conversación, solo lo reciente.
- *     3. _buildModelConfig() centraliza el cálculo de max_tokens para
- *        no repetirlo en cada función de proveedor (Groq/Gemini/OpenAI).
- *
- *   La firma pública (complete / completeTask) no cambia — internamente
- *   ambas siguen llamando a _callWithFallback con el modo correspondiente.
- */
+'use strict';
 
 const https = require('https');
 const http  = require('http');
@@ -104,69 +10,96 @@ const AGENT_BY_PROTOCOL = {
   'http:': KEEP_ALIVE_AGENT_HTTP,
 };
 
-// ── Modelos por proveedor ─────────────────────────────────────────────────────
-const MODELS = {
-  groq: {
-    fast:  'llama-3.1-8b-instant',          // 6,000-30,000 TPM — conversación rápida
-    // v5.1: Kimi K2 (0905) fue DEPRECADO por Groq el 23 de marzo de 2026
-    // (confirmado en console.groq.com/docs/deprecations) — el 404 "model
-    // does not exist" no era un problema de cuenta, el modelo ya no
-    // existe en Groq. El propio aviso de deprecación de Groq recomienda
-    // openai/gpt-oss-120b como reemplazo — también gratis en el mismo
-    // tier, sin key nueva, mismo endpoint. "openai/" es solo el nombre
-    // del modelo (OpenAI lo liberó como open-weight) — sigue corriendo
-    // 100% en la infraestructura de Groq con tu key de Groq, no llama a
-    // la API de OpenAI.
-    smart: 'openai/gpt-oss-120b',
-  },
-  gemini: {
-    fast:  'gemini-2.0-flash',
-    smart: 'gemini-2.0-flash',          // mismo modelo, Gemini no tiene límite por modelo
-  },
-  openai: {
-    fast:  'gpt-4o-mini',
-    smart: 'gpt-4o-mini',              // cambiar a 'gpt-4o' si tienes créditos
-  },
-};
+// ── Provider registry ──────────────────────────────────────────────────────────
+const _registry = new Map();
 
-// ── Límite de tokens de OUTPUT por modo ───────────────────────────────────────
-// fast  — conversación normal de March: respuestas cortas, no necesitan
-//         reservar más de ~1024 tokens de salida. Reservar 4096 aquí era
-//         puro desperdicio de cupo de TPM sin beneficio real, porque el
-//         modelo casi nunca generaba respuestas tan largas en modo chat.
-// smart — edición de archivos, análisis de código, razonamiento largo
-//         (Planner._llmTransform, completeTask), y desde v5 también el
-//         "modo tareas" de la UI (Kimi K2). Aquí SÍ puede hacer falta
-//         devolver archivos completos o explicaciones extensas, así que
-//         se mantiene un límite más generoso — pero sin pasarse, porque
-//         el tier gratuito de Kimi en Groq es de solo 10,000 TPM.
-const MAX_OUTPUT = {
-  fast:  1024,
-  smart: 3072,
-};
+function registerProvider(def) {
+  if (_registry.has(def.id)) {
+    console.warn(`[llm] provider "${def.id}" ya registrado — se reemplaza`);
+  }
+  _registry.set(def.id, { ...def });
+}
 
-// ── Timeout de la llamada HTTP por modo ───────────────────────────────────────
-// fast  — conversación normal, no debería tardar mucho. 15s es generoso
-//         para una respuesta corta; si se cuelga más que eso, mejor
-//         fallar y pasar al siguiente proveedor que seguir esperando.
-// smart — puede estar generando contenido largo (archivos completos,
-//         transformaciones de código) o, desde v5, razonando con Kimi K2
-//         en tareas de herramientas — se le da más margen que antes
-//         (45s → 60s) porque Kimi puede tardar más que Llama 3.3 70B
-//         en tareas de razonamiento/tool-use.
-const TIMEOUT_MS = {
-  fast:  15_000,
-  smart: 60_000,
-};
+function getProvider(id) {
+  return _registry.get(id) || null;
+}
 
-// ── Recorte de historial por modo ─────────────────────────────────────────────
-// En modo fast no tiene sentido reenviar toda la conversación al LLM en
-// cada turno — el grounding ya resume lo importante en el systemPrompt,
-// así que solo los últimos N mensajes aportan contexto inmediato real.
-// En modo smart SÍ se respeta el historial completo, porque tareas como
-// editar un archivo o razonar sobre código (o, desde v5, el modo tareas
-// con Kimi) necesitan todo el contexto que el llamador decidió incluir.
-const FAST_HISTORY_LIMIT = 8; // últimos 8 mensajes (~5-10 turnos pedidos)
+function getProviders() {
+  return [..._registry.values()];
+}
+
+function getProviderNames() {
+  return [..._registry.keys()];
+}
+
+// ── Built-in providers ─────────────────────────────────────────────────────────
+registerProvider({
+  id: 'groq', name: 'Groq', type: 'openai',
+  baseURL: 'https://api.groq.com/openai/v1',
+  models: { fast: 'llama-3.1-8b-instant', smart: 'llama-3.3-70b-versatile' },
+  builtin: true, free: true,
+});
+
+registerProvider({
+  id: 'gemini', name: 'Google Gemini', type: 'gemini',
+  baseURL: 'https://generativelanguage.googleapis.com/v1beta',
+  models: { fast: 'gemini-2.0-flash', smart: 'gemini-2.0-flash' },
+  builtin: true, free: true,
+});
+
+registerProvider({
+  id: 'openai', name: 'OpenAI', type: 'openai',
+  baseURL: 'https://api.openai.com/v1',
+  models: { fast: 'gpt-4o-mini', smart: 'gpt-4o-mini' },
+  builtin: true,
+});
+
+registerProvider({
+  id: 'anthropic', name: 'Anthropic', type: 'anthropic',
+  baseURL: 'https://api.anthropic.com/v1',
+  models: { fast: 'claude-3-haiku-20240307', smart: 'claude-3-sonnet-20240229' },
+  builtin: true,
+});
+
+registerProvider({
+  id: 'xai', name: 'xAI (Grok)', type: 'openai',
+  baseURL: 'https://api.x.ai/v1',
+  models: { fast: 'grok-beta', smart: 'grok-beta' },
+  builtin: true,
+});
+
+registerProvider({
+  id: 'nvidia', name: 'NVIDIA Nemotron', type: 'openai',
+  baseURL: 'https://integrate.api.nvidia.com/v1',
+  models: { fast: 'nvidia/nemotron-3-ultra', smart: 'nvidia/nemotron-3-ultra' },
+  builtin: true, free: true,
+});
+
+registerProvider({
+  id: 'huggingface', name: 'Hugging Face', type: 'openai',
+  baseURL: 'https://api-inference.huggingface.co/v1',
+  models: { fast: 'meta-llama/Llama-3.2-3B-Instruct', smart: 'meta-llama/Llama-3.3-70B-Instruct' },
+  builtin: true, free: true,
+});
+
+registerProvider({
+  id: 'deepseek', name: 'DeepSeek', type: 'openai',
+  baseURL: 'https://api.deepseek.com/v1',
+  models: { fast: 'deepseek-chat', smart: 'deepseek-reasoner' },
+  builtin: true, free: true,
+});
+
+// ── Límites ────────────────────────────────────────────────────────────────────
+const MAX_OUTPUT = { fast: 1024, smart: 3072 };
+const TIMEOUT_MS = { fast: 15_000, smart: 60_000 };
+const FAST_HISTORY_LIMIT = 8;
+const VALID_MODES = new Set(['fast', 'smart']);
+const MAX_RETRIES_PER_PROVIDER = 1;
+const RETRY_BASE_MS = 2000;
+
+function _resolveMode(mode) {
+  return VALID_MODES.has(mode) ? mode : 'fast';
+}
 
 function _trimHistoryForMode(messages, mode) {
   if (mode !== 'fast') return messages;
@@ -174,46 +107,60 @@ function _trimHistoryForMode(messages, mode) {
   return messages.slice(-FAST_HISTORY_LIMIT);
 }
 
-const VALID_MODES = new Set(['fast', 'smart']);
-
-function _resolveMode(mode) {
-  return VALID_MODES.has(mode) ? mode : 'fast';
-}
-
 // ── Configuración por defecto ─────────────────────────────────────────────────
 let _config = {
-  primary:  'groq',
-  apiKeys:  { groq: '', gemini: '', openai: '' },
-  fallback: ['gemini', 'openai'],
+  primary: 'groq',
+  fallback: ['gemini'],
+  providers: {},
+  customProviders: [],
 };
 
 function configure(cfg) {
-  if (cfg) {
-    if (cfg.llm) {
-      _config = { ..._config, ...cfg.llm };
-      if (cfg.llm.apiKeys) _config.apiKeys = { ..._config.apiKeys, ...cfg.llm.apiKeys };
+  if (!cfg) return;
+  const llm = cfg.llm || cfg;
+  if (llm.primary) _config.primary = llm.primary;
+  if (llm.fallback) _config.fallback = llm.fallback;
+  if (llm.apiKeys) {
+    for (const [id, key] of Object.entries(llm.apiKeys)) {
+      if (!_config.providers[id]) _config.providers[id] = {};
+      _config.providers[id].apiKey = key;
     }
-    if (cfg.primary) _config.primary = cfg.primary;
-    if (cfg.fallback) _config.fallback = cfg.fallback;
   }
-  // Fallback a variables de entorno si alguna key quedó vacía
-  const envFallback = {
-    groq:   process.env.LLM_KEY_GROQ,
-    gemini: process.env.LLM_KEY_GEMINI,
-    openai: process.env.LLM_KEY_OPENAI,
-  };
-  for (const [provider, value] of Object.entries(envFallback)) {
-    if ((!_config.apiKeys[provider] || _config.apiKeys[provider].trim() === '') && value && value.trim()) {
-      _config.apiKeys[provider] = value.trim();
+  if (llm.providers) {
+    for (const [id, p] of Object.entries(llm.providers)) {
+      _config.providers[id] = { ...(_config.providers[id] || {}), ...p };
+    }
+  }
+  if (llm.customProviders) {
+    _config.customProviders = llm.customProviders;
+    for (const cp of llm.customProviders) {
+      registerProvider({ ...cp, custom: true });
+    }
+  }
+  // Env var fallback for all built-in providers
+  for (const [id, def] of _registry) {
+    const envKey = `LLM_KEY_${id.toUpperCase()}`;
+    const envVal = process.env[envKey];
+    if (envVal && envVal.trim()) {
+      if (!_config.providers[id]) _config.providers[id] = {};
+      if (!_config.providers[id].apiKey) _config.providers[id].apiKey = envVal.trim();
     }
   }
 }
 
+function _getApiKey(providerId) {
+  const p = _config.providers[providerId];
+  if (p && p.apiKey && p.apiKey.trim()) return p.apiKey.trim();
+  return null;
+}
+
+function _getModels(providerId) {
+  const def = _registry.get(providerId);
+  if (!def) return null;
+  return def.models || null;
+}
+
 // ── Helper HTTP ───────────────────────────────────────────────────────────────
-// FIX v4: timeoutMs ahora obligatorio en la práctica (tiene default, pero
-// cada llamador de provider pasa el valor correcto según el modo). Sin
-// esto, una conexión colgada nunca resolvía ni rechazaba la promesa, y
-// el fallback entre proveedores jamás se disparaba.
 function post(url, headers, body, timeoutMs = 20_000) {
   return new Promise((resolve, reject) => {
     const parsed  = new URL(url);
@@ -235,57 +182,49 @@ function post(url, headers, body, timeoutMs = 20_000) {
         catch(e) { reject(new Error(`${res.statusCode} JSON parse error: ${data.slice(0, 200)}`)); }
       });
     });
-    req.setTimeout(timeoutMs, () => {
-      req.destroy();
-      reject(new Error(`Timeout después de ${timeoutMs}ms`));
-    });
+    req.setTimeout(timeoutMs, () => { req.destroy(); reject(new Error(`Timeout después de ${timeoutMs}ms`)); });
     req.on('error', reject);
     req.write(payload);
     req.end();
   });
 }
 
-// ── Proveedores ───────────────────────────────────────────────────────────────
-// Las tres funciones comparten la misma forma: reciben (messages,
-// systemPrompt, mode), resuelven el modelo y el límite de output según
-// el modo, y devuelven el texto de respuesta. El cálculo de max_tokens
-// y de timeoutMs vive en un solo lugar (MAX_OUTPUT[mode] / TIMEOUT_MS[mode])
-// para no duplicar el número mágico ni el criterio en cada proveedor.
-//
-// Nota v5: callGroq() no necesita ningún cambio para soportar Kimi K2 —
-// Groq expone Kimi bajo el mismo endpoint OpenAI-compatible que ya usa
-// para Llama, con la misma key. Cambiar el modelo en MODELS.groq.smart
-// fue suficiente; no hay lógica de proveedor específica para Kimi.
-
-async function callGroq(messages, systemPrompt, mode = 'fast') {
-  const key = _config.apiKeys.groq;
-  if (!key) throw new Error('No Groq API key');
+// ── Generic OpenAI-compatible caller ──────────────────────────────────────────
+async function callOpenAI(providerId, messages, systemPrompt, mode = 'fast') {
+  const def = _registry.get(providerId);
+  if (!def) throw new Error(`Provider desconocido: ${providerId}`);
+  const key = _getApiKey(providerId);
+  if (!key && !def.free) throw new Error(`No API key para ${def.name}`);
 
   const safeMode  = _resolveMode(mode);
-  const model     = MODELS.groq[safeMode];
+  const model     = def.models?.[safeMode];
   const maxTokens = MAX_OUTPUT[safeMode];
   const timeoutMs = TIMEOUT_MS[safeMode] ?? TIMEOUT_MS.fast;
   const history   = _trimHistoryForMode(messages, safeMode);
   const msgs      = [{ role: 'system', content: systemPrompt }, ...history];
 
-  console.log(`[llm] groq model: ${model} (${safeMode}, max_tokens=${maxTokens}, history=${history.length}msg, timeout=${timeoutMs}ms)`);
+  console.log(`[llm] ${providerId} model: ${model} (${safeMode}, max_tokens=${maxTokens}, history=${history.length}msg, timeout=${timeoutMs}ms)`);
 
+  const headers = key ? { Authorization: `Bearer ${key}` } : {};
   const res = await post(
-    'https://api.groq.com/openai/v1/chat/completions',
-    { Authorization: `Bearer ${key}` },
+    `${def.baseURL}/chat/completions`,
+    headers,
     { model, messages: msgs, max_tokens: maxTokens, temperature: 0.85 },
     timeoutMs
   );
-  if (res.status !== 200) throw new Error(`Groq ${res.status}: ${JSON.stringify(res.body)}`);
+  if (res.status !== 200) throw new Error(`${def.name} ${res.status}: ${JSON.stringify(res.body)}`);
   return (res.body.choices[0].message.content || '').trim();
 }
 
-async function callGemini(messages, systemPrompt, mode = 'fast') {
-  const key = _config.apiKeys.gemini;
-  if (!key) throw new Error('No Gemini API key');
+// ── Generic Gemini caller ─────────────────────────────────────────────────────
+async function callGeminiProvider(providerId, messages, systemPrompt, mode = 'fast') {
+  const def = _registry.get(providerId);
+  if (!def) throw new Error(`Provider desconocido: ${providerId}`);
+  const key = _getApiKey(providerId);
+  if (!key) throw new Error(`No API key para ${def.name}`);
 
   const safeMode  = _resolveMode(mode);
-  const model     = MODELS.gemini[safeMode];
+  const model     = def.models?.[safeMode];
   const maxTokens = MAX_OUTPUT[safeMode];
   const timeoutMs = TIMEOUT_MS[safeMode] ?? TIMEOUT_MS.fast;
   const history   = _trimHistoryForMode(messages, safeMode);
@@ -294,10 +233,10 @@ async function callGemini(messages, systemPrompt, mode = 'fast') {
     parts: [{ text: m.content }],
   }));
 
-  console.log(`[llm] gemini model: ${model} (${safeMode}, max_tokens=${maxTokens}, history=${history.length}msg, timeout=${timeoutMs}ms)`);
+  console.log(`[llm] ${providerId} model: ${model} (${safeMode}, max_tokens=${maxTokens}, history=${history.length}msg, timeout=${timeoutMs}ms)`);
 
   const res = await post(
-    `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${key}`,
+    `${def.baseURL}/models/${model}:generateContent?key=${key}`,
     {},
     {
       system_instruction: { parts: [{ text: systemPrompt }] },
@@ -306,41 +245,67 @@ async function callGemini(messages, systemPrompt, mode = 'fast') {
     },
     timeoutMs
   );
-  if (res.status !== 200) throw new Error(`Gemini ${res.status}: ${JSON.stringify(res.body)}`);
+  if (res.status !== 200) throw new Error(`${def.name} ${res.status}: ${JSON.stringify(res.body)}`);
   return (res.body.candidates[0]?.content?.parts?.[0]?.text || '').trim();
 }
 
-async function callOpenAI(messages, systemPrompt, mode = 'fast') {
-  const key = _config.apiKeys.openai;
-  if (!key) throw new Error('No OpenAI API key');
+// ── Generic Anthropic caller ──────────────────────────────────────────────────
+async function callAnthropic(providerId, messages, systemPrompt, mode = 'fast') {
+  const def = _registry.get(providerId);
+  if (!def) throw new Error(`Provider desconocido: ${providerId}`);
+  const key = _getApiKey(providerId);
+  if (!key) throw new Error(`No API key para ${def.name}`);
 
   const safeMode  = _resolveMode(mode);
-  const model     = MODELS.openai[safeMode];
+  const model     = def.models?.[safeMode];
   const maxTokens = MAX_OUTPUT[safeMode];
   const timeoutMs = TIMEOUT_MS[safeMode] ?? TIMEOUT_MS.fast;
   const history   = _trimHistoryForMode(messages, safeMode);
-  const msgs      = [{ role: 'system', content: systemPrompt }, ...history];
 
-  console.log(`[llm] openai model: ${model} (${safeMode}, max_tokens=${maxTokens}, history=${history.length}msg, timeout=${timeoutMs}ms)`);
+  const msgs = history.map(m => ({
+    role: m.role === 'assistant' ? 'assistant' : 'user',
+    content: m.content,
+  }));
+
+  console.log(`[llm] ${providerId} model: ${model} (${safeMode}, max_tokens=${maxTokens}, history=${history.length}msg, timeout=${timeoutMs}ms)`);
 
   const res = await post(
-    'https://api.openai.com/v1/chat/completions',
-    { Authorization: `Bearer ${key}` },
-    { model, messages: msgs, max_tokens: maxTokens, temperature: 0.85 },
+    `${def.baseURL}/messages`,
+    { 'x-api-key': key, 'anthropic-version': '2023-06-01' },
+    { model, messages: msgs, system: systemPrompt, max_tokens: maxTokens, temperature: 0.85 },
     timeoutMs
   );
-  if (res.status !== 200) throw new Error(`OpenAI ${res.status}: ${JSON.stringify(res.body)}`);
-  return (res.body.choices[0].message.content || '').trim();
+  if (res.status !== 200) throw new Error(`${def.name} ${res.status}: ${JSON.stringify(res.body)}`);
+  const content = res.body.content;
+  if (!content) return '';
+  return content.map(c => c.text || '').join('').trim();
 }
 
-const PROVIDERS = {
-  groq:   callGroq,
-  gemini: callGemini,
-  openai: callOpenAI,
-};
+// ── Dispatcher ────────────────────────────────────────────────────────────────
+function _getCaller(providerId) {
+  const def = _registry.get(providerId);
+  if (!def) return null;
+  switch (def.type) {
+    case 'openai': return callOpenAI;
+    case 'gemini': return callGeminiProvider;
+    case 'anthropic': return callAnthropic;
+    default: return null;
+  }
+}
+
+const PROVIDERS = {};
+const PROVIDERS_WITH_TOOLS = {};
+
+function _rebuildMaps() {
+  for (const [id] of _registry) {
+    const fn = _getCaller(id);
+    if (fn) PROVIDERS[id] = (m, s, mode) => fn(id, m, s, mode);
+    const fnTools = _getToolCaller(id);
+    if (fnTools) PROVIDERS_WITH_TOOLS[id] = (m, s, mode, tools) => fnTools(id, m, s, mode, tools);
+  }
+}
 
 // ── Tool-calling ──────────────────────────────────────────────────────────────
-
 const { TOOL_SCHEMAS } = require('./ToolSchemas.js');
 
 function _buildOpenAITools(tools) {
@@ -369,23 +334,18 @@ function _normalizeOpenAIResponse(body) {
   if (!choice) return { content: null, toolCalls: null };
   const msg = choice.message;
   if (!msg) return { content: null, toolCalls: null };
-
   const content = msg.content || null;
   const rawCalls = msg.tool_calls;
   if (!rawCalls || rawCalls.length === 0) return { content, toolCalls: null };
-
   const toolCalls = rawCalls
     .filter(tc => tc.type === 'function')
     .map(tc => {
       try {
         const params = JSON.parse(tc.function.arguments);
         return { tool: tc.function.name, params, id: tc.id };
-      } catch {
-        return null;
-      }
+      } catch { return null; }
     })
     .filter(Boolean);
-
   return { content, toolCalls: toolCalls.length > 0 ? toolCalls : null };
 }
 
@@ -394,65 +354,54 @@ function _normalizeGeminiResponse(body) {
   if (!candidate) return { content: null, toolCalls: null };
   const parts = candidate.content?.parts;
   if (!parts) return { content: null, toolCalls: null };
-
   let content = null;
   const toolCalls = [];
-
   for (const part of parts) {
-    if (part.text !== undefined) {
-      content = (content || '') + part.text;
-    }
-    if (part.functionCall) {
-      toolCalls.push({
-        tool: part.functionCall.name,
-        params: part.functionCall.args || {},
-      });
-    }
+    if (part.text !== undefined) content = (content || '') + part.text;
+    if (part.functionCall) toolCalls.push({ tool: part.functionCall.name, params: part.functionCall.args || {} });
   }
-
   return { content: (content || '').trim() || null, toolCalls: toolCalls.length > 0 ? toolCalls : null };
 }
 
-async function callGroqWithTools(messages, systemPrompt, mode, tools) {
-  const key = _config.apiKeys.groq;
-  if (!key) throw new Error('No Groq API key');
+async function callOpenAIWithTools(providerId, messages, systemPrompt, mode, tools) {
+  const def = _registry.get(providerId);
+  if (!def) throw new Error(`Provider desconocido: ${providerId}`);
+  const key = _getApiKey(providerId);
+  if (!key && !def.free) throw new Error(`No API key para ${def.name}`);
 
   const safeMode  = _resolveMode(mode);
-  const model     = MODELS.groq[safeMode];
+  const model     = def.models?.[safeMode];
   const maxTokens = MAX_OUTPUT[safeMode];
   const timeoutMs = TIMEOUT_MS[safeMode] ?? TIMEOUT_MS.fast;
   const history   = _trimHistoryForMode(messages, safeMode);
   const msgs      = [{ role: 'system', content: systemPrompt }, ...history];
 
   const body = {
-    model, messages: msgs,
-    max_tokens: maxTokens, temperature: 0.85,
-    tools: _buildOpenAITools(tools),
-    tool_choice: 'auto',
+    model, messages: msgs, max_tokens: maxTokens, temperature: 0.85,
+    tools: _buildOpenAITools(tools), tool_choice: 'auto',
   };
 
-  console.log(`[llm] groq tool-calling model: ${model} (${mode}, ${tools.length} tools)`);
+  console.log(`[llm] ${providerId} tool-calling model: ${model} (${mode}, ${tools.length} tools)`);
 
-  const res = await post(
-    'https://api.groq.com/openai/v1/chat/completions',
-    { Authorization: `Bearer ${key}` },
-    body, timeoutMs
-  );
-  if (res.status !== 200) throw new Error(`Groq ${res.status}: ${JSON.stringify(res.body)}`);
+  const headers = key ? { Authorization: `Bearer ${key}` } : {};
+  const res = await post(`${def.baseURL}/chat/completions`, headers, body, timeoutMs);
+  if (res.status !== 200) throw new Error(`${def.name} ${res.status}: ${JSON.stringify(res.body)}`);
   return _normalizeOpenAIResponse(res.body);
 }
 
-async function callGeminiWithTools(messages, systemPrompt, mode, tools) {
-  const key = _config.apiKeys.gemini;
-  if (!key) throw new Error('No Gemini API key');
+async function callGeminiWithTools(providerId, messages, systemPrompt, mode, tools) {
+  const def = _registry.get(providerId);
+  if (!def) throw new Error(`Provider desconocido: ${providerId}`);
+  const key = _getApiKey(providerId);
+  if (!key) throw new Error(`No API key para ${def.name}`);
 
   const safeMode  = _resolveMode(mode);
-  const model     = MODELS.gemini[safeMode];
+  const model     = def.models?.[safeMode];
   const maxTokens = MAX_OUTPUT[safeMode];
   const timeoutMs = TIMEOUT_MS[safeMode] ?? TIMEOUT_MS.fast;
   const history   = _trimHistoryForMode(messages, safeMode);
   const contents  = history.map(m => ({
-    role:  m.role === 'assistant' ? 'model' : 'user',
+    role: m.role === 'assistant' ? 'model' : 'user',
     parts: [{ text: m.content }],
   }));
 
@@ -463,72 +412,32 @@ async function callGeminiWithTools(messages, systemPrompt, mode, tools) {
     generationConfig: { maxOutputTokens: maxTokens, temperature: 0.85 },
   };
 
-  console.log(`[llm] gemini tool-calling model: ${model} (${mode}, ${tools.length} tools)`);
+  console.log(`[llm] ${providerId} tool-calling model: ${model} (${mode}, ${tools.length} tools)`);
 
   const res = await post(
-    `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${key}`,
+    `${def.baseURL}/models/${model}:generateContent?key=${key}`,
     {}, body, timeoutMs
   );
-  if (res.status !== 200) throw new Error(`Gemini ${res.status}: ${JSON.stringify(res.body)}`);
+  if (res.status !== 200) throw new Error(`${def.name} ${res.status}: ${JSON.stringify(res.body)}`);
   return _normalizeGeminiResponse(res.body);
 }
 
-async function callOpenAIWithTools(messages, systemPrompt, mode, tools) {
-  const key = _config.apiKeys.openai;
-  if (!key) throw new Error('No OpenAI API key');
-
-  const safeMode  = _resolveMode(mode);
-  const model     = MODELS.openai[safeMode];
-  const maxTokens = MAX_OUTPUT[safeMode];
-  const timeoutMs = TIMEOUT_MS[safeMode] ?? TIMEOUT_MS.fast;
-  const history   = _trimHistoryForMode(messages, safeMode);
-  const msgs      = [{ role: 'system', content: systemPrompt }, ...history];
-
-  const body = {
-    model, messages: msgs,
-    max_tokens: maxTokens, temperature: 0.85,
-    tools: _buildOpenAITools(tools),
-    tool_choice: 'auto',
-  };
-
-  console.log(`[llm] openai tool-calling model: ${model} (${mode}, ${tools.length} tools)`);
-
-  const res = await post(
-    'https://api.openai.com/v1/chat/completions',
-    { Authorization: `Bearer ${key}` },
-    body, timeoutMs
-  );
-  if (res.status !== 200) throw new Error(`OpenAI ${res.status}: ${JSON.stringify(res.body)}`);
-  return _normalizeOpenAIResponse(res.body);
+function _getToolCaller(providerId) {
+  const def = _registry.get(providerId);
+  if (!def) return null;
+  switch (def.type) {
+    case 'openai': return callOpenAIWithTools;
+    case 'gemini': return callGeminiWithTools;
+    default: return null;
+  }
 }
 
-const PROVIDERS_WITH_TOOLS = {
-  groq:   callGroqWithTools,
-  gemini: callGeminiWithTools,
-  openai: callOpenAIWithTools,
-};
-
-// ── API pública ───────────────────────────────────────────────────────────────
-
-/**
- * Auto-reconnect (mejora #5): retry con backoff exponencial + jitter para
- * fallos que PARECEN transitorios (timeout, red caída momentáneamente,
- * 429/5xx del proveedor) — antes, un solo timeout en Groq saltaba
- * directo a Gemini sin darle a Groq una segunda oportunidad, aunque el
- * problema hubiera sido un blip de red de medio segundo.
- *
- * Errores claramente no-transitorios (401/403/404 — key inválida, sin
- * acceso, endpoint no existe) NO se reintentan — reintentar eso no
- * cambia el resultado, solo demora el fallback al siguiente proveedor.
- */
-const MAX_RETRIES_PER_PROVIDER = 2; // hasta 3 intentos totales por proveedor
-const RETRY_BASE_MS            = 400;
-
+// ── Fallback y retry ──────────────────────────────────────────────────────────
 function _sleep(ms) { return new Promise(resolve => setTimeout(resolve, ms)); }
 
 function _backoffWithJitter(attempt) {
-  const base   = RETRY_BASE_MS * Math.pow(2, attempt); // 400, 800, 1600...
-  const jitter = base * (0.7 + Math.random() * 0.6);   // ±30% para no sincronizar reintentos
+  const base = RETRY_BASE_MS * Math.pow(2, attempt);
+  const jitter = base * (0.7 + Math.random() * 0.6);
   return Math.round(jitter);
 }
 
@@ -536,39 +445,34 @@ function _isRetryableError(err) {
   const msg = err?.message || '';
   if (/^Timeout después de/i.test(msg)) return true;
   if (/ECONNRESET|ECONNREFUSED|ETIMEDOUT|ENOTFOUND|EAI_AGAIN|socket hang up/i.test(msg)) return true;
-
-  const statusMatch = msg.match(/^(?:Groq|Gemini|OpenAI) (\d{3}):/);
+  const statusMatch = msg.match(/^(.+?) (\d{3}):/);
   if (statusMatch) {
-    const status = parseInt(statusMatch[1], 10);
-    // 429 (rate limit) y 5xx (problema del lado del proveedor) valen la
-    // pena reintentar. 4xx (key inválida, prohibido, etc.) no — es un
-    // problema de configuración, no de conexión, y no se va a arreglar solo.
+    const status = parseInt(statusMatch[2], 10);
     return status === 429 || (status >= 500 && status < 600);
   }
-  return false; // por defecto, no reintentar algo que no reconocemos
+  return false;
 }
 
-/**
- * Llama al LLM con fallback automático.
- *
- * @param {Array}  messages
- * @param {string} systemPrompt
- * @param {string} [mode='fast'] — 'fast' para conversación, 'smart' para tareas complejas (Kimi K2 vía Groq desde v5)
- */
+function _parseRetryAfter(err) {
+  const m = err?.message?.match(/try again in ([\d.]+)s/);
+  return m ? Math.ceil(parseFloat(m[1]) * 1000) : 0;
+}
+
 async function _callWithFallback(messages, systemPrompt, mode = 'fast') {
   const order = [_config.primary, ...(_config.fallback || [])];
   const tried = [];
 
   for (const providerName of order) {
-    const fn  = PROVIDERS[providerName];
+    const fn = PROVIDERS[providerName];
     if (!fn) continue;
-    const key = _config.apiKeys[providerName];
-    if (!key || key.trim() === '') continue;
+    if (!defHasKey(providerName)) continue;
 
+    let lastErr = null;
     for (let attempt = 0; attempt <= MAX_RETRIES_PER_PROVIDER; attempt++) {
       try {
         if (attempt > 0) {
-          const waitMs = _backoffWithJitter(attempt - 1);
+          const ra = _parseRetryAfter(lastErr);
+          const waitMs = ra > 0 ? ra : _backoffWithJitter(attempt - 1);
           console.log(`[llm] reintentando ${providerName} en ${waitMs}ms (intento ${attempt + 1}/${MAX_RETRIES_PER_PROVIDER + 1})...`);
           await _sleep(waitMs);
         }
@@ -577,59 +481,19 @@ async function _callWithFallback(messages, systemPrompt, mode = 'fast') {
         console.log(`[llm] respuesta de ${providerName} (${result.length} chars)`);
         return result;
       } catch(e) {
+        lastErr = e;
         const retryable = _isRetryableError(e);
-        console.log(`[llm] ${providerName} falló${retryable ? ' (parece transitorio)' : ' (no reintentable)'}: ${e.message}`);
+        console.log(`[llm] ${providerName} falló${retryable ? ' (transitorio)' : ' (no reintentable)'}: ${e.message}`);
         if (!retryable || attempt === MAX_RETRIES_PER_PROVIDER) {
           tried.push(providerName);
-          break; // agotado — pasa al siguiente proveedor de la cadena
+          break;
         }
-        // si es retryable y quedan intentos, el for sigue con el próximo intento
       }
     }
   }
-
   throw new Error(`Todos los providers fallaron: ${tried.join(', ')}`);
 }
 
-/**
- * Conversación normal — usa modelo FAST y output limitado a
- * MAX_OUTPUT.fast, con historial recortado a los últimos mensajes.
- * Para respuestas del chat, iniciativas, resúmenes cortos.
- *
- * Firma sin cambios respecto a v2 — el recorte de tokens ocurre
- * internamente, el llamador sigue pasando el historial completo y
- * esta función decide cuánto de ese historial realmente se envía.
- */
-async function complete(messages, systemPrompt) {
-  return _callWithFallback(messages, systemPrompt, 'fast');
-}
-
-/**
- * Tareas complejas — usa modelo SMART (Kimi K2 vía Groq desde v5) y
- * output limitado a MAX_OUTPUT.smart, SIN recortar el historial (el
- * llamador, ej. el Planner, ya decide qué incluir para la tarea).
- * Para edición de archivos, análisis de código, razonamiento largo.
- *
- * Llamado automáticamente por Planner._llmTransform().
- *
- * v5: también es el punto de entrada que debe usar chat.html cuando el
- * usuario elija "modo tareas" en el toggle de la UI, en vez de
- * complete() — misma función, mismo contrato, solo que ahora también es
- * invocable directamente desde un mensaje normal del chat, no solo
- * desde el Planner.
- */
-async function completeTask(messages, systemPrompt) {
-  return _callWithFallback(messages, systemPrompt, 'smart');
-}
-
-/**
- * Llama al LLM con herramientas (tool-calling nativo).
- * Retorna { content: string|null, toolCalls: Array<{tool, params}>|null }
- *
- * Si el proveedor activo o el modelo no soporta tool-calling,
- * devuelve { content, toolCalls: null } — el llamador debe tener
- * un fallback a parsing de texto (StructuredActionParser).
- */
 async function _callWithFallbackTools(messages, systemPrompt, mode = 'smart', tools) {
   if (!tools || tools.length === 0) {
     const text = await _callWithFallback(messages, systemPrompt, mode);
@@ -642,19 +506,20 @@ async function _callWithFallbackTools(messages, systemPrompt, mode = 'smart', to
   for (const providerName of order) {
     const fn = PROVIDERS_WITH_TOOLS[providerName];
     if (!fn) continue;
-    const key = _config.apiKeys[providerName];
-    if (!key || key.trim() === '') continue;
+    if (!defHasKey(providerName)) continue;
 
+    let lastErr = null;
     for (let attempt = 0; attempt <= MAX_RETRIES_PER_PROVIDER; attempt++) {
       try {
         if (attempt > 0) {
-          const waitMs = _backoffWithJitter(attempt - 1);
-          console.log(`[llm] tool-calling reintentando ${providerName} en ${waitMs}ms (intento ${attempt + 1}/${MAX_RETRIES_PER_PROVIDER + 1})...`);
+          const ra = _parseRetryAfter(lastErr);
+          const waitMs = ra > 0 ? ra : _backoffWithJitter(attempt - 1);
           await _sleep(waitMs);
         }
         const result = await fn(messages, systemPrompt, mode, tools);
         return result;
       } catch(e) {
+        lastErr = e;
         const retryable = _isRetryableError(e);
         if (!retryable || attempt === MAX_RETRIES_PER_PROVIDER) {
           tried.push(providerName);
@@ -664,51 +529,94 @@ async function _callWithFallbackTools(messages, systemPrompt, mode = 'smart', to
     }
   }
 
-  console.warn(`[llm] tool-calling falló en todos los providers (${tried.join(', ')}), haciendo fallback a texto`);
+  console.warn(`[llm] tool-calling falló en todos los providers (${tried.join(', ')}), fallback a texto`);
   const text = await _callWithFallback(messages, systemPrompt, mode);
   return { content: text, toolCalls: null };
 }
 
-/**
- * Completa con herramientas (tool-calling nativo).
- * Las tools son el array de schemas de ToolSchemas.js.
- * Retorna { content: string|null, toolCalls: Array<{tool, params}>|null }
- *
- * Si el modelo no soporta tool-calling o no devuelve tool_calls,
- * toolCalls será null y content tendrá la respuesta textual.
- */
+function defHasKey(providerId) {
+  return !!_getApiKey(providerId);
+}
+
+// ── Public API ────────────────────────────────────────────────────────────────
+function complete(messages, systemPrompt) {
+  _rebuildMaps();
+  return _callWithFallback(messages, systemPrompt, 'fast');
+}
+
+function completeTask(messages, systemPrompt) {
+  _rebuildMaps();
+  return _callWithFallback(messages, systemPrompt, 'smart');
+}
+
 async function completeWithTools(messages, systemPrompt, tools = [], mode = 'smart') {
+  _rebuildMaps();
   return _callWithFallbackTools(messages, systemPrompt, mode, tools);
 }
 
 function getActiveProvider() {
   const order = [_config.primary, ...(_config.fallback || [])];
   for (const name of order) {
-    const key = _config.apiKeys[name];
-    if (key && key.trim() !== '') return name;
+    if (defHasKey(name)) return name;
   }
   return null;
 }
 
-/**
- * Retorna el modelo activo según el modo y proveedor.
- * Útil para logs y debug.
- */
 function getActiveModel(mode = 'fast') {
   const provider = getActiveProvider();
   if (!provider) return null;
-  return MODELS[provider]?.[mode] ?? null;
+  const def = _registry.get(provider);
+  return def?.models?.[mode] ?? null;
+}
+
+function getAvailableProviders() {
+  const all = getProviders();
+  return all.map(p => ({
+    id: p.id, name: p.name, type: p.type, builtin: !!p.builtin,
+    free: !!p.free, custom: !!p.custom,
+    hasKey: !!_getApiKey(p.id),
+    baseURL: p.baseURL, models: p.models,
+    apiKey: _config.providers[p.id]?.apiKey || '',
+  }));
+}
+
+function addCustomProvider(def) {
+  const id = def.id || def.name.toLowerCase().replace(/[^a-z0-9]/g, '-');
+  registerProvider({ ...def, id, custom: true });
+  _config.customProviders = _config.customProviders || [];
+  if (!_config.customProviders.find(c => c.id === id)) {
+    _config.customProviders.push({ ...def, id });
+  }
+  _rebuildMaps();
+  return id;
+}
+
+function removeCustomProvider(id) {
+  const def = _registry.get(id);
+  if (def && def.builtin) throw new Error(`No se puede eliminar el provider built-in: ${id}`);
+  _registry.delete(id);
+  _config.customProviders = (_config.customProviders || []).filter(c => c.id !== id);
+  delete _config.providers[id];
+  if (_config.primary === id) _config.primary = 'groq';
+  _config.fallback = (_config.fallback || []).filter(f => f !== id);
+  _rebuildMaps();
+}
+
+function getCustomProviders() {
+  return _config.customProviders || [];
 }
 
 module.exports = {
   configure, complete, completeTask, completeWithTools,
   getActiveProvider, getActiveModel,
+  getAvailableProviders, getProvider, getProviders, getProviderNames,
+  addCustomProvider, removeCustomProvider, getCustomProviders,
   getToolSchemas: () => require('./ToolSchemas.js').TOOL_SCHEMAS,
+  registerProvider,
   _debug_isRetryableError: _isRetryableError,
   _debug_backoffWithJitter: _backoffWithJitter,
   _debug_normalizeOpenAI: _normalizeOpenAIResponse,
   _debug_normalizeGemini: _normalizeGeminiResponse,
   _debug_buildOpenAITools: _buildOpenAITools,
   _debug_buildGeminiTools: _buildGeminiTools,
-  _debug_MODELS: () => ({ ...MODELS }),
 };

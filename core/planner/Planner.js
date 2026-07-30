@@ -10,7 +10,7 @@
  *   "**main.js**" literal — OpenClaw intentaba resolver ese path
  *   inexistente y la herramienta fallaba o devolvía contenido vacío,
  *   sin que el usuario tuviera ninguna señal visible de qué pasó (el
- *   plan se marcaba "✓ COMPLETADO" igual, porque el paso en sí no
+ *   plan se marcaba "COMPLETADO" igual, porque el paso en sí no
  *   lanzaba excepción — solo no encontraba nada que leer).
  *
  *   Este bug era intermitente por diseño: solo aparecía cuando el LLM
