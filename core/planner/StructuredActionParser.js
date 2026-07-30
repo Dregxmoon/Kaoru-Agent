@@ -60,6 +60,7 @@ const ACTION_TO_TOOL = {
   run_script:       'exec',
   git_action:       'exec',
   install_package:  'exec',
+  exec:             'exec',        // alias directo (algunos modelos usan "exec")
   web_search:       'web_search',
   navigate_browser: 'browser',
   browser_action:   'browser',

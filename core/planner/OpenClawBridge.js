@@ -39,7 +39,11 @@ const BrowserBridge = require('./BrowserBridge.js');
 
 const OPENCLAW_BASE   = 'http://127.0.0.1:18789';
 const DEFAULT_TIMEOUT = 30_000;
-const API_KEY         = process.env.OPENCLAW_API_KEY || null;
+// FIX Fase 0.1: API_KEY se lee en el momento del request, no al cargar el módulo.
+// MarchCore._startOpenClaw() (línea 205 en MarchCore.js) setea process.env.OPENCLAW_API_KEY
+// DESPUÉS de que este módulo ya fue require()-do (línea 38 en MarchCore.js).
+// Con un const de módulo, el cliente nunca manda el header de auth.
+function _getApiKey() { return process.env.OPENCLAW_API_KEY || null; }
 
 // Herramientas que se resuelven con el navegador propio de March,
 // no con el servidor HTTP de OpenClaw/mock.
@@ -90,13 +94,14 @@ function postJSON(url, body, timeoutMs = DEFAULT_TIMEOUT) {
     const payload = JSON.stringify(body);
     const parsed  = new URL(url);
 
+    const apiKey = _getApiKey();
     const headers = {
       'Content-Type':   'application/json',
       'Content-Length': Buffer.byteLength(payload),
     };
-    if (API_KEY) {
-      headers['X-Api-Key'] = API_KEY;
-      headers['Authorization'] = `Bearer ${API_KEY}`;
+    if (apiKey) {
+      headers['X-Api-Key'] = apiKey;
+      headers['Authorization'] = `Bearer ${apiKey}`;
     }
 
     const options = {

@@ -124,10 +124,10 @@ class MCPServerConnection {
       // CUALQUIER razón — incluyendo que nosotros mismos llamemos
       // client.close(). _intentionalDisconnect distingue "lo pedimos
       // nosotros" (no reconectar) de "se cayó solo" (sí reconectar).
-      this.client.on('close', () => this._handleUnexpectedClose());
-      this.client.on('error', (err) => {
+      this.client.onclose = () => this._handleUnexpectedClose();
+      this.client.onerror = (err) => {
         console.warn(`[mcp] error en servidor "${this.name}":`, err.message);
-      });
+      };
 
       await Promise.race([
         this.client.connect(this.transport),

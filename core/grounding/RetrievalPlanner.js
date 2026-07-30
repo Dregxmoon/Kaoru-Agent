@@ -136,7 +136,7 @@ class RetrievalPlanner {
    * @returns {Promise<object>} — { nodes, episodeNodes, strategy, keywords, intents }
    */
   async plan(userMessage = '', osContext = null) {
-    if (!this._graph?._ready) {
+    if (!this._graph?.isReady) {
       return {
         nodes: [], episodeNodes: [],
         strategy: 'fallback', keywords: [], intents: [],

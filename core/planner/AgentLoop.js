@@ -6,7 +6,10 @@ const AP = require('./ActionParser.js');
 const LLMProvider = require('../llm/LLMProvider.js');
 const { getToolRegistry } = require('../task/ToolRegistry.js');
 
+const VALID_MODES = new Set(['smart', 'fast', 'task', 'conversational']);
+
 const MAX_ITERATIONS = 25;
+const RESULT_TRUNCATE_LIMIT = 800;
 
 const AGENT_LOOP_SYSTEM = `
 # MODO AGENTE — BUCLE DE EJECUCIÓN
@@ -55,17 +58,32 @@ El resto del texto se mostrará al usuario.
    vas a hacer y por qué.
 `;
 
+const MODE_ALIAS = {
+  task: 'smart',
+  conversational: 'fast',
+};
+
 class AgentLoop {
   constructor(opts = {}) {
     this.maxIterations = opts.maxIterations || MAX_ITERATIONS;
     this._bridge = opts.bridge || getOpenClawBridge();
     this._toolRegistry = getToolRegistry();
     this._llm = opts.llm || null;
+    const rawMode = opts.mode || 'smart';
+    if (!VALID_MODES.has(rawMode)) {
+      console.warn(`[agent-loop] modo "${rawMode}" no reconocido, usando "smart"`);
+      this._mode = 'smart';
+    } else {
+      this._mode = MODE_ALIAS[rawMode] || rawMode;
+    }
   }
 
   _getLLM() {
     if (this._llm) return this._llm;
-    return LLMProvider.completeTask.bind(LLMProvider);
+    if (!this._llmRef) {
+      this._llmRef = LLMProvider.completeTask.bind(LLMProvider);
+    }
+    return this._llmRef;
   }
 
   async run(userMessage, systemPrompt, messages, opts = {}) {
@@ -122,6 +140,7 @@ class AgentLoop {
     const iterationHistory = [...(messages || [])];
     let lastToolResult = null;
     const toolResults = [];
+    let lastResponseText = null; // guarda último output del LLM para max_iterations
 
     for (let i = 0; i < this.maxIterations; i++) {
       const currentUserMsg = i === 0
@@ -138,20 +157,36 @@ class AgentLoop {
       let toolCalls = null;
 
       if (tools && llm === this._getLLM()) {
-        // Usar tool-calling nativo con el LLM real
         try {
-          const tcResult = await LLMProvider.completeWithTools(llmMessages, agentPrompt, tools);
+          const tcResult = await LLMProvider.completeWithTools(llmMessages, agentPrompt, tools, this._mode);
           responseText = tcResult.content;
           toolCalls = tcResult.toolCalls;
         } catch (e) {
           console.warn('[agent-loop] tool-calling nativo falló, usando fallback texto:', e.message);
-          const fallback = await llm(llmMessages, agentPrompt);
-          responseText = typeof fallback === 'string' ? fallback : (fallback?.content || '');
+          try {
+            const fallback = await llm(llmMessages, agentPrompt);
+            responseText = typeof fallback === 'string' ? fallback : (fallback?.content || '');
+          } catch (e2) {
+            return {
+              response: `Error en tool-calling y fallback textual: ${e2.message}`,
+              iterations: i + 1,
+              toolResults,
+              error: 'llm_failure',
+            };
+          }
         }
       } else {
-        // Modo texto (mock LLM o sin tools)
-        const raw = await llm(llmMessages, agentPrompt);
-        responseText = typeof raw === 'string' ? raw : (raw?.content || '');
+        try {
+          const raw = await llm(llmMessages, agentPrompt);
+          responseText = typeof raw === 'string' ? raw : (raw?.content || '');
+        } catch (e) {
+          return {
+            response: `Error en LLM: ${e.message}`,
+            iterations: i + 1,
+            toolResults,
+            error: 'llm_failure',
+          };
+        }
       }
 
       if (!responseText || !responseText.trim()) {
@@ -163,7 +198,9 @@ class AgentLoop {
         };
       }
 
-      // ── Extraer acciones: tool_calls nativos tienen prioridad ──────────
+      lastResponseText = responseText;
+
+      // ── Extraer acciones ───────────────────────────────────────────
       let actions = [];
       if (toolCalls && toolCalls.length > 0) {
         actions = toolCalls.map(tc => ({
@@ -173,11 +210,10 @@ class AgentLoop {
           source: 'native_tool_call',
         }));
       } else {
-        actions = parser.parse(responseText, userMessage, null);
+        actions = parser.parse(responseText, userMessage, taskIntent);
       }
 
       if (actions.length === 0) {
-        iterationHistory.push({ role: 'assistant', content: responseText });
         return {
           response: responseText,
           iterations: i + 1,
@@ -196,6 +232,11 @@ class AgentLoop {
         if (modern) {
           a.tool = modern;
           if (modern === 'write' && a.params.instruction && !a.params.content) {
+            a.params.content = a.params.instruction;
+            delete a.params.instruction;
+          }
+          // edit_file → edit: remapear instruction a content para schema LLM
+          if (modern === 'edit' && a.params.instruction) {
             a.params.content = a.params.instruction;
             delete a.params.instruction;
           }
@@ -237,6 +278,10 @@ class AgentLoop {
       toolResults.push(result);
       lastToolResult = result;
 
+      if (opts.onProgress) {
+        opts.onProgress({ iteration: i + 1, tool: action.tool, params: action.params, status: result.ok ? 'ok' : 'error', result: result.ok ? result.result : null, error: result.ok ? null : result.error });
+      }
+
       const resultSummary = result.ok
         ? this._summarizeResult(result, action)
         : `[ERROR en ${action.tool}]: ${result.error || 'desconocido'}`;
@@ -249,7 +294,7 @@ class AgentLoop {
       'Puedes pedirme que continúe o reformular la instrucción.';
 
     return {
-      response: finalResponse,
+      response: lastResponseText || finalResponse,
       iterations: this.maxIterations,
       toolResults,
       truncated: true,
@@ -260,19 +305,20 @@ class AgentLoop {
   _buildToolResultMessage(lastResult) {
     if (!lastResult) return null;
 
-    if (lastResult.ok && lastResult.result !== undefined && lastResult.result !== null) {
-      return `[Resultado de herramienta "${lastResult.tool}"]:\n${this._summarizeResult(lastResult)}`;
+    const summary = this._summarizeResult(lastResult);
+    if (lastResult.ok) {
+      return `[Resultado de herramienta "${lastResult.tool}"]:\n${summary}`;
     }
     return `[ERROR en herramienta "${lastResult.tool}"]: ${lastResult.error || 'desconocido'}\n\nContinúa con otra estrategia o avísame si no puedes completar la tarea.`;
   }
 
-  _summarizeResult(result, action) {
+  _summarizeResult(result) {
     const raw = result.result;
     if (raw === null || raw === undefined) return 'Sin resultado.';
 
     if (typeof raw === 'string') {
-      if (raw.length <= 800) return raw;
-      return raw.slice(0, 800) + `\n\n[... resultado truncado: ${raw.length} caracteres totales]`;
+      if (raw.length <= RESULT_TRUNCATE_LIMIT) return raw;
+      return raw.slice(0, RESULT_TRUNCATE_LIMIT) + `\n\n[... resultado truncado: ${raw.length} caracteres totales]`;
     }
 
     if (typeof raw === 'object') {
@@ -281,10 +327,10 @@ class AgentLoop {
         const stderr = (raw.stderr || '').trim();
         let summary = '';
         if (stdout) {
-          summary += stdout.length <= 800 ? stdout : stdout.slice(0, 800) + `\n[... stdout truncado: ${stdout.length} chars]`;
+          summary += stdout.length <= RESULT_TRUNCATE_LIMIT ? stdout : stdout.slice(0, RESULT_TRUNCATE_LIMIT) + `\n[... stdout truncado: ${stdout.length} chars]`;
         }
         if (stderr) {
-          summary += (summary ? '\n' : '') + (stderr.length <= 400 ? stderr : stderr.slice(0, 400) + `\n[... stderr truncado]`);
+          summary += (summary ? '\n' : '') + (stderr.length <= (RESULT_TRUNCATE_LIMIT / 2) ? stderr : stderr.slice(0, (RESULT_TRUNCATE_LIMIT / 2)) + `\n[... stderr truncado]`);
         }
         if (raw.exitCode !== undefined && raw.exitCode !== 0) {
           summary += `\n[exit code: ${raw.exitCode}]`;
@@ -292,10 +338,10 @@ class AgentLoop {
         return summary || `[Comando ejecutado, sin salida]`;
       }
       const str = JSON.stringify(raw, null, 2);
-      return str.length <= 800 ? str : str.slice(0, 800) + `\n[... truncado: ${str.length} chars]`;
+      return str.length <= RESULT_TRUNCATE_LIMIT ? str : str.slice(0, RESULT_TRUNCATE_LIMIT) + `\n[... truncado: ${str.length} chars]`;
     }
 
-    return String(raw).slice(0, 800);
+    return String(raw).slice(0, RESULT_TRUNCATE_LIMIT);
   }
 }
 

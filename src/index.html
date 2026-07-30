@@ -15,42 +15,11 @@
     display: block;
     position: absolute; top: 0; left: 0;
   }
-  #wake-indicator {
-    position: absolute;
-    bottom: 14px;
-    left: 50%;
-    transform: translateX(-50%) scale(0.85);
-    background: rgba(255,100,150,0.85);
-    border-radius: 999px;
-    padding: 5px 14px;
-    font-size: 11px;
-    font-weight: 700;
-    color: white;
-    letter-spacing: 0.05em;
-    pointer-events: none;
-    opacity: 0;
-    transition: opacity 0.25s ease, transform 0.25s ease;
-    white-space: nowrap;
-    backdrop-filter: blur(6px);
-  }
-  #wake-indicator.visible {
-    opacity: 1;
-    transform: translateX(-50%) scale(1);
-  }
-  #wake-indicator.listening {
-    background: rgba(80,180,255,0.9);
-    animation: listenPulse 1s ease-in-out infinite;
-  }
-  @keyframes listenPulse {
-    0%,100% { box-shadow: 0 0 0 0 rgba(80,180,255,0.4); }
-    50%      { box-shadow: 0 0 0 8px rgba(80,180,255,0); }
-  }
 </style>
 </head>
 <body>
 
 <canvas id="live2d-canvas"></canvas>
-<div id="wake-indicator">Te escucho...</div>
 
 <script src="https://cubism.live2d.com/sdk-web/cubismcore/live2dcubismcore.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/pixi.js@6.5.10/dist/browser/pixi.min.js"></script>
@@ -94,15 +63,6 @@ const VIEW = {
   half: { sr: 1.70, ax: 0.5, ay: 0.72, py: 1.10 },
   head: { sr: 3.80, ax: 0.5, ay: 0.18, py: 0.90 },
 };
-
-// ── Indicador de voz ──────────────────────────────────────────────────────────
-const wakeIndicator = document.getElementById('wake-indicator');
-
-function showIndicator(text, type = '') {
-  wakeIndicator.textContent = text;
-  wakeIndicator.className   = 'visible' + (type ? ` ${type}` : '');
-}
-function hideIndicator() { wakeIndicator.className = ''; }
 
 // ── Emociones de voz ──────────────────────────────────────────────────────────
 const EMOTION_PROFILES = {
@@ -377,15 +337,6 @@ ipcRenderer.on('speak', (e, payload) => {
 });
 
 ipcRenderer.on('set-status', () => {});
-
-ipcRenderer.on('voice-wake', () => {
-  triggerMotion();
-});
-ipcRenderer.on('voice-listening', () => {
-});
-ipcRenderer.on('voice-idle', () => {
-  hideIndicator();
-});
 
 // ── Resize ────────────────────────────────────────────────────────────────────
 window.addEventListener('resize', () => {

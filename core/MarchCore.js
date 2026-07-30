@@ -31,7 +31,6 @@ const { StateUpdater }                 = require('./state-graph/StateUpdater.js'
 const { OSSensor }                     = require('../infrastructure/sensors/OSSensor.js');
 const { LinuxOSSensor }                = require('../infrastructure/sensors/LinuxOSSensor.js');
 const { getEventBus }                  = require('../infrastructure/event-bus/EventBus.js');
-const { InitiativeEngine }             = require('./behavior/InitiativeEngine.js');
 const { ProactiveEngine }              = require('./behavior/ProactiveEngine.js');
 const { BehaviorModel }                = require('./behavior/BehaviorModel.js');
 const { getPlanner, setProjectCWD, isHighImpact } = require('./planner/Planner.js');
@@ -50,6 +49,10 @@ const { resolveToolset }               = require('./task/ToolResolver.js');
 // final de buildContext(), sobre el prompt ya ensamblado del todo.
 // Se puede cambiar en caliente vía setMaxSystemChars().
 let MAX_SYSTEM_CHARS = 14_000; // ~3.5k tokens — conservador pero amplio
+const TRUNCATION_SUFFIX = '\n\n[contexto truncado por longitud]';
+const OPENCLAW_RETRIES = 15;
+const OPENCLAW_RETRY_MS = 400;
+const MCP_CATALOG_LIMIT = 40;
 
 function setMaxSystemChars(chars) {
   MAX_SYSTEM_CHARS = Math.max(2000, Math.min(100_000, chars));
@@ -61,7 +64,6 @@ let _grounding   = null;
 let _session     = null;
 let _updater     = null;
 let _osSensor    = null;
-let _initiative  = null;
 let _proactive   = null;
 let _behavior    = null;
 let _planner     = null;
@@ -73,14 +75,18 @@ let _detector     = null;
 let _mcp          = null;
 let _mcpReadyPromise = Promise.resolve();
 let _openclawProcess = null;
+let _openclawStarting = false;
 let _taskDetector = null;
 let _toolRegistry = null;
 let _lspManager = null;
 
-let _pruneTimer   = null;
-let _initialized  = false;
-let _onInitiative = null;
-let _skillManager = null;
+let _pruneTimer      = null;
+let _pruneInitTimer  = null;
+let _openclawKillTimer = null;
+let _initiativeUnsub = null;
+let _initialized     = false;
+let _onInitiative    = null;
+let _skillManager    = null;
 
 function init(app) {
   if (_initialized) {
@@ -121,7 +127,6 @@ if (process.env.DEBUG) console.log('[march-core] graph.usingFallback:', _graph.u
     console.log(`[march-core] OSSensor no disponible para ${process.platform}`);
   }
 
-  _initiative = new InitiativeEngine(_graph);
   _proactive  = new ProactiveEngine(_graph);
 
   _behavior = new BehaviorModel(_graph);
@@ -156,7 +161,6 @@ if (process.env.DEBUG) console.log('[march-core] graph.usingFallback:', _graph.u
 
   if (_osSensor) {
     _grounding.setOSSensor(_osSensor);
-    if (typeof _initiative.setOSSensor === 'function') _initiative.setOSSensor(_osSensor);
     _proactive.setOSSensor(_osSensor);
   }
 
@@ -194,7 +198,7 @@ if (process.env.DEBUG) console.log('[march-core] graph.usingFallback:', _graph.u
     console.warn('[march-core] IntentDetector desactivado (DB no disponible)');
   }
 
-  _bus.on('initiative:trigger', (payload) => {
+  _initiativeUnsub = _bus.on('initiative:trigger', (payload) => {
     if (process.env.DEBUG) console.log(`[march-core] initiative: "${payload.suggestion?.slice(0, 60)}"`);
     if (_onInitiative) _onInitiative(payload);
   });
@@ -202,27 +206,28 @@ if (process.env.DEBUG) console.log('[march-core] graph.usingFallback:', _graph.u
   _scheduleDailyPrune();
   _loadLLMConfig();
   _loadMCPConfig();
-  _startOpenClaw();
-  _proactive.start();
 
-  // Workspace inicial — prioridad: MARCH_WORKSPACE (comando `asistente`
-  // explícito) > último workspace persistido en config.json > default
-  // (carpeta de March, ya asignada arriba vía setProjectCWD(projectCWD)).
-  // Se espera a _mcpReadyPromise antes de tocar los servidores MCP para
-  // no pisar la conexión inicial a mitad de camino (causaba el
-  // "error conectando a filesystem: Not connected" intermitente).
+  // Workspace inicial — cargar ANTES de _startOpenClaw para pasar
+  // OPENCLAW_ALLOWED_PATH con el directorio correcto.
   const _envWorkspace = process.env.MARCH_WORKSPACE;
   let _persistedWorkspace = null;
   if (!_envWorkspace && _configPath && fs.existsSync(_configPath)) {
     try {
       const cfg = JSON.parse(fs.readFileSync(_configPath, 'utf-8'));
       if (cfg.activeWorkspace && cfg.activeWorkspace !== projectCWD) _persistedWorkspace = cfg.activeWorkspace;
-    } catch(_) {}
+    } catch(e) { console.warn('[march-core] no se pudo leer config.json:', e.message); }
   }
-  const _initialWorkspace = _envWorkspace || _persistedWorkspace;
+  const _initialWorkspace = _envWorkspace || _persistedWorkspace || projectCWD;
+
+  _startOpenClaw(_initialWorkspace);
+
+  // Workspace inicial async (MCP filesystem)
   if (_initialWorkspace) {
     _mcpReadyPromise.then(() => setActiveWorkspace(_initialWorkspace)).then(r => {
-      if (r.ok) console.log(`[march-core] workspace inicial (${_envWorkspace ? 'MARCH_WORKSPACE' : 'persistido'}):`, r.path);
+      if (r.ok) {
+        console.log(`[march-core] workspace inicial (${_envWorkspace ? 'MARCH_WORKSPACE' : ( _persistedWorkspace ? 'persistido' : 'default' )}):`, r.path);
+        _proactive.start();
+      }
       else console.warn('[march-core] workspace inicial inválido:', r.error);
     });
   }
@@ -249,7 +254,6 @@ if (process.env.DEBUG) console.log('[march-core] graph.usingFallback:', _graph.u
 function onInitiative(cb) { _onInitiative = cb; }
 
 function setChatOpen(open) {
-  _initiative?.setChatOpen(open);
   _proactive?.setChatOpen(open);
 }
 
@@ -356,10 +360,11 @@ async function setActiveWorkspace(newPath) {
 
   // ── LSP: arrancar servidor para el nuevo workspace ─────────────────
   if (_lspManager) {
-    _lspManager.stop().catch(() => {});
-    _lspManager.start(resolved, 'typescript').then(() => {
-      console.log('[march-core] LSP listo para', resolved);
-    }).catch(e => console.warn('[march-core] LSP no disponible:', e.message));
+    (async () => {
+      try { await _lspManager.stop(); } catch {}
+      try { await _lspManager.start(resolved, 'typescript'); console.log('[march-core] LSP listo para', resolved); }
+      catch(e) { console.warn('[march-core] LSP no disponible:', e.message); }
+    })();
   }
 
   _bus.emit('workspace:changed', { path: resolved });
@@ -394,11 +399,10 @@ async function shutdown() {
   if (_mcp) {
     try { await _mcp.disconnectAll(); } catch(e) { console.warn('[march-core] error desconectando MCP:', e.message); }
   }
-  // FIX: OpenClawBridge.closeBrowser() existía y hasta decía en su propio
-  // comentario "llamar al cerrar la app", pero nada lo llamaba — el
-  // Chromium headless de BrowserBridge (más sus procesos hijo) se quedaba
-  // corriendo huérfano después de cerrar March, mismo problema que ya se
-  // resolvió para los servidores MCP arriba.
+  if (_initiativeUnsub) { _initiativeUnsub(); _initiativeUnsub = null; }
+
+  await closeSession();
+
   if (_bridge) {
     try { await _bridge.closeBrowser(); } catch(e) { console.warn('[march-core] error cerrando navegador:', e.message); }
   }
@@ -411,11 +415,16 @@ async function shutdown() {
   }
   _proactive?.stop();
   if (_pruneTimer) { clearInterval(_pruneTimer); _pruneTimer = null; }
+  if (_pruneInitTimer) { clearTimeout(_pruneInitTimer); _pruneInitTimer = null; }
+  if (_graph) { try { _graph.close(); } catch(e) { console.warn('[march-core] error cerrando DB:', e.message); } }
+
+  _onInitiative = null;
+  _initialized = false;
 }
 
 // ── OpenClaw Server ────────────────────────────────────────────────────────────
 
-function _startOpenClaw() {
+function _startOpenClaw(workspacePath) {
   const serverPath = path.join(__dirname, '..', 'openclaw-server.js');
   if (!fs.existsSync(serverPath)) {
     console.warn('[march-core] openclaw-server.js no encontrado — herramientas desactivadas');
@@ -423,15 +432,26 @@ function _startOpenClaw() {
     return;
   }
 
+  if (_openclawStarting) {
+    console.warn('[march-core] OpenClaw ya está iniciando — ignorando');
+    return;
+  }
+  _openclawStarting = true;
+
   // Generar API key para openclaw-server y pasarla vía entorno
   const apiKey = crypto.randomBytes(32).toString('hex');
-  process.env.OPENCLAW_API_KEY = apiKey;
+
+  // Pasar el workspace como PATH permitido (evita "cwd outside allowed path")
+  const allowedPath = workspacePath ? path.resolve(workspacePath) : projectCWD;
 
   try {
     _openclawProcess = cp.fork(serverPath, [], {
       stdio: 'pipe',
-      env: { ...process.env, OPENCLAW_API_KEY: apiKey },
+      env: { ...process.env, OPENCLAW_API_KEY: apiKey, OPENCLAW_ALLOWED_PATH: allowedPath },
     });
+
+    // No dejar la API key en el env del proceso padre
+    delete process.env.OPENCLAW_API_KEY;
 
     _openclawProcess.stdout?.on('data', (d) => {
       const msg = d.toString().trim();
@@ -444,14 +464,14 @@ function _startOpenClaw() {
     });
 
     _openclawProcess.on('exit', (code) => {
-      console.log(`[march-core] OpenClaw terminado (código ${code})`);
+      _openclawStarting = false;
       _openclawProcess = null;
       getOpenClawBridge().resetAvailabilityCache();
       _bus.emit('openclaw:available', { available: false });
     });
 
     _openclawProcess.on('error', (err) => {
-      console.error('[march-core] error en OpenClaw:', err.message);
+      _openclawStarting = false;
       _openclawProcess = null;
       _bus.emit('openclaw:available', { available: false });
     });
@@ -464,22 +484,27 @@ function _startOpenClaw() {
         if (available) {
           console.log('[march-core] OpenClaw listo — Fase 3 activa');
           _bus.emit('openclaw:available', { available: true });
-        } else if (retries < 15) {
-          setTimeout(check, 400);
+        } else if (retries < OPENCLAW_RETRIES) {
+          setTimeout(check, OPENCLAW_RETRY_MS);
         } else {
-          console.warn('[march-core] OpenClaw no respondió después de 15 intentos');
+          console.warn(`[march-core] OpenClaw no respondió después de ${OPENCLAW_RETRIES} intentos`);
           _openclawProcess?.kill();
+          _openclawStarting = false;
           _openclawProcess = null;
           _bus.emit('openclaw:available', { available: false });
         }
       }).catch(() => {
-        if (retries < 15) setTimeout(check, 400);
-        else _bus.emit('openclaw:available', { available: false });
+        if (retries < OPENCLAW_RETRIES) setTimeout(check, OPENCLAW_RETRY_MS);
+        else {
+          _openclawStarting = false;
+          _bus.emit('openclaw:available', { available: false });
+        }
       });
     };
 
     setTimeout(check, 1500);
   } catch (e) {
+    _openclawStarting = false;
     console.error('[march-core] error iniciando OpenClaw:', e.message);
     _bus.emit('openclaw:available', { available: false });
   }
@@ -487,13 +512,16 @@ function _startOpenClaw() {
 
 function _stopOpenClaw() {
   const process = _openclawProcess;
+  if (_openclawKillTimer) { clearTimeout(_openclawKillTimer); _openclawKillTimer = null; }
   if (process) {
     console.log('[march-core] deteniendo OpenClaw...');
     _openclawProcess = null;
+    _openclawStarting = false;
     try {
       process.kill('SIGTERM');
-      setTimeout(() => {
+      _openclawKillTimer = setTimeout(() => {
         try { process.kill('SIGKILL'); } catch (_) {}
+        _openclawKillTimer = null;
       }, 3000);
     } catch (e) {
       console.warn('[march-core] error deteniendo OpenClaw:', e.message);
@@ -582,15 +610,39 @@ async function buildContext(sessionHistory, activeProvider, options = {}) {
     }
   }
 
+  // ── Tool Resolution (Fase 1): siempre resolver herramientas ─────────────
+  // Fase 1: el toolset completo está disponible en TODOS los modos, sin
+  // importar el nivel de confianza de IntentDetector. La intención detectada
+  // solo influye en CÓMO se sugieren las acciones en el texto del prompt,
+  // nunca en SI el modelo puede ejecutar herramientas.
+  let toolCatalog = null;
+  let resolvedTools = null;
+  try {
+    resolvedTools = await resolveToolset({
+      userMessage: userText,
+      domain: taskIntent?.domain || null,
+      toolRegistry: _toolRegistry,
+      skillManager: _skillManager || null,
+      mcpManager: _mcp || null,
+      db: (_graph && !_graph.usingFallback && _graph._db) ? _graph._db : null,
+    });
+    toolCatalog = resolvedTools?.promptCatalog || null;
+  } catch(e) {
+    console.warn('[march-core] error en resolución de herramientas:', e.message);
+  }
+  if (!toolCatalog) {
+    toolCatalog = _toolRegistry.serializeToPrompt(taskIntent?.domain || null);
+  }
+
   // ── MODE: AGENT (loop cerrado) ─────────────────────────────────────────
-  // AgentLoop maneja su propia inyección de skills y herramientas.
-  // Devolvemos el contexto base (identidad + comportamiento) sin duplicar.
+  // Fase 1: nativeToolSchemas se pasa al AgentLoop para completeWithTools()
+  // en todos los turnos, filtrado solo por precedencia (Skill > MCP > OpenClaw).
   if (mode === 'agent') {
     if (result.systemPrompt.length > MAX_SYSTEM_CHARS) {
       result.systemPrompt = result.systemPrompt.slice(0, MAX_SYSTEM_CHARS) + '\n\n[contexto truncado por longitud]';
       console.warn(`[march-core] system prompt truncado modo agent: ${result.systemPrompt.length} chars`);
     }
-    return { ...result, behaviorCtx, toolIntent, taskIntent, mode, nativeToolSchemas: null };
+    return { ...result, behaviorCtx, toolIntent, taskIntent, mode, nativeToolSchemas: resolvedTools?.nativeToolSchemas || null };
   }
 
   // ── Skill knowledge injection (Fase 4) ──────────────────────────────────
@@ -603,28 +655,6 @@ async function buildContext(sessionHistory, activeProvider, options = {}) {
     } catch(e) {
       console.warn('[march-core] error inyectando skills:', e.message);
     }
-  }
-
-  // ── Tool Resolution (Fase 5): Skill > MCP > OpenClaw ────────────────────
-  let toolCatalog = null;
-  let resolvedTools = null;
-  if (mode !== 'chat') {
-    try {
-      resolvedTools = await resolveToolset({
-        userMessage: userText,
-        domain: taskIntent?.domain || null,
-        toolRegistry: _toolRegistry,
-        skillManager: _skillManager || null,
-        mcpManager: _mcp || null,
-        db: (_graph && !_graph.usingFallback && _graph._db) ? _graph._db : null,
-      });
-      toolCatalog = resolvedTools?.promptCatalog || null;
-    } catch(e) {
-      console.warn('[march-core] error en resolución de herramientas:', e.message);
-    }
-  }
-  if (!toolCatalog) {
-    toolCatalog = _toolRegistry.serializeToPrompt(taskIntent?.domain || null);
   }
 
   // ── MODE: PLAN ─────────────────────────────────────────────────────────────
@@ -673,10 +703,12 @@ async function buildContext(sessionHistory, activeProvider, options = {}) {
   }
 
   // ── MODE: CHAT (modo normal, sin planificación) ────────────────────────────
-  // En modo conversacional normal, se inyectan OpenClaw y MCP solo si
-  // IntentDetector detectó intención de herramienta.
+  // Fase 1: las herramientas están disponibles siempre que OpenClaw esté
+  // activo, sin importar el nivel de intención detectado. IntentDetector
+  // solo influye en las sugerencias textuales (GroqSerializer), no en el
+  // acceso a herramientas.
   if (mode === 'chat') {
-    if (_bridge?.getStats()?.available && toolIntent?.detected) {
+    if (_bridge?.getStats()?.available) {
       result.systemPrompt +=
         '\n\n# HERRAMIENTAS DISPONIBLES — REGLAS ESTRICTAS\n' +
         'Tienes acceso a OpenClaw para ejecutar acciones reales en el PC del usuario.\n\n' +
@@ -741,8 +773,9 @@ async function buildContext(sessionHistory, activeProvider, options = {}) {
     }
     // Si sigue excediendo después de eliminar secciones opcionales, truncado duro al final
     if (result.systemPrompt.length > MAX_SYSTEM_CHARS) {
+      const budget = MAX_SYSTEM_CHARS - TRUNCATION_SUFFIX.length;
       console.warn(`[march-core] truncado duro: ${result.systemPrompt.length} → ${MAX_SYSTEM_CHARS} chars (solo identidad)`);
-      result.systemPrompt = result.systemPrompt.slice(0, MAX_SYSTEM_CHARS) + '\n\n[contexto truncado por longitud]';
+      result.systemPrompt = result.systemPrompt.slice(0, Math.max(0, budget)) + TRUNCATION_SUFFIX;
     }
   }
 
@@ -755,7 +788,7 @@ async function buildContext(sessionHistory, activeProvider, options = {}) {
  * a 40 tools para no inflar el prompt si hay muchos servidores conectados.
  */
 function _buildMCPCatalogPrompt(mcpTools) {
-  const lines = mcpTools.slice(0, 40).map(t => {
+  const lines = mcpTools.slice(0, MCP_CATALOG_LIMIT).map(t => {
     const desc = (t.description || '').replace(/\s+/g, ' ').slice(0, 100);
     return `  - SERVIDOR=${t.server} | HERRAMIENTA=${t.tool}${desc ? ' — ' + desc : ''}`;
   });
@@ -913,6 +946,7 @@ async function runAgent(userMessage, opts = {}) {
   const loop = new AgentLoop({
     maxIterations: opts.maxIterations || 25,
     bridge: _bridge,
+    mode: opts.mode || 'smart',
   });
 
   const result = await loop.run(
@@ -950,11 +984,10 @@ function getStats() {
   return {
     session:        _session?.getStats()            ?? { error: 'no inicializado' },
     osSensor:       _osSensor?.getCurrentContext()  ?? null,
-    initiative:     _initiative?.getStats()         ?? null,
     proactive:      _proactive?.getStats()          ?? null,
     planner:        _planner?.getStats()            ?? null,
     openclaw:       _bridge?.getStats()             ?? null,
-    intentDetector: _detector ? { ready: _detector._ready } : null,
+    intentDetector: _detector ? { ready: _detector.isReady() } : null,
     lsp:            _lspManager ? { running: _lspManager.isRunning, filePatterns: _lspManager.supportedFilePatterns } : null,
     eventBus:       busEvents,
     provider:       LLMProvider.getActiveProvider() ?? 'groq',
@@ -972,7 +1005,7 @@ function _scheduleDailyPrune() {
       console.warn('[march-core] error en prune diario:', e.message);
     }
   };
-  setTimeout(run, 10_000);
+  _pruneInitTimer = setTimeout(run, 10_000);
   _pruneTimer = setInterval(run, 24 * 60 * 60 * 1000);
 }
 
@@ -986,6 +1019,10 @@ function getBehaviorModel() { return _behavior;  }
 function getPlanner_()      { return _planner;   }
 function getBridge()        { return _bridge;    }
 function getTaskDetector_() { return _taskDetector; }
+function listSkills() {
+  if (!_skillManager) return [];
+  return _skillManager.getAllSkills();
+}
 
 module.exports = {
   init,
@@ -1022,4 +1059,5 @@ module.exports = {
   mcpSearchRegistry,
   mcpListAllTools,
   setActiveWorkspace,
+  listSkills,
 };

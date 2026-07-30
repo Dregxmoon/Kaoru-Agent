@@ -118,6 +118,8 @@ class IntentDetector {
     this._init();
   }
 
+  isReady() { return this._ready; }
+
   _init() {
     try {
       // Verificar que las tablas existen

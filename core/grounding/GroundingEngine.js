@@ -85,9 +85,11 @@ class GroundingEngine {
   }
 }
 
+let _contextEngine = null;
+
 function getOSContextPublic() {
-  const engine = new GroundingEngine(null);
-  return engine.getOSContext();
+  if (!_contextEngine) _contextEngine = new GroundingEngine(null);
+  return _contextEngine.getOSContext();
 }
 
 function getIdentity() {

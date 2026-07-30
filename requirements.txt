@@ -1,6 +1,2 @@
-vosk==0.3.45
-sounddevice==0.5.5
 numpy==2.4.6
 edge-tts==7.2.8
-SpeechRecognition==3.10.4
-PyAudio==0.2.14

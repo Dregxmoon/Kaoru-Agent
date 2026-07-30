@@ -1,6 +1,6 @@
 'use strict';
 
-const { spawnSync } = require('child_process');
+const { spawn } = require('child_process');
 const { getEventBus } = require('../event-bus/EventBus.js');
 
 const IDLE_THRESHOLD_SECS = 120;
@@ -85,7 +85,24 @@ function _formatElapsed(secs) {
 }
 
 function _exec(cmd, args = []) {
+  return new Promise((resolve) => {
+    try {
+      const child = spawn(cmd, args, { stdio: 'pipe', timeout: 3000, encoding: 'utf8' });
+      let stdout = '';
+      let stderr = '';
+      child.stdout.on('data', (d) => { stdout += d; });
+      child.stderr.on('data', (d) => { stderr += d; });
+      child.on('error', () => resolve(null));
+      child.on('close', (code) => {
+        resolve(code === 0 ? stdout.trim() : null);
+      });
+    } catch (_) { resolve(null); }
+  });
+}
+
+function _execSync(cmd, args = []) {
   try {
+    const { spawnSync } = require('child_process');
     const r = spawnSync(cmd, args, { stdio: 'pipe', timeout: 3000, encoding: 'utf8' });
     if (r.status !== 0) return null;
     return r.stdout.trim();
@@ -94,8 +111,8 @@ function _exec(cmd, args = []) {
 
 function _checkBinary(name) {
   try {
-    const r = spawnSync('which', [name], { stdio: 'pipe', timeout: 2000 });
-    return r.status === 0;
+    const r = _execSync('which', [name]);
+    return r !== null;
   } catch (_) { return false; }
 }
 
@@ -125,8 +142,8 @@ function _parseHyprctlClients(raw) {
   return windows;
 }
 
-function _getIdleSecs() {
-  const loginctlOut = _exec('loginctl', ['show-session', _getActiveSessionId(), '-p', 'IdleSinceHint', '-p', 'IdleHint']);
+async function _getIdleSecs() {
+  const loginctlOut = await _exec('loginctl', ['show-session', await _getActiveSessionId(), '-p', 'IdleSinceHint', '-p', 'IdleHint']);
   if (!loginctlOut) return 0;
   const hintMatch = loginctlOut.match(/IdleHint=(yes|no)/);
   const sinceMatch = loginctlOut.match(/IdleSinceHint=(\d+)/);
@@ -136,8 +153,8 @@ function _getIdleSecs() {
   return Math.max(0, Math.floor(Date.now() / 1000) - since);
 }
 
-function _getActiveSessionId() {
-  const out = _exec('loginctl');
+async function _getActiveSessionId() {
+  const out = await _exec('loginctl');
   if (!out) return '';
   const lines = out.split('\n').filter(l => l.includes('panfilo') || l.includes('wayland'));
   if (!lines.length) return '';
@@ -172,7 +189,7 @@ class LinuxOSSensor {
     this._running = true;
     console.log('[linux-os-sensor] iniciado (Hyprland/Wayland, poll cada 5s)');
     this._poll();
-    this._polling = setInterval(() => this._poll(), this._pollMs);
+    this._polling = setInterval(() => { this._poll().catch(e => console.warn('[linux-os-sensor] poll error:', e.message)); }, this._pollMs);
   }
 
   stop() {
@@ -237,12 +254,12 @@ class LinuxOSSensor {
       .join(', ');
   }
 
-  _poll() {
+  async _poll() {
     if (this._pollBusy || !this._hyprctlOk) return;
     this._pollBusy = true;
 
     try {
-      const raw = _exec('hyprctl', ['activewindow']);
+      const raw = await _exec('hyprctl', ['activewindow']);
       if (!raw) { this._pollBusy = false; return; }
 
       const focus = _parseHyprctlWindow(raw);
@@ -250,7 +267,7 @@ class LinuxOSSensor {
       const title = focus.title || '';
       const pid = focus.pid || null;
 
-      const idleSecs = _getIdleSecs();
+      const idleSecs = await _getIdleSecs();
 
       if (!app || IGNORED_APPS.has(app)) {
         this._openWindows = [];
@@ -259,7 +276,7 @@ class LinuxOSSensor {
         return;
       }
 
-      const clientsRaw = _exec('hyprctl', ['clients']);
+      const clientsRaw = await _exec('hyprctl', ['clients']);
       const openWindows = [];
       if (clientsRaw) {
         const allWindows = _parseHyprctlClients(clientsRaw);

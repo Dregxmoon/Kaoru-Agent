@@ -205,8 +205,6 @@ let chatTheme      = 'dark';
 let chatMode       = 'conversational';
 
 const savedConfig    = loadConfig();
-let selectedMicIndex = savedConfig.micIndex  ?? null;
-let selectedMicLabel = savedConfig.micLabel  ?? 'default';
 chatTheme            = savedConfig.chatTheme ?? 'dark';
 chatMode             = savedConfig.chatMode  ?? 'conversational';
 
@@ -220,24 +218,6 @@ console.log('[march7th] config cargada:', maskedConfig);
 
 if (process.platform === 'linux')
   app.commandLine.appendSwitch('enable-transparent-visuals');
-
-// ── Permisos globales de micrófono ────────────────────────────────────────────
-function setupMicPermissions() {
-  const ses = session.defaultSession;
-
-  ses.setPermissionRequestHandler((webContents, permission, callback) => {
-    const allowed = ['media', 'microphone', 'audioCapture', 'getUserMedia'];
-    console.log(`[permisos] ${permission} → ${allowed.includes(permission) ? 'OK' : 'deny'}`);
-    callback(allowed.includes(permission));
-  });
-
-  ses.setPermissionCheckHandler((webContents, permission) => {
-    const allowed = ['media', 'microphone', 'audioCapture', 'getUserMedia'];
-    return allowed.includes(permission);
-  });
-
-  console.log('[march7th] permisos de micrófono configurados');
-}
 
 // ── Posiciones ────────────────────────────────────────────────────────────────
 function getBottomRightBounds() {
@@ -344,8 +324,6 @@ function createChatWindow() {
   chatWindow.webContents.once('did-finish-load', () => {
     chatWindow.webContents.send('init-theme', chatTheme);
     chatWindow.webContents.send('init-mode', chatMode);
-    if (selectedMicIndex !== null)
-      chatWindow.webContents.send('restore-mic', { index: selectedMicIndex, label: selectedMicLabel });
 
     const usingFallback = MarchCore.getGraph()?.usingFallback ?? false;
     chatWindow.webContents.send('memory-status', { usingFallback });
@@ -411,8 +389,6 @@ function buildTrayMenu() {
       { label: 'Excited',     click: () => sendSpeak('Perfecto, todo salio bien!', 'excited') },
     ]},
     { type: 'separator' },
-    { label: `🎙 Mic: ${selectedMicLabel}`, enabled: false },
-    { type: 'separator' },
     { label: '📌 Volver a esquina', click: () => { userHasMoved = false; mainWindow.setBounds(getBottomRightBounds()); } },
     { label: 'Mostrar / ocultar overlay', click: () => mainWindow.isVisible() ? mainWindow.hide() : mainWindow.show() },
     { type: 'separator' },
@@ -439,30 +415,6 @@ ipcMain.on('model-hover', (e, hovering) => {
 });
 ipcMain.on('view-changed', (e, view) => { currentView = view; if (tray) tray.setContextMenu(buildTrayMenu()); });
 ipcMain.on('model-dblclick', () => toggleChatWindow());
-
-ipcMain.on('voice-command', (e, { action, text }) => {
-  console.log(`[march7th] voice-command: ${action}`, text || '');
-  if (action === 'open-chat') {
-    if (!chatWindow || chatWindow.isDestroyed() || !chatWindow.isVisible()) createChatWindow();
-  } else if (action === 'close-chat') {
-    if (chatWindow && !chatWindow.isDestroyed() && chatWindow.isVisible()) {
-      chatWindow.hide();
-      if (mainWindow && !mainWindow.isDestroyed()) mainWindow.show();
-      MarchCore.setChatOpen(false);
-      if (tray) tray.setContextMenu(buildTrayMenu());
-    }
-  } else if (action === 'message' && text) {
-    if (chatWindow && !chatWindow.isDestroyed()) chatWindow.webContents.send('chat-message', text);
-  }
-});
-
-ipcMain.on('set-mic-index', (e, { index, label }) => {
-  console.log(`[march7th] micrófono: [${index}] ${label}`);
-  selectedMicIndex = index; selectedMicLabel = label;
-  saveConfig({ micIndex: index, micLabel: label });
-  if (tray) tray.setContextMenu(buildTrayMenu());
-  restartVoiceListener(index);
-});
 
 ipcMain.on('chat-close', () => {
   if (chatWindow && !chatWindow.isDestroyed()) chatWindow.hide();
@@ -551,6 +503,8 @@ ipcMain.handle('os-get-today-summary', () => {
 ipcMain.handle('march-get-stats', () => {
   return MarchCore.getStats();
 });
+
+ipcMain.handle('list-skills', () => MarchCore.listSkills());
 
 // ── IPC: config y keys ────────────────────────────────────────────────────────
 ipcMain.handle('get-config', () => loadEffectiveConfig());
@@ -702,6 +656,69 @@ ipcMain.handle('openclaw-execute-plan', async (e, { plan }) => {
   } catch (err) {
     console.error('[main] error ejecutando plan:', err.message);
     return { ok: false, error: err.message, plan };
+  }
+});
+
+// ── IPC: agent-run (Fase 2 — reemplaza processMessage → complete → parse → execute)
+ipcMain.handle('agent-run', async (e, { text, mode }) => {
+  console.log(`[main] agent-run: mode=${mode}, text="${text.slice(0, 80)}"`);
+
+  if (!text || !text.trim()) {
+    return { response: null, iterations: 0, toolResults: [], error: 'texto vacío' };
+  }
+
+  try {
+    const result = await MarchCore.runAgent(text, {
+      mode: mode || 'smart',
+      maxIterations: mode === 'conversational' ? 8 : 25,
+
+      onApprovalNeeded: async (action) => {
+        return new Promise((resolve) => {
+          if (!chatWindow || chatWindow.isDestroyed()) {
+            resolve(false);
+            return;
+          }
+
+          const actionId = `agent_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+          chatWindow.webContents.send('agent-approval-needed', {
+            actionId,
+            tool: action.tool,
+            params: action.params,
+            description: action.description || `${action.tool}: ${JSON.stringify(action.params).slice(0, 100)}`,
+          });
+
+          const handler = (e2, { id, approved }) => {
+            if (id === actionId) {
+              ipcMain.removeListener('agent-approval-response', handler);
+              resolve(approved);
+            }
+          };
+          ipcMain.on('agent-approval-response', handler);
+
+          setTimeout(() => {
+            ipcMain.removeListener('agent-approval-response', handler);
+            resolve(false);
+          }, 60_000);
+        });
+      },
+
+      onProgress: (progress) => {
+        if (chatWindow && !chatWindow.isDestroyed()) {
+          chatWindow.webContents.send('agent-progress', progress);
+        }
+      },
+    });
+
+    return {
+      response: result.response,
+      iterations: result.iterations,
+      toolResults: result.toolResults,
+      error: result.error,
+      truncated: result.truncated || false,
+    };
+  } catch (err) {
+    console.error('[main] error en agent-run:', err.message);
+    return { response: null, iterations: 0, toolResults: [], error: err.message };
   }
 });
 
@@ -890,208 +907,11 @@ function startControlServer() {
       });
       return;
     }
-    if (url.pathname === '/mic') {
-      const idx = parseInt(url.searchParams.get('index') || '-1', 10);
-      if (idx >= 0) restartVoiceListener(idx);
-      res.writeHead(200); res.end(`ok: mic index ${idx}`); return;
-    }
     res.writeHead(200); res.end(HELP_TEXT);
   });
   server.listen(3131, '127.0.0.1', () => console.log('[march7th] API lista → http://localhost:3131/help'));
   server.on('error', (e) => { if (e.code === 'EADDRINUSE') console.log('[march7th] puerto 3131 ocupado.'); });
 }
-
-// ── Voice Listener (Python) ───────────────────────────────────────────────────
-const { spawn } = require('child_process');
-const VOICE_COMMANDS_OPEN  = ['abre el chat','abre chat','abrir chat','muestra el chat','abre la ventana','chat'];
-const VOICE_COMMANDS_CLOSE = ['cierra el chat','cierra chat','cerrar chat','oculta el chat'];
-let voiceProc = null, voiceRestartTimer = null;
-let voiceCrashCount = 0;
-let voiceStartedAt = 0;
-const VOICE_MAX_CRASHES   = 5;
-const VOICE_MIN_HEALTHY_MS = 10_000; // si muere antes de esto, cuenta como parte de una racha de crashes
-
-// El stack de audio en Linux (ALSA sobre PipeWire/PulseAudio) siempre
-// se queja de dispositivos virtuales que no existen en este hardware
-// (pcm.rear, pcm.center_lfe, pcm.side, dmix, dsnoop) — es ruido normal,
-// no un error real. Se filtra para que lo que sí importa (el malloc/free
-// corrupto que tumba el proceso) no se pierda entre cientos de líneas.
-const ALSA_NOISE = /ALSA lib (pcm_dsnoop|pcm_dmix|pcm)\.c:\d+:\(snd_pcm_(dsnoop_open|dmix_open|open_noupdate)\)|Unknown PCM cards\.pcm\.|^\[error\.pcm\]$|^\[error\.pcm\] unable to open slave$|^unable to open slave$/;
-
-function _logVoiceStderr(raw) {
-  const lines = raw.split('\n')
-    .map(l => l.trim())
-    .filter(l => l && !ALSA_NOISE.test(l));
-  if (lines.length) console.log('[voice stderr]', lines.join('\n'));
-}
-
-function startVoiceListener(micIndex = null) {
-  const scriptPath = path.join(__dirname, 'Voice_listener.py');
-  if (!fs.existsSync(scriptPath)) { console.log('[voice] Voice_listener.py no encontrado.'); return; }
-  const args = [scriptPath];
-  if (micIndex !== null && micIndex >= 0) args.push('--mic-index', String(micIndex));
-
-  if (!PYTHON_BIN) { console.log('[voice] PYTHON_BIN no disponible.'); return; }
-  voiceStartedAt = Date.now();
-  voiceProc = spawn(PYTHON_BIN, args, {
-    env: { ...process.env, PYTHONIOENCODING: 'utf-8', PYTHONUTF8: '1' }
-  });
-  voiceProc.stdout.on('data', (data) => {
-    data.toString().split('\n').filter(l => l.trim()).forEach(line => {
-      try { handleVoiceEvent(JSON.parse(line)); }
-      catch(e) { console.warn('[voice] línea no-JSON de Voice_listener.py:', line); }
-    });
-  });
-  voiceProc.stderr.on('data', (d) => _logVoiceStderr(d.toString()));
-  voiceProc.on('close', (code) => {
-    voiceProc = null;
-    const aliveMs = Date.now() - voiceStartedAt;
-
-    if (aliveMs >= VOICE_MIN_HEALTHY_MS) {
-      // vivió suficiente — lo que haya pasado antes ya no cuenta como
-      // parte de una racha de crashes, es un evento aislado
-      voiceCrashCount = 0;
-    } else {
-      voiceCrashCount++;
-    }
-
-    if (voiceCrashCount > VOICE_MAX_CRASHES) {
-      console.error(`[voice] ${VOICE_MAX_CRASHES} crashes seguidos en menos de ${VOICE_MIN_HEALTHY_MS/1000}s cada uno (último code ${code}) — desactivando el listener de voz esta sesión.`);
-      console.error('[voice] esto no es transitorio — revisa tu stack de audio (ALSA/PipeWire) o Voice_listener.py.');
-      if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('voice-disabled');
-      return; // no reprogramar
-    }
-
-    console.log(`[voice] proceso terminado (code ${code}) tras ${(aliveMs/1000).toFixed(1)}s tras arrancar, reiniciando en 3s... (racha: ${voiceCrashCount}/${VOICE_MAX_CRASHES})`);
-    if (voiceRestartTimer) clearTimeout(voiceRestartTimer);
-    voiceRestartTimer = setTimeout(() => startVoiceListener(selectedMicIndex), 3000);
-  });
-  voiceProc.on('error', (e) => console.log('[voice] error:', e.message));
-  console.log(`[voice] listener iniciado${micIndex !== null ? ` (mic ${micIndex})` : ''}`);
-}
-
-function restartVoiceListener(micIndex) {
-  console.log(`[voice] reiniciando con mic ${micIndex}...`);
-  if (voiceRestartTimer) { clearTimeout(voiceRestartTimer); voiceRestartTimer = null; }
-  if (voiceProc && !voiceProc.killed) { voiceProc.removeAllListeners('close'); voiceProc.kill(); voiceProc = null; }
-  setTimeout(() => startVoiceListener(micIndex), 500);
-}
-
-function handleVoiceEvent(msg) {
-  switch (msg.type) {
-    case 'log':        console.log('[voice]', msg.msg); break;
-    case 'ready':      console.log('[voice] micrófono listo, calibrando...'); break;
-    case 'calibrated': console.log('[voice] calibrado, escuchando wake word'); break;
-    case 'wake':
-      console.log('[voice] wake word!');
-      if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('voice-wake'); break;
-    case 'listening':
-      console.log('[voice] esperando comando...');
-      if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('voice-listening'); break;
-    case 'command': {
-      const text = msg.text.toLowerCase();
-      console.log('[voice] comando:', text);
-      if (VOICE_COMMANDS_OPEN.some(c => text.includes(c))) {
-        if (!chatWindow || chatWindow.isDestroyed() || !chatWindow.isVisible()) createChatWindow();
-      } else if (VOICE_COMMANDS_CLOSE.some(c => text.includes(c))) {
-        if (chatWindow && !chatWindow.isDestroyed() && chatWindow.isVisible()) {
-          chatWindow.hide();
-          if (mainWindow && !mainWindow.isDestroyed()) mainWindow.show();
-          MarchCore.setChatOpen(false);
-          if (tray) tray.setContextMenu(buildTrayMenu());
-        }
-      } else {
-        if (chatWindow && !chatWindow.isDestroyed()) chatWindow.webContents.send('chat-message', text);
-        if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('speak', 'Entendido!');
-      }
-      break;
-    }
-    case 'timeout':
-      console.log('[voice] timeout');
-      if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('voice-idle'); break;
-    case 'error': console.log('[voice] error:', msg.msg); break;
-  }
-}
-
-// ── STT local (Python / Vosk) ─────────────────────────────────────────────────
-let sttProc = null;
-
-ipcMain.on('stt-start', (e, { micIndex, lang }) => {
-  if (sttProc && !sttProc.killed) {
-    console.log('[stt] ya hay un proceso activo, ignorando stt-start');
-    return;
-  }
-
-  const scriptPath = path.join(__dirname, 'stt_transcribe.py');
-  if (!fs.existsSync(scriptPath)) {
-    console.log('[stt] stt_transcribe.py no encontrado');
-    if (chatWindow && !chatWindow.isDestroyed())
-      chatWindow.webContents.send('stt-error', 'stt_transcribe.py no encontrado junto a main.js');
-    return;
-  }
-
-  const args = [scriptPath, '--lang', lang || 'es'];
-  if (micIndex !== null && micIndex >= 0)
-    args.push('--mic-index', String(micIndex));
-
-  if (!PYTHON_BIN) { console.log('[stt] PYTHON_BIN no disponible.'); return; }
-  console.log(`[stt] iniciando: python ${args.join(' ')}`);
-  sttProc = spawn(PYTHON_BIN, args, {
-    env: { ...process.env, PYTHONIOENCODING: 'utf-8', PYTHONUTF8: '1' }
-  });
-
-  sttProc.stdout.on('data', (data) => {
-    const lines = data.toString().split('\n').filter(l => l.trim());
-    for (const line of lines) {
-      try {
-        const msg = JSON.parse(line);
-        console.log('[stt]', JSON.stringify(msg));
-        if (!chatWindow || chatWindow.isDestroyed()) continue;
-
-        if (msg.type === 'ready' || msg.type === 'recording') {
-          chatWindow.webContents.send('stt-status', msg.type);
-        } else if (msg.type === 'partial') {
-          chatWindow.webContents.send('stt-partial', msg.text || '');
-        } else if (msg.type === 'sentence') {
-          chatWindow.webContents.send('stt-sentence', msg.text || '');
-        } else if (msg.type === 'result') {
-          chatWindow.webContents.send('stt-result', msg.text || '');
-        } else if (msg.type === 'error') {
-          chatWindow.webContents.send('stt-error', msg.msg);
-        }
-      } catch(_) {}
-    }
-  });
-
-  sttProc.stderr.on('data', (d) => console.log('[stt stderr]', d.toString().trim()));
-
-  sttProc.on('close', (code) => {
-    console.log(`[stt] proceso cerrado (code ${code})`);
-    sttProc = null;
-  });
-
-  sttProc.on('error', (err) => {
-    console.log('[stt] error al lanzar proceso:', err.message);
-    if (chatWindow && !chatWindow.isDestroyed())
-      chatWindow.webContents.send('stt-error', `No se pudo lanzar Python: ${err.message}`);
-    sttProc = null;
-  });
-});
-
-ipcMain.on('stt-stop', () => {
-  if (!sttProc || sttProc.killed) {
-    console.log('[stt] no hay proceso activo');
-    return;
-  }
-  const stopFile = path.join(__dirname, 'stt_transcribe.stop');
-  console.log('[stt] creando archivo de parada:', stopFile);
-  try {
-    fs.writeFileSync(stopFile, 'stop');
-  } catch(e) {
-    console.log('[stt] error creando stop file:', e.message);
-    sttProc.kill();
-  }
-});
 
 // ── App init ──────────────────────────────────────────────────────────────────
 app.whenReady().then(() => {
@@ -1102,7 +922,6 @@ app.whenReady().then(() => {
   dotenv.config({ path: path.join(userDataPath, '.env'), override: true });
 
   ensureLLMConfig();
-  setupMicPermissions();
 
   const keychainAvail = KeychainManager.isAvailable();
   console.log(`[config] fuente de keys: ${_keySource} | llavero del SO: ${keychainAvail ? 'disponible' : 'no disponible'}`);
@@ -1164,7 +983,6 @@ app.whenReady().then(() => {
   createWindow();
   createTray();
   startControlServer();
-  startVoiceListener(selectedMicIndex);
   createChatWindow();
 
   // NUEVO (multiplataforma): en Linux con GNOME (el escritorio más común,
@@ -1203,7 +1021,6 @@ app.on('before-quit', (event) => {
   (async () => {
     try { await withTimeout(MarchCore.closeSession(), 8000); } catch(_) {}
     try { await withTimeout(MarchCore.shutdown(), 8000); } catch(_) {}
-    if (voiceProc) { voiceProc.kill(); voiceProc = null; }
     _quitting = true;
     app.quit();
   })();

@@ -141,6 +141,17 @@ class SkillManager {
     const embed = await _getEmbedder();
     let indexed = 0;
 
+    // Pre-computar vectores fuera de la transacción (the embedder es async)
+    const vectorMap = new Map();
+    for (const skill of skills) {
+      try {
+        const tensor = await embed(skill.description);
+        vectorMap.set(skill.name, float32ToBuffer(tensor));
+      } catch {
+        vectorMap.set(skill.name, null);
+      }
+    }
+
     const insertMeta = db.prepare(
       `INSERT OR IGNORE INTO ${SKILL_TABLE} (name, description, version, domains, content) VALUES (?, ?, ?, ?, ?)`
     );
@@ -156,8 +167,8 @@ class SkillManager {
         );
         if (info.changes > 0) {
           const rowid = info.lastInsertRowid;
-          const vec = awaitEmbed(embed, skill.description);
-          insertVec.run(rowid, vec);
+          const vec = vectorMap.get(skill.name);
+          if (vec) insertVec.run(rowid, vec);
           indexed++;
         }
       }
@@ -175,7 +186,8 @@ class SkillManager {
     this._ensureTables(db);
 
     const embed = await _getEmbedder();
-    const queryVec = awaitEmbed(embed, userMessage);
+    const tensor = await embed(userMessage).catch(() => null);
+    const queryVec = float32ToBuffer(tensor);
     if (!queryVec) return [];
 
     const sql = `
@@ -276,18 +288,6 @@ class SkillManager {
 }
 
 // ── Helpers ──────────────────────────────────────────────────────────────
-function awaitEmbed(embedFn, text) {
-  try {
-    const tensor = embedFn(text);
-    if (tensor && typeof tensor.then === 'function') {
-      return tensor.then(t => float32ToBuffer(t));
-    }
-    return float32ToBuffer(tensor);
-  } catch {
-    return null;
-  }
-}
-
 function float32ToBuffer(arr) {
   if (!arr) return null;
   if (arr instanceof Float32Array) return Buffer.from(arr.buffer);

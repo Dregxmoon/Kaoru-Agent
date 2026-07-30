@@ -171,7 +171,7 @@ class StateUpdater {
    * doble resolve()/doble escritura para el mismo hecho.
    */
   detectAndSaveInstant(userMessage) {
-    if (!userMessage || !this._graph?._ready) return 0;
+    if (!userMessage || !this._graph?.isReady) return 0;
     let saved = 0;
     const text = userMessage.trim();
     const labelsHandled = new Set();
@@ -244,6 +244,10 @@ class StateUpdater {
     for (const node of (extracted.nodes || [])) {
       try {
         if (!node.type || !node.label || !node.content) continue;
+        if (!['User','Episode','Belief','Preference','Project'].includes(node.type)) {
+          discarded++;
+          continue;
+        }
 
         const label = node.label.toLowerCase().replace(/\s+/g, '_').slice(0, 80);
 
@@ -326,7 +330,7 @@ class StateUpdater {
    * @returns {{ archived: number, cleaned: number }}
    */
   cleanupMemoryArtifacts() {
-    if (!this._graph?._ready) return { archived: 0, cleaned: 0 };
+    if (!this._graph?.isReady) return { archived: 0, cleaned: 0 };
     let archived = 0, cleaned = 0;
 
     try {

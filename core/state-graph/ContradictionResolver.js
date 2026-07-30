@@ -77,7 +77,7 @@ class ContradictionResolver {
    * @returns {number} id del nodo resultante
    */
   resolve(newNode) {
-    if (!this._graph?._ready) return null;
+    if (!this._graph?.isReady) return null;
 
     const { type, label, content, importance, tags = [] } = newNode;
 
@@ -169,7 +169,7 @@ class ContradictionResolver {
    * Llamar al iniciar sesión.
    */
   deduplicateNodes() {
-    if (!this._graph?._ready) return;
+    if (!this._graph?.isReady) return;
 
     try {
       const duplicates = this._graph._findDuplicateLabels();

@@ -174,6 +174,12 @@ function _trimHistoryForMode(messages, mode) {
   return messages.slice(-FAST_HISTORY_LIMIT);
 }
 
+const VALID_MODES = new Set(['fast', 'smart']);
+
+function _resolveMode(mode) {
+  return VALID_MODES.has(mode) ? mode : 'fast';
+}
+
 // ── Configuración por defecto ─────────────────────────────────────────────────
 let _config = {
   primary:  'groq',
@@ -182,9 +188,13 @@ let _config = {
 };
 
 function configure(cfg) {
-  if (cfg && cfg.llm) {
-    _config = { ..._config, ...cfg.llm };
-    if (cfg.llm.apiKeys) _config.apiKeys = { ..._config.apiKeys, ...cfg.llm.apiKeys };
+  if (cfg) {
+    if (cfg.llm) {
+      _config = { ..._config, ...cfg.llm };
+      if (cfg.llm.apiKeys) _config.apiKeys = { ..._config.apiKeys, ...cfg.llm.apiKeys };
+    }
+    if (cfg.primary) _config.primary = cfg.primary;
+    if (cfg.fallback) _config.fallback = cfg.fallback;
   }
   // Fallback a variables de entorno si alguna key quedó vacía
   const envFallback = {
@@ -222,7 +232,7 @@ function post(url, headers, body, timeoutMs = 20_000) {
       res.on('data', c => data += c);
       res.on('end', () => {
         try { resolve({ status: res.statusCode, body: JSON.parse(data) }); }
-        catch(e) { reject(new Error(`JSON parse error: ${data.slice(0, 200)}`)); }
+        catch(e) { reject(new Error(`${res.statusCode} JSON parse error: ${data.slice(0, 200)}`)); }
       });
     });
     req.setTimeout(timeoutMs, () => {
@@ -251,13 +261,14 @@ async function callGroq(messages, systemPrompt, mode = 'fast') {
   const key = _config.apiKeys.groq;
   if (!key) throw new Error('No Groq API key');
 
-  const model     = MODELS.groq[mode];
-  const maxTokens = MAX_OUTPUT[mode];
-  const timeoutMs = TIMEOUT_MS[mode] ?? TIMEOUT_MS.fast;
-  const history   = _trimHistoryForMode(messages, mode);
+  const safeMode  = _resolveMode(mode);
+  const model     = MODELS.groq[safeMode];
+  const maxTokens = MAX_OUTPUT[safeMode];
+  const timeoutMs = TIMEOUT_MS[safeMode] ?? TIMEOUT_MS.fast;
+  const history   = _trimHistoryForMode(messages, safeMode);
   const msgs      = [{ role: 'system', content: systemPrompt }, ...history];
 
-  console.log(`[llm] groq model: ${model} (${mode}, max_tokens=${maxTokens}, history=${history.length}msg, timeout=${timeoutMs}ms)`);
+  console.log(`[llm] groq model: ${model} (${safeMode}, max_tokens=${maxTokens}, history=${history.length}msg, timeout=${timeoutMs}ms)`);
 
   const res = await post(
     'https://api.groq.com/openai/v1/chat/completions',
@@ -273,16 +284,17 @@ async function callGemini(messages, systemPrompt, mode = 'fast') {
   const key = _config.apiKeys.gemini;
   if (!key) throw new Error('No Gemini API key');
 
-  const model     = MODELS.gemini[mode];
-  const maxTokens = MAX_OUTPUT[mode];
-  const timeoutMs = TIMEOUT_MS[mode] ?? TIMEOUT_MS.fast;
-  const history   = _trimHistoryForMode(messages, mode);
+  const safeMode  = _resolveMode(mode);
+  const model     = MODELS.gemini[safeMode];
+  const maxTokens = MAX_OUTPUT[safeMode];
+  const timeoutMs = TIMEOUT_MS[safeMode] ?? TIMEOUT_MS.fast;
+  const history   = _trimHistoryForMode(messages, safeMode);
   const contents  = history.map(m => ({
     role:  m.role === 'assistant' ? 'model' : 'user',
     parts: [{ text: m.content }],
   }));
 
-  console.log(`[llm] gemini model: ${model} (${mode}, max_tokens=${maxTokens}, history=${history.length}msg, timeout=${timeoutMs}ms)`);
+  console.log(`[llm] gemini model: ${model} (${safeMode}, max_tokens=${maxTokens}, history=${history.length}msg, timeout=${timeoutMs}ms)`);
 
   const res = await post(
     `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${key}`,
@@ -302,13 +314,14 @@ async function callOpenAI(messages, systemPrompt, mode = 'fast') {
   const key = _config.apiKeys.openai;
   if (!key) throw new Error('No OpenAI API key');
 
-  const model     = MODELS.openai[mode];
-  const maxTokens = MAX_OUTPUT[mode];
-  const timeoutMs = TIMEOUT_MS[mode] ?? TIMEOUT_MS.fast;
-  const history   = _trimHistoryForMode(messages, mode);
+  const safeMode  = _resolveMode(mode);
+  const model     = MODELS.openai[safeMode];
+  const maxTokens = MAX_OUTPUT[safeMode];
+  const timeoutMs = TIMEOUT_MS[safeMode] ?? TIMEOUT_MS.fast;
+  const history   = _trimHistoryForMode(messages, safeMode);
   const msgs      = [{ role: 'system', content: systemPrompt }, ...history];
 
-  console.log(`[llm] openai model: ${model} (${mode}, max_tokens=${maxTokens}, history=${history.length}msg, timeout=${timeoutMs}ms)`);
+  console.log(`[llm] openai model: ${model} (${safeMode}, max_tokens=${maxTokens}, history=${history.length}msg, timeout=${timeoutMs}ms)`);
 
   const res = await post(
     'https://api.openai.com/v1/chat/completions',
@@ -404,10 +417,11 @@ async function callGroqWithTools(messages, systemPrompt, mode, tools) {
   const key = _config.apiKeys.groq;
   if (!key) throw new Error('No Groq API key');
 
-  const model     = MODELS.groq[mode];
-  const maxTokens = MAX_OUTPUT[mode];
-  const timeoutMs = TIMEOUT_MS[mode] ?? TIMEOUT_MS.fast;
-  const history   = _trimHistoryForMode(messages, mode);
+  const safeMode  = _resolveMode(mode);
+  const model     = MODELS.groq[safeMode];
+  const maxTokens = MAX_OUTPUT[safeMode];
+  const timeoutMs = TIMEOUT_MS[safeMode] ?? TIMEOUT_MS.fast;
+  const history   = _trimHistoryForMode(messages, safeMode);
   const msgs      = [{ role: 'system', content: systemPrompt }, ...history];
 
   const body = {
@@ -432,10 +446,11 @@ async function callGeminiWithTools(messages, systemPrompt, mode, tools) {
   const key = _config.apiKeys.gemini;
   if (!key) throw new Error('No Gemini API key');
 
-  const model     = MODELS.gemini[mode];
-  const maxTokens = MAX_OUTPUT[mode];
-  const timeoutMs = TIMEOUT_MS[mode] ?? TIMEOUT_MS.fast;
-  const history   = _trimHistoryForMode(messages, mode);
+  const safeMode  = _resolveMode(mode);
+  const model     = MODELS.gemini[safeMode];
+  const maxTokens = MAX_OUTPUT[safeMode];
+  const timeoutMs = TIMEOUT_MS[safeMode] ?? TIMEOUT_MS.fast;
+  const history   = _trimHistoryForMode(messages, safeMode);
   const contents  = history.map(m => ({
     role:  m.role === 'assistant' ? 'model' : 'user',
     parts: [{ text: m.content }],
@@ -462,10 +477,11 @@ async function callOpenAIWithTools(messages, systemPrompt, mode, tools) {
   const key = _config.apiKeys.openai;
   if (!key) throw new Error('No OpenAI API key');
 
-  const model     = MODELS.openai[mode];
-  const maxTokens = MAX_OUTPUT[mode];
-  const timeoutMs = TIMEOUT_MS[mode] ?? TIMEOUT_MS.fast;
-  const history   = _trimHistoryForMode(messages, mode);
+  const safeMode  = _resolveMode(mode);
+  const model     = MODELS.openai[safeMode];
+  const maxTokens = MAX_OUTPUT[safeMode];
+  const timeoutMs = TIMEOUT_MS[safeMode] ?? TIMEOUT_MS.fast;
+  const history   = _trimHistoryForMode(messages, safeMode);
   const msgs      = [{ role: 'system', content: systemPrompt }, ...history];
 
   const body = {
@@ -633,6 +649,7 @@ async function _callWithFallbackTools(messages, systemPrompt, mode = 'smart', to
       try {
         if (attempt > 0) {
           const waitMs = _backoffWithJitter(attempt - 1);
+          console.log(`[llm] tool-calling reintentando ${providerName} en ${waitMs}ms (intento ${attempt + 1}/${MAX_RETRIES_PER_PROVIDER + 1})...`);
           await _sleep(waitMs);
         }
         const result = await fn(messages, systemPrompt, mode, tools);
@@ -660,8 +677,8 @@ async function _callWithFallbackTools(messages, systemPrompt, mode = 'smart', to
  * Si el modelo no soporta tool-calling o no devuelve tool_calls,
  * toolCalls será null y content tendrá la respuesta textual.
  */
-async function completeWithTools(messages, systemPrompt, tools = []) {
-  return _callWithFallbackTools(messages, systemPrompt, 'smart', tools);
+async function completeWithTools(messages, systemPrompt, tools = [], mode = 'smart') {
+  return _callWithFallbackTools(messages, systemPrompt, mode, tools);
 }
 
 function getActiveProvider() {
@@ -693,4 +710,5 @@ module.exports = {
   _debug_normalizeGemini: _normalizeGeminiResponse,
   _debug_buildOpenAITools: _buildOpenAITools,
   _debug_buildGeminiTools: _buildGeminiTools,
+  _debug_MODELS: () => ({ ...MODELS }),
 };

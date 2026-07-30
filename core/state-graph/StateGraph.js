@@ -91,17 +91,15 @@ class StateGraph {
     this._dbPath       = dbPath;
     this._db           = null;
     this._ready        = false;
-    // FIX QW-1: flag público — true si no pudo iniciar SQLite real
     this.usingFallback = false;
-    // true si node_vectors (sqlite-vec) está listo para recall semántico —
-    // ver enableVectorSearch(). Si queda false, queryNodesSemantic() cae
-    // a la búsqueda LIKE de siempre, sin romper nada.
     this._vectorReady = false;
     this._vectorReadyPromise = Promise.resolve();
     this._embeddingQueue = [];
     this._embeddingInFlight = 0;
     this._embeddingMaxConcurrent = 2;
   }
+
+  get isReady() { return this._ready; }
 
   init() {
     if (this._ready) return this;

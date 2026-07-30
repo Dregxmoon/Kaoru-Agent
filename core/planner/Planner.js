@@ -360,6 +360,7 @@ class Planner {
     this._planQueue   = [];
     this._history     = [];
     this._maxHistory  = 50;
+    this._abort = new AbortController();
   }
 
   planSingleStep(goal, tool, params, description) {
@@ -421,10 +422,11 @@ class Planner {
   planFromLLMResponse(llmResponse, userGoal, toolIntent = null) {
     const parser  = getStructuredActionParser(AP.PROJECT_CWD);
     const actions = parser.parse(llmResponse, userGoal, toolIntent);
-    if (!actions.length) return null;
+    if (!actions || !actions.length) return null;
     if (actions.length === 1) {
-      const { tool, params, description } = actions[0];
-      return this.planSingleStep(userGoal, tool, params, description);
+      const action = actions[0];
+      if (!action || !action.tool) return null;
+      return this.planSingleStep(userGoal, action.tool, action.params || {}, action.description || '');
     }
     return this.planMultiStep(userGoal, actions);
   }
@@ -441,11 +443,25 @@ class Planner {
   }
 
   async _runPlan(plan, opts = {}) {
+    if (this._activePlan) {
+      this._planQueue.push(plan);
+      return { ...plan, status: 'queued', info: 'Encolado hasta que el plan activo termine' };
+    }
+
     plan.status      = 'running';
     this._activePlan = plan;
+    this._abort = new AbortController();
+    const signal = this._abort.signal;
     const stepResults = {};
 
     for (const step of plan.steps) {
+      if (signal.aborted) {
+        step.status = 'skipped';
+        step.error  = 'Plan cancelado';
+        opts.onStepDone?.(step, null);
+        continue;
+      }
+
       const blocked = (step.dependsOn || []).find(id => {
         const dep = plan.steps.find(s => s.id === id);
         return dep && dep.status !== 'done';
@@ -458,11 +474,9 @@ class Planner {
       }
 
       const resolvedParams = this._resolveParams(step.params, stepResults);
-      opts.onStepStart?.(step);
-      step.status = 'running';
 
       if (step.requiresApproval) {
-        const approved = opts.onApprovalNeeded
+        const approved = typeof opts.onApprovalNeeded === 'function'
           ? await opts.onApprovalNeeded(step)
           : false;
         if (!approved) {
@@ -472,6 +486,9 @@ class Planner {
           continue;
         }
       }
+
+      step.status = 'running';
+      opts.onStepStart?.(step);
 
       console.log(`[planner] ejecutando paso: ${step.description}`);
 
@@ -516,8 +533,8 @@ class Planner {
   }
 
   async _executeStep(tool, params) {
-    if (tool === 'edit_file')   return this._executeEditFile(params);
-    if (tool === 'create_file') return this._executeCreateFile(params);
+    if (tool === 'edit_file' || tool === 'edit') return this._executeEditFile(params);
+    if (tool === 'create_file' || tool === 'write') return this._executeCreateFile(params);
     if (tool === 'mcp')         return this._executeMCP(params);
     return this._bridge.execute(tool, params);
   }
@@ -527,7 +544,11 @@ class Planner {
    * de tools (que van a OpenClawBridge/mock-openclaw), esto pasa por
    * MCPManager — independiente de si OpenClaw está corriendo o no.
    */
-  async _executeMCP({ server, tool, args }) {
+  async _executeMCP(params = {}) {
+    const { server, tool, args } = params;
+    if (!server || !tool) {
+      return { ok: false, error: 'server y tool requeridos para mcp_call', result: null, tool: 'mcp' };
+    }
     const { getMCPManager } = require('../mcp/MCPManager.js');
     const mgr = getMCPManager();
     try {
@@ -547,6 +568,7 @@ class Planner {
     const start = Date.now();
 
     if (!filePath) return { ok: false, error: 'filePath requerido', result: null, tool: 'edit_file', elapsed: 0 };
+    const instr = instruction || 'Realiza los cambios necesarios en el archivo.';
     console.log(`[planner] paso 1: Leer ${filePath}`);
     const readResult = await this._bridge.execute('read', { path: filePath });
 
@@ -567,7 +589,7 @@ class Planner {
     console.log(`[planner] paso 2: Generar contenido actualizado para ${filePath}`);
     let newContent;
     try {
-      newContent = await _llmTransform(originalContent, instruction, filePath);
+      newContent = await _llmTransform(originalContent, instr, filePath);
     } catch (e) {
       return {
         ok:      false,
@@ -594,27 +616,6 @@ class Planner {
       };
     }
 
-    console.log(`[planner] paso 4: Verificar ${filePath}`);
-    const verifyResult = await this._bridge.execute('read', { path: filePath });
-
-    if (!verifyResult.ok) {
-      return {
-        ok:     true,
-        result: {
-          status:  'written_unverified',
-          path:    filePath,
-          newContent,
-          warning: `Archivo escrito pero no verificado: ${verifyResult.error}`,
-        },
-        tool:    'edit_file',
-        elapsed: Date.now() - start,
-      };
-    }
-
-    const verifiedContent = typeof verifyResult.result === 'string'
-      ? verifyResult.result
-      : JSON.stringify(verifyResult.result);
-
     console.log(`[planner] plan completado — ${filePath} modificado correctamente`);
 
     return {
@@ -624,8 +625,6 @@ class Planner {
         path:            filePath,
         originalContent,
         newContent,
-        verifiedContent,
-        verified:        verifiedContent === newContent,
       },
       tool:    'edit_file',
       elapsed: Date.now() - start,
@@ -691,16 +690,11 @@ class Planner {
       };
     }
 
-    console.log(`[planner] paso 3: Verificar ${filePath}`);
-    const verifyResult = await this._bridge.execute('read', { path: filePath });
-
-    const verified = verifyResult.ok && verifyResult.result === content;
-
     console.log(`[planner] plan completado — ${filePath} creado correctamente`);
 
     return {
       ok:     true,
-      result: { status: 'success', path: filePath, content, verified },
+      result: { status: 'success', path: filePath, content },
       tool:    'create_file',
       elapsed: Date.now() - start,
     };
@@ -710,17 +704,22 @@ class Planner {
     if (this._planQueue.length === 0) return;
     const next = this._planQueue.shift();
     console.log(`[planner] desencolando plan ${next.id} (${this._planQueue.length} pendientes)`);
-    this._runPlan(next, opts).catch(e => {
+    this._runPlan(next, opts || {}).catch(e => {
       console.error(`[planner] plan encolado ${next.id} falló:`, e.message);
+      next.status = 'failed';
+      next.error = e.message;
     });
   }
 
   cancel() {
-    if (!this._activePlan) return;
-    this._activePlan.status   = 'cancelled';
-    this._activePlan.finished = Date.now();
-    this._archivePlan(this._activePlan);
-    this._activePlan = null;
+    if (this._activePlan) {
+      this._activePlan.status   = 'cancelled';
+      this._activePlan.finished = Date.now();
+      this._archivePlan(this._activePlan);
+      this._activePlan = null;
+    }
+    this._abort.abort();
+    this._abort = new AbortController();
     this._dequeueNext({});
   }
 
@@ -740,7 +739,12 @@ class Planner {
     if (doneSteps.length === 0) return null;
     if (doneSteps.length === 1) return doneSteps[0].result;
     const results = {};
-    for (const s of doneSteps) results[s.description] = s.result;
+    for (const s of doneSteps) {
+      const val = typeof s.result === 'string' && s.result.length > 800
+        ? s.result.slice(0, 800) + '[...]'
+        : s.result;
+      results[s.description] = val;
+    }
     return results;
   }
 

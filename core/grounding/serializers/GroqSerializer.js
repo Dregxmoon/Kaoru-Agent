@@ -108,6 +108,11 @@ ${_specialFolderNote(intent.action)}
 
 Conversa naturalmente con el usuario, confirma lo que vas a hacer, y luego incluye el bloque.
 Si necesitas más información (ruta del archivo, nombre, etc.), pregunta ANTES de incluir el bloque.
+
+Si no vas a incluir el bloque de acción, **NUNCA describas ni simules** qué
+resultado tendría ejecutar algo (no inventes salidas de terminal, listados
+de archivos, contenidos de archivo, ni resultados de comandos). Si no estás
+seguro de si el usuario quiere ejecutar algo de verdad, pregunta.
 `.trim(),
 
   // El LLM DEBERÍA usar el formato estructurado si confirma la intención
@@ -122,6 +127,11 @@ ${_buildFormatExample(intent.action)}
 ${_specialFolderNote(intent.action)}
 
 Si es solo una pregunta o conversación, responde normalmente sin el bloque.
+
+Si no vas a incluir el bloque de acción, **NUNCA describas ni simules** qué
+resultado tendría ejecutar algo (no inventes salidas de terminal, listados
+de archivos, contenidos de archivo, ni resultados de comandos). Si no estás
+seguro de si el usuario quiere ejecutar algo de verdad, pregunta.
 `.trim(),
 };
 
@@ -216,6 +226,15 @@ function _buildIdentitySection(identity) {
     lines.push('', '## Límites', lim.what_i_am_not.join(' '));
     if (lim.identity_stability) lines.push(lim.identity_stability);
   }
+
+  lines.push('', '## Formato de respuesta');
+  lines.push('Puedes usar **Markdown** para dar formato a tus mensajes: negrita, cursiva, listas, tablas, bloques de código, etc.');
+  lines.push('Si necesitas mostrar un diagrama, usa bloques de código mermaid:');
+  lines.push('```mermaid');
+  lines.push('graph TD;');
+  lines.push('    A-->B;');
+  lines.push('```');
+  lines.push('Tus respuestas serán renderizadas con soporte completo de Markdown y Mermaid.');
 
   return lines.join('\n');
 }

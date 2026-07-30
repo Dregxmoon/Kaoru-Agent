@@ -18,17 +18,33 @@ function register(def) {
 }
 
 function getHelp() {
+  const groups = {
+    '🤖 IA / LLM':      ['mode', 'model', 'agent', 'code', 'skill'],
+    '💻 Desarrollo':     ['init', 'review', 'plan', 'fix', 'undo', 'retry'],
+    '📋 General':        ['help', 'clear', 'memory', 'stats', 'export'],
+    '⚙️ Config':         ['credenciales'],
+  };
   const lines = ['**Comandos disponibles:**\n'];
-  for (const [name, def] of commands) {
-    const usage = def.usage || `/${name}`;
-    const desc = def.description || '';
-    lines.push(`• \`${usage}\` — ${desc}`);
+  for (const [group, names] of Object.entries(groups)) {
+    lines.push(`┌─ ${group}`);
+    for (const name of names) {
+      const def = commands.get(name);
+      if (!def) continue;
+      const usage = def.usage || `/${name}`;
+      const desc = def.description || '';
+      lines.push(`│ \`${usage}\` — ${desc}`);
+    }
+    lines.push('└─\n');
   }
   return lines.join('\n');
 }
 
 function getNames() {
   return [...commands.keys()];
+}
+
+function getCommand(name) {
+  return commands.get(name);
 }
 
 async function execute(text, ctx = {}) {
@@ -74,8 +90,9 @@ register({
 
 register({
   name: 'mode',
-  description: 'Cambia entre modo conversación y tareas. Usa: /mode [conversational|task]',
+  description: 'Cambia entre modo conversación y tareas',
   usage: '/mode <conversational|task>',
+  completions: ['conversational', 'task'],
   handler: async (args, ctx) => {
     const valid = { conversational: 'conversational', conversation: 'conversational', task: 'task', tasks: 'task' };
     const mode = valid[args[0]];
@@ -90,8 +107,9 @@ register({
 
 register({
   name: 'model',
-  description: 'Cambia el proveedor LLM activo. Usa: /model [groq|gemini|openai]',
+  description: 'Cambia el proveedor LLM activo',
   usage: '/model <groq|gemini|openai>',
+  completions: ['groq', 'gemini', 'openai'],
   handler: async (args, ctx) => {
     const LLMProvider = ctx.LLMProvider;
     if (!LLMProvider) return 'LLMProvider no disponible.';
@@ -205,8 +223,9 @@ register({
 
 register({
   name: 'agent',
-  description: 'Cambia el agente activo. Usa: /agent [conversation|coder|reviewer|planner]',
-  usage: '/agent <nombre>',
+  description: 'Cambia el agente activo',
+  usage: '/agent <conversation|coder|reviewer|planner>',
+  completions: ['conversation', 'coder', 'reviewer', 'planner'],
   handler: async (args, ctx) => {
     const AgentManager = require('../agents/AgentManager.js');
     const name = (args[0] || '').toLowerCase();
@@ -214,10 +233,11 @@ register({
     if (!name) {
       const all = AgentManager.getAll();
       const active = AgentManager.getActive().name;
-      const list = all.map(a =>
-        `  ${a.name === active ? '→' : ' '} \`/${a.name}\` — ${a.label}: ${a.description}`
-      ).join('\n');
-      return `**Agente activo:** \`${active}\`\n\n**Disponibles:**\n${list}`;
+      const list = all.map(a => {
+        const marker = a.name === active ? '→' : ' ';
+        return `${marker} **/${a.name}** — ${a.description}`;
+      }).join('\n');
+      return `**Agente activo:** \`${active}\`\n\n${list}`;
     }
 
     const switched = AgentManager.setActive(name);
@@ -311,7 +331,7 @@ function _formatSize(bytes) {
 
 register({
   name: 'review',
-  description: 'Revisa el código de un archivo. Usa: /review <path>',
+  description: 'Solicita revisión de un archivo',
   usage: '/review <archivo>',
   handler: async (args, ctx) => {
     if (!args[0]) return 'Especifica un archivo: \`/review src/main.js\`';
@@ -336,8 +356,8 @@ register({
 
 register({
   name: 'plan',
-  description: 'Crea un plan de implementación. Usa: /plan <descripción>',
-  usage: '/plan <descripción de la tarea>',
+  description: 'Crea un plan de implementación',
+  usage: '/plan <descripción>',
   handler: async (args, ctx) => {
     if (args.length === 0) {
       return [
@@ -445,4 +465,46 @@ register({
   },
 });
 
-module.exports = { register, execute, getHelp, getNames, _parse };
+register({
+  name: 'credenciales',
+  description: 'Abre la configuración de API keys',
+  usage: '/credenciales',
+  handler: async (args, ctx) => {
+    if (typeof ctx.openSettings === 'function') {
+      ctx.openSettings();
+      return 'Abriendo configuración de credenciales...';
+    }
+    return 'No se puede abrir la configuración desde este contexto.';
+  },
+});
+
+register({
+  name: 'skill',
+  description: 'Muestra información de skills cargadas',
+  usage: '/skill [nombre]',
+  handler: async (args, ctx) => {
+    if (!ctx.ipcRenderer) return 'IPC no disponible.';
+    const skills = await ctx.ipcRenderer.invoke('list-skills');
+    if (!skills || skills.length === 0) return 'No hay skills cargadas.';
+    const name = (args[0] || '').toLowerCase();
+    if (name) {
+      const skill = skills.find(s => s.name.toLowerCase() === name);
+      if (!skill) return `Skill no encontrada: \`${args[0]}\`. Usa \`/skill\` para ver la lista.`;
+      const lines = [
+        `**📘 ${skill.name}** v${skill.version}`,
+        '',
+        skill.description,
+      ];
+      if (skill.domains && skill.domains.length > 0) {
+        lines.push('', `**Dominios:** ${skill.domains.join(', ')}`);
+      }
+      return lines.join('\n');
+    }
+    const lines = skills.map(s =>
+      `• **${s.name}** — ${s.description}`
+    );
+    return `**Skills disponibles (${skills.length}):**\n\n${lines.join('\n')}`;
+  },
+});
+
+module.exports = { register, execute, getHelp, getNames, getCommand, _parse };
