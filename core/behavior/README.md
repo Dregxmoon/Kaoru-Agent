@@ -6,6 +6,21 @@ pasa por consentimiento.
 
 ---
 
+```mermaid
+flowchart TD
+    S["Señal de un sensor<br/>(EventBus)"] --> H["Heurística barata<br/>cooldown · presupuesto diario<br/>chat reciente · AFK · lock"]
+    H -->|"pasa"| D["Núcleo determinista<br/>core/decision/<br/>score + gate + SLO"]
+    D -->|"ACT / ESCALATE"| L["LLM genera el CONTENIDO<br/>(identidad + memoria factual)"]
+    L --> P["Propuesta con consentimiento"]
+    P -->|"aceptado"| E["ProactiveExecutor<br/>preview → verificación real<br/>→ rollback si falla"]
+    P -->|"rechazado / ignorado"| F["ProposalStore<br/>feedback por tipo"]
+    F -->|"ajusta cooldowns"| H
+    F -->|"outcome"| R["Receptividad"]
+    R -->|"ajusta presupuesto"| D
+```
+
+---
+
 ## `BehaviorModel.js` — modelado del comportamiento
 
 No genera lenguaje: evalúa en cada turno el estado del usuario y produce un `BehaviorContext` que

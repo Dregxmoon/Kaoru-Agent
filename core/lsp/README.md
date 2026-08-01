@@ -33,4 +33,17 @@ emite la señal `lsp:error` (con `languageId`/`fileType` detectados por extensi�
 `lsp_error` del motor proactivo. Cuando una propuesta de parche se acepta, `ProactiveExecutor` verifica
 el resultado contra `getDiagnostics()` real y revierte si algo falla.
 
+```mermaid
+flowchart LR
+    EDITOR["Editor<br/>(archivo enfocado)"] --> LSP["LSPManager<br/>typescript-language-server"]
+    LSP -->|"diagnósticos"| W["LSPErrorWatcher<br/>lsp:error + languageId"]
+    W -->|"señal"| E["ProactiveEngine<br/>trigger lsp_error"]
+    E -->|"propuesta de parche"| U["Consentimiento"]
+    U -->|"aceptado"| X["ProactiveExecutor.apply_patch"]
+    X -->|"verificación real"| LSP
+    X -->|"sintaxis"| N["node --check"]
+    N -->|"inválido"| RB["rollback automático"]
+    LSP -->|"símbolos"| SY["SymbolIndex<br/>(TTL 60s)"]
+```
+
 Verificación: `test_lsp_errors` (64 tests) y `test_lsp` — ver `tests/README.md`.

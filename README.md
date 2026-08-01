@@ -37,26 +37,52 @@ Los asistentes de escritorio tradicionales son **reactivos**: esperan a que el u
 
 ## 2. Arquitectura del sistema
 
-```
-┌────────────────────────────────────────────────────────────────────┐
-│                        CAPA UI (Electron)                          │
-│   Overlay Live2D (src/index.html)   ·   Chat (src/chat.html)       │
-└───────────────┬───────────────────────────────────┬────────────────┘
-                │ IPC (main.js)                      │
-┌───────────────▼───────────────────────────────────▼────────────────┐
-│                     MarchCore (orquestador)                        │
-│  ┌──────────────┐  ┌──────────────┐  ┌─────────────────────────┐   │
-│  │ Conversación │  │    Memoria   │  │   Motor proactivo       │   │
-│  │ Grounding    │  │  StateGraph  │  │  Decisión determinista  │   │
-│  │ AgentLoop    │  │  Semantics   │  │  + consentimiento       │   │
-│  └──────┬───────┘  └──────┬───────┘  └───────────┬─────────────┘   │
-└─────────┼─────────────────┼──────────────────────┼─────────────────┘
-          │                 │                      │
-┌─────────▼─────────────────▼──────────────────────▼─────────────────┐
-│               CAPA DE PERCEPCIÓN Y ACCIÓN                          │
-│  Sensores OS · GitWatcher · LSP (editor) · Clip/Título/Eventos     │
-│  LLM Providers (Groq/Gemini/OpenAI) · OpenClaw · MCP · Browser     │
-└────────────────────────────────────────────────────────────────────┘
+```mermaid
+flowchart TD
+    subgraph UI["Capa UI (Electron)"]
+        OVERLAY["Overlay Live2D<br/>src/index.html"]
+        CHAT["Chat<br/>src/chat.html"]
+        BUBBLE["Propuestas proactivas<br/>con consentimiento"]
+    end
+
+    subgraph IPC["Capa IPC — main.js"]
+        ADD["addTurn()"]
+        BUILD["buildContext()"]
+        AGENT["runAgent()"]
+        DECIDE["handleProposalDecision()"]
+    end
+
+    subgraph CORE["MarchCore — orquestador"]
+        subgraph CHAT_FLOW["Conversación"]
+            GROUND["Grounding<br/>intención + memoria"]
+            LOOP["AgentLoop<br/>LLM → tool → resultado"]
+        end
+        subgraph MEM["Memoria"]
+            GRAPH["StateGraph<br/>SQLite + vectores"]
+        end
+        subgraph PROACT["Motor proactivo"]
+            DECISION["Decisión determinista<br/>score + gate + SLO"]
+            PROPOSAL["Propuesta + ejecución<br/>con permiso"]
+        end
+        GROUND --> LOOP
+    end
+
+    subgraph PERC["Percepción y acción"]
+        SENSORS["Sensores<br/>SO · Git · LSP · título · eventos"]
+        LLM["LLM Providers<br/>Groq / Gemini / OpenAI"]
+        TOOLS["OpenClaw · MCP · Browser"]
+    end
+
+    OVERLAY --> CHAT
+    CHAT --> ADD --> GROUND
+    CHAT --> AGENT --> LOOP
+    CHAT --> BUILD --> GROUND
+    GRAPH --> GROUND
+    SENSORS --> DECISION
+    DECISION --> PROPOSAL --> BUBBLE
+    BUBBLE --> DECIDE --> PROPOSAL
+    LLM --> LOOP
+    LOOP --> TOOLS
 ```
 
 ### Flujo conversacional
@@ -68,11 +94,16 @@ Los asistentes de escritorio tradicionales son **reactivos**: esperan a que el u
 
 ### Flujo proactivo (motor de decisión Fase F)
 
-```
-Sensor (señal cruda) → Normalizador (candidato) → Score de relevancia
-  → Gate de contexto (foco/presupuesto/cola) → Política ACT/QUEUE/DROP/ESCALATE
-  → LLM genera CONTENIDO (nunca decide) → Propuesta con consentimiento
-  → Outcome (aceptado/rechazado/ignorado) → Receptividad → ajusta política
+```mermaid
+flowchart LR
+    S["Sensor<br/>señal cruda"] --> N["Normalizador<br/>candidato"]
+    N --> R["Score de relevancia"]
+    R --> G["Gate de contexto<br/>foco / presupuesto / cola"]
+    G --> P["Política<br/>ACT · QUEUE · DROP · ESCALATE"]
+    P --> L["LLM genera CONTENIDO<br/>(nunca decide)"]
+    L --> U["Propuesta con consentimiento"]
+    U -->|"outcome"| REC["Receptividad"]
+    REC -->|"ajusta"| G
 ```
 
 Todo mensaje proactivo es una **propuesta** con botones de aceptar/descartar; las mutaciones se ejecutan solo tras la confirmación, con preview, verificación post-acción y rollback.

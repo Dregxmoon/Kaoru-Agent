@@ -36,6 +36,16 @@ En `ContextAssembler.build()`:
 const serializer = SERIALIZERS[activeProvider] ?? SERIALIZERS.groq;
 ```
 
+```mermaid
+flowchart LR
+    PACK["ContextPackage<br/>identidad · SO · memoria · toolIntent"] --> ASM["ContextAssembler.build()"]
+    ASM -->|"proveedor activo"| SEL{"SERIALIZERS[provider]"}
+    SEL -->|"groq"| G["GroqSerializer<br/>secciones markdown"]
+    SEL -->|"gemini"| GE["GeminiOpenAISerializer<br/>system_instruction separado"]
+    SEL -->|"openai"| O["GeminiOpenAISerializer<br/>ajustes de tono"]
+    G & GE & O --> LLM["LLMProvider.complete()"]
+```
+
 ---
 
 ## Verificación

@@ -47,6 +47,38 @@ bus.emit('os:app-changed', { app: 'firefox', friendlyName: 'Firefox' });
 
 ---
 
+## Flujo
+
+```mermaid
+flowchart LR
+    subgraph EM["Emisores"]
+        S1["OSSensor"]
+        S2["GitWatcher"]
+        S3["LSPErrorWatcher"]
+        S4["MarchCore"]
+        S5["Chat UI"]
+    end
+    BUS["EventBus<br/>pub/sub singleton"]
+    subgraph CONS["Consumidores"]
+        C1["ProactiveEngine"]
+        C2["BehaviorModel"]
+        C3["MarchCore"]
+        C4["Chat UI"]
+    end
+
+    S1 --> BUS
+    S2 --> BUS
+    S3 --> BUS
+    S4 --> BUS
+    S5 --> BUS
+    BUS --> C1
+    BUS --> C2
+    BUS --> C3
+    BUS --> C4
+```
+
+---
+
 ## Por qué un bus
 
 - **Desacoplamiento total:** agregar un sensor o un consumidor no toca al resto.

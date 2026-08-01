@@ -27,6 +27,15 @@ node infrastructure/database/init_vectors.js --force  # reindexado forzado
 
 Dependencia: `@xenova/transformers` (misma BD de March, misma sesión de embeddings que el `StateGraph`).
 
+```mermaid
+flowchart LR
+    INIT["init_vectors.js"] --> EMB["@xenova/transformers<br/>all-MiniLM-L6-v2<br/>embeddings 384d"]
+    EMB -->|"frases de referencia"| CAT["intent_catalog<br/>60+ intenciones multilingües"]
+    EMB -->|"vectores"| VEC["intent_vectors<br/>(tabla vec0)"]
+    VEC --> DET["IntentDetector<br/>búsqueda coseno"]
+    DET -->|"toolIntent"| SER["Serializador / contexto"]
+```
+
 ---
 
 ## Verificación

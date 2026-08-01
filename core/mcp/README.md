@@ -42,6 +42,17 @@ Gestiona el ciclo de vida completo de los servidores MCP conectados vía `npx -y
   Skill > MCP > OpenClaw), evitando herramientas duplicadas para la misma tarea.
 - La UI expone un modal de administración: biblioteca oficial + configuración JSON manual.
 
+```mermaid
+flowchart LR
+    CFG["config.json<br/>mcp.servers"] --> M["MCPManager"]
+    M -->|"init / addServer"| S1["servidor MCP (stdio)<br/>npx -y <paquete>"]
+    M -->|"reconexión automática<br/>backoff exponencial"| S1
+    M -->|"listAllTools"| TOOLS["Herramientas namespaced<br/>servidor:herramienta"]
+    TOOLS -->|"inyección en prompt"| RES["ToolResolver<br/>precedencia Skill > MCP > OpenClaw"]
+    RES --> AG["AgentLoop"]
+    M -->|"desconexión ordenada"| END["shutdown"]
+```
+
 ## Verificación
 
 `test_mcp` y las suites de integración de tool precedence/visibility (`test_tool_precedence`,

@@ -58,6 +58,18 @@ Decide, por turno, **qué herramientas ve el LLM** y con qué precedencia (Skill
 4. El plan se presenta en la UI (modo task) o se ejecuta directo (modo conversacional).
 5. `ToolRegistry.serializeToPrompt()` alimenta el system prompt; `ToolResolver` decide el toolset final.
 
+```mermaid
+flowchart LR
+    MSG["Mensaje del usuario"] --> TD["TaskDetector<br/>isTask / domain / confidence"]
+    TD -->|"es tarea"| TI["toolIntent<br/>inyectado al serializador"]
+    TD -->|"no es tarea"| CHAT["Conversación normal"]
+    TI --> LLM["LLM"]
+    LLM -->|"respuesta"| PP["PlanParser<br/>pasos con estado"]
+    PP --> PLAN["Plan en la UI<br/>(modo task)"]
+    LLM -->|"herramientas"| RES["ToolResolver<br/>Skill > MCP > OpenClaw"]
+    TR["ToolRegistry<br/>catálogo + MCPManager"] --> RES
+```
+
 ---
 
 ## Verificación

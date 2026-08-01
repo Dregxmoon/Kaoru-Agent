@@ -60,11 +60,32 @@ Responsable del ciclo de vida completo de la aplicación:
 
 ## Flujo de datos entre módulos
 
-```
-UI ──IPC──► MarchCore ──► grounding (contexto) ──► llm ──► planner/AgentLoop
-                │                    ▲
-                ├──► state-graph ────┘            └────► task / mcp / openclaw
-                └──► behavior/decision ◄── infra/sensors (señales del SO)
+```mermaid
+flowchart LR
+    subgraph EXT["UI + infraestructura"]
+        UI["UI (IPC)"]
+        SENSORS["infrastructure/sensors<br/>señales del SO"]
+    end
+    subgraph CORE["MarchCore"]
+        GROUND["grounding<br/>contexto"]
+        GRAPH["state-graph<br/>memoria"]
+        LLM["llm"]
+        LOOP["planner/AgentLoop"]
+        DECISION["behavior/decision<br/>proactividad"]
+    end
+    subgraph TOOLS["Ejecución"]
+        TASK["task / mcp / openclaw"]
+    end
+
+    UI --> GROUND
+    UI --> GRAPH
+    UI --> LOOP
+    GROUND --> LLM
+    GRAPH --> GROUND
+    LLM --> LOOP
+    LLM --> TASK
+    LOOP --> TASK
+    SENSORS --> DECISION
 ```
 
 Cada módulo se comunica con el resto exclusivamente a través del `EventBus`

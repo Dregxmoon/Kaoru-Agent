@@ -45,6 +45,36 @@ Cada sensor emite eventos por el `EventBus` que `ProactiveEngine` consume:
 
 ---
 
+## Flujo sensor → motor proactivo
+
+```mermaid
+flowchart LR
+    subgraph SO["Sensores de SO"]
+        OS["OSSensor / LinuxOSSensor<br/>app activa + idle"]
+    end
+    subgraph SIG["Sensores de señales"]
+        GIT["GitWatcher"]
+        SYS["SystemWatcher"]
+        TITLE["TitleWatcher"]
+        CLIP["ClipboardWatcher"]
+        EV["UpcomingEventsWatcher"]
+        LSP["LSPErrorWatcher"]
+    end
+    BUS["EventBus"]
+    ENG["ProactiveEngine<br/>(core/behavior)"]
+
+    OS -->|"os:app-changed · os:idle-changed"| BUS
+    GIT -->|"git:redflag"| BUS
+    SYS -->|"system:warning"| BUS
+    TITLE -->|"os:error-title"| BUS
+    CLIP -->|"clipboard:copied"| BUS
+    EV -->|"memory:upcoming-event"| BUS
+    LSP -->|"lsp:error<br/>(+ languageId)"| BUS
+    BUS --> ENG
+```
+
+---
+
 ## Verificación
 
 `test_signal_sensors` (49) — todos los watchers con ejecución hermetizada y/o repos git reales;

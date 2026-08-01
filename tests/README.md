@@ -4,6 +4,44 @@ Documento de referencia del sistema de pruebas: cómo se ejecuta, qué cubre cad
 convenciones para contribuir. El proyecto prioriza **verificación real** sobre mocks: donde la
 persistencia, el git o el LSP son parte del contrato, la prueba usa la pieza de producción.
 
+```mermaid
+flowchart LR
+    subgraph CORE["Suites del núcleo"]
+        DC["decision + gate + SLO<br/>Fase F"]
+        PR["proactive + persistent"]
+        PR2["proposals + executor"]
+        LSP["lsp_errors<br/>Fase D"]
+        TEL["telemetry<br/>Fase E"]
+    end
+    subgraph AGENT["Agente"]
+        AL["agent_loop + mode"]
+        TC["tool_calling + precedence + visibility"]
+    end
+    subgraph MEM["Memoria"]
+        SG["state_graph"]
+        INT["intent_detection"]
+    end
+    subgraph SEC["Seguridad"]
+        SS["server_security"]
+        OB["openclaw_server_auth"]
+    end
+    E2E["E2E<br/>chat_to_agent_loop"]
+    ALL["Regresión completa<br/>ELECTRON_RUN_AS_NODE=1"]
+
+    DC --> ALL
+    PR --> ALL
+    PR2 --> ALL
+    LSP --> ALL
+    TEL --> ALL
+    AL --> ALL
+    TC --> ALL
+    SG --> ALL
+    INT --> ALL
+    SS --> ALL
+    OB --> ALL
+    E2E --> ALL
+```
+
 ---
 
 ## 1. Cómo ejecutar

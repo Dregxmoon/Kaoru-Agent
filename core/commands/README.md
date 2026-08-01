@@ -32,6 +32,15 @@ workspace activo, sin escapes de directorio).
 `MarchCore` registra los comandos durante `init()`; la UI (`src/chat.html`) detecta mensajes que
 empiezan con `/`, los resuelve en `CommandRegistry` y renderiza el resultado directamente.
 
+```mermaid
+flowchart LR
+    INPUT["Mensaje que empieza con /"] --> DETECT["src/chat.html<br/>detecta comando"]
+    DETECT --> REG["CommandRegistry<br/>busca por id"]
+    REG -->|"handler"| IPC["IPC handler"]
+    IPC --> RESULT["Resultado directo<br/>en el chat"]
+    IPC --> FILES["FileResolver<br/>rutas seguras (workspace)"]
+```
+
 ## Verificación
 
 `test_commands` (97 tests) — registro, ejecución, resolución de archivos y contratos IPC.

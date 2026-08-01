@@ -24,6 +24,17 @@ coincide con el dominio de la skill. Extiende las capacidades de March sin tocar
 | `git-workflow` | git | Flujo de trabajo git seguro |
 | `testing-patterns` | testing | Patrones de pruebas y verificación |
 
+```mermaid
+flowchart LR
+    DIR["skills/<br/>SKILL.md + frontmatter"] --> REG["SkillManager<br/>registro + validación"]
+    REG --> IDX["índice de skills"]
+    MSG["Mensaje del usuario"] --> MATCH["match()<br/>embeddings sqlite-vec"]
+    IDX --> MATCH
+    MATCH -->|"dominio coincide"| INJ["buildInjection()<br/>bloque de contexto"]
+    INJ --> CP["context prompt"]
+    MATCH -->|"replaces_domains"| TR["ToolResolver<br/>Skill > MCP > OpenClaw"]
+```
+
 ---
 
 ## Verificación

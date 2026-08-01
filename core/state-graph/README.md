@@ -72,6 +72,34 @@ La política se determina por el label del nodo; los no reconocidos van a `APPEN
 
 ---
 
+## Ciclo de vida de la memoria
+
+```mermaid
+flowchart LR
+    subgraph SES["SessionManager"]
+        START["start()<br/>sesión nueva"]
+        TURN["addTurn()<br/>persistencia incremental"]
+        CLOSE["close()"]
+    end
+    subgraph UPD["StateUpdater"]
+        INSTANT["detectAndSaveInstant<br/>hechos por regex, sin LLM"]
+        PROCESS["processSession<br/>hechos con LLM"]
+    end
+    GRAPH["StateGraph<br/>nodes + relations + vectors"]
+    DECAY["runDecay()<br/>decaimiento de nodos viejos"]
+    Q["queryNodesSemantic()<br/>recuperación con recencia"]
+
+    START --> TURN --> CLOSE
+    CLOSE --> PROCESS
+    TURN --> INSTANT
+    INSTANT --> GRAPH
+    PROCESS --> GRAPH
+    GRAPH --> DECAY
+    GRAPH --> Q
+```
+
+---
+
 ## Verificación
 
 `test_state_graph` (schema, CRUD, reconciliación, decay, sesiones con resume tras crash, guardado

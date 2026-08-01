@@ -31,3 +31,15 @@ Identidad completa del personaje "March 7th" de *Honkai: Star Rail*.
 
 > Para modificar la personalidad sin tocar código, editar `identity.json` — los cambios se aplican en
 > el siguiente arranque o llamada.
+
+```mermaid
+flowchart LR
+    ID["identity.json<br/>core · character · voice<br/>uncertainty · relationship<br/>context · limits"] -->|"sección critical"| ASM["ContextAssembler"]
+    ASM --> SER["GroqSerializer<br/>primera sección del system prompt"]
+    SER --> LLM["LLMProvider"]
+    LLM -->|"tono y personalidad"| CHAT["Chat + respuestas proactivas"]
+```
+
+---
+
+## Verificación

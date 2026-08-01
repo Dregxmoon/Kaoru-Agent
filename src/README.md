@@ -52,6 +52,34 @@ reproducción con Web Audio API sin archivos temporales.
 
 ---
 
+## Arquitectura de las ventanas
+
+```mermaid
+flowchart LR
+    subgraph MAIN["main process"]
+        CORE["MarchCore"]
+    end
+    subgraph WIN1["index.html — overlay"]
+        L2D["Canvas Live2D<br/>(Pixi.js + live2d-display)"]
+        STT["STT (Vosk)"]
+        TTS["TTS (edge-tts stream)"]
+    end
+    subgraph WIN2["chat.html — chat"]
+        MSG["Mensajes<br/>(markdown + DOMPurify)"]
+        PROPS["Propuestas proactivas"]
+        SET["Settings · MCP modals"]
+    end
+
+    WIN1 <-->|"IPC"| CORE
+    WIN2 <-->|"IPC"| CORE
+    L2D <--> STT
+    L2D --> TTS
+    CORE -->|"march-initiative"| PROPS
+    PROPS -->|"initiative-decision"| CORE
+```
+
+---
+
 ## Verificación
 
 Cobertura del contrato IPC en `test_commands`, `test_server_security` y las suites E2E

@@ -18,6 +18,15 @@ llaves no viven en texto plano en el disco.
 2. `LLM_KEY_*` del `.env` del usuario.
 3. `llm.apiKeys` del `config.json` del usuario.
 
+```mermaid
+flowchart LR
+    KC["KeychainManager"]
+    A["Llavero del SO<br/>(seguro)"] -->|"preferido"| KC
+    B["LLM_KEY_* de .env"] -->|"fallback 1"| KC
+    C["llm.apiKeys de config.json"] -->|"fallback 2"| KC
+    KC -->|"clave sin exponer"| LLM["LLMProvider"]
+```
+
 ---
 
 ## Seguridad

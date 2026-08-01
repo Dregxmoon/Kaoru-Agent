@@ -19,6 +19,17 @@ Registra y resuelve agentes especializados:
 `getAgentSystemPrompt(id)` devuelve el prompt del agente, usado como base del context prompt cuando el
 modo del asistente lo requiere.
 
+```mermaid
+flowchart LR
+    TASK["Tarea del usuario"] --> AM["AgentManager<br/>getAgentSystemPrompt(id)"]
+    AM -->|"default"| D["Conversación general"]
+    AM -->|"programming"| P["Foco técnico y preciso"]
+    AM -->|"code_review"| CR["Análisis crítico"]
+    AM -->|"planner"| PL["Descomposición en pasos"]
+    D & P & CR & PL --> CP["context prompt base"]
+    CP --> LLM["LLM"]
+```
+
 ---
 
 ## Verificación

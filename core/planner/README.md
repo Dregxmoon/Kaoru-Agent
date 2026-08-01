@@ -19,8 +19,27 @@ Analiza la respuesta del LLM en busca de bloques de acción (````action ... ````
 
 El modo `task`/`agent` ejecuta un bucle cerrado:
 
-```
-LLM (tool-calling nativo) → acción → resultado real → LLM (siguiente paso) → … → texto final
+```mermaid
+sequenceDiagram
+    participant U as Usuario
+    participant A as AgentLoop
+    participant LLM as LLM (tool-calling)
+    participant T as Herramienta (OpenClaw/MCP/Browser)
+
+    U->>A: mensaje con intención de acción
+    loop hasta tope de iteraciones (8–25)
+        A->>LLM: prompt + toolset resuelto (Skill > MCP > OpenClaw)
+        LLM-->>A: toolCall nativo
+        alt acción de alto impacto
+            A->>U: solicita aprobación (fail-closed)
+            U-->>A: aprobada / denegada
+        end
+        A->>T: ejecuta acción real
+        T-->>A: resultado real
+        A->>LLM: resultado → siguiente paso
+    end
+    LLM-->>A: texto final
+    A-->>U: respuesta
 ```
 
 - **Tool-calling nativo primero** (`completeWithTools`), con fallback textual si falla el parseo o el

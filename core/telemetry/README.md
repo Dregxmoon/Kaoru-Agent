@@ -33,4 +33,13 @@ Registra métricas de uso del asistente:
 `ProposalStore.getDecisions()` expone el historial de aceptación/descartes por tipo con timestamp —
 eso da la **baseline** de aceptación por tipo de propuesta que consume el motor de decisión.
 
+```mermaid
+flowchart LR
+    CHAT["Conversación<br/>usuario ↔ March"] -->|"addTurn"| TS["TelemetryStore<br/>turnos · sesiones · silencios<br/>tiempos de respuesta"]
+    PROPS["ProposalStore<br/>decisiones por tipo"] -->|"baseline"| TS
+    TS -->|"reporte mensual<br/>deltas + veredicto"| IPC["IPC telemetry-report"]
+    IPC --> CMD["/telemetria ▲▼"]
+    TS -->|"GET /telemetry/report"| API["Control API"]
+```
+
 Verificación: `test_telemetry` (47 tests).

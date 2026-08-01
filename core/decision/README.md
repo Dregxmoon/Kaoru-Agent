@@ -64,6 +64,23 @@ Verificación: `test_slo` (25 tests).
 
 ---
 
+## Pipeline de decisión
+
+```mermaid
+flowchart LR
+    S["Sensor<br/>señal cruda"] --> N["SignalNormalizer<br/>→ candidato {tipo, urgencia,<br/>confianza, accionabilidad,<br/>saliencia}"]
+    N --> R["DecisionCore.scoreRelevancia<br/>R = w₁·Sev + w₂·Acc + w₃·Sal<br/>− w₄·CosteIgnorar"]
+    R --> G["ContextGate<br/>presencia · flow · proximidad<br/>presupuesto · cola QUEUE"]
+    G --> D["DecisionCore.decide<br/>ACT · QUEUE · DROP · ESCALATE<br/>+ reasonCode → audit log"]
+    D -->|"ACT / ESCALATE"| LLM["LLM genera contenido"]
+    LLM --> U["Propuesta al chat"]
+    U -->|"outcome"| REC["DecisionCore.receptividad"]
+    REC -->|"presupuesto dinámico"| G
+    D -->|"degradación"| SLO["SloMonitor<br/>aceptación / ignorados"]
+```
+
+---
+
 ## Cómo se integra
 
 1. Un sensor emite una señal por el `EventBus` (p. ej. `git:redflag`, `lsp:error`).

@@ -16,6 +16,36 @@ almacenamiento vectorial y seguridad de credenciales.
 
 ---
 
+## Flujo
+
+```mermaid
+flowchart LR
+    subgraph SENSORS["sensors/"]
+        OS["OSSensor<br/>LinuxOSSensor"]
+        GIT["GitWatcher"]
+        LSP["LSPErrorWatcher"]
+        SYS["SystemWatcher"]
+        OTH["TitleWatcher · ClipboardWatcher · UpcomingEventsWatcher"]
+    end
+
+    BUS["event-bus/<br/>pub/sub interno"]
+    DB["database/<br/>sqlite-vec"]
+    KC["keychain/<br/>credenciales seguras"]
+    ENGINE["core/behavior/ProactiveEngine"]
+    LLM["core/llm/LLMProvider"]
+
+    OS --> BUS
+    GIT --> BUS
+    LSP --> BUS
+    SYS --> BUS
+    OTH --> BUS
+    BUS --> ENGINE
+    DB --> LLM
+    KC --> LLM
+```
+
+---
+
 ## Principios
 
 - **Bajo nivel sin lógica de negocio:** los módulos de infraestructura no deciden, solo perciben,

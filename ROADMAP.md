@@ -35,6 +35,17 @@ con la utilidad de un agente de código y la privacidad de un sistema local.
 
 ## 2. Fases completadas (capacidades en producción)
 
+```mermaid
+timeline
+    title Evolución por fases
+    Fase A : Autonomía con consentimiento : propuestas + feedback por tipo
+    Fase B : Herramientas proactivas : mutaciones mínimas con diff y verificación real
+    Fase C : Compañero persistente : presupuesto diario, /olvida, recap
+    Fase D : Agente de código profundo : LSP real, parches, rollback, blindaje de lenguaje
+    Fase E : Evaluación continua : telemetría local y reporte mensual
+    Fase F : Motor de decisión proactiva : núcleo determinista, gate, SLOs
+```
+
 ### Fase A — Autonomía con consentimiento
 Las iniciativas pasaron de ser comentarios a **propuestas** (`{texto, acción, preview}`) con botones
 aceptar/descartar en el chat, feedback persistido por tipo y ajuste de frecuencia según las respuestas

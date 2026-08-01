@@ -37,6 +37,17 @@ LLM a través de aquí.
 - Claves leídas de `config.json` o `LLM_KEY_*` del `.env`; el llavero del SO (`infrastructure/keychain/`)
   es la fuente preferida.
 
+```mermaid
+flowchart LR
+    R["Llamada: complete / completeTask / completeWithTools"] --> P["Proveedor primary<br/>(groq | gemini | openai)"]
+    P -->|"éxito"| OK["Respuesta normalizada<br/>{content, toolCalls}"]
+    P -->|"falla / rate-limit"| F["Fallback + reintento<br/>exponencial + jitter<br/>(≤3 por proveedor)"]
+    F -->|"siguiente proveedor"| P
+    F -->|"fallas consecutivas"| DEG["Degrada a texto sin tools"]
+    DEG --> OK
+    OK --> C["core/planner · core/behavior · chat"]
+```
+
 ## `GroundingMinimo.js` — fallback de contexto
 
 Ensamblador de contexto mínimo usado solo si `GroundingEngine` no está disponible: identidad básica,
