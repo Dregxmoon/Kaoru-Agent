@@ -2,7 +2,7 @@
 
 Grafo de conocimiento semántico sobre SQLite: hechos sobre el usuario, episodios de conversación y
 relaciones entre conceptos, con búsqueda vectorial y decaimiento temporal. Es la base de la memoria
-a largo plazo de March.
+a largo plazo del asistente.
 
 ---
 

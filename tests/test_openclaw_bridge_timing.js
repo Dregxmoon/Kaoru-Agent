@@ -27,7 +27,7 @@ function assert(condition, label, detail = '') {
 const TEST_KEY = 'bridge-timing-test-key-' + Date.now();
 
 // ── Test 1: Real boot order (require BEFORE env var) ──────────────────────────
-// Simula lo que pasa en la app real: MarchCore.js hace require('OpenClawBridge')
+// Simula lo que pasa en la app real: Core.js hace require('OpenClawBridge')
 // en línea 38 (evalúa el módulo ANTES de que _startOpenClaw() en línea 205
 // setee process.env.OPENCLAW_API_KEY).
 function testRequireBeforeEnvVar() {

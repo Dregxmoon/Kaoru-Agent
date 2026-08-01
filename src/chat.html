@@ -20,7 +20,7 @@
   object-src 'none';
   base-uri 'none';
 ">
-<title>March 7th — Chat</title>
+<title>Asistente personal — Chat</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Share+Tech+Mono&family=Zen+Kaku+Gothic+New:wght@300;400;700&family=Kaisei+Decol:wght@400;700&display=swap" rel="stylesheet">
 <style>
@@ -182,7 +182,7 @@ html,body { width:100%; height:100%; overflow:hidden; background:var(--bg-base);
 .msg-bubble.markdown ol { margin:6px 0 8px 18px; padding:0; }
 .msg-bubble.markdown li { margin-bottom:3px; line-height:1.55; }
 .msg-bubble.markdown strong { color:var(--text-primary); font-weight:700; }
-.msg-bubble.markdown em { color:var(--text-march); font-style:italic; }
+.msg-bubble.markdown em { color:var(--text-assistant); font-style:italic; }
 .msg-bubble.markdown h1,
 .msg-bubble.markdown h2,
 .msg-bubble.markdown h3 { font-family:var(--font-display); color:var(--text-primary); margin:10px 0 6px 0; }
@@ -227,7 +227,8 @@ html,body { width:100%; height:100%; overflow:hidden; background:var(--bg-base);
 .at-suggestion-item:last-child { border-bottom:none; }
 .at-suggestion-item:hover,
 .at-suggestion-item.selected { background:var(--accent); color:#fff; }
-.at-suggestion-item.selected > * { color:inherit !important; }
+.at-suggestion-item:hover > *,
+.at-suggestion-item.selected > * { color:inherit !important; opacity:1 !important; }
 .at-suggestion-item .file-icon { opacity:.7; font-size:14px; }
 .at-suggestion-item .file-path { opacity:.7; font-size:11px; margin-left:auto; }
 .at-suggestion-item .file-type { font-size:10px; opacity:.8; background:var(--bg-input); border-radius:4px; padding:1px 6px; margin-left:6px; }
@@ -249,6 +250,10 @@ html,body { width:100%; height:100%; overflow:hidden; background:var(--bg-base);
 #model-canvas-container { width:100%; flex:1; position:relative; min-height:0; }
 #live2d-chat-canvas { width:100%; height:100%; display:block; }
 #view-indicator { position:absolute; bottom:4px; right:6px; z-index:10; font-family:var(--font-mono); font-size:8px; color:var(--text-secondary); opacity:.3; pointer-events:none; }
+/* Botones de selección de modelo (renderizados por /cambio-modelo) */
+.model-select-btn { display:inline-block; margin:4px 6px 0 0; padding:6px 12px; background:var(--bg-input); border:1px solid var(--border-accent); border-radius:6px; color:var(--accent); font-family:var(--font-mono); font-size:11px; cursor:pointer; transition:background .15s, color .15s; }
+.model-select-btn:hover:not(.active) { background:var(--accent); color:#fff; }
+.model-select-btn.active { background:var(--accent); color:#fff; opacity:.85; cursor:default; }
 /* ── Terminal-style messages ──────────────────────────────────────────── */
 .plan-card { background:var(--bg-input); border:1px solid var(--border-accent); border-radius:8px; padding:10px 14px; margin-top:8px; font-family:var(--font-mono); font-size:11px; }
 .plan-header { color:var(--accent); font-size:10px; letter-spacing:.06em; margin-bottom:6px; display:flex; align-items:center; gap:6px; }
@@ -286,16 +291,16 @@ html,body { width:100%; height:100%; overflow:hidden; background:var(--bg-base);
 .msg.user { flex-direction:row; }
 
 .msg-avatar { width:30px; height:30px; border-radius:8px; display:flex; align-items:center; justify-content:center; font-size:11px; font-weight:700; flex-shrink:0; font-family:var(--font-mono); }
-.msg.march .msg-avatar { background:linear-gradient(135deg,#10b981,#059669); color:#fff; }
+.msg.assistant .msg-avatar { background:linear-gradient(135deg,#10b981,#059669); color:#fff; }
 .msg.user .msg-avatar { display:none; }
 
 .msg-body { max-width:85%; flex:1; min-width:0; }
 .msg-name { font-size:9px; font-weight:600; letter-spacing:.06em; text-transform:uppercase; margin-bottom:3px; font-family:var(--font-mono); }
-.msg.march .msg-name { color:#10b981; }
+.msg.assistant .msg-name { color:#10b981; }
 .msg.user .msg-name { display:none; }
 
 .msg-bubble { border-radius:8px; padding:8px 12px; font-size:13px; line-height:1.65; color:var(--text-primary); transition:color var(--transition-theme); }
-.msg.march .msg-bubble { background:var(--bg-input); border:1px solid var(--border); }
+.msg.assistant .msg-bubble { background:var(--bg-input); border:1px solid var(--border); }
 .msg.user .msg-bubble { background:transparent; border:none; padding:6px 0; font-family:var(--font-mono); }
 .msg.user .msg-bubble::before { content:'$ '; color:var(--accent); }
 
@@ -351,7 +356,7 @@ html,body { width:100%; height:100%; overflow:hidden; background:var(--bg-base);
     </div>
 
     <div id="keys-banner">
-      <span>Sin API keys — March no puede responder. Configura un proveedor:</span>
+      <span>Sin API keys — el asistente no puede responder. Configura un proveedor:</span>
       <button id="open-settings-btn">Abrir configuración</button>
       <span style="font-size:9px;opacity:.7">o escribe <code>/provider</code></span>
     </div>
@@ -402,7 +407,7 @@ html,body { width:100%; height:100%; overflow:hidden; background:var(--bg-base);
     <div id="settings-guide" style="padding:8px 12px;background:var(--accent-glow);border-radius:6px;margin-bottom:12px;font-size:11px;line-height:1.6;border:1px solid var(--accent);display:none;">
       <strong>Primeros pasos:</strong><br>
       1. Elige un proveedor gratis (Groq) y pega tu API key<br>
-      2. Guarda — March se conectará automáticamente<br>
+      2. Guarda — el asistente se conectará automáticamente<br>
       3. Si tienes clave de OpenAI/Anthropic/xAI, configura las que quieras<br>
       4. Usa <code>/model</code> para cambiar entre ellos<br><br>
       <strong>No tienes keys?</strong><br>
@@ -521,7 +526,6 @@ function getPythonBin() {
   if (!_pythonBinPromise) _pythonBinPromise = ipcRenderer.invoke('get-python-bin');
   return _pythonBinPromise;
 }
-const MODEL_PATH = path.join(__dirname, '..', 'models', 'March 7th', 'march 7th.model3.json');
 const TTS_VOICE  = 'ja-JP-NanamiNeural';
 
 const VIEW = {
@@ -545,6 +549,15 @@ let currentView  = 'head';
 let isSpeaking   = false;
 let audioCtx     = null;
 let pendingFiles = [];
+let _modelInfo   = null;
+let _modelNames  = [];
+let _motionTimer = null;
+let _workspacePath = null;
+let _atProjectFiles = null;
+
+ipcRenderer.invoke('get-model-info').then(info => { if (info && info.model3Path) _modelInfo = info; }).catch(() => {});
+ipcRenderer.invoke('models-list').then(models => { _modelNames = (models || []).map(m => m.name); }).catch(() => {});
+ipcRenderer.invoke('get-workspace').then(p => { if (p) _applyWorkspaceUI(p); }).catch(() => {});
 
 // Fase 3
 let openclawAvailable = false;
@@ -636,13 +649,13 @@ const messagesEl = document.getElementById('messages');
 function addMessage(role, text, files = []) {
   const div    = document.createElement('div'); div.className = `msg ${role}`;
   const avatar = document.createElement('div'); avatar.className = 'msg-avatar';
-  avatar.textContent = role === 'march' ? 'M7' : '';
+  avatar.textContent = role === 'assistant' ? 'AP' : '';
   const body   = document.createElement('div'); body.className = 'msg-body';
   const name   = document.createElement('div'); name.className = 'msg-name';
-  name.textContent = role === 'march' ? 'March 7th' : '';
+  name.textContent = role === 'assistant' ? 'Asistente' : '';
   const bubble = document.createElement('div'); bubble.className = 'msg-bubble';
 
-  if (role === 'march' && text) {
+  if (role === 'assistant' && text) {
     bubble.classList.add('markdown');
     bubble.innerHTML = renderMarkdown(text);
     bubble.querySelectorAll('.mermaid').forEach(el => _renderMermaid(el));
@@ -689,8 +702,8 @@ async function typewriterMarkdown(bubble, text, delay = 14) {
 
 function showThinking() {
   const div = document.createElement('div');
-  div.className = 'msg march'; div.id = 'thinking-msg';
-  div.innerHTML = `<div class="msg-avatar">M7</div><div class="msg-body"><div class="msg-name">March 7th</div><div class="msg-bubble thinking-text">pensando...</div></div>`;
+  div.className = 'msg assistant'; div.id = 'thinking-msg';
+  div.innerHTML = `<div class="msg-avatar">AP</div><div class="msg-body"><div class="msg-name">Asistente</div><div class="msg-bubble thinking-text">pensando...</div></div>`;
   messagesEl.appendChild(div);
   messagesEl.scrollTop = messagesEl.scrollHeight;
 }
@@ -707,6 +720,8 @@ function _workspaceName(fullPath) {
 }
 
 function _applyWorkspaceUI(fullPath) {
+  _workspacePath = fullPath;
+  _atProjectFiles = null;
   const btn = document.getElementById('workspace-btn');
   if (btn) {
     const name = _workspaceName(fullPath);
@@ -750,7 +765,7 @@ ipcRenderer.on('memory-status', (e, { usingFallback }) => {
   if (!banner) return;
   banner.classList.toggle('visible', !!usingFallback);
   if (usingFallback) {
-    console.warn('[march7th] memoria no persistente — better-sqlite3 no cargó, usando MemoryDB');
+    console.warn('[asistente] memoria no persistente — better-sqlite3 no cargó, usando MemoryDB');
   }
 });
 
@@ -766,8 +781,6 @@ ipcRenderer.on('resumed-session', (e, { history }) => {
     if (!turn?.content) continue;
     sessionHistory.push(turn);
   }
-
-  addMessage('system', `Retomada la sesión anterior — ${history.length} mensajes quedaron en contexto`);
 });
 
 // ── Settings modal ────────────────────────────────────────────────────────────
@@ -837,7 +850,7 @@ document.getElementById('save-settings').addEventListener('click', async () => {
     const useKeychain = document.getElementById('use-keychain').checked;
     await ipcRenderer.invoke('save-llm-keys', { providers, useKeychain });
     await loadLLMConfig();
-    settingsStatus.textContent = 'Keys guardadas. March esta lista.';
+    settingsStatus.textContent = 'Keys guardadas. El asistente está listo.';
     settingsStatus.style.color = '#10b981';
     setTimeout(closeSettings, 1200);
   } catch(e) {
@@ -874,7 +887,7 @@ async function checkOpenClaw() {
 // ── MCP ────────────────────────────────────────────────────────────────────────
 // Panel de servidores MCP: lista de conectados/configurados + búsqueda en la
 // biblioteca (registro oficial, con fallback a un catálogo estático si no
-// hay internet) + alta manual por JSON. Todo pasa por IPC a MarchCore/
+// hay internet) + alta manual por JSON. Todo pasa por IPC a Core/
 // MCPManager — nada de esto depende de que OpenClaw esté corriendo.
 const mcpModal = document.getElementById('mcp-modal');
 
@@ -1145,7 +1158,7 @@ async function processMessage(text, files = []) {
       addMessage, processMessage,
       openSettings,
       fs, path,
-      process: { cwd: () => process.cwd() },
+      process: { cwd: () => _workspacePath || process.cwd() },
     };
 
     // Also pass ipcRenderer for commands that use IPC (like /undo)
@@ -1154,13 +1167,13 @@ async function processMessage(text, files = []) {
     const asstMsg = cmdResult.error
       ? `Error: ${cmdResult.error}`
       : cmdResult.result || '(sin respuesta)';
-    addMessage('march', asstMsg);
+    addMessage('assistant', asstMsg);
     pushToSession('assistant', `[comando] ${asstMsg}`);
     return;
   }
 
   // ── @ file references ──────────────────────────────────────────────
-  const fileResult = FileResolver.buildFileContext(trimmed, process.cwd());
+  const fileResult = FileResolver.buildFileContext(trimmed, _workspacePath || process.cwd());
 
   addMessage('user', trimmed || '(archivo adjunto)', files);
 
@@ -1186,7 +1199,7 @@ async function processMessage(text, files = []) {
     // el loop LLM→tool→result→LLM→...→texto_final. La respuesta final se
     // genera DESPUÉS de que el LLM vio todos los resultados reales.
     try {
-      const { bubble } = addMessage('march', '');
+      const { bubble } = addMessage('assistant', '');
       const msgDiv = bubble.parentElement.parentElement;
       const bodyEl = msgDiv.querySelector('.msg-body');
 
@@ -1268,7 +1281,7 @@ async function processMessage(text, files = []) {
   // Mostrar respuesta final
   pushToSession('assistant', response);
   ipcRenderer.send('memory-add-turn', { role: 'assistant', content: response });
-  const { bubble } = addMessage('march', response);
+  const { bubble } = addMessage('assistant', response);
   bubble.querySelectorAll('.mermaid').forEach(el => _renderMermaid(el));
   messagesEl.scrollTop = messagesEl.scrollHeight;
   speak(response);
@@ -1319,7 +1332,7 @@ async function _executePlanWithUI(plan, msgDiv) {
     resultEl.style.color = '#ef4444';
     resultEl.style.display = 'block';
 
-    // Mismo gap que el del resultado exitoso: si no se persiste, March
+    // Mismo gap que el del resultado exitoso: si no se persiste, el asistente
     // "olvida" que la acción falló y el siguiente turno no tiene contexto
     // de por qué. No pasa por _interpretResult (no vale la pena gastar
     // una llamada al LLM solo para narrar un error) — se guarda directo.
@@ -1439,7 +1452,7 @@ async function _interpretResult(plan, rawResult, container) {
   const compactResult = _compactResult(rawResult);
   const summaryHistory = [
     ...sessionHistory,
-    { role: 'user', content: `Resultado de ejecutar "${goalDesc}":\n\n${compactResult}\n\nInterpreta esto en tu voz. Responde como March, útil y directa, sin preguntar qué sigue.` },
+    { role: 'user', content: `Resultado de ejecutar "${goalDesc}":\n\n${compactResult}\n\nInterpreta esto en tu voz. Responde como el asistente personal, útil y directa, sin preguntar qué sigue.` },
   ];
 
   let summary = null;
@@ -1564,7 +1577,6 @@ function updateLlmHint() {
   }
 }
 
-let _atProjectFiles = null;
 let _atSelectedIdx = -1;
 let _atQuery = '';
 let _cmdSuggested = false;
@@ -1587,7 +1599,7 @@ try {
 function _getProjectFiles() {
   if (_atProjectFiles) return _atProjectFiles;
   try {
-    _atProjectFiles = FileResolver.listProjectFiles(process.cwd());
+    _atProjectFiles = FileResolver.listProjectFiles(_workspacePath || process.cwd());
   } catch { _atProjectFiles = []; }
   return _atProjectFiles;
 }
@@ -1595,7 +1607,6 @@ function _getProjectFiles() {
 function _showAtSuggestions(query) {
   _atQuery = query;
   const el = document.getElementById('at-suggestions');
-  if (!query) { el.style.display = 'none'; return; }
 
   const files = _getProjectFiles().filter(f =>
     f.path.toLowerCase().includes(query.toLowerCase())
@@ -1687,6 +1698,7 @@ function _cmdArgCompletions(cmdName) {
   if (cmdName === 'skill') return _skillNames.length > 0 ? _skillNames : null;
   if (cmdName === 'model') return _providerNames.length > 0 ? _providerNames : null;
   if (cmdName === 'provider') return ['set', 'add', 'remove'];
+  if (cmdName === 'cambio-modelo') return _modelNames.length > 0 ? _modelNames : null;
   return cmd.completions || null;
 }
 
@@ -1866,7 +1878,25 @@ let dragCounter   = 0;
 chatPanel.addEventListener('dragenter', (e) => { e.preventDefault(); dragCounter++; if (e.dataTransfer.types.includes('Files')) dropOverlay.classList.add('visible'); });
 chatPanel.addEventListener('dragleave', () => { dragCounter--; if (dragCounter <= 0) { dragCounter = 0; dropOverlay.classList.remove('visible'); } });
 chatPanel.addEventListener('dragover', (e) => e.preventDefault());
-chatPanel.addEventListener('drop', (e) => { e.preventDefault(); dragCounter = 0; dropOverlay.classList.remove('visible'); const files = Array.from(e.dataTransfer.files); if (files.length) addFiles(files); });
+chatPanel.addEventListener('drop', (e) => {
+  e.preventDefault(); dragCounter = 0; dropOverlay.classList.remove('visible');
+  const files = Array.from(e.dataTransfer.files);
+  if (!files.length) return;
+  const folder = files.find(f => {
+    if (!f.path) return false;
+    let isDir = false;
+    try { isDir = fs.statSync(f.path).isDirectory(); } catch {}
+    return isDir;
+  });
+  if (folder) { importModelFromFolder(folder.path); return; }
+  addFiles(files);
+});
+
+async function importModelFromFolder(folderPath) {
+  const res = await ipcRenderer.invoke('model-import', { folderPath });
+  if (res.error) { addMessage('assistant', `Error al importar modelo: ${res.error}`); return; }
+  addMessage('assistant', `Modelo importado y activado: **${res.info.name}**`);
+}
 
 // ── Input ─────────────────────────────────────────────────────────────────────
 function getAudioCtx() {
@@ -1925,10 +1955,16 @@ async function loadModel() {
   updateLlmHint();
   checkOpenClaw();
 
-  if (!fs.existsSync(MODEL_PATH)) { return; }
+  if (!_modelInfo) _modelInfo = await ipcRenderer.invoke('get-model-info').catch(() => null);
+  if (!_modelInfo || !_modelInfo.model3Path) return;
+  if (!fs.existsSync(_modelInfo.model3Path)) { console.error('Modelo no encontrado:', _modelInfo.model3Path); return; }
 
-  const canvas    = document.getElementById('live2d-chat-canvas');
   const container = document.getElementById('model-canvas-container');
+  const oldCanvas = document.getElementById('live2d-chat-canvas');
+  if (oldCanvas) oldCanvas.remove();
+  const canvas = document.createElement('canvas');
+  canvas.id = 'live2d-chat-canvas';
+  container.appendChild(canvas);
 
   pixiApp = new PIXI.Application({
     view: canvas, width: container.clientWidth, height: container.clientHeight,
@@ -1937,7 +1973,7 @@ async function loadModel() {
   });
 
   PIXI.live2d.Live2DModel.registerTicker(PIXI.Ticker);
-  const fileUrl = 'file:///' + MODEL_PATH.replace(/\\/g, '/');
+  const fileUrl = 'file:///' + _modelInfo.model3Path.replace(/\\/g, '/');
 
   try {
     model = await PIXI.live2d.Live2DModel.from(fileUrl);
@@ -1945,9 +1981,18 @@ async function loadModel() {
     pixiApp.stage.addChild(model);
     applyView('head', false);
     setTimeout(triggerMotion, 600);
-    setInterval(triggerMotion, 8000);
+    clearInterval(_motionTimer);
+    _motionTimer = setInterval(triggerMotion, 8000);
     startAutonomousView();
   } catch(e) { console.error('model error:', e); }
+}
+
+async function reloadModel() {
+  if (pixiApp) {
+    try { pixiApp.destroy(false, { children: true, texture: true, baseTexture: true }); } catch (e) { console.error('error limpiando modelo:', e); }
+    pixiApp = null; model = null;
+  }
+  await loadModel();
 }
 
 function applyView(view, animate = false) {
@@ -2018,6 +2063,27 @@ document.getElementById('close-btn').addEventListener('click', () => ipcRenderer
 ipcRenderer.on('init-theme',   (e, theme) => setTheme(theme));
 ipcRenderer.on('chat-speak',   (e, text)  => speak(text));
 ipcRenderer.on('chat-message', (e, text)  => processMessage(text));
+ipcRenderer.on('model-changed', (e, info) => {
+  _modelInfo = info && info.model3Path ? info : _modelInfo;
+  _modelNames = (info && info.models || []).map(m => m.name);
+  reloadModel();
+});
+
+// Clic en los botones de modelo que renderiza /cambio-modelo → carga al instante
+messagesEl.addEventListener('click', async (e) => {
+  const btn = e.target.closest('[data-model-set]');
+  if (!btn || btn.classList.contains('active')) return;
+  btn.disabled = true;
+  try {
+    const res = await ipcRenderer.invoke('model-set', { id: btn.getAttribute('data-model-set') });
+    if (res.error) { addMessage('assistant', `Error al cambiar modelo: ${res.error}`); return; }
+    addMessage('assistant', `Modelo cambiado a: **${res.info.name}**`);
+  } catch (err) {
+    addMessage('assistant', `Error al cambiar modelo: ${err.message}`);
+  } finally {
+    btn.disabled = false;
+  }
+});
 
 // Fase 3
 ipcRenderer.on('openclaw-status', (e, { available }) => updateOpenClawBadge(available));
@@ -2061,7 +2127,7 @@ ipcRenderer.on('agent-progress', (e, { iteration, tool, status }) => {
 });
 
 ipcRenderer.on('agent-approval-needed', (e, { actionId, tool, description }) => {
-  const approved = confirm(`March quiere ejecutar:\n\n${description}\n\n¿Aprobar esta acción?`);
+  const approved = confirm(`El asistente quiere ejecutar:\n\n${description}\n\n¿Aprobar esta acción?`);
   ipcRenderer.send('agent-approval-response', { id: actionId, approved });
 });
 
@@ -2070,12 +2136,12 @@ ipcRenderer.on('plan-finished', (e, { planId }) => {
   if (card) { const dot = card.querySelector('.plan-dot'); if (dot) dot.style.animation = 'none'; }
 });
 
-ipcRenderer.on('march-initiative', (e, payload) => {
+ipcRenderer.on('initiative', (e, payload) => {
   (async () => {
-    const { bubble } = addMessage('march', '');
+    const { bubble } = addMessage('assistant', '');
     const badge = document.createElement('span');
     badge.style.cssText = 'display:inline-block;font-family:var(--font-mono);font-size:9px;color:var(--accent);border:1px solid var(--border-accent);border-radius:3px;padding:1px 5px;margin-right:6px;opacity:.7;vertical-align:middle;';
-    badge.textContent = 'MARCH';
+    badge.textContent = 'AP';
     bubble.classList.add('markdown');
     bubble.appendChild(badge);
     const textSpan = document.createElement('span');

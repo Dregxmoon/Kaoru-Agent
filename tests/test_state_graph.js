@@ -50,7 +50,7 @@ const LLMProvider = require('../core/llm/LLMProvider.js');
 
 function makeGraph() {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'sg-test-'));
-  const dbPath = path.join(dir, 'march.db');
+  const dbPath = path.join(dir, 'core.db');
   const graph = new StateGraph(dbPath).init();
   return { graph, dbPath, dir };
 }
@@ -248,7 +248,7 @@ function testSessions() {
   const sid = graph.startSession();
   assert(sid > 0, 'startSession crea sesión');
 
-  graph.updateSessionHistory(sid, [{ role: 'user', content: 'hola' }, { role: 'march', content: 'hola!' }]);
+  graph.updateSessionHistory(sid, [{ role: 'user', content: 'hola' }, { role: 'assistant', content: 'hola!' }]);
   const row = sqlGet(graph, 'SELECT history_json, turn_count FROM sessions WHERE id=?', sid);
   const parsed = JSON.parse(row.history_json);
   assert(parsed.length === 2 && parsed[0].content === 'hola', 'updateSessionHistory persiste history_json');
@@ -273,7 +273,7 @@ function testSessions() {
     const s1 = await sm1.start(null);
     assert(s1.resumed === false, 'SessionManager.start arranca sesión nueva');
     sm1.addTurn('user', 'me llamo luka');
-    sm1.addTurn('march', 'encantada');
+    sm1.addTurn('assistant', 'encantada');
     sm1.addTurn('user', 'mi color favorito es el verde');
 
     // simular crash: NO llamar close(), crear SessionManager nuevo sobre la misma DB
@@ -478,7 +478,7 @@ async function testRelationsAndFallback() {
     const sm = new SessionManager(sg, null, { resumeMaxAgeHours: 48 });
     const sA = await sm.start(null);
     sm.addTurn('user', 'recuerda que tengo reunion a las 5');
-    sm.addTurn('march', 'anotado');
+    sm.addTurn('assistant', 'anotado');
     const sB = await new SessionManager(sg, null, { resumeMaxAgeHours: 48 }).start(null);
     assert(sB.resumed === true, 'MemoryDB: sesión interrumpida se retoma en RAM');
     assert(sB.history.length === 2, 'MemoryDB: historial completo en RAM');

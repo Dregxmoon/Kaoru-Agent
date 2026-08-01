@@ -1,7 +1,7 @@
 {
-  "name": "vtuber-overlay",
+  "name": "asistente-personal",
   "version": "1.0.0",
-  "description": "Overlay VTuber Live2D siempre encima de otras ventanas",
+  "description": "Asistente personal de escritorio con avatar Live2D, memoria y proactividad",
   "main": "main.js",
   "bin": {
     "asistente": "./bin/asistente.js"
@@ -20,8 +20,8 @@
     "electron-builder": "^24.0.0"
   },
   "build": {
-    "appId": "com.vtuber.overlay",
-    "productName": "VTuber Overlay",
+    "appId": "com.asistente.personal",
+    "productName": "Asistente Personal",
     "directories": {
       "output": "dist"
     },

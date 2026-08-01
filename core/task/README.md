@@ -1,6 +1,6 @@
 # Detección y ejecución de tareas (`core/task/`)
 
-Pipeline de *tareas* de March: decide si un mensaje es una instrucción operativa (algo que ejecutar) o
+Pipeline de *tareas* del asistente: decide si un mensaje es una instrucción operativa (algo que ejecutar) o
 conversación normal, clasifica el dominio, y mantiene el registro de herramientas disponibles para
 ejecutarla. Convive con el sistema de intenciones (`IntentDetector`) sin contaminar el prompt de
 identidad con reglas de detección.
@@ -52,7 +52,7 @@ Decide, por turno, **qué herramientas ve el LLM** y con qué precedencia (Skill
 
 ## Cómo se integra
 
-1. `TaskDetector.detect(userMessage)` se llama desde `MarchCore.generatePlan()` antes de armar el contexto.
+1. `TaskDetector.detect(userMessage)` se llama desde `Core.generatePlan()` antes de armar el contexto.
 2. Con tarea detectada, se inyecta `toolIntent` al serializador (GroqSerializer).
 3. La respuesta del LLM pasa por `PlanParser.parsePlan()` para extraer pasos.
 4. El plan se presenta en la UI (modo task) o se ejecuta directo (modo conversacional).

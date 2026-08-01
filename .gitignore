@@ -17,6 +17,13 @@ data/*.db-shm
 # ── Modelos de voz (se descargan automáticamente) ────────────────────────────
 models/vosk-es/
 
+# ── Modelos Live2D importados por el usuario ─────────────────────────────────
+# Los modelos que el usuario importa en `models/` no se suben al repo.
+# `March 7th` (modelo por defecto del proyecto) se sigue versionando.
+models/*
+!models/March 7th/
+!models/March 7th/**
+
 # ── Datos personales y exportaciones de conversación ─────────────────────────
 exports/
 test.txt

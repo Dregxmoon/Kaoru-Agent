@@ -26,7 +26,7 @@ class SessionManager {
    * anterior que se haya quedado a medias (ended_at NULL — la ventana se
    * cerró sin pasar por close(), o la app crasheó). Si la hay y está
    * dentro de la ventana razonable, la retoma — mismo sessionId, mismo
-   * historial — en vez de empezar en blanco. El llamador (MarchCore →
+   * historial — en vez de empezar en blanco. El llamador (Core →
    * main.js → chat.html) usa el flag `resumed` para repoblar la ventana
    * de chat visualmente con los mensajes recuperados.
    */
@@ -102,7 +102,7 @@ class SessionManager {
     try {
       const fs   = require('fs');
       const path = require('path');
-      const marker = app ? path.join(app.getPath('userData'), 'march_decay_marker.json') : null;
+      const marker = app ? path.join(app.getPath('userData'), 'decay_marker.json') : null;
       if (!marker) { this._updater.runDecay(); return; }
       let lastRun = 0;
       if (fs.existsSync(marker)) {

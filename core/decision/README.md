@@ -1,7 +1,7 @@
 # Núcleo determinista de decisión proactiva (`core/decision/`)
 
 Implementa la **Fase F** del motor proactivo: un núcleo de funciones puras, determinista y auditable que
-decide *cuándo* March debe hablar o callar. El LLM ya no decide — solo genera contenido. Cada decisión
+decide *cuándo* el asistente debe hablar o callar. El LLM ya no decide — solo genera contenido. Cada decisión
 queda registrada en un audit log con un *reason code* trazable.
 
 ---

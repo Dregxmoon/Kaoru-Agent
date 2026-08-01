@@ -1,6 +1,6 @@
 # Agentes (`core/agents/`)
 
-Definiciones de **modos de agente**: distintos "sombreros" que March puede usar según la tarea, cada
+Definiciones de **modos de agente**: distintos "sombreros" que el asistente puede usar según la tarea, cada
 uno con su propio system prompt y sesgo de comportamiento.
 
 ---

@@ -85,8 +85,9 @@ function testHelp() {
     assert(!r.error, 'help sin error');
     assert(r.result.includes('Comandos disponibles'), 'help lista comandos');
     assert(r.result.includes('/clear'), 'help menciona /clear');
-    assert(r.result.includes('/mode'), 'help menciona /mode');
+    assert(r.result.includes('/cambio-modelo'), 'help menciona /cambio-modelo');
     assert(r.result.includes('/model'), 'help menciona /model');
+    assert(!/\bmode\b/.test(r.result), 'help ya no menciona /mode');
   });
 }
 
@@ -200,19 +201,19 @@ function testUnknownCommand() {
 
 let _agentManagerMode = null;
 const mockAgentManager = {
-  getActive: () => ({ name: 'conversation', label: '💬 Conversación', description: 'default' }),
+  getActive: () => ({ name: 'conversation', label: 'Conversación', description: 'default' }),
   setActive: (name) => {
-    if (name === 'coder') return { name: 'coder', label: '💻 Programación', description: 'coder', mode: 'task' };
-    if (name === 'reviewer') return { name: 'reviewer', label: '🔍 Review', description: 'reviewer', mode: 'task' };
-    if (name === 'planner') return { name: 'planner', label: '📋 Planner', description: 'planner', mode: 'task' };
-    if (name === 'conversation') return { name: 'conversation', label: '💬 Conversación', description: 'default', mode: 'conversational' };
+    if (name === 'coder') return { name: 'coder', label: 'Programación', description: 'coder', mode: 'task' };
+    if (name === 'reviewer') return { name: 'reviewer', label: 'Review', description: 'reviewer', mode: 'task' };
+    if (name === 'planner') return { name: 'planner', label: 'Planner', description: 'planner', mode: 'task' };
+    if (name === 'conversation') return { name: 'conversation', label: 'Conversación', description: 'default', mode: 'conversational' };
     return null;
   },
   getAll: () => [
-    { name: 'conversation', label: '💬 Conversación', description: 'default' },
-    { name: 'coder', label: '💻 Programación', description: 'coder' },
-    { name: 'reviewer', label: '🔍 Review', description: 'reviewer' },
-    { name: 'planner', label: '📋 Planner', description: 'planner' },
+    { name: 'conversation', label: 'Conversación', description: 'default' },
+    { name: 'coder', label: 'Programación', description: 'coder' },
+    { name: 'reviewer', label: 'Review', description: 'reviewer' },
+    { name: 'planner', label: 'Planner', description: 'planner' },
   ],
   getMode: (name) => name === 'coder' || name === 'reviewer' || name === 'planner' ? 'task' : 'conversational',
   getSystemPrompt: (name) => '',
@@ -361,9 +362,40 @@ function testCode() {
   });
 }
 
-// ── Test 18: Nuevos comandos en getNames ─────────────────────────────────────
+// ── Test 18: /cambio-modelo ───────────────────────────────────────────────────
+function testCambioModelo() {
+  console.log(C.bold('\n── Test 18: /cambio-modelo ───────────────────────────────────'));
+
+  const mockIPC = {
+    invoke: async (ch, payload) => {
+      if (ch === 'models-list') {
+        return [
+          { id: 'March 7th', name: 'March 7th', model3Path: '/x/march.model3.json', active: true },
+          { id: 'Otro', name: 'Otro', model3Path: '/x/otro.model3.json', active: false },
+        ];
+      }
+      if (ch === 'model-set') return { ok: true, info: { id: payload.id, name: payload.id } };
+      return null;
+    },
+  };
+
+  return execute('/cambio-modelo', { ipcRenderer: mockIPC }).then(r => {
+    assert(!r.error, 'cambio-modelo sin error');
+    assert(r.result.includes('March 7th'), 'lista el modelo activo');
+    assert(r.result.includes('Otro'), 'lista los modelos disponibles');
+  }).then(() => execute('/cambio-modelo Otro', { ipcRenderer: mockIPC })).then(r => {
+    assert(!r.error, 'cambio-modelo con argumento no da error');
+    assert(r.result.includes('Otro'), 'cambia al modelo pedido');
+  }).then(() => execute('/cambio-modelo inexistente', { ipcRenderer: mockIPC })).then(r => {
+    assert(r.result && r.result.includes('no encontrado'), 'modelo inexistente se reporta');
+  }).then(() => execute('/cambio-modelo', {})).then(r => {
+    assert(r.result && r.result.includes('IPC'), 'sin IPC menciona IPC');
+  });
+}
+
+// ── Test 19: Nuevos comandos en getNames ─────────────────────────────────────
 function testNewRegisteredCommands() {
-  console.log(C.bold('\n── Test 18: Registro de comandos nuevos ─────────────────────'));
+  console.log(C.bold('\n── Test 19: Registro de comandos nuevos ─────────────────────'));
 
   const names = getNames();
   assert(names.includes('agent'), '/agent registrado');
@@ -373,9 +405,10 @@ function testNewRegisteredCommands() {
   assert(names.includes('undo'), '/undo registrado');
   assert(names.includes('fix'), '/fix registrado');
   assert(names.includes('code'), '/code registrado');
+  assert(names.includes('cambio-modelo'), '/cambio-modelo registrado');
 }
 
-// ── Test 19: Inyección no rompe ─────────────────────────────────────────────
+// ── Test 20: Inyección no rompe ─────────────────────────────────────────────
 
 function testEdgeCases() {
   console.log(C.bold('\n── Test 10: Casos borde ─────────────────────────────────────'));
@@ -424,6 +457,7 @@ async function main() {
   await testUndo();
   await testFix();
   await testCode();
+  await testCambioModelo();
   testNewRegisteredCommands();
   await testUnknownCommand();
   await testEdgeCases();

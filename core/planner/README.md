@@ -61,7 +61,7 @@ Con fallback al parser regex del `Planner` si el modelo no usa el formato estruc
 ## `OpenClawBridge.js` — puente de ejecución
 
 - `exec` / `read` / `write` / `edit` / `list_directory` → servicio OpenClaw (localhost) o mock local.
-- `browser` / `web_search` → `BrowserBridge` (Playwright, navegador propio de March).
+- `browser` / `web_search` → `BrowserBridge` (Playwright, navegador propio del asistente).
 - `apply_patch` / `code_execution` → OpenClaw.
 - Verifica disponibilidad del servicio cada 30 s y reporta disponibilidad al motor proactivo.
 

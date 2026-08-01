@@ -212,7 +212,7 @@ function testDecisions() {
   engine.stop();
 }
 
-// ── Test 4: decisión vía bus (camino real IPC → MarchCore → engine) ──────────
+// ── Test 4: decisión vía bus (camino real IPC → Core → engine) ──────────
 
 async function testBusDecision() {
   console.log(C.bold('\nTest 4: decisión vía evento del bus (camino real)'));

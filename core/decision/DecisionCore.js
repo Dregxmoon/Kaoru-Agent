@@ -4,7 +4,7 @@
  * DecisionCore.js — Fase F: núcleo determinista de decisión proactiva.
  *
  * Funciones PURAS de alto nivel (mismo input → mismo output, sin estado
- * oculto, sin I/O). Son el criterio de March para decidir SI, CUÁNDO y CON
+ * oculto, sin I/O). Son el criterio del asistente para decidir SI, CUÁNDO y CON
  * QUÉ prioridad actuar ante una señal del entorno. El ProactiveEngine (y los
  * sensores) SOLO llaman a estas funciones; el LLM nunca decide, produce.
  *
@@ -37,7 +37,7 @@ function _norm(v, lo = 0, hi = 1) {
 const DEFAULT_POLICY = {
   weights: {
     severity:     0.40,   // qué tan grave es (0=info, 1=crítico)
-    actionability: 0.25,   // cuánto puede March ayudar de verdad
+    actionability: 0.25,   // cuánto puede el asistente ayudar de verdad
     salience:     0.25,   // qué tan ligado a lo que el usuario hace AHORA
     costOfIgnore: 0.10,   // cuánto cuesta no actuar (secreto expuesto)
   },

@@ -180,7 +180,7 @@ if (exitCode === 0) {
 
 console.log('═══════════════════════════════════════════════════════');
 if (exitCode === 0) {
-  console.log('  Todo listo — March 7th puede iniciarse');
+  console.log('  Todo listo — el asistente puede iniciarse');
 } else {
   console.log('  ⚠  Algo salió mal, revisa los mensajes de error');
 }

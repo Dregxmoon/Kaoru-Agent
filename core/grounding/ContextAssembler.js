@@ -68,7 +68,7 @@ function getIdentity() {
     _identity = JSON.parse(fs.readFileSync(IDENTITY_PATH, 'utf-8'));
   } catch(e) {
     console.warn('[context-assembler] no se pudo cargar identity.json:', e.message);
-    _identity = { name: 'March 7th', core: 'Soy March 7th.' };
+    _identity = { name: 'asistente', core: 'Soy tu asistente personal.' };
   }
   return _identity;
 }

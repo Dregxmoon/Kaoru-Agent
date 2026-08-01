@@ -21,8 +21,8 @@ const path = require('path');
 const os = require('os');
 const fs = require('fs');
 
-const SERVICE = 'march7th';
-const CRED_DIR = path.join(os.homedir(), '.march7th');
+const SERVICE = 'asistente-personal';
+const CRED_DIR = path.join(os.homedir(), '.asistente-personal');
 
 // Identificadores de provider conocidos + lo que puede generar /provider add:
 // letras, números, guion y guion bajo. Nada de espacios, comillas, barras,
@@ -70,7 +70,7 @@ function _linuxSetKey(rawKeyName, value) {
     const keyName = _sanitizeKeyName(rawKeyName);
     execFileSync(
       'secret-tool',
-      ['store', '--label', `March 7th - ${keyName}`, 'service', SERVICE, 'key', keyName],
+      ['store', '--label', `Asistente personal - ${keyName}`, 'service', SERVICE, 'key', keyName],
       { input: value, encoding: 'utf-8', timeout: 5000, stdio: ['pipe', 'ignore', 'ignore'] }
     );
     return true;

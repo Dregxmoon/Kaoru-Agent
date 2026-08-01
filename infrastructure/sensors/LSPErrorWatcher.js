@@ -5,7 +5,7 @@
  *
  * Vigila los diagnósticos del LSP en el workspace activo y emite `lsp:error`
  * cuando aparece un error real de código (severidad 1 = Error). Es la pieza
- * que convierte el LSP en un SENSOR del camino proactivo: March no espera a
+ * que convierte el LSP en un SENSOR del camino proactivo: el asistente no espera a
  * que el usuario le pida — si hay un error de código en el archivo que estás
  * tocando, lo nota y (con permiso) ofrece un parche.
  *

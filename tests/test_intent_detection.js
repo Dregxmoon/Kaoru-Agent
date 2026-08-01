@@ -6,7 +6,7 @@
  *
  * Pruebas incluidas:
  *   1. Detección básica con frase directa
- *   2. Frase narrativa/implícita ("March, modifícame el script principal")
+ *   2. Frase narrativa/implícita ("Asistente, modifícame el script principal")
  *   3. Umbral correcto — preguntas conversacionales NO activan herramientas
  *   4. Detección multilingüe (inglés)
  *   5. Parsing del bloque estructurado
@@ -51,7 +51,7 @@ function assert(condition, label, detail = '') {
 const TEST_CASES = [
   // ── Deben detectar herramienta (detected: true) ──
   {
-    message:        'March, modifícame el script principal',
+    message:        'Asistente, modifícame el script principal',
     expectedAction: 'edit_file',
     expectedLevel:  ['high', 'medium'],
     shouldDetect:   true,
@@ -102,7 +102,7 @@ const TEST_CASES = [
 
   // ── NO deben detectar herramienta (detected: false) ──
   {
-    message:      'hola March, cómo estás hoy?',
+    message:      'hola Asistente, cómo estás hoy?',
     shouldDetect: false,
     label:        'Saludo → NO herramienta',
   },
@@ -307,14 +307,14 @@ async function main() {
   }
 
   // ── Abrir DB ──────────────────────────────────────────────────────────────
-  const DB_PATH = path.join(__dirname, '../data/march.db');
+  const DB_PATH = path.join(__dirname, '../data/core.db');
 
   let db;
   try {
     db = new Database(DB_PATH);
     sqliteVec.load(db);
   } catch (e) {
-    console.error(C.red('\nERROR: No se pudo abrir march.db:'), e.message);
+    console.error(C.red('\nERROR: No se pudo abrir core.db:'), e.message);
     console.error('Asegúrate de haber ejecutado: node infrastructure/database/init_vectors.js');
     process.exit(1);
   }

@@ -1,7 +1,7 @@
 /**
  * init_vectors.js — Fase 3 (Semántica de Herramientas) — v2
  *
- * Inicializa las tablas de intenciones en march.db y las puebla con
+ * Inicializa las tablas de intenciones en core.db y las puebla con
  * embeddings generados localmente via @xenova/transformers
  * (all-MiniLM-L6-v2, 384 dims, ~23MB, corre en CPU sin GPU).
  *
@@ -128,7 +128,7 @@ const path = require('path');
 const fs   = require('fs');
 
 const DB_PATH = process.argv.find(a => a.startsWith('--db='))?.slice(5)
-  ?? path.join(__dirname, '../../data/march.db');
+  ?? path.join(__dirname, '../../data/core.db');
 
 const CUSTOM_CATALOG_PATH = process.argv.find(a => a.startsWith('--custom='))?.slice('--custom='.length)
   ?? path.join(__dirname, 'intents.custom.json');

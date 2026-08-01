@@ -2,7 +2,7 @@
 <html lang="es">
 <head>
 <meta charset="UTF-8">
-<title>March 7th</title>
+<title>Asistente personal</title>
 <style>
   * { margin: 0; padding: 0; box-sizing: border-box; }
   html, body {
@@ -35,7 +35,7 @@ window.PIXI = PIXI;
 
 // P1: antes esto hacía cp.spawn('python', ...) directo — 'python' no existe
 // en la mayoría de Linux de fábrica (solo 'python3'), así que el TTS se
-// quedaba mudo ahí aunque el resto de March funcionara bien. main.js ya
+// quedaba mudo ahí aunque el resto del asistente funcionara bien. main.js ya
 // tiene resolvePythonBin(), que prueba 'py'/'python'/'python3' de forma
 // portable — este es el mismo patrón que ya usa chat.html (ver
 // getPythonBin() ahí) para pedirlo una sola vez por IPC y cachearlo, en vez
@@ -46,8 +46,9 @@ function getPythonBin() {
   return _pythonBinPromise;
 }
 
-const MODEL_PATH = path.join(__dirname, '..', 'models', 'March 7th', 'march 7th.model3.json');
-const canvas     = document.getElementById('live2d-canvas');
+let _modelInfo  = null;
+let _idleTimer  = null;
+let canvas       = document.getElementById('live2d-canvas');
 const TTS_VOICE  = 'ja-JP-NanamiNeural';
 
 let pixiApp, model;
@@ -144,15 +145,26 @@ async function speak(text, emotionOverride = null) {
 
 // ── Live2D ────────────────────────────────────────────────────────────────────
 async function loadModel() {
-  if (!fs.existsSync(MODEL_PATH)) {
-    console.error('Modelo no encontrado:', MODEL_PATH);
+  if (!_modelInfo) _modelInfo = await ipcRenderer.invoke('get-model-info').catch(() => null);
+  if (!_modelInfo || !_modelInfo.model3Path) {
+    console.error('Modelo no encontrado:', _modelInfo && _modelInfo.model3Path);
+    return;
+  }
+  if (!fs.existsSync(_modelInfo.model3Path)) {
+    console.error('Modelo no encontrado:', _modelInfo.model3Path);
     return;
   }
 
+  const parent = canvas.parentElement;
+  const fresh  = document.createElement('canvas');
+  fresh.id = 'live2d-canvas';
+  canvas.replaceWith(fresh);
+  canvas = fresh;
+
   pixiApp = new PIXI.Application({
     view: canvas,
-    width:  canvas.clientWidth,
-    height: canvas.clientHeight,
+    width:  parent.clientWidth,
+    height: parent.clientHeight,
     backgroundAlpha: 0,
     antialias: true,
     resolution: window.devicePixelRatio || 1,
@@ -160,7 +172,7 @@ async function loadModel() {
   });
 
   PIXI.live2d.Live2DModel.registerTicker(PIXI.Ticker);
-  const fileUrl = 'file:///' + MODEL_PATH.replace(/\\/g, '/');
+  const fileUrl = 'file:///' + _modelInfo.model3Path.replace(/\\/g, '/');
 
   try {
     model = await PIXI.live2d.Live2DModel.from(fileUrl);
@@ -169,10 +181,18 @@ async function loadModel() {
     applyView(currentView);
     setupInteraction();
     startIdle();
-    console.log('[overlay] modelo cargado');
+    console.log('[overlay] modelo cargado:', _modelInfo.name);
   } catch(err) {
     console.error('[overlay] error cargando modelo:', err);
   }
+}
+
+function reloadModel() {
+  if (pixiApp) {
+    try { pixiApp.destroy(false, { children: true, texture: true, baseTexture: true }); } catch (e) { console.error('error limpiando modelo:', e); }
+    pixiApp = null; model = null;
+  }
+  loadModel();
 }
 
 // ── Vistas ────────────────────────────────────────────────────────────────────
@@ -222,7 +242,8 @@ function triggerMotion() {
 // ── Idle ──────────────────────────────────────────────────────────────────────
 function startIdle() {
   setTimeout(triggerMotion, 1000);
-  setInterval(triggerMotion, 8000);
+  clearInterval(_idleTimer);
+  _idleTimer = setInterval(triggerMotion, 8000);
   startAutonomousView();
 }
 
@@ -337,6 +358,11 @@ ipcRenderer.on('speak', (e, payload) => {
 });
 
 ipcRenderer.on('set-status', () => {});
+
+ipcRenderer.on('model-changed', (e, info) => {
+  if (info && info.model3Path) _modelInfo = info;
+  reloadModel();
+});
 
 // ── Resize ────────────────────────────────────────────────────────────────────
 window.addEventListener('resize', () => {

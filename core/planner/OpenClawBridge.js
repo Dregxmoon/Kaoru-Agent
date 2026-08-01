@@ -7,10 +7,10 @@
  *   El resto de herramientas (exec, read, write, edit, apply_patch,
  *   code_execution) siguen yendo a OpenClaw/mock vía HTTP.
  *
- * Interfaz HTTP entre March y OpenClaw (localhost:18789), más
+ * Interfaz HTTP entre el asistente y OpenClaw (localhost:18789), más
  * BrowserBridge para navegación real.
  *
- * March decide QUÉ hacer. OpenClaw/BrowserBridge lo ejecutan.
+ * El asistente decide QUÉ hacer. OpenClaw/BrowserBridge lo ejecutan.
  *
  * Herramientas disponibles:
  *   exec           — comandos shell (vía OpenClaw/mock)
@@ -40,12 +40,12 @@ const BrowserBridge = require('./BrowserBridge.js');
 const OPENCLAW_BASE   = 'http://127.0.0.1:18789';
 const DEFAULT_TIMEOUT = 30_000;
 // FIX Fase 0.1: API_KEY se lee en el momento del request, no al cargar el módulo.
-// MarchCore._startOpenClaw() (línea 205 en MarchCore.js) setea process.env.OPENCLAW_API_KEY
-// DESPUÉS de que este módulo ya fue require()-do (línea 38 en MarchCore.js).
+// Core._startOpenClaw() (línea 205 en Core.js) setea process.env.OPENCLAW_API_KEY
+// DESPUÉS de que este módulo ya fue require()-do (línea 38 en Core.js).
 // Con un const de módulo, el cliente nunca manda el header de auth.
 function _getApiKey() { return process.env.OPENCLAW_API_KEY || null; }
 
-// Herramientas que se resuelven con el navegador propio de March,
+// Herramientas que se resuelven con el navegador propio del asistente,
 // no con el servidor HTTP de OpenClaw/mock.
 const BROWSER_TOOLS = new Set(['browser', 'web_search']);
 

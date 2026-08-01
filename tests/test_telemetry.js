@@ -15,7 +15,7 @@
  *   - Persistencia en disco y reset.
  *   - monthSummary y acceptanceForMonth (tasa por tipo con baseline).
  *   - report(): veredicto "mejor que el mes pasado" con deltas.
- *   - MarchCore.getTelemetryReport: wiring con ProposalStore + Control API.
+ *   - Core.getTelemetryReport: wiring con ProposalStore + Control API.
  *   - Comando /telemetria: registrado, en /help y devuelve el reporte.
  */
 
@@ -241,10 +241,10 @@ function testReport() {
   store.reset();
 }
 
-// ── Test 7: wiring con MarchCore ─────────────────────────────────────────────
+// ── Test 7: wiring con Core ─────────────────────────────────────────────
 
-async function testMarchCoreWiring() {
-  console.log(C.bold('\nTest 7: wiring — MarchCore.getTelemetryReport'));
+async function testCoreWiring() {
+  console.log(C.bold('\nTest 7: wiring — Core.getTelemetryReport'));
 
   const { TelemetryStore: TS2 } = require('../core/telemetry/TelemetryStore.js');
   assert(typeof TS2 === 'function', 'TelemetryStore exportado');
@@ -259,10 +259,10 @@ async function testMarchCoreWiring() {
   assert(dec.length === 2, 'getDecisions devuelve el historial completo');
   assert(typeof dec[0].ts === 'number', 'decisiones con ts (para el reporte mensual)');
 
-  // MarchCore debe exportar getTelemetryReport (integración real).
-  const MarchCore = require('../core/MarchCore.js');
-  assert(typeof MarchCore.getTelemetryReport === 'function', 'MarchCore.getTelemetryReport exportado');
-  assert(typeof MarchCore.getTelemetryStats === 'function', 'MarchCore.getTelemetryStats exportado');
+  // Core debe exportar getTelemetryReport (integración real).
+  const Core = require('../core/Core.js');
+  assert(typeof Core.getTelemetryReport === 'function', 'Core.getTelemetryReport exportado');
+  assert(typeof Core.getTelemetryStats === 'function', 'Core.getTelemetryStats exportado');
 }
 
 // ── Test 8: comando /telemetria ──────────────────────────────────────────────
@@ -307,7 +307,7 @@ function testTelemetriaCommand() {
   testPersistence();
   testAcceptance();
   testReport();
-  await testMarchCoreWiring();
+  await testCoreWiring();
   await testTelemetriaCommand();
 
   // Los asserts async corren por microtareas; esperar un tick.

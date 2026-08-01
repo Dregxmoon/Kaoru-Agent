@@ -23,17 +23,17 @@ API: `on()`, `once()`, `off()`, `emit()` (con utilidades de inspección para dia
 | `clipboard:copied` | ClipboardWatcher | ProactiveEngine |
 | `memory:upcoming-event` | UpcomingEventsWatcher | ProactiveEngine |
 | `lsp:error` | LSPErrorWatcher | ProactiveEngine |
-| `memory:turn-added` | MarchCore | ProactiveEngine |
+| `memory:turn-added` | Core | ProactiveEngine |
 | `memory:node-saved` | StateUpdater | — |
-| `session:started` / `session:closed` | MarchCore | — |
-| `initiative:trigger` | ProactiveEngine | MarchCore → Chat UI |
+| `session:started` / `session:closed` | Core | — |
+| `initiative:trigger` | ProactiveEngine | Core → Chat UI |
 | `initiative:dismiss` | ProactiveEngine | Chat UI |
-| `initiative:decision` | Chat UI | MarchCore |
-| `proposal:executed` | ProactiveExecutor | MarchCore → Chat UI |
-| `agent:completed` | MarchCore | — |
+| `initiative:decision` | Chat UI | Core |
+| `proposal:executed` | ProactiveExecutor | Core → Chat UI |
+| `agent:completed` | Core | — |
 | `plan:started` / `plan:step-start` / `plan:step-done` / `plan:finished` | Planner | Chat UI |
-| `openclaw:available` | MarchCore | Chat UI |
-| `march:memory-status` | MarchCore | Chat UI |
+| `openclaw:available` | Core | Chat UI |
+| `memory-status` | Core | Chat UI |
 
 **Patrón de uso:**
 
@@ -55,14 +55,14 @@ flowchart LR
         S1["OSSensor"]
         S2["GitWatcher"]
         S3["LSPErrorWatcher"]
-        S4["MarchCore"]
+        S4["Core"]
         S5["Chat UI"]
     end
     BUS["EventBus<br/>pub/sub singleton"]
     subgraph CONS["Consumidores"]
         C1["ProactiveEngine"]
         C2["BehaviorModel"]
-        C3["MarchCore"]
+        C3["Core"]
         C4["Chat UI"]
     end
 

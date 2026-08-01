@@ -19,7 +19,7 @@ El `contextPackage` contiene:
 
 | Bloque | Contenido |
 |---|---|
-| `identity` | Personalidad de March 7th (`core/identity/identity.json`) |
+| `identity` | Personalidad del asistente (`core/identity/identity.json`) |
 | `osContext` | App activa, ventanas, tiempo de uso, hora/día |
 | `persistentMemory` | Nodos y episodios recuperados del `StateGraph` |
 | `sessionHistory` | Historial de la sesión actual |

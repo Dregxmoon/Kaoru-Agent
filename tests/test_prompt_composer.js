@@ -75,7 +75,7 @@ const FIXTURE_ENVIRONMENT = {
   platform:            'linux',
   friendlyName:        'Visual Studio Code',
   elapsedFormatted:    '10m',
-  title:                'main.js — march7th',
+  title:                'main.js — asistente',
   idleFormatted:        null,
   openWindowsSummary:   'Discord, Chrome',
   todaySummary:         'Visual Studio Code (2h), Chrome (45m)',

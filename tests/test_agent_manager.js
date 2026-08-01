@@ -143,7 +143,7 @@ function testSetActiveReturnsFull() {
   const m = fresh();
   m.setActive('coder');
   const active = m.getActive();
-  assert(active.label === '💻 Programación', 'Label de coder correcto');
+  assert(active.label === 'Programación', 'Label de coder correcto');
   assert(active.description.includes('Análisis'), 'Descripción de coder correcta');
 }
 

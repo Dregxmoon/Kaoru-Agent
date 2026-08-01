@@ -116,10 +116,10 @@ function testApprovalFlow() {
   });
 }
 
-// ── Test 3: MarchCore genera API key correctamente ─────────────────────────
+// ── Test 3: Core genera API key correctamente ─────────────────────────
 
-function testMarchCoreGeneratesKey() {
-  console.log(C.bold('\n── Test 3: MarchCore genera key y la propaga ───────────────'));
+function testCoreGeneratesKey() {
+  console.log(C.bold('\n── Test 3: Core genera key y la propaga ───────────────'));
 
   const crypto = require('crypto');
 
@@ -515,7 +515,7 @@ async function main() {
 
   await testAgentLoopFallbackParser();
   await testApprovalFlow();
-  testMarchCoreGeneratesKey();
+  testCoreGeneratesKey();
   testToolchainConsistency();
   testLLMProviderEdgeCases();
 

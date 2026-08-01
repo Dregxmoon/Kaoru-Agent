@@ -8,7 +8,7 @@
  *   - Los labels FIJOS (lista cerrada) deben coincidir EXACTO para poder
  *     reconciliarse (overwrite / archive_and_replace).
  *   - Los labels dinámicos (proyecto_*, preferencia_*) se permiten libres,
- *     para que March pueda "aprender" cosas nuevas del usuario sin romper
+ *     para que el asistente pueda "aprender" cosas nuevas del usuario sin romper
  *     la reconciliación de los hechos fijos.
  *   - Cualquier otro label inventado por el LLM se descarta y se loggea.
  */
@@ -16,7 +16,7 @@
 const LLMProvider              = require('../llm/LLMProvider.js');
 const { ContradictionResolver } = require('./ContradictionResolver.js');
 
-const EXTRACTION_SYSTEM = `Eres la memoria de March 7th. Analiza la conversación y extrae lo memorable.
+const EXTRACTION_SYSTEM = `Eres la memoria del asistente personal. Analiza la conversación y extrae lo memorable.
 
 LABELS PERMITIDOS (usa EXACTAMENTE estos):
 - nombre_usuario → nombre del usuario
@@ -27,8 +27,8 @@ LABELS PERMITIDOS (usa EXACTAMENTE estos):
 - color_favorito → colores favoritos
 - musica_favorita → música o artistas favoritos
 - proyecto_principal → proyecto más importante activo
-- observaciones_usuario → rasgos de carácter observados del usuario (NO de March)
-Para proyectos secundarios: proyecto_[nombre] (ej: proyecto_march7th)
+- observaciones_usuario → rasgos de carácter observados del usuario (NO del asistente)
+Para proyectos secundarios: proyecto_[nombre] (ej: proyecto_asistente)
 Para preferencias extra: preferencia_[tema] (ej: preferencia_anime)
 
 REGLAS CRÍTICAS:
@@ -212,7 +212,7 @@ class StateUpdater {
    * OPTIMIZACIÓN: antes de llamar al LLM, se ejecuta detectAndSaveInstant
    * sobre los mensajes del usuario para capturar patrones triviales (nombre,
    * edad, color favorito, etc.) sin gastar tokens. Si no hay mensajes del
-   * usuario (sesión de solo March), se omite el LLM por completo.
+   * usuario (sesión de solo asistente), se omite el LLM por completo.
    */
   async processSession(sessionId, history, turnCount) {
     if (!history || history.length < 2) {
@@ -300,7 +300,7 @@ class StateUpdater {
   async _extractMemories(history) {
     const recent = history.slice(-10);
     const conversation = recent.map(m =>
-      `${m.role === 'user' ? 'Usuario' : 'March'}: ${m.content}`
+      `${m.role === 'user' ? 'Usuario' : 'Asistente'}: ${m.content}`
     ).join('\n');
 
     // Para sesiones largas (> 20 turnos), usar smart mode para mejor

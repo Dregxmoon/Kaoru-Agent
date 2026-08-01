@@ -207,11 +207,11 @@ function testSymbolKindNames() {
   assert(LSP_SERVERS.javascript.filePatterns.includes('.js'), 'javascript soporta .js');
 }
 
-// ── Test 10: MarchCore integration ───────────────────────────────────────
-async function testMarchCoreIntegration() {
-  console.log(C.bold('\n── MarchCore integration ───────────────────────────────'));
+// ── Test 10: Core integration ───────────────────────────────────────
+async function testCoreIntegration() {
+  console.log(C.bold('\n── Core integration ───────────────────────────────'));
 
-  const mc = require('../core/MarchCore.js');
+  const mc = require('../core/Core.js');
   const stats = mc.getStats();
 
   assert(stats.lsp !== undefined, 'getStats() incluye lsp');
@@ -249,8 +249,8 @@ async function main() {
   testRestartLogic();
   testSymbolKindNames();
 
-  console.log(C.bold('\n── MarchCore ──────────────────────────────────────────'));
-  await testMarchCoreIntegration();
+  console.log(C.bold('\n── Core ──────────────────────────────────────────'));
+  await testCoreIntegration();
 
   console.log(C.bold('\n════════════════════════════════════════════════════════'));
   const total = passed + failed + skipped;

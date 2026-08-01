@@ -1,13 +1,13 @@
 /**
- * MCPManager.js — Cliente MCP (Model Context Protocol) para March
+ * MCPManager.js — Cliente MCP (Model Context Protocol) para el asistente
  *
- * Otra fuente de herramientas para March, EN PARALELO a OpenClaw, no en vez
+ * Otra fuente de herramientas para el asistente, EN PARALELO a OpenClaw, no en vez
  * de ella y sin depender de que esté corriendo: se conecta a servidores MCP
  * externos (locales vía stdio — el caso normal; `npx -y <paquete>` como
  * cualquier host de MCP) y expone sus tools al mismo pipeline de acciones
  * que ya usa OpenClaw (Planner → StructuredActionParser → aprobación).
  *
- * Si no hay ni un solo servidor MCP configurado, March sigue funcionando
+ * Si no hay ni un solo servidor MCP configurado, el asistente sigue funcionando
  * exactamente igual que antes — cero impacto. Si hay alguno conectado, se
  * suma como capacidad extra, tanto si OpenClaw/mock-openclaw está corriendo
  * como si no.
@@ -50,7 +50,14 @@ const REGISTRY_TIMEOUT_MS = 8 * 1000;
 const MAX_RECONNECT_ATTEMPTS = 5;
 const RECONNECT_BASE_MS      = 1000;
 
-function _sleep(ms) { return new Promise(resolve => setTimeout(resolve, ms)); }
+// Sleep cancelable: disconnect() despierta el await con un evento, para que
+// el timer de reconexión no mantenga vivo el event loop al cerrar la app.
+function _cancellableSleep(ms, onCancel) {
+  return new Promise(resolve => {
+    const timer = setTimeout(resolve, ms);
+    onCancel(() => { clearTimeout(timer); resolve(); });
+  });
+}
 
 function _reconnectBackoff(attempt) {
   const base   = RECONNECT_BASE_MS * Math.pow(2, attempt); // 1s, 2s, 4s, 8s, 16s...
@@ -99,6 +106,7 @@ class MCPServerConnection {
     this.status    = 'disconnected'; // disconnected | connecting | connected | reconnecting | error
     this.error     = null;
     this.tools     = []; // [{ name, description, inputSchema }]
+    this._cancelReconnect = null;
 
     this._intentionalDisconnect  = false; // true si disconnect() lo pidió el usuario
     this._reconnectAttempts      = 0;
@@ -118,7 +126,7 @@ class MCPServerConnection {
         args:    this.config.args || [],
         env:     { ...process.env, ...(this.config.env || {}) },
       });
-      this.client = new Client({ name: 'march-7th', version: '1.0.0' }, { capabilities: {} });
+      this.client = new Client({ name: 'asistente-personal', version: '1.0.0' }, { capabilities: {} });
 
       // Auto-reconnect: el SDK avisa acá cuando el transporte se cierra por
       // CUALQUIER razón — incluyendo que nosotros mismos llamemos
@@ -182,7 +190,8 @@ class MCPServerConnection {
 
     const waitMs = _reconnectBackoff(this._reconnectAttempts - 1);
     console.log(`[mcp] "${this.name}" — reintentando en ${waitMs}ms (intento ${this._reconnectAttempts}/${MAX_RECONNECT_ATTEMPTS})`);
-    await _sleep(waitMs);
+    await _cancellableSleep(waitMs, cb => { this._cancelReconnect = cb; });
+    this._cancelReconnect = null;
 
     if (this._intentionalDisconnect) { this._reconnectInProgress = false; return; }
     this.status = 'disconnected'; // deja que connect() haga su cosa normal
@@ -199,6 +208,7 @@ class MCPServerConnection {
   async disconnect() {
     this._intentionalDisconnect  = true;
     this._reconnectInProgress    = false;
+    if (this._cancelReconnect) { this._cancelReconnect(); this._cancelReconnect = null; }
     if (this.client) {
       try { await this.client.close(); } catch (_) { /* best-effort */ }
     }
@@ -235,7 +245,7 @@ class MCPManager {
   async init(serverConfigs = []) {
     const enabled = serverConfigs.filter(s => s.enabled !== false);
     if (!enabled.length) {
-      console.log('[mcp] sin servidores configurados — March sigue igual que siempre');
+      console.log('[mcp] sin servidores configurados — el asistente sigue igual que siempre');
       return;
     }
     console.log(`[mcp] conectando ${enabled.length} servidor(es) configurado(s)...`);

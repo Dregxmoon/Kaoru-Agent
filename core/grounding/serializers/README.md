@@ -9,7 +9,7 @@ espera. Mantienen la responsabilidad del *formato* separada del *contenido*.
 
 Construye el system prompt en secciones separadas por `---`:
 
-1. **Identidad** — quién es March 7th (desde `identity.json`).
+1. **Identidad** — quién es el asistente (desde `identity.json`).
 2. **Contexto del SO** (`## Contexto actual`) — app activa, ventanas, tiempo de uso, actividad de hoy.
 3. **Memoria persistente** — nodos y episodios relevantes del `StateGraph`.
 4. **Intención de herramienta** — instrucciones de formato estructurado si el `IntentDetector` encontró

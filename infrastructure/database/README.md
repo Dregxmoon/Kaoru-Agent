@@ -1,6 +1,6 @@
 # Inicialización de base de datos vectorial (`infrastructure/database/`)
 
-Prepara las tablas de índices vectoriales en `march.db` para la **detección semántica de intenciones**
+Prepara las tablas de índices vectoriales en `core.db` para la **detección semántica de intenciones**
 y el **recall de memoria** — embeddings locales, sin dependencia de servicios externos.
 
 ---
@@ -25,7 +25,7 @@ node infrastructure/database/init_vectors.js          # inicialización normal
 node infrastructure/database/init_vectors.js --force  # reindexado forzado
 ```
 
-Dependencia: `@xenova/transformers` (misma BD de March, misma sesión de embeddings que el `StateGraph`).
+Dependencia: `@xenova/transformers` (misma BD del asistente, misma sesión de embeddings que el `StateGraph`).
 
 ```mermaid
 flowchart LR

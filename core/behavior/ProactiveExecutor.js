@@ -94,7 +94,7 @@ function _matchesTarget(diag, targets) {
 function _defaultSyntaxCheck(content, file) {
   const ext = path.extname(file || '').toLowerCase();
   if (ext !== '.js' && ext !== '.mjs' && ext !== '.cjs') return Promise.resolve(null);
-  const tmp = path.join(os.tmpdir(), `march-syntax-${crypto.randomBytes(6).toString('hex')}${ext}`);
+  const tmp = path.join(os.tmpdir(), `asistente-syntax-${crypto.randomBytes(6).toString('hex')}${ext}`);
   try { fs.writeFileSync(tmp, content); }
   catch (e) { return Promise.resolve(null); }
   return new Promise((resolve) => {

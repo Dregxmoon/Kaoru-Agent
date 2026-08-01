@@ -29,10 +29,10 @@
  * disco. Ahora la función lee la forma real del archivo.
  *
  * FIX (revisión con Claude): el truncado a MAX_SYSTEM_CHARS pasaba AQUÍ,
- * pero MarchCore.buildContext() le pegaba BehaviorModel + reglas de
+ * pero Core.buildContext() le pegaba BehaviorModel + reglas de
  * OpenClaw + catálogo MCP DESPUÉS de este punto — el presupuesto de
  * tokens nunca contaba esas secciones. El truncado se movió a
- * MarchCore.js, al final de buildContext(), sobre el prompt ya completo.
+ * Core.js, al final de buildContext(), sobre el prompt ya completo.
  */
 
 'use strict';
@@ -53,7 +53,7 @@ function _getIdentity() {
   try {
     _identityRawCache = JSON.parse(fs.readFileSync(IDENTITY_PATH, 'utf-8'));
   } catch {
-    _identityRawCache = { name: 'March 7th', core: 'Soy March 7th.' };
+    _identityRawCache = { name: 'asistente', core: 'Soy tu asistente personal.' };
   }
   return _identityRawCache;
 }
@@ -174,7 +174,7 @@ function _buildFormatExample(action) {
  * voice, uncertainty_behaviors, relationship, limits.
  */
 function _buildIdentitySection(identity) {
-  const lines = [`# Identidad`, identity.core || 'Soy March 7th.'];
+  const lines = [`# Identidad`, identity.core || 'Soy tu asistente personal.'];
 
   const char = identity.character;
   if (char) {
@@ -355,7 +355,7 @@ class GroqSerializer {
     ].filter(Boolean);
 
     // NOTA: el truncado a MAX_SYSTEM_CHARS ya NO pasa aquí — se movió a
-    // MarchCore.buildContext(), al final, después de que se pegan
+    // Core.buildContext(), al final, después de que se pegan
     // BehaviorModel + reglas de OpenClaw + catálogo MCP. Antes esas
     // secciones se agregaban DESPUÉS de este truncado, así que el
     // presupuesto de tokens nunca las contaba.

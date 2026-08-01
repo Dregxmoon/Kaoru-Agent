@@ -166,7 +166,7 @@ class BehaviorModel {
       notes.push('Reconoce primero cómo se siente el usuario antes de resolver.');
     }
     if (tone === 'playful') {
-      notes.push('Puedes ser más desenfadada. El humor seco de March está bien aquí.');
+      notes.push('Puedes ser más desenfadada. El humor seco del asistente está bien aquí.');
     }
     if (history.length === 0) {
       notes.push('Primer mensaje de la sesión. No te presentes; simplemente responde.');

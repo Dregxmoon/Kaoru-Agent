@@ -1,6 +1,6 @@
 # Percepción y sensores de señales (`infrastructure/sensors/`)
 
-Dos familias de sensores que alimentan a March:
+Dos familias de sensores que alimentan al asistente:
 
 1. **Sensores de SO** — percepción del escritorio: aplicación activa, ventanas, inactividad.
 2. **Sensores de señales** — eventos de valor para el motor proactivo: riesgos git, errores del
@@ -10,7 +10,7 @@ Dos familias de sensores que alimentan a March:
 
 ## Sensores de sistema operativo
 
-MarchCore selecciona el sensor según `process.platform`:
+Core selecciona el sensor según `process.platform`:
 
 - `win32` → `OSSensor` (PowerShell + Win32 API: `GetForegroundWindow`, `GetLastInputInfo`, `EnumWindows`).
 - `linux` → `LinuxOSSensor` (Hyprland/Wayland: `hyprctl`, `loginctl`).

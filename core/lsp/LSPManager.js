@@ -157,11 +157,40 @@ class LSPManager {
       await this._request('shutdown', null);
     } catch (_) {}
     this._notify('exit', null);
+    // `npx` re-ejecuta typescript-language-server en un hijo — matar npx no
+    // basta. Recorremos /proc y matamos también a los descendientes.
+    try {
+      this._killTree(this._process.pid);
+    } catch (_) {}
     this._process.kill();
     this._process = null;
     this._started = false;
     this._diagnostics.clear();
     this._openedDocs.clear();
+  }
+
+  _killTree(rootPid) {
+    if (process.platform !== 'linux') return;
+    const children = new Map();
+    try {
+      for (const entry of require('fs').readdirSync('/proc')) {
+        if (!/^\d+$/.test(entry)) continue;
+        let ppid = -1;
+        try {
+          const stat = require('fs').readFileSync(`/proc/${entry}/stat`, 'utf-8');
+          const close = stat.lastIndexOf(')');
+          ppid = parseInt(stat.slice(close + 1).trim().split(/\s+/)[1], 10);
+        } catch (_) {}
+        if (!children.has(ppid)) children.set(ppid, []);
+        children.get(ppid).push(parseInt(entry, 10));
+      }
+    } catch (_) { return; }
+    const stack = [...(children.get(rootPid) || [])];
+    while (stack.length) {
+      const pid = stack.pop();
+      try { process.kill(pid, 'SIGTERM'); } catch (_) {}
+      stack.push(...(children.get(pid) || []));
+    }
   }
 
   async openDocument(filePath) {

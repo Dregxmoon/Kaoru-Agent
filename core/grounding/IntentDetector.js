@@ -107,7 +107,7 @@ function float32ToBuffer(arr) {
 
 class IntentDetector {
   /**
-   * @param {import('better-sqlite3').Database} db — instancia ya abierta de march.db
+   * @param {import('better-sqlite3').Database} db — instancia ya abierta de core.db
    */
   constructor(db) {
     this._db    = db;

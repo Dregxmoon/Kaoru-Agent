@@ -499,12 +499,12 @@ async function testSessionTs() {
   console.log(C.bold('\nTest 13: SessionManager.addTurn guarda ts (para BehaviorModel)'));
 
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'proactive-ts-'));
-  const graph = new StateGraph(path.join(dir, 'march.db')).init();
+  const graph = new StateGraph(path.join(dir, 'core.db')).init();
 
   const sm = new SessionManager(graph, null);
   await sm.start(null);
   sm.addTurn('user', 'hola');
-  sm.addTurn('march', 'encantada');
+  sm.addTurn('assistant', 'encantada');
   const h = sm.getHistory();
   assert(h.length === 2 && typeof h[0].ts === 'number' && typeof h[1].ts === 'number',
     'addTurn guarda ts en cada turno');

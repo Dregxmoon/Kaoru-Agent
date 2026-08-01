@@ -12,7 +12,7 @@
  *            Resultado: el tiempo pasado en la app ignorada se sumaba
  *            silenciosamente a la duración de la última app real, inflando
  *            las stats de uso (getAppUsageSummary/getTodaySummary) que
- *            alimentan el contexto de March y el ProactiveEngine.
+ *            alimentan el contexto del asistente y el ProactiveEngine.
  *            Ahora, cuando el foco cae en una app ignorada, se guarda de
  *            inmediato el historial de la app anterior (con el tiempo
  *            correcto hasta ese momento) y se pausa el tracking hasta que

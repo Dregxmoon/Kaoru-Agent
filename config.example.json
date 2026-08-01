@@ -1,4 +1,5 @@
 {
+  "activeModel": "March 7th",
   "llm": {
     "primary": "groq",
     "apiKeys": {

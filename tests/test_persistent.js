@@ -181,7 +181,7 @@ async function testForget() {
   const graph = new StateGraph(path.join(tmpDir, 'forget-c3.db'));
   await graph.init();  graph.createNode({ type: 'User', label: 'cumple_papa', content: 'Cumpleaños de papá: 15 de junio', importance: 0.9 });
   graph.createNode({ type: 'User', label: 'gusto_musica', content: 'Le gusta el rock de los 90', importance: 0.7 });
-  graph.createNode({ type: 'Project', label: 'proyecto_march', content: 'Proyecto: asistente vtuber', importance: 0.8 });
+  graph.createNode({ type: 'Project', label: 'proyecto_asistente', content: 'Proyecto: asistente vtuber', importance: 0.8 });
 
   // 3a. Sin coincidencias
   const none = graph.forget('noexiste-nada');

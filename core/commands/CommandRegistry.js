@@ -17,19 +17,28 @@ function register(def) {
   commands.set(def.name, def);
 }
 
+const CATEGORIES = {
+  help: 'General', clear: 'General', memory: 'General', olvida: 'General',
+  stats: 'General', export: 'General', telemetria: 'General',
+  model: 'IA / LLM', provider: 'IA / LLM', agent: 'IA / LLM', code: 'IA / LLM',
+  skill: 'IA / LLM', credenciales: 'Config',
+  init: 'Desarrollo', review: 'Desarrollo', plan: 'Desarrollo',
+  fix: 'Desarrollo', undo: 'Desarrollo', retry: 'Desarrollo',
+  'cambio-modelo': 'Modelo',
+};
+
 function getHelp() {
-  const groups = {
-    'IA / LLM':      ['mode', 'model', 'provider', 'agent', 'code', 'skill'],
-    'Desarrollo':    ['init', 'review', 'plan', 'fix', 'undo', 'retry'],
-    'General':       ['help', 'clear', 'memory', 'olvida', 'stats', 'export', 'telemetria'],
-    'Config':        ['credenciales'],
-  };
+  const groups = new Map();
+  for (const name of commands.keys()) {
+    const group = CATEGORIES[name] || 'General';
+    if (!groups.has(group)) groups.set(group, []);
+    groups.get(group).push(name);
+  }
   const lines = ['**Comandos disponibles:**\n'];
-  for (const [group, names] of Object.entries(groups)) {
+  for (const [group, names] of groups) {
     lines.push(`┌─ ${group}`);
     for (const name of names) {
       const def = commands.get(name);
-      if (!def) continue;
       const usage = def.usage || `/${name}`;
       const desc = def.description || '';
       lines.push(`│ \`${usage}\` — ${desc}`);
@@ -62,7 +71,7 @@ async function execute(text, ctx = {}) {
       if (ctx.sendIPC) ctx.sendIPC('set-provider', { primary: provider.id });
       const warn = provider.hasKey
         ? ''
-        : `\n\n⚠️ **${provider.name}** no tiene API key configurada. Todos los proveedores (incluso los "gratis") necesitan su propia key — agrega la de ${provider.name} con \`/credenciales\` antes de usarlo.`;
+        : `\n\n**${provider.name}** no tiene API key configurada. Todos los proveedores (incluso los "gratis") necesitan su propia key — agrega la de ${provider.name} con \`/credenciales\` antes de usarlo.`;
       return { result: `Proveedor cambiado a: **${provider.name}**${warn}` };
     }
     const similar = getNames().filter(n => n.startsWith(name[0])).slice(0, 3);
@@ -126,7 +135,7 @@ register({
     const active = LLMProvider.getActiveProvider();
     const warn = valid.hasKey
       ? ''
-      : `\n\n⚠️ **${valid.name}** no tiene API key configurada. Todos los proveedores (incluso los "gratis") necesitan su propia key — agrega la de ${valid.name} con \`/credenciales\` antes de usarlo.`;
+      : `\n\n**${valid.name}** no tiene API key configurada. Todos los proveedores (incluso los "gratis") necesitan su propia key — agrega la de ${valid.name} con \`/credenciales\` antes de usarlo.`;
     return `Proveedor cambiado a: **${valid.name}**${warn}`;
   },
 });
@@ -210,7 +219,7 @@ register({
 
       const arrow = (v) => v == null ? '–' : (v > 0 ? `▲ +${v}%` : v < 0 ? `▼ ${v}%` : '＝ 0%');
       const fmtMs = (ms) => ms == null ? '–' : (ms < 1000 ? `${ms} ms` : `${(ms / 1000).toFixed(1)} s`);
-      const verdictLabel = { improved: '✅ mejor que', regressed: '⚠️ peor que', stable: '＝ igual que' }[verdict];
+      const verdictLabel = { improved: 'mejor que', regressed: 'peor que', stable: 'igual que' }[verdict];
 
       const lines = [
         `**¿Estamos mejor que el mes pasado?** → ${verdictLabel} ${previous.monthKey}`,
@@ -246,12 +255,12 @@ register({
 
     const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
     const lines = [
-      `# Conversación — March 7th (${timestamp})`,
+      `# Conversación (${timestamp})`,
       `# Total mensajes: ${history.length}`,
       '',
     ];
     for (const m of history) {
-      const role = m.role === 'user' ? '## Usuario' : m.role === 'assistant' ? '## March 7th' : '## Sistema';
+      const role = m.role === 'user' ? '## Usuario' : m.role === 'assistant' ? '## Asistente' : '## Sistema';
       lines.push(`${role}\n${m.content}\n`);
     }
     const text = lines.join('\n');
@@ -530,6 +539,59 @@ register({
       return 'Abriendo configuración de credenciales...';
     }
     return 'No se puede abrir la configuración desde este contexto.';
+  },
+});
+
+register({
+  name: 'cambio-modelo',
+  description: 'Cambia el modelo Live2D del asistente',
+  usage: '/cambio-modelo [nombre]',
+  handler: async (args, ctx) => {
+    if (!ctx.ipcRenderer) return 'IPC no disponible.';
+    try {
+      const models = await ctx.ipcRenderer.invoke('models-list');
+      if (!models || models.length === 0) return 'No hay modelos Live2D en la carpeta models/.';
+      const q = (args[0] || '').trim().toLowerCase();
+      if (!q) {
+        const active = models.find(m => m.active);
+        const esc = s => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+        const list = models.map(m => {
+          const label = m.active ? `${m.name} (activo)` : m.name;
+          const cls = m.active ? 'model-select-btn active' : 'model-select-btn';
+          return `<button class="${cls}" data-model-set="${esc(m.id)}">${esc(label)}</button>`;
+        }).join('\n');
+        return [
+          `**Modelo activo:** \`${active ? active.name : 'ninguno'}\``,
+          '',
+          list,
+          '',
+          'Selecciona un modelo para cargarlo. Para importar uno nuevo, arrastra la carpeta del modelo sobre la ventana de chat.',
+        ].join('\n');
+      }
+
+      // Matching difuso: exacto → prefijo → contiene. Si hay varios, se listan.
+      const find = pred => models.filter(m => pred(m.name.toLowerCase()));
+      const exact = find(n => n === q);
+      const prefix = exact.length ? exact : find(n => n.startsWith(q));
+      const matches = prefix.length ? prefix : find(n => n.includes(q));
+
+      let target = null;
+      if (matches.length === 1) target = matches[0];
+      if (!target) {
+        if (matches.length > 1) {
+          const names = matches.map(m => `  \`${m.name}\``).join('\n');
+          return `\`${q}\` coincide con varios modelos:\n${names}\n\nSé más específico, o usa \`/cambio-modelo\` y elige de la lista.`;
+        }
+        const names = models.map(m => `  \`${m.name}\``).join('\n');
+        return `Modelo no encontrado: \`${q}\`.\n\n**Disponibles:**\n${names}`;
+      }
+      if (target.active) return `**${target.name}** ya es el modelo activo.`;
+      const res = await ctx.ipcRenderer.invoke('model-set', { id: target.id });
+      if (res.error) return `Error al cambiar modelo: ${res.error}`;
+      return `Modelo cambiado a: **${target.name}**`;
+    } catch (e) {
+      return `Error: ${e.message}`;
+    }
   },
 });
 

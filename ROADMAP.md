@@ -1,4 +1,4 @@
-# Hoja de Ruta — Asistente-Vtuber (March 7th)
+# Hoja de Ruta — Asistente Personal
 
 > Documento de visión y estrategia del producto. Describe hacia dónde evoluciona la
 > plataforma, qué capacidades están en producción y qué se construirá a continuación.

@@ -413,7 +413,7 @@ class Planner {
    * Ahora se usa StructuredActionParser, que intenta el bloque estructurado
    * primero y cae automáticamente al ActionParser regex si no lo encuentra
    * (compatibilidad total con el flujo narrativo "Ejecutar: X" que se usa
-   * cuando toolIntent no se detectó — ver MarchCore.buildContext()).
+   * cuando toolIntent no se detectó — ver Core.buildContext()).
    *
    * @param {object} toolIntent — resultado de IntentDetector (opcional).
    *   Solo se usa para un log de diagnóstico si el LLM ignoró el bloque

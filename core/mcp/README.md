@@ -1,6 +1,6 @@
 # Cliente Model Context Protocol (`core/mcp/`)
 
-Conecta March con el ecosistema de **servidores de herramientas MCP** (Model Context Protocol) sin
+Conecta al asistente con el ecosistema de **servidores de herramientas MCP** (Model Context Protocol) sin
 acoplarse a ninguna herramienta específica. La funcionalidad se amplía agregando servidores, no código.
 
 ---
@@ -35,7 +35,7 @@ Gestiona el ciclo de vida completo de los servidores MCP conectados vía `npx -y
 
 ## Integración
 
-- Si no hay servidores configurados, March funciona **exactamente igual** (dependencia cero).
+- Si no hay servidores configurados, el asistente funciona **exactamente igual** (dependencia cero).
 - Las herramientas MCP se inyectan como un bloque separado en el system prompt, después del contexto
   del SO y antes de las instrucciones finales.
 - En el `ToolResolver`, el dominio MCP excluye las herramientas OpenClaw superpuestas (precedencia

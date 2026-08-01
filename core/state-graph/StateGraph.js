@@ -350,7 +350,7 @@ class StateGraph {
       console.log('[state-graph] inicializado (Fase 2):', this._dbPath);
     } catch(e) {
       console.error('[state-graph] ERROR CRÍTICO — cayendo a MemoryDB:', e.message);
-      console.error('[state-graph] La memoria de March NO se esta guardando en disco.');
+      console.error('[state-graph] La memoria del asistente NO se esta guardando en disco.');
       this._db           = new MemoryDB();
       this.usingFallback = true;
       this._createSchema();
@@ -481,7 +481,7 @@ class StateGraph {
   // rankear por similitud coseno real, combinado con un boost de recencia.
   //
   // Requiere que sqlite-vec ya esté cargado en esta conexión — eso lo hace
-  // MarchCore.init() (ver "sqlite-vec cargado en StateGraph DB"), y luego
+  // Core.init() (ver "sqlite-vec cargado en StateGraph DB"), y luego
   // llama a enableVectorSearch() para crear la tabla. Si algo de esto falla
   // o no se llamó, _vectorReady queda false y todo cae a queryNodes() normal
   // — nunca es un requisito duro, es una mejora quePuede no estar.
@@ -491,7 +491,7 @@ class StateGraph {
    * llamarse DESPUÉS de que sqlite-vec.load(db) ya corrió sobre esta misma
    * conexión — no lo hace esta función, porque StateGraph no depende de
    * sqlite-vec directamente (evita acoplar un módulo de más bajo nivel a
-   * una extensión que hoy vive en MarchCore.init()).
+   * una extensión que hoy vive en Core.init()).
    */
   enableVectorSearch() {
     if (this.usingFallback) return false;
@@ -644,7 +644,7 @@ class StateGraph {
    * Embedea en lote los nodos que no tienen vector todavía (nodos creados
    * antes de que existiera esta mejora, o si enableVectorSearch() se activó
    * después de tener memoria acumulada). Fire-and-forget desde
-   * MarchCore.init() — no bloquea el arranque. Se hace en lotes chicos con
+   * Core.init() — no bloquea el arranque. Se hace en lotes chicos con
    * una pausa entre cada uno para no acaparar CPU de un jalón en hardware
    * limitado (Athlon Silver).
    */

@@ -28,10 +28,10 @@ function assert(condition, label, detail = '') {
 function testAgentModeAlwaysResolvesTools() {
   console.log(C.bold('\n── Modo agent: buildContext resuelve nativeToolSchemas ────'));
 
-  // Verificamos estructuralmente que el código de MarchCore.buildContext()
+  // Verificamos estructuralmente que el código de Core.buildContext()
   // para modo 'agent' ya no retorna nativeToolSchemas: null
   const src = require('fs').readFileSync(
-    require('path').join(__dirname, '..', 'core', 'MarchCore.js'),
+    require('path').join(__dirname, '..', 'core', 'Core.js'),
     'utf-8'
   );
 
@@ -112,7 +112,7 @@ function testSerializerDoesNotGateTools() {
     'Sin toolIntent: 1 mensaje en el array');
 
   // Verificar que el serializer nunca devuelve nativeToolSchemas
-  // (eso es responsabilidad de MarchCore.buildContext/AgentLoop)
+  // (eso es responsabilidad de Core.buildContext/AgentLoop)
   assert(withIntent.nativeToolSchemas === undefined,
     'GroqSerializer no inyecta nativeToolSchemas');
 }

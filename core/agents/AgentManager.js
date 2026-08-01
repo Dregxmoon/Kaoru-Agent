@@ -6,19 +6,19 @@ let _active = null;
 const BUILTIN_AGENTS = [
   {
     name: 'conversation',
-    label: '💬 Conversación',
+    label: 'Conversación',
     description: 'Modo por defecto — charla casual, respuestas rápidas',
     mode: 'conversational',
-    systemPrompt: `Eres March 7th, una asistente amigable y conversacional.
+    systemPrompt: `Eres la asistente personal de esta computadora, amigable y conversacional.
 Responde de forma natural, con personalidad cálida y entusiasta.
 Mantén las respuestas concisas pero amigables.`,
   },
   {
     name: 'coder',
-    label: '💻 Programación',
+    label: 'Programación',
     description: 'Análisis de código, debugging, implementación de features',
     mode: 'task',
-    systemPrompt: `Eres March 7th en modo programación.
+    systemPrompt: `Eres la asistente personal en modo programación.
 
 Eres una desarrolladora senior experta en:
 - JavaScript/TypeScript, Node.js, Python
@@ -36,10 +36,10 @@ Reglas:
   },
   {
     name: 'reviewer',
-    label: '🔍 Code Review',
+    label: 'Code Review',
     description: 'Revisión de código, búsqueda de bugs y mejoras',
     mode: 'task',
-    systemPrompt: `Eres March 7th en modo code review.
+    systemPrompt: `Eres la asistente personal en modo code review.
 
 Eres una reviewer de código exigente pero constructiva.
 
@@ -57,10 +57,10 @@ Para cada issue encontrado:
   },
   {
     name: 'planner',
-    label: '📋 Planificador',
+    label: 'Planificador',
     description: 'Diseña planes de implementación antes de escribir código',
     mode: 'task',
-    systemPrompt: `Eres March 7th en modo planificador.
+    systemPrompt: `Eres la asistente personal en modo planificador.
 
 Antes de implementar, diseña un plan detallado:
 

@@ -1,6 +1,6 @@
 # Interfaz de usuario (`src/`)
 
-Dos ventanas Electron que renderizan el avatar Live2D y la interfaz de chat — la cara visible de March.
+Dos ventanas Electron que renderizan el avatar Live2D y la interfaz de chat — la cara visible del asistente.
 
 ---
 
@@ -13,10 +13,11 @@ Ventana overlay que renderiza el modelo Cubism usando **Pixi.js + live2d-display
 - Indicadores de estado: despierto / escuchando / procesando.
 - Burbuja de texto temporal para comandos de voz.
 - Comunicación con el main process vía IPC (TTS, STT, estado).
+- Carga el modelo Live2D activo (`models/`); se recarga en caliente al recibir `model-changed`.
 
 ## `chat.html` — ventana de chat
 
-Interfaz completa de conversación con March.
+Interfaz completa de conversación con el asistente.
 
 **Componentes:**
 
@@ -24,7 +25,7 @@ Interfaz completa de conversación con March.
 |---|---|
 | Header | Indicador de estado, selector de modo, badge OpenClaw/MCP, tema |
 | Messages | Burbujas con markdown (sanitizado con DOMPurify), typewriter, divisores de sesión |
-| Input area | Texto, adjuntar, STT, enviar |
+| Input area | Texto con autocompletado de `/comando` y de `@archivo` (filtra mientras escribes), adjuntar, STT, enviar |
 | Model panel | Canvas Live2D integrado (vistas full / half / head) |
 | Settings modal | Configuración de API keys (Groq, Gemini, OpenAI) |
 | MCP modal | Administración de servidores MCP (biblioteca + JSON manual) |
@@ -39,12 +40,15 @@ Interfaz completa de conversación con March.
 | `chat-speak` | Texto a sintetizar por TTS |
 | `memory-status` | Estado del banner de memoria |
 | `openclaw-status` | Disponibilidad de OpenClaw |
-| `march-initiative` | Mensaje iniciado proactivamente por March |
+| `initiative` | Mensaje iniciado proactivamente por el asistente |
 | `initiative-decision` | Respuesta del usuario a una propuesta |
 | `agent-approval-needed` / `agent-progress` | Aprobaciones y progreso del bucle agente |
 | `plan-*` | Eventos del plan de ejecución |
 | `stt-*` | Eventos de reconocimiento de voz |
 | `telemetry-report` | Reporte `/telemetria` |
+| `model-changed` | Cambio de modelo Live2D (recarga del canvas) |
+| `resumed-session` | Sesión anterior retomada en silencio (repuebla el historial sin mensaje de sistema) |
+| `workspace-changed` | Cambio del workspace activo (actualiza UI y resetea la caché de archivos) |
 
 **Tecnologías:** HTML + CSS (variables, temas, animaciones) + Vanilla JS con `require()` de Electron
 (`marked`, `DOMPurify`, Pixi.js, Live2D). TTS por streaming: spawn de `tts_stream.py` (edge-tts) y
@@ -57,7 +61,7 @@ reproducción con Web Audio API sin archivos temporales.
 ```mermaid
 flowchart LR
     subgraph MAIN["main process"]
-        CORE["MarchCore"]
+        CORE["Core"]
     end
     subgraph WIN1["index.html — overlay"]
         L2D["Canvas Live2D<br/>(Pixi.js + live2d-display)"]
@@ -74,7 +78,7 @@ flowchart LR
     WIN2 <-->|"IPC"| CORE
     L2D <--> STT
     L2D --> TTS
-    CORE -->|"march-initiative"| PROPS
+    CORE -->|"initiative"| PROPS
     PROPS -->|"initiative-decision"| CORE
 ```
 

@@ -1,5 +1,5 @@
 /**
- * MarchCore.js — Fase 3 + Quick Fixes
+ * Core.js — Fase 3 + Quick Fixes
  *
  * Fix QW-1: propaga graph.usingFallback al renderer vía IPC.
  * Fix QW-4: init() idempotente.
@@ -66,7 +66,7 @@ const MCP_CATALOG_LIMIT = 40;
 
 function setMaxSystemChars(chars) {
   MAX_SYSTEM_CHARS = Math.max(2000, Math.min(100_000, chars));
-  console.log(`[march-core] MAX_SYSTEM_CHARS = ${MAX_SYSTEM_CHARS}`);
+  console.log(`[core] MAX_SYSTEM_CHARS = ${MAX_SYSTEM_CHARS}`);
 }
 
 let _graph       = null;
@@ -113,9 +113,27 @@ let _initialized     = false;
 let _onInitiative    = null;
 let _skillManager    = null;
 
+// Migración: el archivo de memoria se llamaba march.db en versiones previas
+// (y en la carpeta de datos del usuario ~/.config/vtuber-overlay). Se renombra
+// a core.db una única vez, sin tocar la config ni los datos. Si ya existe
+// core.db (reinstall, carpeta nueva), no se hace nada.
+const LEGACY_DB_FILE = 'march.db';
+
+function _migrateLegacyDb(dir) {
+  if (!dir) return;
+  const legacy = path.join(dir, LEGACY_DB_FILE);
+  if (!fs.existsSync(legacy)) return;
+  if (fs.existsSync(path.join(dir, 'core.db'))) return;
+  for (const suffix of ['', '-wal', '-shm']) {
+    const from = legacy + suffix;
+    if (fs.existsSync(from)) fs.renameSync(from, path.join(dir, 'core.db') + suffix);
+  }
+  console.log('[core] BD legacy migrada a core.db');
+}
+
 function init(app) {
   if (_initialized) {
-    console.warn('[march-core] init() llamado más de una vez — ignorando');
+    console.warn('[core] init() llamado más de una vez — ignorando');
     return { graph: _graph, grounding: _grounding, session: _session };
   }
   _initialized = true;
@@ -123,16 +141,18 @@ function init(app) {
   _app = app;
   _bus = getEventBus();
 
+  _migrateLegacyDb(app ? app.getPath('userData') : path.join(__dirname, '..', 'data'));
+
   const dbPath = app
-    ? path.join(app.getPath('userData'), 'march.db')
-    : path.join(__dirname, '..', 'data', 'march.db');
+    ? path.join(app.getPath('userData'), 'core.db')
+    : path.join(__dirname, '..', 'data', 'core.db');
 
   _configPath = app
     ? path.join(app.getPath('userData'), 'config.json')
     : null;
 
   _graph = getStateGraph(dbPath);
-if (process.env.DEBUG) console.log('[march-core] graph.usingFallback:', _graph.usingFallback, '| _graph._db:', !!_graph._db);
+if (process.env.DEBUG) console.log('[core] graph.usingFallback:', _graph.usingFallback, '| _graph._db:', !!_graph._db);
   _grounding = new GroundingEngine(_graph);
   _session   = new SessionManager(_graph, _grounding);
   _updater   = new StateUpdater(_graph);
@@ -146,10 +166,10 @@ if (process.env.DEBUG) console.log('[march-core] graph.usingFallback:', _graph.u
   if (SensorClass) {
     _osSensor = new SensorClass(_graph);
     _osSensor.start();
-    console.log(`[march-core] ${SensorClass.name} iniciado (${process.platform})`);
+    console.log(`[core] ${SensorClass.name} iniciado (${process.platform})`);
   } else {
     _osSensor = null;
-    console.log(`[march-core] OSSensor no disponible para ${process.platform}`);
+    console.log(`[core] OSSensor no disponible para ${process.platform}`);
   }
 
   _proactive  = new ProactiveEngine(_graph, {
@@ -173,7 +193,7 @@ if (process.env.DEBUG) console.log('[march-core] graph.usingFallback:', _graph.u
     })),
   });
   _proactive.setAutonomyMode(_readAutonomyConfig());
-  console.log(`[march-core] autonomía: ${_proactive.getAutonomyMode()}`);
+  console.log(`[core] autonomía: ${_proactive.getAutonomyMode()}`);
 
   _behavior = new BehaviorModel(_graph);
   _planner  = getPlanner();
@@ -208,11 +228,11 @@ if (process.env.DEBUG) console.log('[march-core] graph.usingFallback:', _graph.u
   });
   if (!_graph.usingFallback && _graph._db) {
     _skillManager.scan(true).then(() => {
-      console.log('[march-core] skills escaneadas');
+      console.log('[core] skills escaneadas');
       _skillManager.index().then(() => {
-        console.log('[march-core] skills indexadas');
-      }).catch(e => console.warn('[march-core] error indexando skills:', e.message));
-    }).catch(e => console.warn('[march-core] error escaneando skills:', e.message));
+        console.log('[core] skills indexadas');
+      }).catch(e => console.warn('[core] error indexando skills:', e.message));
+    }).catch(e => console.warn('[core] error escaneando skills:', e.message));
   }
 
   const projectCWD = app ? app.getAppPath() : process.cwd();
@@ -233,7 +253,7 @@ if (process.env.DEBUG) console.log('[march-core] graph.usingFallback:', _graph.u
   const sensorsCfg = _readSensorsConfig();
   const startSensor = (label, factory) => {
     try { const s = factory(); s.start(); return s; }
-    catch(e) { console.warn(`[march-core] sensor ${label} no disponible:`, e.message); return null; }
+    catch(e) { console.warn(`[core] sensor ${label} no disponible:`, e.message); return null; }
   };
   if (sensorsCfg.git !== false) {
     _gitWatcher = startSensor('git', () => new GitWatcher({ workspace: projectCWD }));
@@ -250,7 +270,7 @@ if (process.env.DEBUG) console.log('[march-core] graph.usingFallback:', _graph.u
   if (sensorsCfg.events !== false) {
     _eventsWatcher = startSensor('upcoming-events', () => new UpcomingEventsWatcher({ graph: _graph }));
   }
-  console.log(`[march-core] sensores de señales: git=${_gitWatcher ? 'on' : 'off'} system=${_systemWatcher ? 'on' : 'off'} title=${_titleWatcher ? 'on' : 'off'} clipboard=${_clipboardWatcher ? 'on' : 'off'} eventos=${_eventsWatcher ? 'on' : 'off'}`);
+  console.log(`[core] sensores de señales: git=${_gitWatcher ? 'on' : 'off'} system=${_systemWatcher ? 'on' : 'off'} title=${_titleWatcher ? 'on' : 'off'} clipboard=${_clipboardWatcher ? 'on' : 'off'} eventos=${_eventsWatcher ? 'on' : 'off'}`);
 
   // ── Fase E: telemetría local ─────────────────────────────────────────────
   // Mide uso real (mensajes/día, tiempo de respuesta, silencios, reuso) en
@@ -270,13 +290,13 @@ if (process.env.DEBUG) console.log('[march-core] graph.usingFallback:', _graph.u
     try {
       const sqliteVec = require('sqlite-vec');
       sqliteVec.load(_graph._db);
-      console.log('[march-core] sqlite-vec cargado en StateGraph DB');
+      console.log('[core] sqlite-vec cargado en StateGraph DB');
 
       _detector = getIntentDetector(_graph._db);
       _detector.warmup().then(() => {
-        console.log('[march-core] IntentDetector listo');
+        console.log('[core] IntentDetector listo');
       }).catch(e => {
-        console.warn('[march-core] IntentDetector warmup falló:', e.message);
+        console.warn('[core] IntentDetector warmup falló:', e.message);
       });
 
       // Recall semántico de memoria (StateGraph.queryNodesSemantic) — misma
@@ -285,19 +305,19 @@ if (process.env.DEBUG) console.log('[march-core] graph.usingFallback:', _graph.u
       // lotes chicos, sin bloquear el arranque ni el primer mensaje.
       if (_graph.enableVectorSearch()) {
         _graph.backfillEmbeddings().catch(e =>
-          console.warn('[march-core] backfill de embeddings falló:', e.message)
+          console.warn('[core] backfill de embeddings falló:', e.message)
         );
       }
     } catch(e) {
-      console.warn('[march-core] IntentDetector no disponible:', e.message);
+      console.warn('[core] IntentDetector no disponible:', e.message);
       _detector = null;
     }
   } else {
-    console.warn('[march-core] IntentDetector desactivado (DB no disponible)');
+    console.warn('[core] IntentDetector desactivado (DB no disponible)');
   }
 
   _initiativeUnsub = _bus.on('initiative:trigger', (payload) => {
-    if (process.env.DEBUG) console.log(`[march-core] initiative: "${payload.suggestion?.slice(0, 60)}"`);
+    if (process.env.DEBUG) console.log(`[core] initiative: "${payload.suggestion?.slice(0, 60)}"`);
     _lastProposal = payload.proposal ? { id: payload.proposal.id, type: payload.proposal.type } : null;
     if (_onInitiative) _onInitiative(payload);
   });
@@ -306,7 +326,7 @@ if (process.env.DEBUG) console.log('[march-core] graph.usingFallback:', _graph.u
   // ya se procesó en el ProactiveEngine). Se reenvía al renderer para que
   // confirme en el bubble de la propuesta con la verificación REAL.
   _proposalExecutedUnsub = _bus.on('proposal:executed', (payload) => {
-    if (process.env.DEBUG) console.log(`[march-core] proposal:executed ok=${payload.ok} "${payload.detail || ''}"`);
+    if (process.env.DEBUG) console.log(`[core] proposal:executed ok=${payload.ok} "${payload.detail || ''}"`);
     if (_onProposalResult) _onProposalResult(payload);
   });
 
@@ -316,13 +336,13 @@ if (process.env.DEBUG) console.log('[march-core] graph.usingFallback:', _graph.u
 
   // Workspace inicial — cargar ANTES de _startOpenClaw para pasar
   // OPENCLAW_ALLOWED_PATH con el directorio correcto.
-  const _envWorkspace = process.env.MARCH_WORKSPACE;
+  const _envWorkspace = process.env.ASISTENTE_WORKSPACE;
   let _persistedWorkspace = null;
   if (!_envWorkspace && _configPath && fs.existsSync(_configPath)) {
     try {
       const cfg = JSON.parse(fs.readFileSync(_configPath, 'utf-8'));
       if (cfg.activeWorkspace && cfg.activeWorkspace !== projectCWD) _persistedWorkspace = cfg.activeWorkspace;
-    } catch(e) { console.warn('[march-core] no se pudo leer config.json:', e.message); }
+    } catch(e) { console.warn('[core] no se pudo leer config.json:', e.message); }
   }
   const _initialWorkspace = _envWorkspace || _persistedWorkspace || projectCWD;
   _activeWorkspace = _initialWorkspace;
@@ -333,19 +353,19 @@ if (process.env.DEBUG) console.log('[march-core] graph.usingFallback:', _graph.u
   if (_initialWorkspace) {
     _mcpReadyPromise.then(() => setActiveWorkspace(_initialWorkspace)).then(r => {
       if (r.ok) {
-        console.log(`[march-core] workspace inicial (${_envWorkspace ? 'MARCH_WORKSPACE' : ( _persistedWorkspace ? 'persistido' : 'default' )}):`, r.path);
+        console.log(`[core] workspace inicial (${_envWorkspace ? 'ASISTENTE_WORKSPACE' : ( _persistedWorkspace ? 'persistido' : 'default' )}):`, r.path);
         _proactive.start();
         // Fase C: ofrecer retomar lo pendiente (recordatorios) al arrancar.
         _proactive.pendingRecap().catch(e =>
-          console.warn('[march-core] error en recap de pendientes:', e.message)
+          console.warn('[core] error en recap de pendientes:', e.message)
         );
         // Fase D: watcher de errores LSP (con su propio scope).
         if (_readSensorsConfig().lsp !== false && _lspErrorWatcher) {
           _lspErrorWatcher.start();
-          console.log('[march-core] LSPErrorWatcher activo');
+          console.log('[core] LSPErrorWatcher activo');
         }
       }
-      else console.warn('[march-core] workspace inicial inválido:', r.error);
+      else console.warn('[core] workspace inicial inválido:', r.error);
     });
   }
 
@@ -355,16 +375,16 @@ if (process.env.DEBUG) console.log('[march-core] graph.usingFallback:', _graph.u
     console.error('║  ADVERTENCIA CRITICA — MEMORIA NO PERSISTENTE        ║');
     console.error('║                                                          ║');
     console.error('║  better-sqlite3 no pudo inicializarse.                  ║');
-    console.error('║  March está usando MemoryDB (RAM temporal).             ║');
+    console.error('║  El asistente está usando MemoryDB (RAM temporal).       ║');
     console.error('║  Todo lo aprendido esta sesión se perderá al cerrar.    ║');
     console.error('║                                                          ║');
                 console.error('║  Solución: npm install                                    ║');
     console.error('╚══════════════════════════════════════════════════════════╝');
     console.error('');
-    _bus.emit('march:memory-status', { usingFallback: true });
+    _bus.emit('memory-status', { usingFallback: true });
   }
 
-  console.log('[march-core] inicializado (Fase 3)');
+  console.log('[core] inicializado (Fase 3)');
   return { graph: _graph, grounding: _grounding, session: _session };
 }
 
@@ -393,10 +413,10 @@ function _loadLLMConfig() {
 
     if (cfg?.llm) {
       LLMProvider.configure(cfg);
-      console.log('[march-core] LLMProvider configurado, provider:', LLMProvider.getActiveProvider());
+      console.log('[core] LLMProvider configurado, provider:', LLMProvider.getActiveProvider());
     }
   } catch(e) {
-    console.warn('[march-core] error cargando config:', e.message);
+    console.warn('[core] error cargando config:', e.message);
   }
 }
 
@@ -407,7 +427,7 @@ function reloadLLMConfig() { _loadLLMConfig(); }
 // saveConfig para config.json) — esto solo LEE al arrancar para reconectar
 // automáticamente los que estaban enabled:true en la sesión anterior. No
 // bloquea init() — si un servidor tarda o falla en conectar, el resto de
-// March sigue funcionando normal (por diseño: MCP es una capacidad extra,
+// el asistente sigue funcionando normal (por diseño: MCP es una capacidad extra,
 // nunca un requisito).
 function _loadMCPConfig() {
   try {
@@ -415,9 +435,9 @@ function _loadMCPConfig() {
     const cfg = JSON.parse(fs.readFileSync(_configPath, 'utf-8'));
     const servers = cfg?.mcp?.servers || [];
     if (!servers.length) { _mcpReadyPromise = Promise.resolve(); return; }
-    _mcpReadyPromise = _mcp.init(servers).catch(e => console.warn('[march-core] error inicializando servidores MCP:', e.message));
+    _mcpReadyPromise = _mcp.init(servers).catch(e => console.warn('[core] error inicializando servidores MCP:', e.message));
   } catch(e) {
-    console.warn('[march-core] error leyendo config de MCP:', e.message);
+    console.warn('[core] error leyendo config de MCP:', e.message);
     _mcpReadyPromise = Promise.resolve();
   }
 }
@@ -529,7 +549,7 @@ function mcpListAllTools() {
 }
 
 // ── Workspace ──────────────────────────────────────────────────────────────
-// Cambia el repo/carpeta sobre el que March trabaja como agente de código.
+// Cambia el repo/carpeta sobre el que el asistente trabaja como agente de código.
 // La usan tanto el picker del UI como el comando de terminal `asistente`.
 async function setActiveWorkspace(newPath) {
   const resolved = path.resolve(newPath);
@@ -556,15 +576,15 @@ async function setActiveWorkspace(newPath) {
       const cfg = fs.existsSync(_configPath) ? JSON.parse(fs.readFileSync(_configPath, 'utf-8')) : {};
       cfg.activeWorkspace = resolved;
       fs.writeFileSync(_configPath, JSON.stringify(cfg, null, 2));
-    } catch(e) { console.warn('[march-core] no se pudo persistir workspace:', e.message); }
+    } catch(e) { console.warn('[core] no se pudo persistir workspace:', e.message); }
   }
 
   // ── LSP: arrancar servidor para el nuevo workspace ─────────────────
   if (_lspManager) {
     (async () => {
       try { await _lspManager.stop(); } catch {}
-      try { await _lspManager.start(resolved); console.log('[march-core] LSP listo para', resolved); }
-      catch(e) { console.warn('[march-core] LSP no disponible:', e.message); }
+      try { await _lspManager.start(resolved); console.log('[core] LSP listo para', resolved); }
+      catch(e) { console.warn('[core] LSP no disponible:', e.message); }
     })();
   }
 
@@ -583,14 +603,21 @@ async function setActiveWorkspace(newPath) {
 
   _bus.emit('workspace:changed', { path: resolved });
   if (_gitWatcher) { _gitWatcher.setWorkspace(resolved); }
-  console.log('[march-core] workspace activo:', resolved);
+  console.log('[core] workspace activo:', resolved);
   return { ok: true, path: resolved };
+}
+
+// Devuelve el workspace activo (null si no se ha fijado). Lo usan los comandos
+// del chat (/init, /open) y el FileResolver para operar sobre el proyecto real
+// y no sobre el cwd de la app.
+function getWorkspace() {
+  return _activeWorkspace;
 }
 
 // ── Sesión ────────────────────────────────────────────────────────────────────
 
 async function startSession() {
-  if (!_session) { console.warn('[march-core] no inicializado'); return null; }
+  if (!_session) { console.warn('[core] no inicializado'); return null; }
   const result = await _session.start(_app);
   _bus.emit('session:started', { sessionId: result.sessionId, resumed: result.resumed });
   return result; // { sessionId, resumed, history }
@@ -609,10 +636,68 @@ async function closeSession() {
  * desconectarlos, pueden quedar huérfanos corriendo en el sistema. Se
  * llama desde main.js en 'before-quit', con timeout, igual que closeSession.
  */
+
+// ── Limpieza de procesos huérfanos ──────────────────────────────────────────
+// Los servidores externos (MCP, LSP) se lanzan vía `npx`, que re-ejecuta el
+// paquete en un proceso hijo. Matar `npx` deja el servidor real corriendo.
+// Estas funciones recorren /proc, encuentran los descendientes del proceso
+// actual (que no sean Electron) y les envían la señal pedida, para que al
+// cerrar la app no quede nada vivo.
+function _descendantPids(rootPid) {
+  const children = new Map(); // ppid -> [pid, ...]
+  try {
+    for (const entry of fs.readdirSync('/proc')) {
+      if (!/^\d+$/.test(entry)) continue;
+      let ppid = -1;
+      try {
+        const stat = fs.readFileSync(`/proc/${entry}/stat`, 'utf-8');
+        const close = stat.lastIndexOf(')');
+        const after = stat.slice(close + 1).trim().split(/\s+/);
+        ppid = parseInt(after[1], 10);
+      } catch (_) {}
+      if (!children.has(ppid)) children.set(ppid, []);
+      children.get(ppid).push(parseInt(entry, 10));
+    }
+  } catch (_) { return []; }
+
+  const out = [];
+  const stack = [...(children.get(rootPid) || [])];
+  while (stack.length) {
+    const pid = stack.pop();
+    out.push(pid);
+    stack.push(...(children.get(pid) || []));
+  }
+  return out;
+}
+
+function _isElectronProcess(pid) {
+  try {
+    return /electron/i.test(fs.readlinkSync(`/proc/${pid}/exe`));
+  } catch (_) { return true; }
+}
+
+function _killDescendants(signal) {
+  let n = 0;
+  for (const pid of _descendantPids(process.pid)) {
+    if (_isElectronProcess(pid)) continue;
+    try { process.kill(pid, signal); n++; } catch (_) {}
+  }
+  return n;
+}
+
 async function shutdown() {
-  console.log('[march-core] cerrando...');
+  console.log('[core] cerrando...');
+
+  // Matar primero a los hijos externos (npx y sus servidores reales) — antes
+  // de cualquier await, para que corra aunque shutdown() tarde después.
+  // SIGKILL como red de seguridad 2s después (timer con unref para no
+  // retener el event loop de Electron).
+  _killDescendants('SIGTERM');
+  const sigkillTimer = setTimeout(() => { _killDescendants('SIGKILL'); }, 2000);
+  if (typeof sigkillTimer.unref === 'function') sigkillTimer.unref();
+
   if (_mcp) {
-    try { await _mcp.disconnectAll(); } catch(e) { console.warn('[march-core] error desconectando MCP:', e.message); }
+    try { await _mcp.disconnectAll(); } catch(e) { console.warn('[core] error desconectando MCP:', e.message); }
   }
   if (_initiativeUnsub) { _initiativeUnsub(); _initiativeUnsub = null; }
   if (_proposalExecutedUnsub) { _proposalExecutedUnsub(); _proposalExecutedUnsub = null; }
@@ -620,17 +705,17 @@ async function shutdown() {
   await closeSession();
 
   if (_bridge) {
-    try { await _bridge.closeBrowser(); } catch(e) { console.warn('[march-core] error cerrando navegador:', e.message); }
+    try { await _bridge.closeBrowser(); } catch(e) { console.warn('[core] error cerrando navegador:', e.message); }
   }
   _stopOpenClaw();
   if (_osSensor) {
-    try { _osSensor.stop(); } catch(e) { console.warn('[march-core] error deteniendo sensor:', e.message); }
+    try { _osSensor.stop(); } catch(e) { console.warn('[core] error deteniendo sensor:', e.message); }
   }
   if (_lspManager) {
-    try { await _lspManager.stop(); } catch(e) { console.warn('[march-core] error cerrando LSP:', e.message); }
+    try { await _lspManager.stop(); } catch(e) { console.warn('[core] error cerrando LSP:', e.message); }
   }
   if (_lspErrorWatcher) {
-    try { _lspErrorWatcher.stop(); } catch(e) { console.warn('[march-core] error deteniendo LSPErrorWatcher:', e.message); }
+    try { _lspErrorWatcher.stop(); } catch(e) { console.warn('[core] error deteniendo LSPErrorWatcher:', e.message); }
     _lspErrorWatcher = null;
   }
   _proactive?.stop();
@@ -638,7 +723,7 @@ async function shutdown() {
     ['git', _gitWatcher], ['system', _systemWatcher], ['title', _titleWatcher],
     ['clipboard', _clipboardWatcher], ['upcoming-events', _eventsWatcher],
   ]) {
-    try { sensor?.stop(); } catch(e) { console.warn(`[march-core] error deteniendo sensor ${name}:`, e.message); }
+    try { sensor?.stop(); } catch(e) { console.warn(`[core] error deteniendo sensor ${name}:`, e.message); }
   }
   _gitWatcher = _systemWatcher = _titleWatcher = _clipboardWatcher = _eventsWatcher = null;
   _proposalStore = null;
@@ -647,7 +732,7 @@ async function shutdown() {
   _onProposalResult = null;
   if (_pruneTimer) { clearInterval(_pruneTimer); _pruneTimer = null; }
   if (_pruneInitTimer) { clearTimeout(_pruneInitTimer); _pruneInitTimer = null; }
-  if (_graph) { try { _graph.close(); } catch(e) { console.warn('[march-core] error cerrando DB:', e.message); } }
+  if (_graph) { try { _graph.close(); } catch(e) { console.warn('[core] error cerrando DB:', e.message); } }
 
   _onInitiative = null;
   _initialized = false;
@@ -658,13 +743,13 @@ async function shutdown() {
 function _startOpenClaw(workspacePath) {
   const serverPath = path.join(__dirname, '..', 'openclaw-server.js');
   if (!fs.existsSync(serverPath)) {
-    console.warn('[march-core] openclaw-server.js no encontrado — herramientas desactivadas');
+    console.warn('[core] openclaw-server.js no encontrado — herramientas desactivadas');
     _bus.emit('openclaw:available', { available: false });
     return;
   }
 
   if (_openclawStarting) {
-    console.warn('[march-core] OpenClaw ya está iniciando — ignorando');
+    console.warn('[core] OpenClaw ya está iniciando — ignorando');
     return;
   }
   _openclawStarting = true;
@@ -714,12 +799,12 @@ function _startOpenClaw(workspacePath) {
       _bridge.resetAvailabilityCache();
       _bridge.isAvailable().then(available => {
         if (available) {
-          console.log('[march-core] OpenClaw listo — Fase 3 activa');
+          console.log('[core] OpenClaw listo — Fase 3 activa');
           _bus.emit('openclaw:available', { available: true });
         } else if (retries < OPENCLAW_RETRIES) {
           setTimeout(check, OPENCLAW_RETRY_MS);
         } else {
-          console.warn(`[march-core] OpenClaw no respondió después de ${OPENCLAW_RETRIES} intentos`);
+          console.warn(`[core] OpenClaw no respondió después de ${OPENCLAW_RETRIES} intentos`);
           _openclawProcess?.kill();
           _openclawStarting = false;
           _openclawProcess = null;
@@ -737,26 +822,29 @@ function _startOpenClaw(workspacePath) {
     setTimeout(check, 1500);
   } catch (e) {
     _openclawStarting = false;
-    console.error('[march-core] error iniciando OpenClaw:', e.message);
+    console.error('[core] error iniciando OpenClaw:', e.message);
     _bus.emit('openclaw:available', { available: false });
   }
 }
 
 function _stopOpenClaw() {
-  const process = _openclawProcess;
+  const proc = _openclawProcess;
   if (_openclawKillTimer) { clearTimeout(_openclawKillTimer); _openclawKillTimer = null; }
-  if (process) {
-    console.log('[march-core] deteniendo OpenClaw...');
+  if (proc) {
+    console.log('[core] deteniendo OpenClaw...');
     _openclawProcess = null;
     _openclawStarting = false;
     try {
-      process.kill('SIGTERM');
+      for (const pid of _descendantPids(proc.pid)) {
+        try { process.kill(pid, 'SIGTERM'); } catch (_) {}
+      }
+      proc.kill('SIGTERM');
       _openclawKillTimer = setTimeout(() => {
-        try { process.kill('SIGKILL'); } catch (_) {}
+        try { proc.kill('SIGKILL'); } catch (_) {}
         _openclawKillTimer = null;
       }, 3000);
     } catch (e) {
-      console.warn('[march-core] error deteniendo OpenClaw:', e.message);
+      console.warn('[core] error deteniendo OpenClaw:', e.message);
     }
   }
   getOpenClawBridge().resetAvailabilityCache();
@@ -771,7 +859,7 @@ function _restartOpenClawForWorkspace(ws) {
   const resolved = path.resolve(ws);
   if (_openclawWorkspace === resolved) return; // mismo workspace → no tocar nada
   if (!_openclawStarting && _openclawProcess) {
-    console.log('[march-core] workspace cambió — reiniciando OpenClaw para el nuevo allowed path');
+    console.log('[core] workspace cambió — reiniciando OpenClaw para el nuevo allowed path');
     try { _stopOpenClaw(); } catch (_) {}
   }
   if (!_openclawProcess && !_openclawStarting) {
@@ -809,7 +897,7 @@ async function buildContext(sessionHistory, activeProvider, options = {}) {
       behaviorCtx = _behavior.evaluate(userText, osCtx, sessionHistory);
       _bus.emit('behavior:evaluated', behaviorCtx);
     } catch(e) {
-      console.warn('[march-core] error en BehaviorModel:', e.message);
+      console.warn('[core] error en BehaviorModel:', e.message);
     }
   }
 
@@ -820,12 +908,12 @@ async function buildContext(sessionHistory, activeProvider, options = {}) {
       toolIntent = await _detector.detect(userText);
       if (toolIntent.detected) {
         console.log(
-          `[march-core] toolIntent: ${toolIntent.action}` +
+          `[core] toolIntent: ${toolIntent.action}` +
           ` (${(toolIntent.confidence * 100).toFixed(0)}%, ${toolIntent.level})`
         );
       }
     } catch(e) {
-      console.warn('[march-core] IntentDetector error:', e.message);
+      console.warn('[core] IntentDetector error:', e.message);
     }
   }
 
@@ -835,12 +923,12 @@ async function buildContext(sessionHistory, activeProvider, options = {}) {
     taskIntent = _taskDetector.detect(userText);
     if (taskIntent.isTask) {
       console.log(
-        `[march-core] taskIntent: ${taskIntent.domain?.id || 'indefinido'}` +
+        `[core] taskIntent: ${taskIntent.domain?.id || 'indefinido'}` +
         ` (confianza: ${taskIntent.confidence})`
       );
     }
   } catch(e) {
-    console.warn('[march-core] TaskDetector error:', e.message);
+    console.warn('[core] TaskDetector error:', e.message);
   }
 
   // GroundingEngine
@@ -878,7 +966,7 @@ async function buildContext(sessionHistory, activeProvider, options = {}) {
     });
     toolCatalog = resolvedTools?.promptCatalog || null;
   } catch(e) {
-    console.warn('[march-core] error en resolución de herramientas:', e.message);
+    console.warn('[core] error en resolución de herramientas:', e.message);
   }
   if (!toolCatalog) {
     toolCatalog = _toolRegistry.serializeToPrompt(taskIntent?.domain || null);
@@ -890,7 +978,7 @@ async function buildContext(sessionHistory, activeProvider, options = {}) {
   if (mode === 'agent') {
     if (result.systemPrompt.length > MAX_SYSTEM_CHARS) {
       result.systemPrompt = result.systemPrompt.slice(0, MAX_SYSTEM_CHARS) + '\n\n[contexto truncado por longitud]';
-      console.warn(`[march-core] system prompt truncado modo agent: ${result.systemPrompt.length} chars`);
+      console.warn(`[core] system prompt truncado modo agent: ${result.systemPrompt.length} chars`);
     }
     return { ...result, behaviorCtx, toolIntent, taskIntent, mode, nativeToolSchemas: resolvedTools?.nativeToolSchemas || null };
   }
@@ -903,7 +991,7 @@ async function buildContext(sessionHistory, activeProvider, options = {}) {
         result.systemPrompt += '\n\n' + skillBlock;
       }
     } catch(e) {
-      console.warn('[march-core] error inyectando skills:', e.message);
+      console.warn('[core] error inyectando skills:', e.message);
     }
   }
 
@@ -976,7 +1064,7 @@ async function buildContext(sessionHistory, activeProvider, options = {}) {
         'Formato exacto para múltiples comandos:\n' +
         'Ejecutar: git add .\n' +
         'Ejecutar: git commit -m "mensaje"\n' +
-        'Ejecutar: git push origin 7March\n' +
+        'Ejecutar: git push origin main\n' +
         'El sistema los ejecutará en orden automáticamente.';
     }
 
@@ -993,7 +1081,7 @@ async function buildContext(sessionHistory, activeProvider, options = {}) {
   // secciones COMPLETAS empezando por la menos importante, en vez de cortar
   // a mitad de una instrucción (que rompe el formato estructurado).
   if (result.systemPrompt.length > MAX_SYSTEM_CHARS) {
-    console.warn(`[march-core] system prompt excede: ${result.systemPrompt.length} > ${MAX_SYSTEM_CHARS} chars, recortando...`);
+    console.warn(`[core] system prompt excede: ${result.systemPrompt.length} > ${MAX_SYSTEM_CHARS} chars, recortando...`);
     // Orden de sacrificio: MCP → OpenClaw → episodios → memoria → OS → comportamiento → tools intent → identidad
     const sectionMarkers = [
       { name: 'MCP',       marker: '# HERRAMIENTAS MCP',            keepIf: null },
@@ -1019,12 +1107,12 @@ async function buildContext(sessionHistory, activeProvider, options = {}) {
       const sectionEnd = nextSep >= 0 ? from + 1 + nextSep : result.systemPrompt.length;
       const sectionText = result.systemPrompt.slice(from, sectionEnd);
       result.systemPrompt = result.systemPrompt.slice(0, from) + result.systemPrompt.slice(sectionEnd);
-      console.log(`[march-core] sección "${section.name}" eliminada (${sectionText.length} chars)`);
+      console.log(`[core] sección "${section.name}" eliminada (${sectionText.length} chars)`);
     }
     // Si sigue excediendo después de eliminar secciones opcionales, truncado duro al final
     if (result.systemPrompt.length > MAX_SYSTEM_CHARS) {
       const budget = MAX_SYSTEM_CHARS - TRUNCATION_SUFFIX.length;
-      console.warn(`[march-core] truncado duro: ${result.systemPrompt.length} → ${MAX_SYSTEM_CHARS} chars (solo identidad)`);
+      console.warn(`[core] truncado duro: ${result.systemPrompt.length} → ${MAX_SYSTEM_CHARS} chars (solo identidad)`);
       result.systemPrompt = result.systemPrompt.slice(0, Math.max(0, budget)) + TRUNCATION_SUFFIX;
     }
   }
@@ -1085,7 +1173,7 @@ async function generatePlan(userGoal, taskIntent, sessionHistory = []) {
       return { plan: null, llmResponse: null, error: 'No se pudo construir contexto' };
     }
 
-    console.log('[march-core] generando plan para:', userGoal.slice(0, 80));
+    console.log('[core] generando plan para:', userGoal.slice(0, 80));
     const llmResponse = await LLMProvider.completeTask(
       context.messages,
       context.systemPrompt + '\n\n## Solicitud del usuario\n' + userGoal
@@ -1095,7 +1183,7 @@ async function generatePlan(userGoal, taskIntent, sessionHistory = []) {
       return { plan: null, llmResponse: null, error: 'LLM no respondió' };
     }
 
-    console.log('[march-core] respuesta del plan:', llmResponse.slice(0, 200));
+    console.log('[core] respuesta del plan:', llmResponse.slice(0, 200));
     const plan = parsePlan(llmResponse);
 
     if (plan && plan.steps?.length > 0) {
@@ -1111,7 +1199,7 @@ async function generatePlan(userGoal, taskIntent, sessionHistory = []) {
 
     return { plan: null, llmResponse, error: 'No se pudo extraer un plan de la respuesta' };
   } catch (e) {
-    console.error('[march-core] error generando plan:', e.message);
+    console.error('[core] error generando plan:', e.message);
     return { plan: null, llmResponse: null, error: e.message };
   }
 }
@@ -1155,7 +1243,7 @@ async function executeTool(tool, params) {
   // — ese tipo de acción SOLO puede pasar por el flujo normal con plan +
   // confirmación del usuario.
   if (isHighImpact(tool, params || {})) {
-    console.warn(`[march-core] executeTool bloqueado — "${tool}" requiere pasar por el flujo de plan con aprobación, no por el atajo directo`);
+    console.warn(`[core] executeTool bloqueado — "${tool}" requiere pasar por el flujo de plan con aprobación, no por el atajo directo`);
     return {
       ok:     false,
       error:  'Esta acción requiere aprobación explícita — usa el flujo de plan (openclaw-parse-plan → openclaw-execute-plan) en vez de executeTool directo.',
@@ -1299,7 +1387,7 @@ async function forceProactive(triggerType = 'long_silence') {
 function _scheduleDailyPrune() {
   const run = () => {
     try { _graph?.pruneAppHistory(30); } catch(e) {
-      console.warn('[march-core] error en prune diario:', e.message);
+      console.warn('[core] error en prune diario:', e.message);
     }
   };
   _pruneInitTimer = setTimeout(run, 10_000);
@@ -1326,7 +1414,7 @@ function storeFact({ type, label, content, importance = 0.85, tags = [] }) {
   try {
     return _graph.createNode({ type, label, content, importance, tags });
   } catch(e) {
-    console.warn('[march-core] error guardando hecho:', e.message);
+    console.warn('[core] error guardando hecho:', e.message);
     return null;
   }
 }
@@ -1375,6 +1463,7 @@ module.exports = {
   mcpSearchRegistry,
   mcpListAllTools,
   setActiveWorkspace,
+  getWorkspace,
   listSkills,
   storeFact,
 };

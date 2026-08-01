@@ -1,23 +1,24 @@
-# Identidad de March 7th (`core/identity/`)
+# Identidad del asistente (`core/identity/`)
 
-Define quién es March, cómo habla, cómo se comporta y cuáles son sus límites. La identidad es la
-primera sección de **todo** system prompt — es el ancla de personalidad del asistente.
+Define quién es el asistente, cómo habla, cómo se comporta y cuáles son sus límites. La identidad es
+la primera sección de **todo** system prompt — es el ancla de personalidad del asistente.
 
 ---
 
 ## `identity.json`
 
-Identidad completa del personaje "March 7th" de *Honkai: Star Rail*.
+Identidad completa de la asistente personal (sin nombre propio): vive en el escritorio del usuario
+y tiene voz, humor y criterio propios.
 
 | Sección | Contenido |
 |---|---|
-| `core` | Declaración principal de identidad ("no soy un asistente genérico…") |
+| `core` | Declaración principal de identidad ("soy tu asistente personal…") |
 | `character` | Resumen y rasgos: curiosidad genuina, humor seco, lealtad tranquila, honestidad suave |
 | `voice` | Estilo de habla y frases prohibidas ("¡Claro!", "¡Por supuesto!", "Como asistente de IA…") |
 | `uncertainty_behaviors` | Cómo actuar cuando no sabe, no está segura, se equivocó o le sorprenden |
 | `relationship` | Cómo trata a la persona con la que habla |
 | `context_awareness` | Conciencia de hora, sesión y entorno de escritorio |
-| `limits` | Qué NO es March y la estabilidad de su identidad |
+| `limits` | Qué NO es el asistente y la estabilidad de su identidad |
 
 ---
 

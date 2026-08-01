@@ -439,7 +439,7 @@ async function testUpcomingEvents() {
   console.log(C.bold('\nTest 6: UpcomingEventsWatcher — recordatorios próximos'));
 
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'evt-'));
-  const graph = new StateGraph(path.join(dir, 'march.db')).init();
+  const graph = new StateGraph(path.join(dir, 'core.db')).init();
   const updater = new StateUpdater(graph);
 
   // 6a. Parser directo

@@ -11,7 +11,7 @@ Registra métricas de uso del asistente:
 
 | Métrica | Qué mide |
 |---|---|
-| **Turnos** | Mensajes del usuario procesados por el funnel de `MarchCore.addTurn` |
+| **Turnos** | Mensajes del usuario procesados por el funnel de `Core.addTurn` |
 | **Sesiones** | Sesiones de conversación iniciadas/cerradas |
 | **Silencios** | Periodos sin interacción |
 | **Tiempos de respuesta** | Latencia de las respuestas del asistente |
@@ -29,13 +29,13 @@ Registra métricas de uso del asistente:
 
 ## Cómo se alimenta
 
-`MarchCore.addTurn()` registra cada turno (es el *funnel* de toda conversación) y
+`Core.addTurn()` registra cada turno (es el *funnel* de toda conversación) y
 `ProposalStore.getDecisions()` expone el historial de aceptación/descartes por tipo con timestamp —
 eso da la **baseline** de aceptación por tipo de propuesta que consume el motor de decisión.
 
 ```mermaid
 flowchart LR
-    CHAT["Conversación<br/>usuario ↔ March"] -->|"addTurn"| TS["TelemetryStore<br/>turnos · sesiones · silencios<br/>tiempos de respuesta"]
+    CHAT["Conversación<br/>usuario ↔ asistente"] -->|"addTurn"| TS["TelemetryStore<br/>turnos · sesiones · silencios<br/>tiempos de respuesta"]
     PROPS["ProposalStore<br/>decisiones por tipo"] -->|"baseline"| TS
     TS -->|"reporte mensual<br/>deltas + veredicto"| IPC["IPC telemetry-report"]
     IPC --> CMD["/telemetria ▲▼"]

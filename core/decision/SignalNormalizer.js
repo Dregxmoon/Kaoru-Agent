@@ -80,7 +80,7 @@ const TEMPORAL_PROFILES = {
 const CONTEXT_EVENTS = new Set([
   'os:idle-changed', 'os:app-changed', 'os:app-tick', 'os:history-updated',
   'os:windows-updated', 'workspace:changed', 'session:started', 'session:closed',
-  'memory:turn-added', 'march:memory-status', 'behavior:evaluated',
+  'memory:turn-added', 'memory-status', 'behavior:evaluated',
   'git:branch-changed', 'plan:started', 'plan:generated', 'plan:step-start',
   'plan:step-done', 'plan:finished', 'agent:completed', 'openclaw:available',
 ]);

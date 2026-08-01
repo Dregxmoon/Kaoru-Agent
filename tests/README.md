@@ -1,4 +1,4 @@
-# Estrategia de pruebas — Asistente-Vtuber (March 7th)
+# Estrategia de pruebas — Asistente Personal
 
 Documento de referencia del sistema de pruebas: cómo se ejecuta, qué cubre cada suite y las
 convenciones para contribuir. El proyecto prioriza **verificación real** sobre mocks: donde la

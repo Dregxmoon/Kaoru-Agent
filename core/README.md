@@ -1,11 +1,11 @@
 # Núcleo de inteligencia (`core/`)
 
 Capa central del sistema: inicializa, conecta y orquesta todos los subsistemas de inteligencia, memoria,
-percepción y ejecución. `MarchCore` es el archivador que da vida al resto de los módulos.
+percepción y ejecución. `Core` es el archivador que da vida al resto de los módulos.
 
 ---
 
-## Orquestador: `MarchCore.js`
+## Orquestador: `Core.js`
 
 Responsable del ciclo de vida completo de la aplicación:
 
@@ -21,18 +21,23 @@ Responsable del ciclo de vida completo de la aplicación:
 - **Proactividad:** conecta sensores de señales al motor proactivo y enruta las decisiones de propuesta
   entre el chat y el executor.
 - **Herramientas:** inyección del catálogo OpenClaw/MCP en el prompt y gestión del workspace activo.
+- **Workspace:** `setActiveWorkspace()` cambia el proyecto sobre el que opera el asistente (reinicia LSP,
+  reinicia OpenClaw con el path permitido, reconecta el MCP filesystem y lo persiste en `config.json`).
+- **Cierre:** `shutdown()` mata también los procesos hijo que queden vivos (LSP, servidores MCP y sus
+  descendientes vía `npx`) para no dejar huérfanos al cerrar la app.
 
 ### API pública principal
 
 | Función | Propósito |
 |---|---|
 | `init(app)` | Inicializa todos los subsistemas y los conecta al bus |
-| `shutdown()` | Cierre ordenado (desconecta MCP, navegador, sensores) |
+| `shutdown()` | Cierre ordenado (desconecta MCP, navegador, sensores y mata procesos hijo) |
 | `startSession() / closeSession()` | Ciclo de vida de la sesión de conversación |
 | `addTurn(role, content)` | Registra un turno (alimenta historial, memoria y telemetría) |
 | `buildContext(history, provider, opts)` | Ensambla el contexto del LLM (modos chat/plan/execute/agent) |
 | `runAgent(message, opts)` | Ejecuta el bucle agente con herramientas |
 | `handleProposalDecision(id, decision)` | Procesa aceptar/descartar de una propuesta proactiva |
+| `setActiveWorkspace(path)` / `getWorkspace()` | Cambia/consulta el workspace activo (proyecto del usuario) |
 | `getStats()` | Estado de sesión, sensores, motor proactivo, señales, telemetría |
 
 ---
@@ -46,7 +51,7 @@ Responsable del ciclo de vida completo de la aplicación:
 | [`commands/`](./commands/README.md) | Registro de comandos de chat (`/comando`) |
 | [`decision/`](./decision/README.md) | Núcleo determinista de decisión proactiva (Fase F) |
 | [`grounding/`](./grounding/README.md) | Pipeline de contexto: intención, memoria, serializadores |
-| [`identity/`](./identity/README.md) | Personalidad de March 7th |
+| [`identity/`](./identity/README.md) | Personalidad del asistente |
 | [`llm/`](./llm/README.md) | Abstracción multi-proveedor de LLM |
 | [`lsp/`](./lsp/README.md) | Cliente LSP e índice de símbolos para el agente de código |
 | [`mcp/`](./mcp/README.md) | Cliente Model Context Protocol |
@@ -66,7 +71,7 @@ flowchart LR
         UI["UI (IPC)"]
         SENSORS["infrastructure/sensors<br/>señales del SO"]
     end
-    subgraph CORE["MarchCore"]
+    subgraph CORE["Core"]
         GROUND["grounding<br/>contexto"]
         GRAPH["state-graph<br/>memoria"]
         LLM["llm"]
@@ -89,4 +94,4 @@ flowchart LR
 ```
 
 Cada módulo se comunica con el resto exclusivamente a través del `EventBus`
-(`infrastructure/event-bus/`) o de la API pública de `MarchCore` — no hay dependencias cruzadas directas.
+(`infrastructure/event-bus/`) o de la API pública de `Core` — no hay dependencias cruzadas directas.

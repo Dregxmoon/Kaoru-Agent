@@ -1,4 +1,4 @@
-# Arquitectura — Asistente-Vtuber (March 7th)
+# Arquitectura — Asistente Personal
 
 Documento de referencia de la arquitectura del sistema en su estado actual. Describe el flujo completo:
 de la entrada del usuario a la respuesta, y de las señales del sistema al motor de proactividad, pasando
@@ -19,15 +19,15 @@ flowchart TD
     end
 
     subgraph IPC["Capa IPC (main.js)"]
-        ADD_TURN["ipcMain.on memory-add-turn<br/>→ MarchCore.addTurn()"]
+        ADD_TURN["ipcMain.on memory-add-turn<br/>→ Core.addTurn()"]
         BUILD_CTX["ipcMain.handle grounding-build-context"]
         AGENT_RUN["ipcMain.handle agent-run"]
-        PROPOSAL_DEC["ipcMain.on initiative-decision<br/>→ MarchCore.handleProposalDecision()"]
+        PROPOSAL_DEC["ipcMain.on initiative-decision<br/>→ Core.handleProposalDecision()"]
         TELEMETRY["ipcMain.handle telemetry-report<br/>/telemetry/report"]
-        INITIATIVE_FWD["MarchCore.onInitiative<br/>→ webContents.send march-initiative"]
+        INITIATIVE_FWD["Core.onInitiative<br/>→ webContents.send initiative"]
     end
 
-    subgraph CORE["MarchCore (núcleo)"]
+    subgraph CORE["Core (núcleo)"]
         ADD_TURN -->|"memory:turn-added"| PROACTIVE_ENGINE
         ADD_TURN --> TELEMETRY_STORE
         BUILD_CTX --> BUILD_CONTEXT
@@ -42,7 +42,7 @@ flowchart TD
         end
 
         subgraph PROACTIVE["Motor de proactividad (decisión determinista)"]
-            PROACTIVE_ENGINE["ProactiveEngine<br/>• gates pre-LLM (cooldown, presupuesto,<br/>chat reciente, AFK, lock)<br/>• _tryTrigger() → gate F-4 + consulta LLM<br/>• _generateMessage() (identidad March)<br/>• _buildProposal() (determinista)"]
+            PROACTIVE_ENGINE["ProactiveEngine<br/>• gates pre-LLM (cooldown, presupuesto,<br/>chat reciente, AFK, lock)<br/>• _tryTrigger() → gate F-4 + consulta LLM<br/>• _generateMessage() (identidad del asistente)<br/>• _buildProposal() (determinista)"]
             PROACTIVE_ENGINE -->|"candidato normalizado"| DECISION_CORE["DecisionCore<br/>scoreRelevancia / receptividad /<br/>presupuesto / decide + AuditLog"]
             PROACTIVE_ENGINE -->|"señal → candidato"| NORMALIZER["SignalNormalizer<br/>payload de sensor →<br/>{tipo, urgencia, confianza,<br/>accionabilidad, saliencia}"]
             PROACTIVE_ENGINE -->|"contexto en vivo"| CONTEXT_GATE["ContextGate<br/>flow detection + presupuesto<br/>dinámico + cola QUEUE"]
@@ -125,7 +125,7 @@ flowchart TD
 
 El motor actual decide con un **núcleo determinista** entre los sensores y el engine. El LLM participa
 únicamente generando el contenido del mensaje (identidad + memoria + anti-repetición); **nunca decide**
-si March debe hablar.
+si el asistente debe hablar.
 
 ```mermaid
 flowchart LR

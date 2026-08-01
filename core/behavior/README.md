@@ -1,6 +1,6 @@
 # Comportamiento y proactividad (`core/behavior/`)
 
-Define **cómo** se comporta March y **cuándo** debe tomar la iniciativa, con una arquitectura de dos
+Define **cómo** se comporta el asistente y **cuándo** debe tomar la iniciativa, con una arquitectura de dos
 niveles: heurística y núcleo determinista deciden, el LLM genera el contenido, y la ejecución siempre
 pasa por consentimiento.
 
@@ -24,7 +24,7 @@ flowchart TD
 ## `BehaviorModel.js` — modelado del comportamiento
 
 No genera lenguaje: evalúa en cada turno el estado del usuario y produce un `BehaviorContext` que
-describe cómo debe comportarse March.
+describe cómo debe comportarse el asistente.
 
 | Campo | Valores | Descripción |
 |---|---|---|

@@ -1,8 +1,7 @@
-# March 7th — Asistente de Escritorio Autónomo
 
 **Un compañero de escritorio con IA que observa el sistema operativo, recuerda con contexto, y actúa solo cuando tiene permiso — con un motor de decisión determinista y auditable.**
 
-March 7th es una plataforma de asistencia personal que vive en el escritorio del usuario. Combina un avatar Live2D, un modelo de lenguaje conversacional, memoria semántica persistente con decaimiento temporal, percepción en tiempo real del sistema operativo, y un motor de proactividad que decide *cuándo* hablar, *cuándo* callar y *cómo* entregar su ayuda — sin depender de un chatbot reactivo ni de temporizadores ciegos.
+Una plataforma de asistencia personal que vive en el escritorio del usuario. Combina un avatar Live2D, un modelo de lenguaje conversacional, memoria semántica persistente con decaimiento temporal, percepción en tiempo real del sistema operativo, y un motor de proactividad que decide *cuándo* hablar, *cuándo* callar y *cómo* entregar su ayuda — sin depender de un chatbot reactivo ni de temporizadores ciegos.
 
 ---
 
@@ -10,10 +9,10 @@ March 7th es una plataforma de asistencia personal que vive en el escritorio del
 
 ### ¿Qué problema resuelve?
 
-Los asistentes de escritorio tradicionales son **reactivos**: esperan a que el usuario escriba. March 7th está diseñado para ser **proactivo de forma responsable**:
+Los asistentes de escritorio tradicionales son **reactivos**: esperan a que el usuario escriba. Este asistente está diseñado para ser **proactivo de forma responsable**:
 
 - **Observa en silencio.** Detecta contexto real del sistema operativo: aplicación activa, tiempo de enfoque, inactividad, señales de riesgo en el repositorio (`.env` sin ignorar, conflictos de merge, commits sin push), errores del editor (LSP) y eventos próximos del calendario.
-- **Habla cuando aporta.** Cada mensaje proactivo está justificado por un **score de relevancia determinista** (no por corazonadas del modelo), pasa por un *gate de contexto* que respeta el momento del usuario (foco, inactividad, presupuesto diario), y se entrega como **propuesta con consentimiento**: March propone, el usuario decide.
+- **Habla cuando aporta.** Cada mensaje proactivo está justificado por un **score de relevancia determinista** (no por corazonadas del modelo), pasa por un *gate de contexto* que respeta el momento del usuario (foco, inactividad, presupuesto diario), y se entrega como **propuesta con consentimiento**: el asistente propone, el usuario decide.
 - **Recuerda con contexto.** Mantiene un grafo de conocimiento persistente sobre el usuario (proyectos, preferencias, hechos) con búsqueda semántica local y decaimiento temporal — lo de ayer pesa más que lo de hace tres semanas, sin descartar lo importante.
 - **Ejecuta con defensa en profundidad.** Las acciones de alto impacto (edición de archivos, comandos de shell, navegación web, herramientas externas) requieren aprobación explícita, están confinadas al proyecto del usuario y se verifican post-ejecución con rollback automático si algo sale mal.
 
@@ -52,7 +51,7 @@ flowchart TD
         DECIDE["handleProposalDecision()"]
     end
 
-    subgraph CORE["MarchCore — orquestador"]
+    subgraph CORE["Core — orquestador"]
         subgraph CHAT_FLOW["Conversación"]
             GROUND["Grounding<br/>intención + memoria"]
             LOOP["AgentLoop<br/>LLM → tool → resultado"]
@@ -87,7 +86,7 @@ flowchart TD
 
 ### Flujo conversacional
 
-1. El usuario escribe un mensaje → `MarchCore.buildContext()` ensambla identidad, contexto del SO, memoria recuperada e intención.
+1. El usuario escribe un mensaje → `Core.buildContext()` ensambla identidad, contexto del SO, memoria recuperada e intención.
 2. `IntentDetector` (embeddings locales) y `TaskDetector` clasifican si hay intención de acción y en qué dominio.
 3. `AgentLoop` (modo agente) ejecuta el bucle **LLM → herramienta → resultado → LLM** con un tope de iteraciones; o `complete()`/`completeWithTools()` para respuestas directas.
 4. La respuesta se renderiza en el chat (markdown sanitizado) y se persiste la sesión incrementalmente.
@@ -159,13 +158,13 @@ Cliente MCP propio (stdio), reconexión automática con backoff, namespacing de 
 
 ```
 ├── core/                      # Núcleo de inteligencia y orquestación
-│   ├── MarchCore.js           #   Orquestador central (init, sesiones, contexto)
+│   ├── Core.js           #   Orquestador central (init, sesiones, contexto)
 │   ├── agents/                #   Definiciones de agentes especializados
 │   ├── behavior/              #   Comportamiento + motor de proactividad
 │   ├── commands/              #   Registro de comandos (/comando)
 │   ├── decision/              #   Núcleo determinista de decisión proactiva
 │   ├── grounding/             #   Pipeline de contexto (intención, memoria, serializers)
-│   ├── identity/              #   Personalidad de March 7th (identity.json)
+│   ├── identity/              #   Personalidad del asistente (identity.json)
 │   ├── llm/                   #   Abstracción de proveedores de LLM
 │   ├── lsp/                   #   Cliente LSP + índice de símbolos
 │   ├── mcp/                   #   Cliente Model Context Protocol
@@ -180,7 +179,7 @@ Cliente MCP propio (stdio), reconexión automática con backoff, namespacing de 
 │   ├── keychain/              #   Llavero del SO (credenciales seguras)
 │   └── sensors/               #   Sensores de señales (git, LSP, sistema, etc.)
 ├── src/                       # Interfaz (overlay Live2D + ventana de chat)
-├── models/                    # Asset Live2D de March 7th (fan work, no comercial)
+├── models/                    # Modelos Live2D (solo "March 7th" se versiona; los importados por el usuario no se suben)
 ├── skills/                    # Skills del proyecto (code-review, git-workflow, testing)
 ├── tests/                     # Suite de pruebas (unitarias + integración)
 └── docs/                      # Documentación técnica y de arquitectura
@@ -210,6 +209,8 @@ En `config.json` (fuente de claves) o `.env` (alternativa):
 
 ```json
 {
+  "activeModel": "March 7th",
+  "activeWorkspace": "~/mis-proyectos/panel",
   "llm": {
     "primary": "groq",
     "apiKeys": { "groq": "", "gemini": "", "openai": "" },
@@ -223,12 +224,34 @@ En `config.json` (fuente de claves) o `.env` (alternativa):
 
 | Clave | Descripción |
 |---|---|
+| `activeModel` | Modelo Live2D activo (carpeta dentro de `models/`) |
+| `activeWorkspace` | Carpeta/proyecto activo sobre el que opera el asistente |
 | `llm.primary` | Proveedor principal (`groq` / `gemini` / `openai`) |
 | `llm.apiKeys` | Claves API por proveedor (o `LLM_KEY_*` en `.env`) |
 | `llm.fallback` | Cadena de fallback entre proveedores |
 | `autonomy` | `observe` (solo observa) · `suggest` (propone, default) · `act` (actúa con confirmación) |
 | `sensors.*` | Activa/desactiva sensores de señales (git, sistema, título, portapapeles, eventos, LSP) |
 | `mcp.servers` | Servidores MCP a conectar al arrancar |
+
+### Cambiar el modelo Live2D
+
+El modelo se elige en tiempo real sin reiniciar:
+
+- **Comando** `/cambio-modelo` en el chat lista los modelos disponibles en `models/`; `/cambio-modelo <nombre>` activa uno (con autocompletado al escribir `/cambio-modelo `).
+- **Arrastra y suelta** la carpeta de un modelo sobre la ventana de chat para importarlo y activarlo automáticamente.
+
+Cada modelo es una carpeta dentro de `models/` que contiene al menos un archivo `.model3.json` (Live2D Cubism). El cambio se propaga al instante al overlay y al chat vía IPC, y queda guardado en `config.json` como `activeModel`.
+
+Los modelos que el usuario importa se guardan en `models/`, quedan excluidos del repositorio (`.gitignore` del proyecto y global de git) y no se suben a GitHub; solo el modelo por defecto (`March 7th`) forma parte del repo.
+
+### Workspace del proyecto
+
+El asistente trabaja sobre un **workspace activo** — la carpeta/proyecto real del usuario, distinta de la carpeta donde corre la app:
+
+- **Seleccionar:** botón del workspace en la barra superior del chat, o variable de entorno `ASISTENTE_WORKSPACE`. Queda persistido en `config.json` como `activeWorkspace`.
+- **`/init`**: analiza el proyecto activo (package.json, extensiones, estructura) y lo guarda en memoria persistente.
+- **`@archivo`**: al escribir `@` se listan todos los archivos del proyecto y se van filtrando mientras se escribe (Tab/flechas/Enter para insertar). Los comandos de archivo (`/init`, `/open`, …) y las referencias `@` resuelven contra el **workspace activo**, no contra la carpeta de la app.
+- Al iniciar, la sesión anterior se retoma en silencio (sin mensaje de "mensajes recuperados").
 
 ### Ejecutar
 
@@ -284,6 +307,6 @@ El proyecto se desarrolla por fases — ver [`ROADMAP.md`](./ROADMAP.md) para la
 
 El código fuente se distribuye bajo licencia **MIT** — ver [`LICENSE`](./LICENSE).
 
-**Los assets del modelo Live2D (`models/`)** son propiedad de Cognosphere Pte. Ltd. / HoYoverse (personaje *March 7th* de *Honkai: Star Rail*) y se usan aquí como contenido de fan sin fines comerciales. Cualquier reutilización de este proyecto debe proveer su propio modelo o excluir esa carpeta.
+**Los assets del modelo Live2D de `models/March 7th/`** son propiedad de Cognosphere Pte. Ltd. / HoYoverse (personaje *March 7th* de *Honkai: Star Rail*) y se usan aquí como contenido de fan sin fines comerciales. Es el único modelo que se distribuye con el repo; los modelos que el usuario importa quedan fuera del control de versiones. Cualquier reutilización de este proyecto debe proveer su propio modelo o excluir esa carpeta.
 
 Este proyecto es un trabajo de fan **no oficial**, sin afiliación con Cognosphere Pte. Ltd. ni con HoYoverse.

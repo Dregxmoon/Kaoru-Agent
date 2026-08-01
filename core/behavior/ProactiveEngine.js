@@ -979,7 +979,7 @@ Genera el parche JSON.`;
 
   // ── Fase C: recap de pendientes al arrancar ─────────────────────────────────
   // Retomar hilos: al arrancar, si hay recordatorios guardados (nodos
-  // `recordar_*`) con hora próxima o día de hoy, March ofrece retomarlos. Va
+  // `recordar_*`) con hora próxima o día de hoy, el asistente ofrece retomarlos. Va
   // por el mismo pipeline (LLM con la última palabra, cooldowns, presupuesto),
   // así no se convierte en un ladrido automático al boot.
 
@@ -1188,7 +1188,7 @@ Genera el parche JSON.`;
   }
   /**
    * Ejecuta la acción de una propuesta aceptada y anuncia el resultado real
-   * al bus ('proposal:executed' → MarchCore → chat). Idempotente por
+   * al bus ('proposal:executed' → Core → chat). Idempotente por
    * proposalId y serializado por el lock propio del executor.
    */
   async _executeProposal(pending, proposalId, type) {
@@ -1219,7 +1219,7 @@ Genera el parche JSON.`;
     const timeStr  = now.toLocaleTimeString('es-MX', { hour: '2-digit', minute: '2-digit' });
     const identity = _safeGetIdentity();
 
-    const systemPrompt = `${identity.core || 'Eres March 7th.'}
+    const systemPrompt = `${identity.core || 'Eres la asistente personal de esta computadora.'}
 
 Tienes carácter propio, humor seco, y eres genuinamente cercana a la persona con quien hablas.
 Nunca usas frases como "¡Claro!", "¡Por supuesto!", "¿En qué puedo ayudarte?", "Como asistente de IA...".
@@ -1258,10 +1258,10 @@ ${antiRepeat}
 ${productionMode}
 
 INSTRUCCIÓN CRÍTICA:
-${productionMode ? 'Escribe UN mensaje corto (1-3 oraciones máximo) en tu voz natural como March. No expliques por qué escribes. No anuncies que eres proactiva. Solo di lo que dirías.'
+${productionMode ? 'Escribe UN mensaje corto (1-3 oraciones máximo) en tu voz natural como asistente personal. No expliques por qué escribes. No anuncies que eres proactiva. Solo di lo que dirías.'
   : `Decide si hay algo genuino y relevante que decirle al usuario AHORA.
 Si no hay nada genuino que decir, responde exactamente: NO
-Si sí hay algo, escribe UN mensaje corto (1-3 oraciones máximo) en tu voz natural como March.
+Si sí hay algo, escribe UN mensaje corto (1-3 oraciones máximo) en tu voz natural como asistente personal.
 No expliques por qué escribes. No anuncies que eres proactiva. Solo di lo que dirías.`}`;
 
     try {
@@ -1562,7 +1562,7 @@ function _safeGetIdentity() {
   try {
     return getIdentity();
   } catch(_) {
-    return { core: 'Eres March 7th. Tienes carácter propio y eres cercana a la persona con quien hablas.' };
+    return { core: 'Eres la asistente personal. Tienes carácter propio y eres cercana a la persona con quien hablas.' };
   }
 }
 

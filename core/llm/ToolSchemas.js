@@ -78,7 +78,7 @@ const TOOL_SCHEMAS = [
   },
   {
     name: 'browser',
-    description: 'Navega a una URL y obtiene el contenido de la página. Usa el navegador headless de March.',
+    description: 'Navega a una URL y obtiene el contenido de la página. Usa el navegador headless del asistente.',
     inputSchema: {
       type: 'object',
       properties: {

@@ -2,13 +2,13 @@
  * GroundingMinimo.js — Fase 0
  *
  * Construye el Context Package mínimo que recibe el LLM en cada turno:
- *   - Identity Core completo (quién es March)
+ *   - Identity Core completo (quién es el asistente)
  *   - Últimas N interacciones de la sesión actual (working memory)
  *   - Contexto básico del OS: hora, día, plataforma
  *
  * En Fase 1 esto se expande con State Graph (memoria entre sesiones).
  * En Fase 2 se expande con OS Sensor (app activa, actividad del usuario).
- * Por ahora: mínimo funcional para que March deje de responder con strings aleatorios.
+ * Por ahora: mínimo funcional para que el asistente deje de responder con strings aleatorios.
  */
 
 const fs   = require('fs');
@@ -26,7 +26,7 @@ function getIdentity() {
     console.log('[grounding] identity.json cargado');
   } catch(e) {
     console.error('[grounding] ERROR cargando identity.json:', e.message);
-    _identity = { name: 'March 7th', core: 'Soy March 7th.' };
+    _identity = { name: 'asistente', core: 'Soy tu asistente personal.' };
   }
   return _identity;
 }
@@ -109,7 +109,7 @@ function serializeWorkingMemory(history, maxTurns = 8) {
 
   const lines = ['# CONVERSACIÓN ACTUAL (esta sesión)'];
   recent.forEach(msg => {
-    const role = msg.role === 'user' ? 'Usuario' : 'March';
+    const role = msg.role === 'user' ? 'Usuario' : 'Asistente';
     lines.push(`${role}: ${msg.content}`);
   });
 
@@ -148,7 +148,7 @@ function buildSystemPrompt(sessionHistory = []) {
 
   // 4. Instrucción final
   sections.push(`# INSTRUCCIÓN`);
-  sections.push(`Responde como March 7th. Sé concisa cuando el momento lo pide, más extensa cuando el tema lo merece. No uses las frases prohibidas. No te presentes a ti misma en cada mensaje. Responde en el idioma en que te hablen.`);
+  sections.push(`Responde como la asistente personal. Sé concisa cuando el momento lo pide, más extensa cuando el tema lo merece. No uses las frases prohibidas. No te presentes a ti misma en cada mensaje. Responde en el idioma en que te hablen.`);
 
   return sections.join('\n');
 }

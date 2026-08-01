@@ -1,7 +1,7 @@
 # Skills (`core/skills/`)
 
 Sistema de **skills**: conocimiento procedural inyectable que se activa cuando la tarea del usuario
-coincide con el dominio de la skill. Extiende las capacidades de March sin tocar el núcleo.
+coincide con el dominio de la skill. Extiende las capacidades del asistente sin tocar el núcleo.
 
 ---
 

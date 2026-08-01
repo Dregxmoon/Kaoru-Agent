@@ -10,8 +10,14 @@ const { URL } = require('url');
 const { spawnSync } = require('child_process');
 const crypto = require('crypto');
 
-const MarchCore = require('./core/MarchCore.js');
+const Core = require('./core/Core.js');
 const KeychainManager = require('./infrastructure/keychain/KeychainManager.js');
+
+// Fija el nombre interno de la app ANTES de que se lea userData: package.json
+// ahora usa branding neutral (productName "Asistente Personal"), pero la carpeta
+// de datos (config.json, core.db) se mantiene en ~/.config/vtuber-overlay para
+// no perder la configuración y memoria existentes del usuario.
+app.setName('vtuber-overlay');
 
 // ── Manejo global de errores ──────────────────────────────────────────────────
 // Antes no había NINGÚN handler de uncaughtException/unhandledRejection — un
@@ -20,7 +26,7 @@ const KeychainManager = require('./infrastructure/keychain/KeychainManager.js');
 // esto corre casi siempre desde la bandeja del sistema sin consola abierta.
 // Ahora se registra en un log persistente para poder diagnosticar qué pasó,
 // pero NO se fuerza el cierre — la mayoría de estos errores son recuperables
-// y March es una app "siempre presente", no queremos que un solo handler
+// y el asistente es una app "siempre presente", no queremos que un solo handler
 // roto tumbe toda la sesión.
 const CRASH_LOG_PATH = path.join(app.getPath('userData'), 'crash.log');
 
@@ -40,7 +46,7 @@ process.on('unhandledRejection', (reason) => logCrash('unhandledRejection', reas
 // reinstalas Windows, cambias de versión de Python, o si algún día generas el
 // build portable (`npm run build-portable`) para alguien más, ya que ese exe
 // jamás va a tener esa ruta exacta. Ahora se resuelve dinámicamente:
-//   1. Variable de entorno MARCH_PYTHON_BIN (override manual si hace falta)
+//   1. Variable de entorno ASISTENTE_PYTHON_BIN (override manual si hace falta)
 //   2. El launcher estándar de Windows `py -3` (viene con casi cualquier
 //      instalación oficial de Python en Windows)
 //   3. `python` / `python3` si están en el PATH
@@ -49,9 +55,9 @@ process.on('unhandledRejection', (reason) => logCrash('unhandledRejection', reas
 //      más alta encontrada
 // Se resuelve una sola vez al arrancar y se cachea.
 function resolvePythonBin() {
-  if (process.env.MARCH_PYTHON_BIN && fs.existsSync(process.env.MARCH_PYTHON_BIN)) {
-    console.log('[python] usando override MARCH_PYTHON_BIN:', process.env.MARCH_PYTHON_BIN);
-    return process.env.MARCH_PYTHON_BIN;
+  if (process.env.ASISTENTE_PYTHON_BIN && fs.existsSync(process.env.ASISTENTE_PYTHON_BIN)) {
+    console.log('[python] usando override ASISTENTE_PYTHON_BIN:', process.env.ASISTENTE_PYTHON_BIN);
+    return process.env.ASISTENTE_PYTHON_BIN;
   }
 
   // Resuelve el comando a la ruta ABSOLUTA real del ejecutable (en vez de
@@ -105,7 +111,7 @@ function resolvePythonBin() {
     }
   }
 
-  console.warn('[python] no se encontró ningún intérprete de Python. La voz y el STT local no van a funcionar hasta que instales Python o definas MARCH_PYTHON_BIN.');
+  console.warn('[python] no se encontró ningún intérprete de Python. La voz y el STT local no van a funcionar hasta que instales Python o definas ASISTENTE_PYTHON_BIN.');
   return null;
 }
 
@@ -223,7 +229,7 @@ if (maskedConfig.llm?.apiKeys) {
     if (maskedConfig.llm.apiKeys[k]) maskedConfig.llm.apiKeys[k] = '***';
   }
 }
-console.log('[march7th] config cargada:', maskedConfig);
+console.log('[asistente] config cargada:', maskedConfig);
 
 if (process.platform === 'linux')
   app.commandLine.appendSwitch('enable-transparent-visuals');
@@ -301,7 +307,7 @@ function createChatWindow() {
     if (!chatWindow.isVisible()) {
       chatWindow.show(); chatWindow.focus();
       if (mainWindow && !mainWindow.isDestroyed()) mainWindow.hide();
-      MarchCore.setChatOpen(true);
+      Core.setChatOpen(true);
       if (tray) tray.setContextMenu(buildTrayMenu());
     } else {
       chatWindow.focus();
@@ -333,7 +339,7 @@ function createChatWindow() {
   chatWindow.webContents.once('did-finish-load', () => {
     chatWindow.webContents.send('init-theme', chatTheme);
 
-    const usingFallback = MarchCore.getGraph()?.usingFallback ?? false;
+    const usingFallback = Core.getGraph()?.usingFallback ?? false;
     chatWindow.webContents.send('memory-status', { usingFallback });
 
     // Mejora #6 — si sessionPromise resolvió con una sesión RETOMADA
@@ -349,12 +355,12 @@ function createChatWindow() {
 
   if (mainWindow && !mainWindow.isDestroyed()) mainWindow.hide();
 
-  const sessionPromise = MarchCore.startSession().catch(e => { console.error('[session] error:', e.message); return null; });
-  MarchCore.setChatOpen(true);
+  const sessionPromise = Core.startSession().catch(e => { console.error('[session] error:', e.message); return null; });
+  Core.setChatOpen(true);
 
   chatWindow.on('closed', () => {
-    MarchCore.closeSession().catch(e => console.error('[session] close error:', e.message));
-    MarchCore.setChatOpen(false);
+    Core.closeSession().catch(e => console.error('[session] close error:', e.message));
+    Core.setChatOpen(false);
     chatWindow = null;
     if (mainWindow && !mainWindow.isDestroyed()) mainWindow.show();
     if (tray) tray.setContextMenu(buildTrayMenu());
@@ -369,12 +375,12 @@ function toggleChatWindow() {
   } else if (chatWindow.isVisible()) {
     chatWindow.hide();
     if (mainWindow && !mainWindow.isDestroyed()) mainWindow.show();
-    MarchCore.setChatOpen(false);
+    Core.setChatOpen(false);
     if (tray) tray.setContextMenu(buildTrayMenu());
   } else {
     chatWindow.show(); chatWindow.focus();
     if (mainWindow && !mainWindow.isDestroyed()) mainWindow.hide();
-    MarchCore.setChatOpen(true);
+    Core.setChatOpen(true);
     if (tray) tray.setContextMenu(buildTrayMenu());
   }
 }
@@ -406,7 +412,7 @@ function buildTrayMenu() {
 
 function createTray() {
   tray = new Tray(nativeImage.createEmpty());
-  tray.setToolTip('March 7th — Sentinel-Pi');
+  tray.setToolTip('Asistente personal');
   tray.setContextMenu(buildTrayMenu());
 }
 
@@ -427,11 +433,97 @@ ipcMain.on('model-dblclick', () => toggleChatWindow());
 ipcMain.on('chat-close', () => {
   if (chatWindow && !chatWindow.isDestroyed()) chatWindow.hide();
   if (mainWindow && !mainWindow.isDestroyed()) mainWindow.show();
-  MarchCore.setChatOpen(false);
+  Core.setChatOpen(false);
   if (tray) tray.setContextMenu(buildTrayMenu());
 });
 
 ipcMain.on('chat-theme-changed', (e, theme) => { chatTheme = theme; saveConfig({ chatTheme: theme }); });
+
+// ── IPC: modelo Live2D ─────────────────────────────────────────────────────────
+const MODELS_DIR = path.join(__dirname, 'models');
+let activeModelId = savedConfig.activeModel || 'March 7th';
+
+function listModels() {
+  const models = [];
+  if (!fs.existsSync(MODELS_DIR)) return models;
+  for (const entry of fs.readdirSync(MODELS_DIR, { withFileTypes: true })) {
+    if (!entry.isDirectory()) continue;
+    const folder = path.join(MODELS_DIR, entry.name);
+    let model3 = null;
+    try {
+      model3 = fs.readdirSync(folder).find(f => f.endsWith('.model3.json')) || null;
+    } catch {}
+    if (model3) {
+      models.push({
+        id: entry.name,
+        name: entry.name,
+        model3Path: path.join(folder, model3),
+        active: entry.name === activeModelId,
+      });
+    }
+  }
+  return models;
+}
+
+function getActiveModel() {
+  const models = listModels();
+  return models.find(m => m.active) || models[0] || null;
+}
+
+function setActiveModel(id) {
+  if (!listModels().find(m => m.id === id)) return false;
+  activeModelId = id;
+  saveConfig({ activeModel: id });
+  return true;
+}
+
+function broadcastModelChanged() {
+  const info = getActiveModel();
+  if (!info) return;
+  const payload = { ...info, models: listModels() };
+  if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('model-changed', payload);
+  if (chatWindow && !chatWindow.isDestroyed()) chatWindow.webContents.send('model-changed', payload);
+}
+
+ipcMain.handle('models-list', () => listModels());
+
+ipcMain.handle('get-model-info', () => getActiveModel());
+
+ipcMain.handle('model-set', (e, { id } = {}) => {
+  if (!setActiveModel(id)) return { error: 'Modelo no encontrado: ' + id };
+  broadcastModelChanged();
+  return { ok: true, info: getActiveModel() };
+});
+
+ipcMain.handle('model-import', (e, { folderPath } = {}) => {
+  if (!folderPath || typeof folderPath !== 'string') return { error: 'Ruta inválida.' };
+  if (!fs.existsSync(folderPath)) return { error: 'La ruta no existe: ' + folderPath };
+
+  let model3Rel = null;
+  const walk = (dir, depth) => {
+    if (depth > 2 || model3Rel) return;
+    let entries;
+    try { entries = fs.readdirSync(dir, { withFileTypes: true }); } catch { return; }
+    for (const entry of entries) {
+      if (model3Rel) return;
+      if (entry.isDirectory()) walk(path.join(dir, entry.name), depth + 1);
+      else if (entry.name.endsWith('.model3.json')) model3Rel = path.join(dir, entry.name);
+    }
+  };
+  walk(folderPath, 0);
+  if (!model3Rel) return { error: 'No se encontró un archivo .model3.json en la carpeta.' };
+
+  const id = path.basename(folderPath);
+  const dest = path.join(MODELS_DIR, id);
+  try {
+    fs.cpSync(folderPath, dest, { recursive: true });
+  } catch (err) {
+    return { error: 'No se pudo copiar el modelo: ' + err.message };
+  }
+  if (!setActiveModel(id)) return { error: 'No se pudo activar el modelo importado.' };
+  broadcastModelChanged();
+  return { ok: true, info: getActiveModel() };
+});
 
 
 
@@ -444,7 +536,7 @@ ipcMain.on('chat-theme-changed', (e, theme) => { chatTheme = theme; saveConfig({
 // lugar (init_vectors.js) y ya incluye ese fix.
 ipcMain.handle('init-vectors', async () => {
   const { populateDatabase } = require('./infrastructure/database/init_vectors.js');
-  const db = MarchCore.getGraph()?._db;
+  const db = Core.getGraph()?._db;
   if (!db) throw new Error('DB no disponible');
 
   const result = await populateDatabase(db, { force: true });
@@ -453,7 +545,7 @@ ipcMain.handle('init-vectors', async () => {
     ? result.inserted
     : result.existing;
 
-  console.log(`[init-vectors] ${count} frases en ${MarchCore.getGraph()?._dbPath ?? 'N/A'}`);
+  console.log(`[init-vectors] ${count} frases en ${Core.getGraph()?._dbPath ?? 'N/A'}`);
   return `${count} frases vectorizadas`;
 });
 
@@ -464,60 +556,60 @@ ipcMain.on('plan-approval-response', () => {});
 
 // ── IPC: memoria ──────────────────────────────────────────────────────────────
 ipcMain.on('memory-add-turn', (e, { role, content }) => {
-  MarchCore.addTurn(role, content);
-  if (role === 'user') MarchCore.detectInstant(content);
+  Core.addTurn(role, content);
+  if (role === 'user') Core.detectInstant(content);
 });
 
-ipcMain.handle('memory-stats', () => MarchCore.getStats());
+ipcMain.handle('memory-stats', () => Core.getStats());
 
 // ── IPC: decisión de propuesta proactiva (Fase A) ────────────────────────────
 // El renderer envía el voto del usuario (aceptar/descartar) sobre una
-// propuesta proactiva. MarchCore lo reenvía al ProactiveEngine, que persiste
+// propuesta proactiva. Core lo reenvía al ProactiveEngine, que persiste
 // el feedback y ajusta la frecuencia futura de ese tipo.
 ipcMain.on('initiative-decision', (e, decision) => {
-  MarchCore.handleProposalDecision(decision);
+  Core.handleProposalDecision(decision);
 });
 
 // ── IPC: grounding ────────────────────────────────────────────────────────────
 // FIX Fase 3: async/await porque buildContext ahora es async
 // (necesita await para IntentDetector.detect())
 ipcMain.handle('grounding-build-context', async (e, { sessionHistory, activeProvider, mode, plan }) => {
-  const ctx = await MarchCore.buildContext(sessionHistory, activeProvider, { mode, plan });
+  const ctx = await Core.buildContext(sessionHistory, activeProvider, { mode, plan });
   console.log('[grounding-ipc] provider:', activeProvider, '| mode:', mode || 'chat', '| systemPrompt:', ctx?.systemPrompt?.length, 'chars');
   return ctx;
 });
 
-// Genera un plan (fase 1 del sistema de dos fases). Usa MarchCore.generatePlan()
+// Genera un plan (fase 1 del sistema de dos fases). Usa Core.generatePlan()
 // internamente: construye contexto en modo 'plan', llama al LLM y parsea el plan.
-ipcMain.handle('march-generate-plan', async (e, { sessionHistory, userGoal }) => {
-  const taskDetector = MarchCore.getTaskDetector?.();
+ipcMain.handle('generate-plan', async (e, { sessionHistory, userGoal }) => {
+  const taskDetector = Core.getTaskDetector?.();
   const taskIntent = taskDetector ? taskDetector.detect(userGoal) : null;
-  const result = await MarchCore.generatePlan(userGoal, taskIntent, sessionHistory);
+  const result = await Core.generatePlan(userGoal, taskIntent, sessionHistory);
   return result;
 });
 
 // ── IPC: OS Sensor ────────────────────────────────────────────────────────────
 ipcMain.handle('os-get-context', () => {
-  return MarchCore.getOSSensor()?.getCurrentContext() ?? null;
+  return Core.getOSSensor()?.getCurrentContext() ?? null;
 });
 
 ipcMain.handle('os-get-today-history', () => {
-  return MarchCore.getOSSensor()?.getTodayHistory() ?? [];
+  return Core.getOSSensor()?.getTodayHistory() ?? [];
 });
 
 ipcMain.handle('os-get-today-summary', () => {
-  return MarchCore.getOSSensor()?.getTodaySummary() ?? null;
+  return Core.getOSSensor()?.getTodaySummary() ?? null;
 });
 
-ipcMain.handle('march-get-stats', () => {
-  return MarchCore.getStats();
+ipcMain.handle('get-stats', () => {
+  return Core.getStats();
 });
 
 // Fase C: /olvida X — archiva nodos de memoria que matcheen el texto.
-ipcMain.handle('memory-forget', (e, { text } = {}) => MarchCore.forgetMemory(text));
+ipcMain.handle('memory-forget', (e, { text } = {}) => Core.forgetMemory(text));
 
-ipcMain.handle('list-skills', () => MarchCore.listSkills());
-ipcMain.handle('store-fact', (e, fact) => MarchCore.storeFact(fact));
+ipcMain.handle('list-skills', () => Core.listSkills());
+ipcMain.handle('store-fact', (e, fact) => Core.storeFact(fact));
 
 ipcMain.on('set-provider', (e, { primary }) => {
   if (!primary) return;
@@ -555,7 +647,7 @@ ipcMain.handle('save-llm-keys', (e, { providers, useKeychain }) => {
   }
 
   console.log('[config] keys LLM actualizadas');
-  MarchCore.reloadLLMConfig();
+  Core.reloadLLMConfig();
   return true;
 });
 
@@ -577,20 +669,20 @@ ipcMain.handle('get-python-bin', () => PYTHON_BIN);
 // ── IPC: testing proactivo ────────────────────────────────────────────────────
 ipcMain.handle('force-proactive', async (e, triggerType) => {
   console.log('[main] force-proactive:', triggerType);
-  const msg = await MarchCore.forceProactive(triggerType || 'long_silence');
+  const msg = await Core.forceProactive(triggerType || 'long_silence');
   return msg || null;
 });
 
 // ── IPC: Fase 3 — OpenClaw ────────────────────────────────────────────────────
 
 ipcMain.handle('openclaw-available', async () => {
-  return MarchCore.isOpenClawAvailable();
+  return Core.isOpenClawAvailable();
 });
 
 ipcMain.handle('openclaw-execute-tool', async (e, { tool, params }) => {
   console.log(`[main] openclaw-execute-tool: ${tool}`);
   try {
-    const result = await MarchCore.executeTool(tool, params);
+    const result = await Core.executeTool(tool, params);
     return result;
   } catch (err) {
     console.error('[main] error en executeTool:', err.message);
@@ -600,7 +692,7 @@ ipcMain.handle('openclaw-execute-tool', async (e, { tool, params }) => {
 
 ipcMain.handle('openclaw-parse-plan', (e, { llmResponse, userGoal, toolIntent }) => {
   try {
-    const plan = MarchCore.parsePlanFromResponse(llmResponse, userGoal, toolIntent ?? null);
+    const plan = Core.parsePlanFromResponse(llmResponse, userGoal, toolIntent ?? null);
     return plan ?? null;
   } catch (err) {
     console.error('[main] error en parsePlanFromResponse:', err.message);
@@ -616,7 +708,7 @@ ipcMain.handle('openclaw-execute-plan', async (e, { plan }) => {
   }
 
   try {
-    const executedPlan = await MarchCore.executePlan(plan, {
+    const executedPlan = await Core.executePlan(plan, {
 
       onStepStart: (step) => {
         if (chatWindow && !chatWindow.isDestroyed()) {
@@ -688,7 +780,7 @@ ipcMain.handle('openclaw-execute-plan', async (e, { plan }) => {
 });
 
 // ── IPC: agent-run (loop cerrado con herramientas; el modo fast/smart lo
-//    elige MarchCore automáticamente según la intención detectada)
+//    elige Core automáticamente según la intención detectada)
 ipcMain.handle('agent-run', async (e, { text }) => {
   console.log(`[main] agent-run: text="${text?.slice(0, 80)}"`);
 
@@ -697,7 +789,7 @@ ipcMain.handle('agent-run', async (e, { text }) => {
   }
 
   try {
-    const result = await MarchCore.runAgent(text, {
+    const result = await Core.runAgent(text, {
 
       onApprovalNeeded: async (action) => {
         return new Promise((resolve) => {
@@ -750,7 +842,7 @@ ipcMain.handle('agent-run', async (e, { text }) => {
 });
 
 ipcMain.handle('openclaw-plan-history', () => {
-  return MarchCore.getPlanner()?.getHistory(20) ?? [];
+  return Core.getPlanner()?.getHistory(20) ?? [];
 });
 
 // ── MCP ────────────────────────────────────────────────────────────────────────
@@ -761,21 +853,26 @@ ipcMain.handle('openclaw-plan-history', () => {
 ipcMain.handle('pick-workspace-folder', async () => {
   const result = await dialog.showOpenDialog(chatWindow, { properties: ['openDirectory'] });
   if (result.canceled || !result.filePaths.length) return null;
-  return MarchCore.setActiveWorkspace(result.filePaths[0]);
+  return Core.setActiveWorkspace(result.filePaths[0]);
+});
+
+ipcMain.handle('get-workspace', () => {
+  try { return Core.getWorkspace(); }
+  catch (err) { console.warn('[main] error en get-workspace:', err.message); return null; }
 });
 
 ipcMain.handle('mcp-list-servers', async () => {
-  try { return await MarchCore.mcpListServers(); }
+  try { return await Core.mcpListServers(); }
   catch (err) { console.error('[main] error en mcp-list-servers:', err.message); return []; }
 });
 
 ipcMain.handle('mcp-list-tools', () => {
-  try { return MarchCore.mcpListAllTools(); }
+  try { return Core.mcpListAllTools(); }
   catch (err) { console.error('[main] error en mcp-list-tools:', err.message); return []; }
 });
 
 ipcMain.handle('mcp-search-registry', async (e, { query }) => {
-  try { return await MarchCore.mcpSearchRegistry(query || ''); }
+  try { return await Core.mcpSearchRegistry(query || ''); }
   catch (err) { console.error('[main] error en mcp-search-registry:', err.message); return []; }
 });
 
@@ -784,7 +881,7 @@ ipcMain.handle('mcp-search-registry', async (e, { query }) => {
 // mostrarle al usuario si funcionó o no.
 ipcMain.handle('mcp-add-server', async (e, { serverCfg }) => {
   try {
-    const status = await MarchCore.mcpAddServer(serverCfg);
+    const status = await Core.mcpAddServer(serverCfg);
     const cfg = loadConfig();
     const servers = cfg?.mcp?.servers || [];
     const withoutDup = servers.filter(s => s.id !== status.id);
@@ -798,7 +895,7 @@ ipcMain.handle('mcp-add-server', async (e, { serverCfg }) => {
 
 ipcMain.handle('mcp-remove-server', async (e, { id }) => {
   try {
-    await MarchCore.mcpRemoveServer(id);
+    await Core.mcpRemoveServer(id);
     const cfg = loadConfig();
     const servers = (cfg?.mcp?.servers || []).filter(s => s.id !== id);
     saveConfig({ mcp: { servers } });
@@ -816,7 +913,7 @@ ipcMain.handle('mcp-toggle-server', async (e, { id, enabled }) => {
     const serverCfg = servers.find(s => s.id === id);
     if (!serverCfg) return { ok: false, error: 'Servidor no encontrado en config' };
 
-    await MarchCore.mcpToggleServer(id, enabled, serverCfg);
+    await Core.mcpToggleServer(id, enabled, serverCfg);
 
     const updated = servers.map(s => s.id === id ? { ...s, enabled } : s);
     saveConfig({ mcp: { servers: updated } });
@@ -828,11 +925,11 @@ ipcMain.handle('mcp-toggle-server', async (e, { id, enabled }) => {
 });
 
 ipcMain.handle('telemetry-report', () => {
-  return MarchCore.getTelemetryReport();
+  return Core.getTelemetryReport();
 });
 
 ipcMain.handle('fase3-stats', () => {
-  const stats = MarchCore.getStats();
+  const stats = Core.getStats();
   return {
     openclaw: stats.openclaw,
     planner:  stats.planner,
@@ -842,10 +939,10 @@ ipcMain.handle('fase3-stats', () => {
 
 ipcMain.handle('get-bridge-stats', () => {
   try {
-    const stats = MarchCore.getStats();
+    const stats = Core.getStats();
     return stats.openclaw || { error: 'no disponible' };
   } catch (e) {
-    return { error: `MarchCore no inicializado: ${e.message}` };
+    return { error: `Core no inicializado: ${e.message}` };
   }
 });
 
@@ -916,7 +1013,7 @@ const VALID_VIEWS    = ['full','half','head'];
 const CONTROL_API_TOKEN = crypto.randomBytes(24).toString('hex');
 
 const HELP_TEXT = `
-  March 7th — Control API (puerto 3131)
+  Asistente personal — Control API (puerto 3131)
   Requiere ?token=${CONTROL_API_TOKEN} en cada request (ver consola al
   arrancar la app, o infrastructure/keychain para guardarlo vos mismo).
 
@@ -951,7 +1048,7 @@ function _controlAuthOk(req, url) {
 }
 
 function startControlServer() {
-  console.log(`[march7th] Control API token: ${CONTROL_API_TOKEN}`);
+  console.log(`[asistente] Control API token: ${CONTROL_API_TOKEN}`);
   const server = http.createServer((req, res) => {
     const url = new URL(req.url, 'http://localhost:3131');
     res.setHeader('Content-Type', 'text/plain; charset=utf-8');
@@ -979,7 +1076,7 @@ function startControlServer() {
         if (chatWindow && !chatWindow.isDestroyed()) {
           chatWindow.hide();
           if (mainWindow && !mainWindow.isDestroyed()) mainWindow.show();
-          MarchCore.setChatOpen(false);
+          Core.setChatOpen(false);
         }
       } else toggleChatWindow();
       res.writeHead(200); res.end(`ok: chat ${action || 'toggled'}`); return;
@@ -987,7 +1084,7 @@ function startControlServer() {
     if (url.pathname === '/workspace') {
       const p = url.searchParams.get('path');
       if (!p) { res.writeHead(400); res.end('falta ?path='); return; }
-      MarchCore.setActiveWorkspace(p).then(result => {
+      Core.setActiveWorkspace(p).then(result => {
         res.writeHead(result.ok ? 200 : 400);
         res.end(result.ok ? `ok: workspace -> ${result.path}` : `error: ${result.error}`);
       });
@@ -997,7 +1094,7 @@ function startControlServer() {
     //   /debug/git-scan → fuerza el scan del GitWatcher (dispara el trigger real)
     //   /debug/proposal?accept=1|0 → resuelve la última propuesta emitida
     if (url.pathname === '/debug/git-scan') {
-      MarchCore.debugGitScan().then(r => {
+      Core.debugGitScan().then(r => {
         res.writeHead(r.ok ? 200 : 500);
         res.end(r.ok ? `ok: scan git realizado\n${JSON.stringify(r.stats, null, 2)}` : `error: ${r.error}`);
       });
@@ -1005,7 +1102,7 @@ function startControlServer() {
     }
     if (url.pathname === '/debug/proposal') {
       const accept = url.searchParams.get('accept') === '1';
-      const r = MarchCore.debugResolveLastProposal(accept);
+      const r = Core.debugResolveLastProposal(accept);
       res.writeHead(r.ok ? 200 : 400);
       res.end(r.ok
         ? `ok: propuesta ${accept ? 'aceptada' : 'rechazada'} (${r.proposal.type})`
@@ -1014,7 +1111,7 @@ function startControlServer() {
     }
     // Fase D: fuerza el scan de errores LSP (dispara el trigger real del sensor)
     if (url.pathname === '/debug/lsp-scan') {
-      MarchCore.debugLSPScan().then(r => {
+      Core.debugLSPScan().then(r => {
         res.writeHead(r.ok ? 200 : 500);
         res.end(r.ok ? `ok: scan LSP realizado\n${JSON.stringify(r.stats, null, 2)}` : `error: ${r.error}`);
       });
@@ -1022,14 +1119,14 @@ function startControlServer() {
     }
     // Fase E: reporte de telemetría "¿mejor que el mes pasado?" (datos locales)
     if (url.pathname === '/telemetry/report') {
-      const r = MarchCore.getTelemetryReport();
+      const r = Core.getTelemetryReport();
       res.writeHead(r.ok ? 200 : 500);
       res.setHeader('Content-Type', 'application/json; charset=utf-8');
       res.end(JSON.stringify(r, null, 2));
       return;
     }
     if (url.pathname === '/telemetry/stats') {
-      const s = MarchCore.getTelemetryStats();
+      const s = Core.getTelemetryStats();
       res.writeHead(s ? 200 : 500);
       res.setHeader('Content-Type', 'application/json; charset=utf-8');
       res.end(JSON.stringify(s, null, 2));
@@ -1037,20 +1134,20 @@ function startControlServer() {
     }
     res.writeHead(200); res.end(HELP_TEXT);
   });
-  server.listen(3131, '127.0.0.1', () => console.log('[march7th] API lista → http://localhost:3131/help'));
-  server.on('error', (e) => { if (e.code === 'EADDRINUSE') console.log('[march7th] puerto 3131 ocupado.'); });
+  server.listen(3131, '127.0.0.1', () => console.log('[asistente] API lista → http://localhost:3131/help'));
+  server.on('error', (e) => { if (e.code === 'EADDRINUSE') console.log('[asistente] puerto 3131 ocupado.'); });
 }
 
 // ── Auto-init ─────────────────────────────────────────────────────────────────
 // Escanea el proyecto activo al arrancar y guarda un nodo 'Project' con su
-// contexto, para que March recuerde sobre qué repo está trabajando sin que
+// contexto, para que el asistente recuerde sobre qué repo está trabajando sin que
 // el usuario tenga que pedírselo. Fire-and-forget: cualquier fallo se loguea
 // en crash.log pero nunca rompe el arranque (antes esta llamada estaba
 // huérfana — apuntaba a una función inexistente y tiraba un ReferenceError).
 async function _autoInitProject() {
   try {
     const userDataPath = app.getPath('userData');
-    let workspace = process.env.MARCH_WORKSPACE;
+    let workspace = process.env.ASISTENTE_WORKSPACE;
     if (!workspace && fs.existsSync(path.join(userDataPath, 'config.json'))) {
       try {
         const cfg = JSON.parse(fs.readFileSync(path.join(userDataPath, 'config.json'), 'utf-8'));
@@ -1076,7 +1173,7 @@ async function _autoInitProject() {
     // activo con esta etiqueta, lo actualizamos en vez de insertar otro
     // (antes cada boot insertaba uno nuevo que el dedup de
     // ContradictionResolver archivaba después — churn innecesario en la DB).
-    const graph = MarchCore.getGraph();
+    const graph = Core.getGraph();
     if (graph?.isReady && graph._db) {
       const existing = graph.queryNodes({ type: 'Project', search: label, limit: 1 });
       if (existing && existing.length > 0) {
@@ -1087,7 +1184,7 @@ async function _autoInitProject() {
       }
     }
 
-    MarchCore.storeFact({
+    Core.storeFact({
       type: 'Project',
       label,
       content: summary,
@@ -1095,7 +1192,7 @@ async function _autoInitProject() {
       tags: ['workspace', 'auto-init'],
     });
   } catch (e) {
-    console.warn('[march7th] auto-init de proyecto falló:', e.message);
+    console.warn('[asistente] auto-init de proyecto falló:', e.message);
   }
 }
 
@@ -1112,36 +1209,36 @@ app.whenReady().then(() => {
   const keychainAvail = KeychainManager.isAvailable();
   console.log(`[config] fuente de keys: ${_keySource} | llavero del SO: ${keychainAvail ? 'disponible' : 'no disponible'}`);
 
-  MarchCore.init(app);
+  Core.init(app);
 
-  MarchCore.getEventBus().on('openclaw:available', (payload) => {
+  Core.getEventBus().on('openclaw:available', (payload) => {
     if (chatWindow && !chatWindow.isDestroyed()) {
       chatWindow.webContents.send('openclaw-status', payload);
     }
   });
 
-  MarchCore.getEventBus().on('workspace:changed', (payload) => {
+  Core.getEventBus().on('workspace:changed', (payload) => {
     if (chatWindow && !chatWindow.isDestroyed()) {
       chatWindow.webContents.send('workspace-changed', payload);
     }
   });
 
-  MarchCore.getEventBus().on('plan:started', (payload) => {
+  Core.getEventBus().on('plan:started', (payload) => {
     if (chatWindow && !chatWindow.isDestroyed()) {
       chatWindow.webContents.send('plan-started', payload);
     }
   });
 
-  MarchCore.getEventBus().on('plan:finished', (payload) => {
+  Core.getEventBus().on('plan:finished', (payload) => {
     if (chatWindow && !chatWindow.isDestroyed()) {
       chatWindow.webContents.send('plan-finished', payload);
     }
   });
 
-  MarchCore.onInitiative((payload) => {
+  Core.onInitiative((payload) => {
     const chatVisible = chatWindow && !chatWindow.isDestroyed() && chatWindow.isVisible();
     if (chatVisible) {
-      chatWindow.webContents.send('march-initiative', payload);
+      chatWindow.webContents.send('initiative', payload);
       return;
     }
     if (payload.openChat) {
@@ -1150,7 +1247,7 @@ app.whenReady().then(() => {
         if (chatWindow && !chatWindow.isDestroyed()) {
           setTimeout(() => {
             if (chatWindow && !chatWindow.isDestroyed()) {
-              chatWindow.webContents.send('march-initiative', payload);
+              chatWindow.webContents.send('initiative', payload);
             }
           }, 800);
         }
@@ -1168,7 +1265,7 @@ app.whenReady().then(() => {
 
   // Fase B: resultado real de ejecutar una propuesta proactiva — se muestra
   // en el bubble de la propuesta (solo si esa ventana existe).
-  MarchCore.onProposalResult((payload) => {
+  Core.onProposalResult((payload) => {
     if (chatWindow && !chatWindow.isDestroyed()) {
       chatWindow.webContents.send('proposal-result', payload);
     }
@@ -1193,7 +1290,7 @@ app.whenReady().then(() => {
   // salida en Linux/GNOME.
   const shortcutOk = globalShortcut.register('CommandOrControl+Shift+Q', () => app.quit());
   if (!shortcutOk) {
-    console.warn('[march7th] no se pudo registrar el atajo global de salida (Ctrl/Cmd+Shift+Q) — probablemente ya lo usa otra app.');
+    console.warn('[asistente] no se pudo registrar el atajo global de salida (Ctrl/Cmd+Shift+Q) — probablemente ya lo usa otra app.');
   }
 
   screen.on('display-metrics-changed', () => {
@@ -1215,10 +1312,9 @@ let _quitting = false;
 app.on('before-quit', (event) => {
   if (_quitting) return;
   event.preventDefault();
+  _quitting = true;
   (async () => {
-    try { await withTimeout(MarchCore.closeSession(), 8000); } catch(_) {}
-    try { await withTimeout(MarchCore.shutdown(), 8000); } catch(_) {}
-    _quitting = true;
+    try { await withTimeout(Core.shutdown(), 8000); } catch(_) {}
     app.quit();
   })();
 });

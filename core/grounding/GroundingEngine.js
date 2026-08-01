@@ -61,7 +61,7 @@ class GroundingEngine {
     } catch(e2) {
       console.error('[grounding] fallback también falló:', e2.message);
       return {
-        systemPrompt: 'Eres March 7th. Responde con tu personalidad habitual.',
+        systemPrompt: 'Eres la asistente personal. Responde con tu personalidad habitual.',
         messages: sessionHistory.slice(-1),
       };
     }
@@ -96,7 +96,7 @@ function getIdentity() {
   try {
     return JSON.parse(fs.readFileSync(path.join(__dirname, '../identity/identity.json'), 'utf-8'));
   } catch(e) {
-    return { name: 'March 7th', core: 'Soy March 7th.' };
+    return { name: 'asistente', core: 'Soy tu asistente personal.' };
   }
 }
 

@@ -18,8 +18,8 @@
  *      solo lugar y no hace falta coordinar dos relojes distintos.
  *
  * Este archivo se deja como un shim vacío — SOLO por compatibilidad, para
- * que MarchCore.js (que todavía lo instancia y llama setOSSensor /
- * setChatOpen / getStats) no necesite cambios. Si en MarchCore.js quieres
+ * que Core.js (que todavía lo instancia y llama setOSSensor /
+ * setChatOpen / getStats) no necesite cambios. Si en Core.js quieres
  * quitarlo del todo más adelante, es seguro borrar las líneas que lo
  * importan e instancian — no queda nada colgando de este archivo.
  * ─────────────────────────────────────────────────────────────────────────────
@@ -29,7 +29,7 @@ class InitiativeEngine {
   constructor(_stateGraph) {
   }
 
-  // No-ops mantenidos solo por compatibilidad con MarchCore.js
+  // No-ops mantenidos solo por compatibilidad con Core.js
   setOSSensor(_osSensor) {}
   setChatOpen(_open) {}
 
@@ -49,7 +49,7 @@ class InitiativeEngine {
   getStats() {
     return {
       deprecated: true,
-      note: 'InitiativeEngine fue absorbido por ProactiveEngine.js v2 — revisa MarchCore.getStats().proactive para las stats reales de proactividad.',
+      note: 'InitiativeEngine fue absorbido por ProactiveEngine.js v2 — revisa Core.getStats().proactive para las stats reales de proactividad.',
     };
   }
 }

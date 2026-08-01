@@ -1,7 +1,7 @@
 /**
- * BrowserBridge.js — navegador propio de March (Playwright headless)
+ * BrowserBridge.js — navegador propio del asistente (Playwright headless)
  *
- * March tiene su propio navegador Chromium, completamente separado
+ * El asistente tiene su propio navegador Chromium, completamente separado
  * del navegador personal del usuario. Corre headless (sin ventana)
  * y mantiene una sesión persistente mientras la app esté abierta.
  *
@@ -121,7 +121,7 @@ async function executeBrowserAction(input) {
 // ── web_search real ───────────────────────────────────────────────────────────
 
 /**
- * Búsqueda real usando el navegador propio de March.
+ * Búsqueda real usando el navegador propio del asistente.
  * Navega a Google, extrae título + URL + snippet de los resultados orgánicos.
  *
  * @param {object} input
