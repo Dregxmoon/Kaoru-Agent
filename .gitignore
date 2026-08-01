@@ -1,26 +1,39 @@
+# ── Dependencias y build ─────────────────────────────────────────────────────
 node_modules/
 dist/
 
-# Archivos sensibles
+# ── Configuración sensible (nunca se sube) ───────────────────────────────────
+# La config real de cada máquina vive en %APPDATA% / ~/.config/vtuber-overlay/
 *.env
-.env.example
-.march7th/
+!*.env.example
 config.json
+.march7th/
 
-# Modelos de voz (se descargan automático)
-models/vosk-es/
-
-# Base de datos local — memoria/sesiones reales del usuario, nunca debe
-# subirse (antes estaba trackeada por accidente, ver commit de limpieza)
+# ── Bases de datos locales (memoria/sesiones del usuario) ────────────────────
 data/*.db
 data/*.db-journal
 data/*.db-wal
 data/*.db-shm
 
-# Artefactos de prueba sueltos
+# ── Modelos de voz (se descargan automáticamente) ────────────────────────────
+models/vosk-es/
+
+# ── Datos personales y exportaciones de conversación ─────────────────────────
+exports/
 test.txt
 
-# config.example.json SÍ debe trackearse — es la plantilla sin secretos
-# que le dice a cualquiera (incluido tú, en una máquina nueva) qué forma
-# tiene config.json. Estaba ignorado por error, junto con lo que sí
-# debía ignorarse (config.json, el real, con tus API keys).
+# ── Artefactos de desarrollo y parches one-off ───────────────────────────────
+*.patch
+*.orig
+*.rej
+tests/prueba_vivo_*.js
+
+# ── Python ────────────────────────────────────────────────────────────────────
+__pycache__/
+*.pyc
+*.pyo
+
+# ── Sistema operativo / editores ─────────────────────────────────────────────
+.DS_Store
+Thumbs.db
+desktop.ini

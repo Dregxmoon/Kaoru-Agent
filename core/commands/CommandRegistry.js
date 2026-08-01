@@ -21,7 +21,7 @@ function getHelp() {
   const groups = {
     'IA / LLM':      ['mode', 'model', 'provider', 'agent', 'code', 'skill'],
     'Desarrollo':    ['init', 'review', 'plan', 'fix', 'undo', 'retry'],
-    'General':       ['help', 'clear', 'memory', 'stats', 'export'],
+    'General':       ['help', 'clear', 'memory', 'olvida', 'stats', 'export', 'telemetria'],
     'Config':        ['credenciales'],
   };
   const lines = ['**Comandos disponibles:**\n'];
@@ -53,6 +53,18 @@ async function execute(text, ctx = {}) {
 
   const def = commands.get(name);
   if (!def) {
+    // Atajo de proveedor: /groq, /gemini, /nvidia, ... (el listado de /model
+    // los muestra así, así que deben funcionar igual)
+    const LLMProvider = ctx?.LLMProvider;
+    const provider = LLMProvider?.getAvailableProviders?.().find(p => p.id === name);
+    if (provider) {
+      LLMProvider.configure({ llm: { primary: provider.id } });
+      if (ctx.sendIPC) ctx.sendIPC('set-provider', { primary: provider.id });
+      const warn = provider.hasKey
+        ? ''
+        : `\n\n⚠️ **${provider.name}** no tiene API key configurada. Todos los proveedores (incluso los "gratis") necesitan su propia key — agrega la de ${provider.name} con \`/credenciales\` antes de usarlo.`;
+      return { result: `Proveedor cambiado a: **${provider.name}**${warn}` };
+    }
     const similar = getNames().filter(n => n.startsWith(name[0])).slice(0, 3);
     const hint = similar.length > 0 ? ` Quizá quisiste decir: \`/${similar.join('`, `')}\`` : '';
     return { error: `Comando desconocido: \`/${name}\`.${hint} Escribe \`/help\` para ver la lista.` };
@@ -129,7 +141,10 @@ register({
     LLMProvider.configure({ llm: { primary: provider } });
     if (ctx.sendIPC) ctx.sendIPC('set-provider', { primary: provider });
     const active = LLMProvider.getActiveProvider();
-    return `Proveedor cambiado a: **${valid.name}**`;
+    const warn = valid.hasKey
+      ? ''
+      : `\n\n⚠️ **${valid.name}** no tiene API key configurada. Todos los proveedores (incluso los "gratis") necesitan su propia key — agrega la de ${valid.name} con \`/credenciales\` antes de usarlo.`;
+    return `Proveedor cambiado a: **${valid.name}**${warn}`;
   },
 });
 
@@ -191,6 +206,49 @@ register({
       ].join('\n');
     } catch (e) {
       return `Error obteniendo estadísticas: ${e.message}`;
+    }
+  },
+});
+
+register({
+  name: 'telemetria',
+  description: 'Muestra si estamos mejor que el mes pasado (datos locales)',
+  usage: '/telemetria',
+  handler: async (args, ctx) => {
+    if (!ctx.ipcRenderer) return 'IPC no disponible.';
+    try {
+      const { ok, report, error } = await ctx.ipcRenderer.invoke('telemetry-report');
+      if (!ok) return `Telemetría no disponible: ${error}`;
+      if (!report) return 'No hay datos de telemetría aún.';
+      const { current, previous, deltas, verdict, acceptance, prevAcceptance } = report;
+      if (!current.activeDays && !current.userMessages) {
+        return 'No hay actividad registrada este mes todavía.';
+      }
+
+      const arrow = (v) => v == null ? '–' : (v > 0 ? `▲ +${v}%` : v < 0 ? `▼ ${v}%` : '＝ 0%');
+      const fmtMs = (ms) => ms == null ? '–' : (ms < 1000 ? `${ms} ms` : `${(ms / 1000).toFixed(1)} s`);
+      const verdictLabel = { improved: '✅ mejor que', regressed: '⚠️ peor que', stable: '＝ igual que' }[verdict];
+
+      const lines = [
+        `**¿Estamos mejor que el mes pasado?** → ${verdictLabel} ${previous.monthKey}`,
+        '',
+        `│ ${current.monthKey} vs ${previous.monthKey}`,
+        `│ Mensajes/día: ${current.messagesPerDay.toFixed(1)} vs ${previous.messagesPerDay.toFixed(1)}  ${arrow(deltas.messagesPerDay)}`,
+        `│ Respuesta p50: ${fmtMs(current.p50ResponseMs)} vs ${fmtMs(previous.p50ResponseMs)}  ${arrow(deltas.p50ResponseMs)}`,
+        `│ Sesiones/día: ${current.sessionsPerDay.toFixed(1)} vs ${previous.sessionsPerDay.toFixed(1)}  ${arrow(deltas.sessionsPerDay)}`,
+        `│ Silencios: ${current.silenceCount} (${current.silenceHours} h) vs ${previous.silenceCount} (${previous.silenceHours} h)  ${arrow(deltas.silenceCount)}`,
+        `│ Días activos: ${current.activeDays} vs ${previous.activeDays}  ${arrow(deltas.activeDays)}`,
+      ];
+
+      if (acceptance.rate != null || prevAcceptance.rate != null) {
+        const cur = acceptance.rate == null ? '–' : `${acceptance.rate}%`;
+        const prev = prevAcceptance.rate == null ? '–' : `${prevAcceptance.rate}%`;
+        lines.push(`│ Aceptación: ${cur} vs ${prev}  ${arrow(deltas.acceptanceRate)}`);
+      }
+
+      return lines.join('\n');
+    } catch (e) {
+      return `Error obteniendo telemetría: ${e.message}`;
     }
   },
 });
@@ -363,7 +421,7 @@ register({
     const relPath = ctx.path.relative(cwd, filePath);
 
     return [
-      `**Revision solicitada:** \`${relPath}\` (${content.split('\n').length} lineas, ${content.length} caracteres)`,
+      `**Revisión solicitada:** \`${relPath}\` (${content.split('\n').length} lineas, ${content.length} caracteres)`,
       '',
       'Para obtener una revisión detallada, envía un mensaje como:',
       `\`Revisa el código en @${relPath} y busca bugs, problemas de seguridad y mejoras\``,
@@ -523,6 +581,28 @@ register({
       `• **${s.name}** — ${s.description}`
     );
     return `**Skills disponibles (${skills.length}):**\n\n${lines.join('\n')}`;
+  },
+});
+
+register({
+  name: 'olvida',
+  description: 'Archiva de la memoria lo que coincida con el texto',
+  usage: '/olvida <texto>',
+  handler: async (args, ctx) => {
+    const text = args.join(' ').trim();
+    if (!text) return 'Usa \`/olvida <texto>\` — p. ej. \`/olvida cumpleaños\` para quitar esa fecha de mi memoria.';
+    if (!ctx.ipcRenderer) return 'IPC no disponible.';
+    try {
+      const res = await ctx.ipcRenderer.invoke('memory-forget', { text });
+      if (res.error) return `No pude olvidarlo: ${res.error}`;
+      if (!res.found) return `No encontré nada en mi memoria que coincida con \`${text}\`.`;
+      if (res.warning) return `*${res.warning}*`;
+      const items = (res.nodes || []).map(n => `- ~~${n.label}~~ — ${n.content}`).join('\n');
+      const extra = res.found > res.archived ? `\n_(quedaron ${res.found - res.archived} coincidencias más que no toqué por precaución)_` : '';
+      return `Archivé **${res.archived}** nodo(s) de memoria con \`${text}\`:\n${items}${extra}`;
+    } catch (e) {
+      return `Error: ${e.message}`;
+    }
   },
 });
 

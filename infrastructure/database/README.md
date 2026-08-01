@@ -1,36 +1,35 @@
-# Inicialización de base de datos vectorial
+# Inicialización de base de datos vectorial (`infrastructure/database/`)
 
-Prepara las tablas de índices vectoriales en march.db para la detección semántica de intenciones.
+Prepara las tablas de índices vectoriales en `march.db` para la **detección semántica de intenciones**
+y el **recall de memoria** — embeddings locales, sin dependencia de servicios externos.
 
-## Archivos
+---
 
-### init_vectors.js 
-Inicializa y puebla las tablas vectoriales `intent_catalog` e `intent_vectors` en la base de datos SQLite.
+## `init_vectors.js`
 
-**Tablas:**
-- `intent_catalog` — catálogo de frases de referencia para detección de intenciones
-- `intent_vectors` — embeddings 384d (all-MiniLM-L6-v2) de cada frase
+Inicializa y puebla las tablas vectoriales:
 
-**Intenciones soportadas (60+ frases):**
-| Acción | Ejemplo de frase |
+| Tabla | Propósito |
 |---|---|
-| `read_file` | "muéstrame el contenido de main.js" |
-| `edit_file` | "cambia la línea 10 por return true" |
-| `run_command` | "ejecuta git status" |
-| `web_search` | "busca el clima en Google" |
-| `browser` | "abre github.com" |
-| `create_file` | "crea un archivo nuevo" |
-| `apply_patch` | "aplica este diff" |
-| `list_directory` | "qué hay en esta carpeta" |
-| `code_execution` | "ejecuta este script de Python" |
+| `intent_catalog` | Catálogo de frases de referencia para la detección de intenciones |
+| `intent_vectors` | Embeddings 384d (`all-MiniLM-L6-v2`) de cada frase |
+
+**Intenciones soportadas (60+ frases):** `read_file`, `edit_file`, `run_command`, `web_search`,
+`browser`, `create_file`, `apply_patch`, `list_directory`, `code_execution` y más — con variantes
+multilingües y narrativas.
 
 **Uso:**
-```bash
-# Inicialización normal
-node infrastructure/database/init_vectors.js
 
-# Reindexar forzado
-node infrastructure/database/init_vectors.js --force
+```bash
+node infrastructure/database/init_vectors.js          # inicialización normal
+node infrastructure/database/init_vectors.js --force  # reindexado forzado
 ```
 
-**Dependencias:** `@xenova/transformers` para embeddings, misma BD de March.
+Dependencia: `@xenova/transformers` (misma BD de March, misma sesión de embeddings que el `StateGraph`).
+
+---
+
+## Verificación
+
+`test_intent_detection` cubre el pipeline completo con la BD vectorial poblada, incluido el fallback
+a LLM cuando los embeddings no son suficientes.

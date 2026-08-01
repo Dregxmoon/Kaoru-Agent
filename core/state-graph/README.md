@@ -1,66 +1,78 @@
-# Memoria persistente
+# Memoria persistente (`core/state-graph/`)
 
-Grafo de conocimiento semántico sobre SQLite. Almacena hechos sobre el usuario, episodios de conversación y relaciones entre conceptos.
+Grafo de conocimiento semántico sobre SQLite: hechos sobre el usuario, episodios de conversación y
+relaciones entre conceptos, con búsqueda vectorial y decaimiento temporal. Es la base de la memoria
+a largo plazo de March.
 
-## Archivos
+---
 
-### StateGraph.js 
-Núcleo de la base de datos. Usa `better-sqlite3` + `sqlite-vec`.
+## `StateGraph.js` — núcleo de la base de datos
+
+Usa `better-sqlite3` + `sqlite-vec`.
 
 **Tablas principales:**
+
 | Tabla | Propósito |
 |---|---|
 | `nodes` | Hechos sobre el usuario (proyectos, preferencias, datos personales) |
 | `node_relations` | Relaciones semánticas entre nodos |
-| `node_vectors` | Embeddings 384d para búsqueda semántica |
+| `node_vectors` | Embeddings 384d para búsqueda semántica (tabla virtual `vec0`) |
 | `sessions` | Metadatos de sesiones (inicio, fin, resumen, turnos) |
-| `episodes` | Resúmenes de sesiones cerradas |
 | `app_history` | Historial de aplicaciones usadas |
 
 **Características:**
-- Decaimiento temporal: nodos viejos se archivan automáticamente
-- Búsqueda semántica por similitud coseno con ponderación por recencia
-- Fallback a MemoryDB (RAM) si `better-sqlite3` no cargó
-- Lazy access-time update: los nodos existentes no se marcan como viejos al leerlos
+- **Decaimiento temporal** — los nodos viejos se archivan automáticamente (`runDecay`).
+- **Búsqueda semántica** por similitud coseno con ponderación por recencia.
+- **Fallback a memoria en RAM** si `better-sqlite3` no pudo cargar — el sistema sigue funcionando.
+- **Lazy access-time** — leer un nodo no lo marca como viejo.
+- **Reconciliación** de información nueva vs. existente (sobrescribir/acumular/archivar) vía
+  `ContradictionResolver`.
 
 **API pública:**
+
 | Función | Propósito |
 |---|---|
-| `startSession()` | Crea nueva sesión |
+| `startSession()` | Crea una sesión nueva |
 | `endSession(id, data)` | Cierra sesión con resumen |
-| `updateSessionHistory(id, history)` | Persiste historial incremental |
-| `findResumableSession(hours)` | Busca sesiones interrumpidas |
+| `updateSessionHistory(id, history)` | Persiste el historial incrementalmente |
+| `findResumableSession(hours)` | Busca sesiones interrumpidas recientes |
 | `saveNode(node)` | Guarda un nodo de conocimiento |
 | `queryNodesSemantic(text, limit)` | Búsqueda semántica por embeddings |
-| `enableVectorSearch()` | Activa búsqueda vectorial |
+| `forget(text)` | Archiva un recuerdo (soft-delete) |
+| `enableVectorSearch()` | Activa la búsqueda vectorial |
 | `backfillEmbeddings()` | Genera embeddings para nodos sin ellos |
 | `runDecay()` | Archiva nodos viejos |
 
-### SessionManager.js 
-Gestiona el ciclo de vida de una sesión de conversación.
+## `SessionManager.js` — ciclo de vida de sesión
 
-- `start()` — Crea sesión nueva y limpia duplicados acumulados
-- `addTurn(role, content)` — Agrega turno y persiste incrementalmente
-- `close()` — Procesa la sesión con StateUpdater y la marca como cerrada
-- `getHistory()` — Retorna copia del historial actual
+- `start()` — crea sesión nueva y limpia duplicados acumulados.
+- `addTurn(role, content)` — agrega turno y persiste incrementalmente (sobrevive a cortes).
+- `close()` — procesa la sesión con `StateUpdater` y la cierra.
+- `getHistory()` — copia del historial actual.
 
-### StateUpdater.js 
-Al cerrar una sesión, extrae hechos memorables de la conversación usando el LLM y los guarda como nodos en el grafo.
+## `StateUpdater.js` — extracción de memoria
 
-- `processSession(sessionId, history, turnCount)` — Procesa sesión completa
-- `detectAndSaveInstant(userMessage)` — Guarda hechos inmediatos (sin LLM)
-- `runDecay()` — Ejecuta decaimiento de nodos viejos
-- Valida labels contra un conjunto fijo + labels dinámicos de proyectos/preferencias
+Al cerrar una sesión, extrae hechos memorables de la conversación (con el LLM) y los guarda como nodos:
 
-### ContradictionResolver.js 
-Resuelve conflictos entre información nueva y nodos existentes en el grafo.
+- `processSession(sessionId, history, turnCount)` — procesa la sesión completa.
+- `detectAndSaveInstant(userMessage)` — guarda hechos inmediatos sin LLM (patrones por regex).
+- `runDecay()` — decaimiento de nodos viejos.
+- Valida labels contra un conjunto fijo + labels dinámicos de proyectos/preferencias.
 
-**Políticas por tipo de label:**
+## `ContradictionResolver.js` — reconciliación de información
+
 | Política | Comportamiento | Ejemplos |
 |---|---|---|
-| `OVERWRITE` | Reemplaza valor anterior | `age`, `name`, `hometown` |
+| `OVERWRITE` | Reemplaza el valor anterior | `age`, `name`, `hometown` |
 | `APPEND` | Acumula (con límite) | `likes`, `favorite_games` |
-| `ARCHIVE` | Viejo se archiva, nuevo es activo | `project`, `working_on` |
+| `ARCHIVE` | El viejo se archiva, el nuevo es activo | `project`, `working_on` |
 | `TENSION` | Contradicción sin resolver | Datos irreconciliables |
 
-La política se determina por el label del nodo. Labels no reconocidos van a `APPEND`.
+La política se determina por el label del nodo; los no reconocidos van a `APPEND`.
+
+---
+
+## Verificación
+
+`test_state_graph` (schema, CRUD, reconciliación, decay, sesiones con resume tras crash, guardado
+inmediato, recall semántico, limpieza y modo memoria/fallback) y `test_persistent`. Ver `tests/README.md`.

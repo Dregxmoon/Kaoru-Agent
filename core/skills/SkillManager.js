@@ -168,7 +168,7 @@ class SkillManager {
         if (info.changes > 0) {
           const rowid = info.lastInsertRowid;
           const vec = vectorMap.get(skill.name);
-          if (vec) insertVec.run(rowid, vec);
+          if (vec) insertVec.run(BigInt(rowid), vec);
           indexed++;
         }
       }

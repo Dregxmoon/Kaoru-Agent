@@ -30,6 +30,41 @@ const HIGH_IMPACT_PATTERNS = [
   /\b(npm|pnpm|yarn)\s+install\b/i, /\bpip\s+install\b/i,
 ];
 
+// Lista de comandos de solo lectura conocidos — la ÚNICA forma en que un
+// exec se ejecuta SIN pedir aprobación. Esto es intencional al revés de
+// como estaba antes: antes, exec corría libre salvo que matcheara un
+// patrón peligroso conocido (evadible con ofuscación, ver nota en
+// openclaw-server.js). Ahora, exec pide aprobación salvo que matchee algo
+// explícitamente reconocido como inofensivo — un bypass del blocklist ya
+// no logra nada, porque el blocklist dejó de ser la puerta.
+// Cada patrón exige que el comando completo (después de recortar espacios)
+// empiece con el binario esperado y no encadene con ; && || | (evita que
+// "ls; rm -rf /" se cuele disfrazado de comando seguro).
+const SAFE_READONLY_PATTERNS = [
+  /^ls(\s+-[a-zA-Z]+)*(\s+\S+)?$/,
+  /^pwd$/,
+  /^whoami$/,
+  /^date(\s+\S+)*$/,
+  /^echo\s+[^;&|`$()]*$/,
+  /^cat\s+[^;&|`$()>]+$/,
+  /^head(\s+-n\s*\d+)?\s+[^;&|`$()>]+$/,
+  /^tail(\s+-n\s*\d+)?\s+[^;&|`$()>]+$/,
+  /^wc(\s+-[a-zA-Z]+)*\s+[^;&|`$()>]+$/,
+  /^which\s+[^;&|`$()]+$/,
+  /^uname(\s+-[a-zA-Z]+)*$/,
+  /^git\s+(status|log|diff|branch|remote\s+-v|show|blame)(\s+[^;&|`$()]*)?$/,
+  /^node\s+(-v|--version)$/,
+  /^npm\s+(-v|--version)$/,
+  /^python3?\s+(-V|--version)$/,
+  /^grep\s+[^;&|`$()>]+$/,
+];
+
+function _isSafeReadonlyCommand(command) {
+  if (!command || typeof command !== 'string') return false;
+  const trimmed = command.trim();
+  return SAFE_READONLY_PATTERNS.some(re => re.test(trimmed));
+}
+
 const SENSITIVE_PATH_PATTERNS = [
   /\.ssh[\\/]/i,       /id_rsa/i,      /id_ed25519/i,
   /\.pem$/i,           /\.pfx$/i,      /\.key$/i,
@@ -58,7 +93,7 @@ function isHighImpact(tool, params) {
   if (_isSensitivePath(params?.path) || _isSensitivePath(params?.command)) return true;
 
   if (tool === 'exec' && params.command)
-    return HIGH_IMPACT_PATTERNS.some(p => p.test(params.command));
+    return !_isSafeReadonlyCommand(params.command);
 
   if (tool === 'write' && params.path)
     return _isSensitivePath(params.path) || HIGH_IMPACT_PATTERNS.some(p => p.test(params.path)) || _isOutsideProject(params.path);

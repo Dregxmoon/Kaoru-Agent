@@ -161,13 +161,22 @@ class RetrievalPlanner {
     }
 
     // 3. Recall semántico sobre el mensaje completo (antes: LIKE por keyword)
+    // Si el recall vectorial no está listo (modelo aún cargando, primer mensaje
+    // tras arranque) o simplemente no encuentra nada, queryNodesSemantic cae a
+    // un LIKE del mensaje completo que casi nunca coincide → devolvería vacío
+    // y se perdería TODO el recall por keywords. Por eso: si el resultado
+    // semántico queda vacío, se reintenta con las keywords extraídas (LIKE).
     const keywords = this._extractKeywords(userMessage);
     if (userMessage && userMessage.trim().length >= 4) {
+      let semantic = [];
       try {
-        const semantic = await this._graph.queryNodesSemantic(userMessage, { limit: 8 });
-        addAll(semantic);
+        semantic = await this._graph.queryNodesSemantic(userMessage, { limit: 8 });
       } catch(e) {
         console.warn('[retrieval] error en recall semántico, cayendo a keywords:', e.message);
+      }
+      if (semantic.length > 0) {
+        addAll(semantic);
+      } else if (keywords.length > 0) {
         for (const kw of keywords.slice(0, 5)) {
           addAll(this._graph.queryNodes({ search: kw, limit: 2 }));
         }

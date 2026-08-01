@@ -61,7 +61,7 @@ class SessionManager {
   }
 
   addTurn(role, content) {
-    this._history.push({ role, content });
+    this._history.push({ role, content, ts: Date.now() });
     this._turnCount++;
     if (this._history.length > 40) this._history = this._history.slice(-40);
 
@@ -87,6 +87,7 @@ class SessionManager {
     this._closePromise = this._updater.processSession(sessionId, history, turnCount)
       .then(result => {
         console.log(`[session] memoria guardada: ${result.saved} nodos`);
+        return result;
       })
       .catch(err => {
         console.error('[session] error:', err.message);

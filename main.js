@@ -8,6 +8,7 @@ const fs   = require('fs');
 const os   = require('os');
 const { URL } = require('url');
 const { spawnSync } = require('child_process');
+const crypto = require('crypto');
 
 const MarchCore = require('./core/MarchCore.js');
 const KeychainManager = require('./infrastructure/keychain/KeychainManager.js');
@@ -479,6 +480,14 @@ ipcMain.on('memory-add-turn', (e, { role, content }) => {
 
 ipcMain.handle('memory-stats', () => MarchCore.getStats());
 
+// ── IPC: decisión de propuesta proactiva (Fase A) ────────────────────────────
+// El renderer envía el voto del usuario (aceptar/descartar) sobre una
+// propuesta proactiva. MarchCore lo reenvía al ProactiveEngine, que persiste
+// el feedback y ajusta la frecuencia futura de ese tipo.
+ipcMain.on('initiative-decision', (e, decision) => {
+  MarchCore.handleProposalDecision(decision);
+});
+
 // ── IPC: grounding ────────────────────────────────────────────────────────────
 // FIX Fase 3: async/await porque buildContext ahora es async
 // (necesita await para IntentDetector.detect())
@@ -513,6 +522,9 @@ ipcMain.handle('os-get-today-summary', () => {
 ipcMain.handle('march-get-stats', () => {
   return MarchCore.getStats();
 });
+
+// Fase C: /olvida X — archiva nodos de memoria que matcheen el texto.
+ipcMain.handle('memory-forget', (e, { text } = {}) => MarchCore.forgetMemory(text));
 
 ipcMain.handle('list-skills', () => MarchCore.listSkills());
 ipcMain.handle('store-fact', (e, fact) => MarchCore.storeFact(fact));
@@ -826,6 +838,10 @@ ipcMain.handle('mcp-toggle-server', async (e, { id, enabled }) => {
   }
 });
 
+ipcMain.handle('telemetry-report', () => {
+  return MarchCore.getTelemetryReport();
+});
+
 ipcMain.handle('fase3-stats', () => {
   const stats = MarchCore.getStats();
   return {
@@ -844,7 +860,23 @@ ipcMain.handle('get-bridge-stats', () => {
   }
 });
 
+// Antes: cualquier string llegaba directo a exec(). Solo /undo y /fix lo
+// invocan hoy, y siempre con uno de estos 3 comandos fijos — pero el canal
+// IPC en sí no sabía eso, aceptaba cualquier cosa. Con nodeIntegration:true
+// (ver ticket de contextIsolation), cualquier XSS en el renderer puede
+// llamar a ipcRenderer.invoke('exec-command', {...}) directamente sin
+// pasar por /undo ni /fix — así que la restricción tiene que vivir acá,
+// del lado main, no confiar en que solo la UI lo invoque bien.
+const EXEC_COMMAND_ALLOWLIST = new Set([
+  'git log --oneline -1',
+  'git reset --soft HEAD~1',
+  'npx eslint . --format compact 2>&1 || true',
+]);
+
 ipcMain.handle('exec-command', async (e, { command, timeout }) => {
+  if (!EXEC_COMMAND_ALLOWLIST.has(command)) {
+    return { exitCode: 1, stdout: '', stderr: `comando no permitido: ${JSON.stringify(command)}` };
+  }
   const util = require('util');
   const exec = util.promisify(require('child_process').exec);
   const safeTimeout = Math.min(timeout || 10, 60) * 1000;
@@ -883,21 +915,60 @@ function _serializeResult(result) {
 // ── Servidor HTTP local ───────────────────────────────────────────────────────
 const VALID_EMOTIONS = ['happy','excited','sad','tired','gentle','default'];
 const VALID_VIEWS    = ['full','half','head'];
+
+// Token generado al arrancar — sin esto, cualquier página web abierta en
+// el navegador del usuario podía disparar estos endpoints en silencio con
+// un simple <img src="http://localhost:3131/workspace?path=...">, porque
+// eran GET sin auth, sin CORS y sin validar Origin. Se genera y se usa acá
+// mismo, en la misma función — a propósito, para no repetir el bug de
+// OpenClawBridge donde la key se leía de process.env en un momento
+// distinto (require-time) a cuando se generaba (runtime), dejando al
+// cliente con una key vieja/nula.
+const CONTROL_API_TOKEN = crypto.randomBytes(24).toString('hex');
+
 const HELP_TEXT = `
   March 7th — Control API (puerto 3131)
-  curl "http://localhost:3131/speak?text=hola"
-  curl "http://localhost:3131/speak?text=lo+siento&emotion=sad"
-  curl "http://localhost:3131/view?v=half"
-  curl "http://localhost:3131/chat?action=open"
-  curl "http://localhost:3131/chat?action=close"
-  curl "http://localhost:3131/mic?index=0"
-  curl "http://localhost:3131/workspace?path=/ruta/al/proyecto"
+  Requiere ?token=${CONTROL_API_TOKEN} en cada request (ver consola al
+  arrancar la app, o infrastructure/keychain para guardarlo vos mismo).
+
+  curl "http://localhost:3131/speak?text=hola&token=${CONTROL_API_TOKEN}"
+  curl "http://localhost:3131/speak?text=lo+siento&emotion=sad&token=${CONTROL_API_TOKEN}"
+  curl "http://localhost:3131/view?v=half&token=${CONTROL_API_TOKEN}"
+  curl "http://localhost:3131/chat?action=open&token=${CONTROL_API_TOKEN}"
+  curl "http://localhost:3131/chat?action=close&token=${CONTROL_API_TOKEN}"
+  curl "http://localhost:3131/workspace?path=/ruta/al/proyecto&token=${CONTROL_API_TOKEN}"
+  curl "http://localhost:3131/telemetry/report&token=${CONTROL_API_TOKEN}"
+  curl "http://localhost:3131/telemetry/stats&token=${CONTROL_API_TOKEN}"
 `;
 
+function _controlAuthOk(req, url) {
+  // Capa 1: token obligatorio, comparación en tiempo constante.
+  const provided = url.searchParams.get('token') || '';
+  const bufA = Buffer.from(provided, 'utf8');
+  const bufB = Buffer.from(CONTROL_API_TOKEN, 'utf8');
+  const tokenOk = bufA.length === bufB.length && crypto.timingSafeEqual(bufA, bufB);
+  if (!tokenOk) return false;
+
+  // Capa 2: si la request trae Origin/Referer, tiene que ser de una fuente
+  // nuestra. curl y scripts normalmente no mandan Origin — una página web
+  // en un navegador normal, sí. Esto bloquea el vector <img src="...">
+  // aunque alguien filtrara el token (defensa en profundidad, no la
+  // barrera principal).
+  const origin = req.headers['origin'] || req.headers['referer'] || '';
+  if (origin && !/^(https?:\/\/)?(localhost|127\.0\.0\.1)([:/]|$)/i.test(origin)) {
+    return false;
+  }
+  return true;
+}
+
 function startControlServer() {
+  console.log(`[march7th] Control API token: ${CONTROL_API_TOKEN}`);
   const server = http.createServer((req, res) => {
     const url = new URL(req.url, 'http://localhost:3131');
     res.setHeader('Content-Type', 'text/plain; charset=utf-8');
+    if (url.pathname !== '/help' && !_controlAuthOk(req, url)) {
+      res.writeHead(401); res.end('unauthorized — falta o es inválido ?token='); return;
+    }
     if (url.pathname === '/speak') {
       const text = url.searchParams.get('text') || '';
       const rawEmo = (url.searchParams.get('emotion') || '').toLowerCase();
@@ -933,10 +1004,110 @@ function startControlServer() {
       });
       return;
     }
+    // Debug del flujo proactivo (Fase B) — local y autenticado:
+    //   /debug/git-scan → fuerza el scan del GitWatcher (dispara el trigger real)
+    //   /debug/proposal?accept=1|0 → resuelve la última propuesta emitida
+    if (url.pathname === '/debug/git-scan') {
+      MarchCore.debugGitScan().then(r => {
+        res.writeHead(r.ok ? 200 : 500);
+        res.end(r.ok ? `ok: scan git realizado\n${JSON.stringify(r.stats, null, 2)}` : `error: ${r.error}`);
+      });
+      return;
+    }
+    if (url.pathname === '/debug/proposal') {
+      const accept = url.searchParams.get('accept') === '1';
+      const r = MarchCore.debugResolveLastProposal(accept);
+      res.writeHead(r.ok ? 200 : 400);
+      res.end(r.ok
+        ? `ok: propuesta ${accept ? 'aceptada' : 'rechazada'} (${r.proposal.type})`
+        : `error: ${r.error}`);
+      return;
+    }
+    // Fase D: fuerza el scan de errores LSP (dispara el trigger real del sensor)
+    if (url.pathname === '/debug/lsp-scan') {
+      MarchCore.debugLSPScan().then(r => {
+        res.writeHead(r.ok ? 200 : 500);
+        res.end(r.ok ? `ok: scan LSP realizado\n${JSON.stringify(r.stats, null, 2)}` : `error: ${r.error}`);
+      });
+      return;
+    }
+    // Fase E: reporte de telemetría "¿mejor que el mes pasado?" (datos locales)
+    if (url.pathname === '/telemetry/report') {
+      const r = MarchCore.getTelemetryReport();
+      res.writeHead(r.ok ? 200 : 500);
+      res.setHeader('Content-Type', 'application/json; charset=utf-8');
+      res.end(JSON.stringify(r, null, 2));
+      return;
+    }
+    if (url.pathname === '/telemetry/stats') {
+      const s = MarchCore.getTelemetryStats();
+      res.writeHead(s ? 200 : 500);
+      res.setHeader('Content-Type', 'application/json; charset=utf-8');
+      res.end(JSON.stringify(s, null, 2));
+      return;
+    }
     res.writeHead(200); res.end(HELP_TEXT);
   });
   server.listen(3131, '127.0.0.1', () => console.log('[march7th] API lista → http://localhost:3131/help'));
   server.on('error', (e) => { if (e.code === 'EADDRINUSE') console.log('[march7th] puerto 3131 ocupado.'); });
+}
+
+// ── Auto-init ─────────────────────────────────────────────────────────────────
+// Escanea el proyecto activo al arrancar y guarda un nodo 'Project' con su
+// contexto, para que March recuerde sobre qué repo está trabajando sin que
+// el usuario tenga que pedírselo. Fire-and-forget: cualquier fallo se loguea
+// en crash.log pero nunca rompe el arranque (antes esta llamada estaba
+// huérfana — apuntaba a una función inexistente y tiraba un ReferenceError).
+async function _autoInitProject() {
+  try {
+    const userDataPath = app.getPath('userData');
+    let workspace = process.env.MARCH_WORKSPACE;
+    if (!workspace && fs.existsSync(path.join(userDataPath, 'config.json'))) {
+      try {
+        const cfg = JSON.parse(fs.readFileSync(path.join(userDataPath, 'config.json'), 'utf-8'));
+        if (cfg.activeWorkspace) workspace = cfg.activeWorkspace;
+      } catch (_) { /* config inválida, seguir con default */ }
+    }
+    const root = workspace || app.getAppPath() || process.cwd();
+    if (!root || !fs.existsSync(root)) return;
+
+    let summary = `Proyecto activo: ${root}`;
+    const pkgPath = path.join(root, 'package.json');
+    if (fs.existsSync(pkgPath)) {
+      try {
+        const pkg = JSON.parse(fs.readFileSync(pkgPath, 'utf-8'));
+        if (pkg.name)        summary += `\nNombre: ${pkg.name}`;
+        if (pkg.description) summary += `\nDescripción: ${pkg.description}`;
+      } catch (_) { /* no es un proyecto npm, ignorar */ }
+    }
+
+    const label = `Proyecto: ${path.basename(root)}`;
+
+    // No recrear el nodo en cada arranque: si ya existe un nodo 'Project'
+    // activo con esta etiqueta, lo actualizamos en vez de insertar otro
+    // (antes cada boot insertaba uno nuevo que el dedup de
+    // ContradictionResolver archivaba después — churn innecesario en la DB).
+    const graph = MarchCore.getGraph();
+    if (graph?.isReady && graph._db) {
+      const existing = graph.queryNodes({ type: 'Project', search: label, limit: 1 });
+      if (existing && existing.length > 0) {
+        try {
+          graph.updateNode(existing[0].id, { content: summary, importance: 0.9 });
+          return;
+        } catch (_) { /* si falla la actualización, cae a crear de nuevo */ }
+      }
+    }
+
+    MarchCore.storeFact({
+      type: 'Project',
+      label,
+      content: summary,
+      importance: 0.9,
+      tags: ['workspace', 'auto-init'],
+    });
+  } catch (e) {
+    console.warn('[march7th] auto-init de proyecto falló:', e.message);
+  }
 }
 
 // ── App init ──────────────────────────────────────────────────────────────────
@@ -1003,6 +1174,14 @@ app.whenReady().then(() => {
       if (mainWindow && !mainWindow.isDestroyed()) {
         mainWindow.webContents.send('speak', payload.suggestion);
       }
+    }
+  });
+
+  // Fase B: resultado real de ejecutar una propuesta proactiva — se muestra
+  // en el bubble de la propuesta (solo si esa ventana existe).
+  MarchCore.onProposalResult((payload) => {
+    if (chatWindow && !chatWindow.isDestroyed()) {
+      chatWindow.webContents.send('proposal-result', payload);
     }
   });
 

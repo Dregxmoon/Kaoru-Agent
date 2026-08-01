@@ -96,6 +96,10 @@ const FAST_HISTORY_LIMIT = 8;
 const VALID_MODES = new Set(['fast', 'smart']);
 const MAX_RETRIES_PER_PROVIDER = 1;
 const RETRY_BASE_MS = 2000;
+// Si un rate-limit dice "espera > 30s", no lo esperamos de forma síncrona
+// (una request no puede quedar colgada 50 min): fallamos ya y el mensaje
+// final le avisa al usuario cuánto esperar o que cambie de proveedor.
+const MAX_RETRY_WAIT_MS = 30_000;
 
 function _resolveMode(mode) {
   return VALID_MODES.has(mode) ? mode : 'fast';
@@ -454,24 +458,37 @@ function _isRetryableError(err) {
 }
 
 function _parseRetryAfter(err) {
-  const m = err?.message?.match(/try again in ([\d.]+)s/);
-  return m ? Math.ceil(parseFloat(m[1]) * 1000) : 0;
+  const msg = err?.message || '';
+  // Groq/otros: "Please try again in 50m14.495999999s" — minutos + segundos.
+  const both = msg.match(/try again in (\d+(?:\.\d+)?)m(\d+(?:\.\d+)?)?s/i);
+  if (both) return Math.ceil((parseFloat(both[1]) * 60 + (parseFloat(both[2]) || 0)) * 1000);
+  const secs = msg.match(/try again in (\d+(?:\.\d+)?)s/i);
+  return secs ? Math.ceil(parseFloat(secs[1]) * 1000) : 0;
 }
 
 async function _callWithFallback(messages, systemPrompt, mode = 'fast') {
   const order = [_config.primary, ...(_config.fallback || [])];
   const tried = [];
+  const missingKeys = [];
+  const rateLimits = []; // { provider, waitMs } — 429/429-ish para dar consejo útil
 
   for (const providerName of order) {
     const fn = PROVIDERS[providerName];
     if (!fn) continue;
-    if (!defHasKey(providerName)) continue;
+    if (!defHasKey(providerName)) {
+      missingKeys.push(providerName);
+      continue;
+    }
 
     let lastErr = null;
     for (let attempt = 0; attempt <= MAX_RETRIES_PER_PROVIDER; attempt++) {
       try {
         if (attempt > 0) {
           const ra = _parseRetryAfter(lastErr);
+          if (ra > MAX_RETRY_WAIT_MS) {
+            tried.push(providerName);
+            break;
+          }
           const waitMs = ra > 0 ? ra : _backoffWithJitter(attempt - 1);
           console.log(`[llm] reintentando ${providerName} en ${waitMs}ms (intento ${attempt + 1}/${MAX_RETRIES_PER_PROVIDER + 1})...`);
           await _sleep(waitMs);
@@ -484,6 +501,9 @@ async function _callWithFallback(messages, systemPrompt, mode = 'fast') {
         lastErr = e;
         const retryable = _isRetryableError(e);
         console.log(`[llm] ${providerName} falló${retryable ? ' (transitorio)' : ' (no reintentable)'}: ${e.message}`);
+        if (retryable && /(\b429\b|rate limit|quota|too many requests)/i.test(e.message)) {
+          rateLimits.push({ provider: providerName, waitMs: _parseRetryAfter(e) });
+        }
         if (!retryable || attempt === MAX_RETRIES_PER_PROVIDER) {
           tried.push(providerName);
           break;
@@ -491,7 +511,22 @@ async function _callWithFallback(messages, systemPrompt, mode = 'fast') {
       }
     }
   }
-  throw new Error(`Todos los providers fallaron: ${tried.join(', ')}`);
+  if (tried.length > 0) {
+    let msg = `Todos los providers fallaron: ${tried.join(', ')}`;
+    if (rateLimits.length > 0) {
+      rateLimits.sort((a, b) => b.waitMs - a.waitMs);
+      const worst = rateLimits[0];
+      const when = worst.waitMs > 0
+        ? `vuelve a intentar en ~${Math.ceil(worst.waitMs / 60000)} min`
+        : 'su cuota diaria puede estar agotada (los tiers gratis tienen límites)';
+      msg += `. ${worst.provider} está en rate-limit — ${when} o cambia de proveedor con /model.`;
+    }
+    throw new Error(msg);
+  }
+  throw new Error(
+    `Sin API key para: ${missingKeys.join(', ') || '(ninguno)'}. ` +
+    'Todos los proveedores (incluso los "gratis") necesitan su propia API key — configúrala con /credenciales.'
+  );
 }
 
 async function _callWithFallbackTools(messages, systemPrompt, mode = 'smart', tools) {
@@ -502,17 +537,25 @@ async function _callWithFallbackTools(messages, systemPrompt, mode = 'smart', to
 
   const order = [_config.primary, ...(_config.fallback || [])];
   const tried = [];
+  const missingKeys = [];
 
   for (const providerName of order) {
     const fn = PROVIDERS_WITH_TOOLS[providerName];
     if (!fn) continue;
-    if (!defHasKey(providerName)) continue;
+    if (!defHasKey(providerName)) {
+      missingKeys.push(providerName);
+      continue;
+    }
 
     let lastErr = null;
     for (let attempt = 0; attempt <= MAX_RETRIES_PER_PROVIDER; attempt++) {
       try {
         if (attempt > 0) {
           const ra = _parseRetryAfter(lastErr);
+          if (ra > MAX_RETRY_WAIT_MS) {
+            tried.push(providerName);
+            break;
+          }
           const waitMs = ra > 0 ? ra : _backoffWithJitter(attempt - 1);
           await _sleep(waitMs);
         }
@@ -529,7 +572,7 @@ async function _callWithFallbackTools(messages, systemPrompt, mode = 'smart', to
     }
   }
 
-  console.warn(`[llm] tool-calling falló en todos los providers (${tried.join(', ')}), fallback a texto`);
+  console.warn(`[llm] tool-calling falló en todos los providers (${tried.join(', ')})${missingKeys.length ? ` — sin key: ${missingKeys.join(', ')}` : ''}, fallback a texto`);
   const text = await _callWithFallback(messages, systemPrompt, mode);
   return { content: text, toolCalls: null };
 }

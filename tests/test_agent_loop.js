@@ -375,6 +375,56 @@ ACCIÓN: read_file | ARCHIVO: ${testFile}
   teardown();
 }
 
+// ── Test 7: Tool-call nativo con content vacío NO es "el modelo no respondió" ──
+
+async function testNativeToolCallEmptyContent() {
+  console.log(C.bold('\n── Test 7: Tool-call nativa con content vacío se ejecuta ─────────'));
+
+  const { AgentLoop } = require('../core/planner/AgentLoop.js');
+  const AP = require('../core/planner/ActionParser.js');
+  const LLMProvider = require('../core/llm/LLMProvider.js');
+
+  const projectCwd = teardown() || setup();
+  AP.setProjectCWD(projectCwd);
+  const testFile = path.join(projectCwd, 'greeting.txt');
+  fs.writeFileSync(testFile, 'contenido de greeting', 'utf-8');
+
+  // Caso real: llama-3.3-70b con tools devuelve { content: null, toolCalls: [...] }.
+  // El loop abortaba con "El modelo no respondió." en vez de ejecutar la llamada.
+  const originalCompleteWithTools = LLMProvider.completeWithTools;
+  let calls = 0;
+  LLMProvider.completeWithTools = async () => {
+    calls++;
+    if (calls === 1) {
+      return { content: null, toolCalls: [{ tool: 'read', params: { path: testFile } }] };
+    }
+    return { content: 'Tarea completada.', toolCalls: null };
+  };
+
+  try {
+    const mockLLM = createMockLLM(['no se usa']);
+    const loop = new AgentLoop({ maxIterations: 5, llm: mockLLM, bridge: createMockBridge(projectCwd) });
+
+    const result = await loop.run(
+      'hola',
+      'Eres un asistente.',
+      [],
+      { tools: [{ name: 'read', description: 'lee un archivo', inputSchema: { type: 'object', properties: {} } }] }
+    );
+
+    assert(calls === 2, 'completeWithTools llamado 2 veces (tool call + cierre)', `llamadas: ${calls}`);
+    assert(result.toolResults.length === 1, 'La tool call nativa se ejecutó', `tools: ${result.toolResults.length}`);
+    assert(result.toolResults[0].tool === 'read', 'Tool ejecutada: read');
+    assert(result.toolResults[0].ok, 'read tuvo éxito', result.toolResults[0].error || '');
+    assert(!result.error, 'Sin error "empty_response"', `error: ${result.error}`);
+    assert(result.response.includes('Tarea completada'), 'Respuesta final es el texto de cierre', result.response.slice(0, 60));
+  } finally {
+    LLMProvider.completeWithTools = originalCompleteWithTools;
+  }
+
+  teardown();
+}
+
 // ── Main ──────────────────────────────────────────────────────────────────────
 
 async function main() {
@@ -388,6 +438,7 @@ async function main() {
   await testApprovalRejected();
   await testNoApprovalCallback();
   await testBridgeExecution();
+  await testNativeToolCallEmptyContent();
 
   console.log(C.bold('\n════════════════════════════════════════════════════════'));
   const total = passed + failed;

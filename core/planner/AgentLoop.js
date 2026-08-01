@@ -56,6 +56,13 @@ El resto del texto se mostrará al usuario.
    o si la tarea no se puede completar y responde informando el error.
 5. NUNCA ejecutes acciones destructivas sin antes informar al usuario qué
    vas a hacer y por qué.
+6. USA HERRAMIENTAS SOLO CUANDO LA TAREA LO REQUIERA. Saludos, preguntas
+   sobre ti mismo ("quién eres", tu identidad, tu personalidad), preguntas de
+   conversación y dudas que ya puedes responder con lo que sabes se contestan
+   DIRECTAMENTE, sin llamar ninguna herramienta. browser y web_search son
+   SOLO para información externa actual que no puedes conocer (noticias,
+   datos en vivo, páginas web). NO busques en internet cosas que ya sabes,
+   como tu propia identidad — eso desperdicia recursos y el rate-limit.
 `;
 
 const MODE_ALIAS = {
@@ -189,13 +196,19 @@ class AgentLoop {
         }
       }
 
+      const hasNativeToolCalls = toolCalls && toolCalls.length > 0;
       if (!responseText || !responseText.trim()) {
-        return {
-          response: 'El modelo no respondió.',
-          iterations: i + 1,
-          toolResults,
-          error: 'empty_response',
-        };
+        // Tool-calling nativo devuelve content vacío cuando el modelo SOLO llama
+        // una herramienta — no es un "no respondió", hay que ejecutar la llamada.
+        if (!hasNativeToolCalls) {
+          return {
+            response: 'El modelo no respondió.',
+            iterations: i + 1,
+            toolResults,
+            error: 'empty_response',
+          };
+        }
+        responseText = '';
       }
 
       lastResponseText = responseText;

@@ -1,64 +1,66 @@
-# core/task — Detección, planificación y ejecución de tareas
+# Detección y ejecución de tareas (`core/task/`)
 
-Este módulo implementa el pipeline de "tareas" de March: decide si un mensaje
-del usuario es una instrucción operativa (algo que ejecutar) o una conversación
-normal, clasifica el dominio, y mantiene un registro de las herramientas
-disponibles para ejecutarla.
+Pipeline de *tareas* de March: decide si un mensaje es una instrucción operativa (algo que ejecutar) o
+conversación normal, clasifica el dominio, y mantiene el registro de herramientas disponibles para
+ejecutarla. Convive con el sistema de intenciones (`IntentDetector`) sin contaminar el prompt de
+identidad con reglas de detección.
 
-Convive con el viejo sistema de intenciones (IntentDetector/GroqSerializer)
-pero no lo reemplaza del todo — la parte de *tasks* se lleva aparte para no
-contaminar el prompt de la identidad con decenas de reglas de detección.
+---
 
-## Archivos
+## `TaskDetector.js` — clasificador de intención operativa
 
-### TaskDetector.js — Clasificador de intención operativa
+| Campo | Descripción |
+|---|---|
+| `isTask` | ¿Es una instrucción accionable o solo charla? |
+| `domain` | Área de la tarea: code, git, shell, web, filesystem, docker, etc. |
+| `confidence` | high / medium / low / none |
+| `goal` | Fragmento del texto que disparó la detección |
 
-Toma un texto y devuelve:
+Filtra saludos, confirmaciones simples y preguntas existenciales antes de entrar en los patrones.
+Los dominios están ponderados por peso (code=10, git=10, filesystem=9, shell=8, …); con matching
+múltiple gana el mayor peso acumulado y `peso ≥ 20` se considera alta confianza.
 
-- `isTask`: si es una instrucción accionable o solo charla
-- `domain`: el área (code, git, shell, web, filesystem, docker, etc.)
-- `confidence`: qué tan seguro está del match (high/medium/low/none)
-- `goal`: fragmento del texto que disparó la detección
+## `PlanParser.js` — extracción de planes
 
-Filtra saludos, confirmaciones simples y preguntas existenciales antes de
-entrar en los patrones, para no mandar "hola" al planificador como si fuera
-una tarea. Los dominios están ponderados por peso (code=10, git=10,
-filesystem=9, shell=8, etc.) y si hay matching múltiple, gana el de mayor
-peso acumulado. Si el peso total es >= 20 se considera alta confianza.
+Busca bloques ```plan … ``` en la respuesta del LLM y los convierte en pasos con estado (`done`),
+con fallback a líneas `- [ ]` / `- [x]`. Devuelve `null` si no hay nada parseable.
 
-### PlanParser.js — Extracción de planes desde respuestas del LLM
+## `ToolRegistry.js` — catálogo de herramientas
 
-Busca bloques delimitados con ```plan ... ``` en la respuesta del LLM y los
-convierte en una estructura de pasos con estado (done/false). Si no encuentra
-bloques con delimitador, hace un fallback buscando líneas sueltas con el
-formato `- [ ] descripción` o `- [x] descripción`. Devuelve `null` si no hay
-nada parseable.
+Registra los schemas de OpenClaw (exec, read, write, edit, apply_patch, code_execution, browser,
+web_search) y consulta al `MCPManager` por herramientas externas.
 
-### ToolRegistry.js — Catálogo de herramientas disponibles
+| Método | Propósito |
+|---|---|
+| `getCatalog(domain?)` | Todas las herramientas, opcionalmente filtradas por dominio |
+| `getToolById(id)` | Lookup individual |
+| `serializeToPrompt(domain?, maxTools?)` | Bloque de texto del system prompt con formato de uso |
+| `setMCPManager / setOpenClawBridge / setLSPManager` | Inyección de fuentes de herramientas |
 
-Registra los schemas de OpenClaw (exec, read, write, edit, apply_patch,
-code_execution, browser, web_search) y consulta al MCPManager por herramientas
-externas. Tiene métodos para:
+Las herramientas de alto impacto (`highImpact: true`) marcan la aprobación requerida.
 
-- `getCatalog(domain?)`: todas las herramientas, opcionalmente filtradas por
-  dominio
-- `getToolById(id)`: lookup individual
-- `serializeToPrompt(domain?, maxTools?)`: genera el bloque de texto plano que
-  se inyecta en el system prompt del LLM, con formato de uso y reglas
+## `ToolResolver.js` — resolución del toolset
 
-Las herramientas de alto impacto (write, edit, code_execution, etc.) tienen
-`highImpact: true` para que el planificador sepa que debe pedir confirmación.
+Decide, por turno, **qué herramientas ve el LLM** y con qué precedencia (Skill > MCP > OpenClaw):
+
+- Colecciona herramientas de OpenClaw, LSP y MCP.
+- **Excluye dominios superpuestos** (MCP excluye OpenClaw; skills excluyen por `replaces_domains`).
+- Produce `nativeToolSchemas` (para tool-calling) y `promptCatalog` (texto del system prompt).
+- Registra las exclusiones para auditoría.
+
+---
 
 ## Cómo se integra
 
-1. `TaskDetector.detect(userMessage)` se llama desde `MarchCore.generatePlan()`
-   antes de armar el contexto del LLM.
-2. Si detecta una tarea con suficiente confianza, se inyecta `toolIntent` en
-   el serializador (GroqSerializer) para que el LLM vea el dominio y la
-   intención.
-3. La respuesta del LLM pasa por `PlanParser.parsePlan()` para extraer pasos
-   estructurados.
-4. El plan extraído se presenta al usuario en la UI (modo task) o se ejecuta
-   directo (modo conversacional).
-5. `ToolRegistry.serializeToPrompt()` alimenta el system prompt con lo que el
-   LLM puede ejecutar y cómo pedirlo.
+1. `TaskDetector.detect(userMessage)` se llama desde `MarchCore.generatePlan()` antes de armar el contexto.
+2. Con tarea detectada, se inyecta `toolIntent` al serializador (GroqSerializer).
+3. La respuesta del LLM pasa por `PlanParser.parsePlan()` para extraer pasos.
+4. El plan se presenta en la UI (modo task) o se ejecuta directo (modo conversacional).
+5. `ToolRegistry.serializeToPrompt()` alimenta el system prompt; `ToolResolver` decide el toolset final.
+
+---
+
+## Verificación
+
+`test_tool_precedence` (43), `test_tool_visibility` (18), `test_tools_e2e`, `test_task` y
+`test_tool_calling` — ver `tests/README.md`.

@@ -1,39 +1,71 @@
-# Orquestación principal
+# Núcleo de inteligencia (`core/`)
 
-Capa central del sistema. Inicializa, conecta y orquesta todos los subsistemas de inteligencia, memoria y ejecución.
+Capa central del sistema: inicializa, conecta y orquesta todos los subsistemas de inteligencia, memoria,
+percepción y ejecución. `MarchCore` es el archivador que da vida al resto de los módulos.
 
-## Archivos
+---
 
-### MarchCore.js
-Archivador central e inicializador de todos los subsistemas. Su función `init()` arranca StateGraph, GroundingEngine, SessionManager, IntentDetector, BehaviorModel, ProactiveEngine y los conecta al EventBus.
+## Orquestador: `MarchCore.js`
 
-**Responsabilidades:**
-- Seleccionar el sensor de SO adecuado según `process.platform` (win32 → OSSensor, linux → LinuxOSSensor)
-- Inicializar carga vectorial (sqlite-vec) y backfill de embeddings
-- Conectar el sensor con GroundingEngine, InitiativeEngine y ProactiveEngine
-- Inyectar las secciones de herramientas OpenClaw y MCP en el system prompt
-- Cargar configuración LLM y MCP desde config.json
+Responsable del ciclo de vida completo de la aplicación:
 
-**API pública:**
+- **Arranque:** inicializa `StateGraph`, `GroundingEngine`, `SessionManager`, `IntentDetector`,
+  `BehaviorModel`, `ProactiveEngine`, sensores de señales y cliente MCP, y los conecta al `EventBus`.
+- **Sensores de plataforma:** selecciona el sensor de SO según `process.platform` (Windows → `OSSensor`,
+  Linux/Wayland → `LinuxOSSensor`).
+- **Contexto:** `buildContext()` ensambla el paquete de contexto completo para el LLM (identidad, SO,
+  memoria, intención, herramientas, skills).
+- **Sesiones:** inicio/cierre de sesión, turnos, persistencia incremental y extracción de memoria.
+- **Agente:** `runAgent()` ejecuta el bucle agente (LLM → herramienta → resultado) con aprobaciones y
+  progreso.
+- **Proactividad:** conecta sensores de señales al motor proactivo y enruta las decisiones de propuesta
+  entre el chat y el executor.
+- **Herramientas:** inyección del catálogo OpenClaw/MCP en el prompt y gestión del workspace activo.
+
+### API pública principal
+
 | Función | Propósito |
 |---|---|
-| `init(app)` | Inicializa todo el sistema |
-| `shutdown()` | Cierre ordenado (desconecta MCP, browser, sensor) |
-| `startSession()` | Inicia sesión de conversación |
-| `closeSession()` | Cierra sesión y extrae memoria |
-| `addTurn(role, content)` | Agrega turno al historial |
-| `buildContext(history, provider)` | Ensambla contexto completo para el LLM |
-| `getOSSensor()` | Retorna el sensor de SO activo |
+| `init(app)` | Inicializa todos los subsistemas y los conecta al bus |
+| `shutdown()` | Cierre ordenado (desconecta MCP, navegador, sensores) |
+| `startSession() / closeSession()` | Ciclo de vida de la sesión de conversación |
+| `addTurn(role, content)` | Registra un turno (alimenta historial, memoria y telemetría) |
+| `buildContext(history, provider, opts)` | Ensambla el contexto del LLM (modos chat/plan/execute/agent) |
+| `runAgent(message, opts)` | Ejecuta el bucle agente con herramientas |
+| `handleProposalDecision(id, decision)` | Procesa aceptar/descartar de una propuesta proactiva |
+| `getStats()` | Estado de sesión, sensores, motor proactivo, señales, telemetría |
 
-### Módulos hijos
+---
 
-| Carpeta | Propósito |
+## Módulos
+
+| Carpeta | Responsabilidad |
 |---|---|
-| `behavior/` | Modelo de comportamiento y proactividad autónoma |
-| `grounding/` | Pipeline de ensamblado de contexto para el LLM |
-| `identity/` | Personalidad de March 7th |
-| `llm/` | Abstracción de proveedores de LLM |
-| `mcp/` | Cliente Model Context Protocol |
-| `planner/` | Parseo y ejecución de acciones |
-| `prompt-composer/` | (eliminado — era dead code; el pipeline real usa GroqSerializer) |
-| `state-graph/` | Grafo de conocimiento persistente (SQLite) |
+| [`agents/`](./agents/README.md) | Definiciones de agentes especializados (modos de sistema) |
+| [`behavior/`](./behavior/README.md) | Modelo de comportamiento y motor de proactividad + executor |
+| [`commands/`](./commands/README.md) | Registro de comandos de chat (`/comando`) |
+| [`decision/`](./decision/README.md) | Núcleo determinista de decisión proactiva (Fase F) |
+| [`grounding/`](./grounding/README.md) | Pipeline de contexto: intención, memoria, serializadores |
+| [`identity/`](./identity/README.md) | Personalidad de March 7th |
+| [`llm/`](./llm/README.md) | Abstracción multi-proveedor de LLM |
+| [`lsp/`](./lsp/README.md) | Cliente LSP e índice de símbolos para el agente de código |
+| [`mcp/`](./mcp/README.md) | Cliente Model Context Protocol |
+| [`planner/`](./planner/README.md) | Agente: parsing, bucle de ejecución y bridges |
+| [`skills/`](./skills/README.md) | Sistema de skills con inyección contextual |
+| [`state-graph/`](./state-graph/README.md) | Grafo de conocimiento persistente (SQLite + vectores) |
+| [`task/`](./task/README.md) | Detección de tareas, registro y resolución de herramientas |
+| [`telemetry/`](./telemetry/README.md) | Telemetría local (métricas de uso) |
+
+---
+
+## Flujo de datos entre módulos
+
+```
+UI ──IPC──► MarchCore ──► grounding (contexto) ──► llm ──► planner/AgentLoop
+                │                    ▲
+                ├──► state-graph ────┘            └────► task / mcp / openclaw
+                └──► behavior/decision ◄── infra/sensors (señales del SO)
+```
+
+Cada módulo se comunica con el resto exclusivamente a través del `EventBus`
+(`infrastructure/event-bus/`) o de la API pública de `MarchCore` — no hay dependencias cruzadas directas.

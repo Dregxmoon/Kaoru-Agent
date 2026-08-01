@@ -796,5 +796,6 @@ module.exports = {
   getPlanner,
   isHighImpact: AP.isHighImpact,
   setProjectCWD: AP.setProjectCWD,
+  getProjectCWD: () => AP.PROJECT_CWD,
   setLLMProvider,
 };

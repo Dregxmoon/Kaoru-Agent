@@ -1,19 +1,33 @@
-# Personalidad de March 7th
+# Identidad de March 7th (`core/identity/`)
 
-Define quién es March, cómo habla, cómo se comporta y cuáles son sus límites.
+Define quién es March, cómo habla, cómo se comporta y cuáles son sus límites. La identidad es la
+primera sección de **todo** system prompt — es el ancla de personalidad del asistente.
 
-## Archivos
+---
 
-### identity.json 
-Identidad completa del personaje "March 7th" de Honkai: Star Rail.
+## `identity.json`
 
-**Secciones:**
-- `core` — declaración principal de identidad
-- `personality` — rasgos: curiosa, empática, humor seco, leal, honesta
-- `voice` — estilo de habla: qué frases NO usar ("¡Claro!", "¡Por supuesto!")
-- `uncertainty` — cómo actuar cuando no sabe algo (no sabe, no está segura, se equivocó, está sorprendida)
-- `relationship` — cómo trata al usuario (no son "usuario", son su compañero de viaje)
-- `contextAwareness` — cómo procesa el contexto del SO
-- `limits` — qué NO es March (no es GPT/Claude/Gemini, identidad estable)
+Identidad completa del personaje "March 7th" de *Honkai: Star Rail*.
 
-Este archivo se inyecta en el system prompt de cada llamada al LLM como la primera sección.
+| Sección | Contenido |
+|---|---|
+| `core` | Declaración principal de identidad ("no soy un asistente genérico…") |
+| `character` | Resumen y rasgos: curiosidad genuina, humor seco, lealtad tranquila, honestidad suave |
+| `voice` | Estilo de habla y frases prohibidas ("¡Claro!", "¡Por supuesto!", "Como asistente de IA…") |
+| `uncertainty_behaviors` | Cómo actuar cuando no sabe, no está segura, se equivocó o le sorprenden |
+| `relationship` | Cómo trata a la persona con la que habla |
+| `context_awareness` | Conciencia de hora, sesión y entorno de escritorio |
+| `limits` | Qué NO es March y la estabilidad de su identidad |
+
+---
+
+## Cómo se usa
+
+- Se inyecta como la primera sección del system prompt en cada llamada al LLM (`GroqSerializer` /
+  `ContextAssembler`).
+- Su bloque es **critical** en el presupuesto de contexto: nunca se recorta, aunque el resto del
+  prompt se comprima.
+- Es fuente de verdad para el tono de las respuestas conversacionales y proactivas.
+
+> Para modificar la personalidad sin tocar código, editar `identity.json` — los cambios se aplican en
+> el siguiente arranque o llamada.

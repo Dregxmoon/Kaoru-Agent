@@ -45,9 +45,21 @@
  * ─────────────────────────────────────────────────────────────────────────────
  */
 
+const crypto          = require('crypto');
+const path            = require('path');
+
 const { getEventBus } = require('../../infrastructure/event-bus/EventBus.js');
 const LLMProvider     = require('../llm/LLMProvider.js');
 const { getIdentity } = require('../grounding/GroundingEngine.js');
+const { ProposalStore } = require('./ProposalStore.js');
+const { _parseEventTime } = require('../../infrastructure/sensors/UpcomingEventsWatcher.js');
+
+// Fase F: núcleo determinista de decisión + gate de contexto. El LLM produce,
+// no decide — estos módulos ponen el criterio barato y traceable.
+const { scoreRelevancia, receptividad, AuditLog } = require('../decision/DecisionCore.js');
+const { candidateFromTrigger } = require('../decision/SignalNormalizer.js');
+const { evaluate: evaluateGate, QueueStore } = require('../decision/ContextGate.js');
+const { assess: assessSlo } = require('../decision/SloMonitor.js');
 
 // ── Configuración general ───────────────────────────────────────────────────
 
@@ -57,8 +69,14 @@ const SILENCE_THRESHOLD_MS  = 3 * 60 * 60 * 1000;
 const LATE_NIGHT_START      = 0;
 const LATE_NIGHT_END        = 5;
 const MAX_IDLE_TO_INTERRUPT = 30 * 60;               // segundos — no interrumpir si lleva más de esto AFK
+const RECENT_CHAT_MS        = 2 * 60 * 1000;          // no interrumpir si el usuario conversó hace < 2 min
 const FOLLOWUP_MULTIPLIER   = 3;                      // cuántas veces el minSec antes de un follow-up
 const SESSION_END_MIN_SEC   = 20 * 60;                // mínimo de racha para trigger "fin de sesión"
+
+// Fase C: presupuesto diario duro de iniciativas proactivas ENVIADAS. Es el
+// freno macro ("conocer sin hartar"); el cooldown por tipo es el freno fino.
+const DAILY_BUDGET           = 12;
+const PENDING_LOOKAHEAD_MS   = 45 * 60 * 1000;        // pendientes a <45 min para el recap de arranque
 
 // ── Pre-filtro barato para triggers basados en actividad del OS ─────────────
 // (reemplaza las INITIATIVE_RULES de InitiativeEngine.js — mismo umbral por
@@ -86,6 +104,110 @@ const RETURN_MAX_GAP_SEC = 3 * 60 * 60;  // más que esto ya es más parecido a 
 
 const WORK_CATEGORIES = new Set(['code', 'terminal', 'docs', 'design']);
 
+// ── Fase A: autonomía con consentimiento ──────────────────────────────────────
+// El mensaje proactivo pasa de comentario a *propuesta*: además del texto del
+// LLM, el payload lleva un bloque `proposal` determinista (NUNCA inventado por
+// el modelo) con un título, un preview de qué pasaría y — si aplica — una
+// acción declarada que en la Fase B ejecutará un executor whitelisted tras la
+// confirmación del usuario. Hoy la acción se registra (feedback), no se ejecuta.
+//
+// La escalera: observar → informar → proponer → actuar. El slider de autonomía
+// (config `autonomy`) controla cuánto sube el engine en esa escalera:
+//   observe → ni informa (sensores corren, cero mensajes proactivos)
+//   suggest → informa + propone botones (default)
+//   act     → en Fase B habilita ejecutar tras confirmación; hoy = suggest.
+const AUTONOMY_MODES = ['observe', 'suggest', 'act'];
+
+// Propuestas por tipo de trigger (+kind del sensor). `action` es declarativo:
+// define QUÉ se haría, pero en Fase A no ejecuta nada. `kind: 'info'` = solo
+// informar/confirmar; `kind: 'action'` = tiene una acción concreta detrás.
+const PROPOSAL_HINTS = {
+  git_redflag: {
+    env_unignored: {
+      title:   'Añadir el archivo sensible a .gitignore',
+      preview: 'Añadir a .gitignore el archivo que parece contener secretos, para que no se suba por accidente.',
+      kind:    'action',
+      action:  { tool: 'gitignore_add', params: {} },
+    },
+    merge_conflict: {
+      title:   'Ver los archivos en conflicto',
+      preview: 'Ejecutar git status para listar los archivos que quedaron en conflicto.',
+      kind:    'action',
+      action:  { tool: 'git_status', params: {} },
+    },
+    uncommitted: {
+      title:   'Ver qué hay sin commitear',
+      preview: 'Ejecutar git status para revisar los cambios pendientes.',
+      kind:    'action',
+      action:  { tool: 'git_status', params: {} },
+    },
+    default: {
+      title:   'Ver el estado del repositorio',
+      preview: 'Revisar el estado actual de git en tu workspace.',
+      kind:    'action',
+      action:  { tool: 'git_status', params: {} },
+    },
+  },
+  system_warning: {
+    default: {
+      title:   'Ver el detalle de la advertencia',
+      preview: 'Revisar qué recurso del sistema está al límite y qué puedes hacer.',
+      kind:    'info',
+      action:  null,
+    },
+  },
+  error_title: {
+    default: {
+      title:   'Abrir el chat y verlo juntos',
+      preview: 'Te cuento lo que se ve en tu pantalla y vemos si puedo ayudar con el error.',
+      kind:    'info',
+      action:  null,
+    },
+  },
+  clipboard_context: {
+    default: {
+      title:   'Trabajar sobre lo que copiaste',
+      preview: 'Si es un error o una URL, seguimos desde ahí en el chat.',
+      kind:    'info',
+      action:  null,
+    },
+  },
+  upcoming_event: {
+    default: {
+      title:   'Confirmar que lo tengo presente',
+      preview: 'Anotado — te lo recuerdo cuando toque.',
+      kind:    'info',
+      action:  null,
+    },
+  },
+  pending_recap: {
+    default: {
+      title:   'Retomar lo pendiente',
+      preview: 'Recordarte lo que me pediste tener presente al arrancar.',
+      kind:    'info',
+      action:  null,
+    },
+  },
+  // Fase D: error de código detectado por el LSP. La propuesta pide un parche;
+  // si el LLM no logra generar uno válido, cae a informativa (ver el error).
+  lsp_error: {
+    default: {
+      title:   'Proponer un parche para el error',
+      preview: 'Generar y proponer un parche que corrija el error detectado por el LSP.',
+      kind:    'action',
+      action:  { tool: 'apply_patch', params: {} },
+    },
+    no_patch: {
+      title:   'Ver el error de código',
+      preview: 'Te enseño dónde está el error en tu código y vemos cómo resolverlo.',
+      kind:    'info',
+      action:  null,
+    },
+  },
+};
+
+const DEFAULT_AUTONOMY_MODE = 'suggest';
+
 // Cooldown por TIPO de trigger — tanto para intentos (se le preguntó al LLM,
 // haya dicho sí o no) como, en la práctica, para envíos exitosos.
 const TRIGGER_COOLDOWN_MS = {
@@ -96,21 +218,42 @@ const TRIGGER_COOLDOWN_MS = {
   context_switch_thrash: 60 * 60 * 1000,
   return_from_break:     45 * 60 * 1000,
   session_end:           60 * 60 * 1000,
+  // Señales de sensores — la frecuencia real la marca cada sensor (re-emiten
+  // mientras la condición persista); aquí solo se evita consultar al LLM en
+  // exceso para el mismo tipo de señal.
+  git_redflag:            6 * 60 * 60 * 1000,
+  system_warning:         60 * 60 * 1000,
+  error_title:            30 * 60 * 1000,
+  clipboard_context:      30 * 60 * 1000,
+  upcoming_event:         30 * 60 * 1000,
+  pending_recap:          60 * 60 * 1000,
+  lsp_error:              45 * 60 * 1000,
 };
 
 // ── ProactiveEngine ───────────────────────────────────────────────────────────
 
 class ProactiveEngine {
-  constructor(stateGraph) {
+  constructor(stateGraph, opts = {}) {
     this._graph          = stateGraph;
     this._bus            = getEventBus();
     this._osSensor       = null;
     this._chatOpen       = false;
     this._lastProactive  = 0;     // último mensaje autónomo ENVIADO (cualquier tipo)
-    this._lastUserMsg    = Date.now();
+    this._lastUserMsg    = 0;     // 0 = el usuario aún no ha conversado en esta sesión
+    this._startedAt      = Date.now();
     this._timer          = null;
     this._running        = false;
     this._deciding       = false; // lock — solo una consulta al LLM a la vez
+
+    // Fase A: feedback persistido de propuestas + slider de autonomía.
+    // El store es opcional — si no se pasa (tests), todo degrada a no-op.
+    this._store          = opts.store || null;
+    this._autonomyMode   = DEFAULT_AUTONOMY_MODE;
+
+    // Fase B: executor whitelisted de acciones. Opcional — sin él las
+    // propuestas solo informan (el botón "Sí, hazlo" solo registra feedback).
+    this._executor        = opts.executor || null;
+    this._pendingActions  = new Map(); // proposalId → { action, type, at }
 
     this._lastAttemptByType = {}; // último intento (haya dicho sí o no el LLM) por tipo
 
@@ -130,6 +273,16 @@ class ProactiveEngine {
 
     this._currentProactiveScore = 0.5;
     this._setupListeners();
+
+    // ── Fase F: gate de contexto + audit + cola de diferidos ───────────────
+    // Determinista, sin LLM. Si `shadowMode` está activo, el gate y el audit
+    // corren completos pero NADA se envía al usuario (dry-run para calibrar).
+    this._shadowMode      = !!opts.shadowMode;
+    this._audit           = opts.audit || new AuditLog();
+    this._queue           = opts.queue || new QueueStore();
+    this._receptivity     = 0; // Rec acumulada (EMA) — actualizada por handleDecision
+    this._sentFeedback    = new Map(); // proposalId → { type, at } para marcar ignored
+    this._ignoredAfterMs  = opts.ignoredAfterMs || 12 * 60 * 60 * 1000; // 12h sin respuesta = ignored
   }
 
   setOSSensor(osSensor) {
@@ -138,6 +291,14 @@ class ProactiveEngine {
 
   setChatOpen(open) {
     this._chatOpen = open;
+  }
+
+  setAutonomyMode(mode) {
+    this._autonomyMode = AUTONOMY_MODES.includes(mode) ? mode : DEFAULT_AUTONOMY_MODE;
+  }
+
+  getAutonomyMode() {
+    return this._autonomyMode;
   }
 
   onUserMessage() {
@@ -159,6 +320,13 @@ class ProactiveEngine {
     this._bus.off('os:app-tick',        this._boundOnAppTick);
     this._bus.off('os:idle-changed',    this._boundOnIdleChanged);
     this._bus.off('behavior:evaluated', this._boundOnBehaviorEval);
+    this._bus.off('git:redflag',           this._boundOnGitRedflag);
+    this._bus.off('system:warning',        this._boundOnSystemWarn);
+    this._bus.off('os:error-title',        this._boundOnErrorTitle);
+    this._bus.off('clipboard:copied',      this._boundOnClipboard);
+    this._bus.off('memory:upcoming-event', this._boundOnUpcoming);
+    this._bus.off('lsp:error',             this._boundOnLspError);
+    this._bus.off('initiative:decision',   this._boundOnDecision);
     this._running = false;
     console.log('[proactive] detenido');
   }
@@ -171,12 +339,26 @@ class ProactiveEngine {
     this._boundOnAppTick      = (p) => this._onAppTick(p);
     this._boundOnIdleChanged  = (p) => this._onIdleChanged(p);
     this._boundOnBehaviorEval = (ctx) => { this._currentProactiveScore = ctx.proactiveScore ?? 0.5; };
+    this._boundOnGitRedflag   = (p) => this._onGitRedflag(p);
+    this._boundOnSystemWarn   = (p) => this._onSystemWarning(p);
+    this._boundOnErrorTitle   = (p) => this._onErrorTitle(p);
+    this._boundOnClipboard    = (p) => this._onClipboard(p);
+    this._boundOnUpcoming     = (p) => this._onUpcomingEvent(p);
+    this._boundOnLspError     = (p) => this._onLspError(p);
+    this._boundOnDecision     = (d) => this.handleDecision(d);
 
     this._bus.on('memory:turn-added',  this._boundOnTurnAdded);
     this._bus.on('os:app-changed',     this._boundOnAppChanged);
     this._bus.on('os:app-tick',        this._boundOnAppTick);
     this._bus.on('os:idle-changed',    this._boundOnIdleChanged);
     this._bus.on('behavior:evaluated', this._boundOnBehaviorEval);
+    this._bus.on('git:redflag',           this._boundOnGitRedflag);
+    this._bus.on('system:warning',        this._boundOnSystemWarn);
+    this._bus.on('os:error-title',        this._boundOnErrorTitle);
+    this._bus.on('clipboard:copied',      this._boundOnClipboard);
+    this._bus.on('memory:upcoming-event', this._boundOnUpcoming);
+    this._bus.on('lsp:error',             this._boundOnLspError);
+    this._bus.on('initiative:decision',   this._boundOnDecision);
   }
 
   /** El usuario cambió de app — actualiza racha de enfoque y detecta "thrashing". */
@@ -236,26 +418,34 @@ class ProactiveEngine {
   }
 
   /** El usuario sigue en la misma app — revisa si ya lleva suficiente racha de enfoque. */
-  _onAppTick({ friendlyName, category, elapsed, elapsedFormatted, title }) {
+  async _onAppTick({ friendlyName, category, elapsed, elapsedFormatted, title }) {
     const rule = FOCUS_RULES[category];
     if (!rule) return;
     if (elapsed < rule.minSec) return;
 
     if (!this._categoryStreakFired) {
-      // Primer trigger: acaba de cruzar el umbral mínimo
+      // Primer trigger: acaba de cruzar el umbral mínimo. Solo se consume la
+      // racha si el trigger llegó a consultar al LLM (o se envió); si quedó
+      // bloqueado (chat abierto, cooldown, idle...), se reintenta en el
+      // próximo tick sin perder la oportunidad.
+      let outcome = null;
+      try {
+        outcome = await this._tryTrigger({
+          type:             'sustained_focus',
+          category,
+          label:            rule.label,
+          friendlyName,
+          title,
+          elapsedSec:       elapsed,
+          elapsedFormatted,
+          context:          `El usuario lleva ${elapsedFormatted} ${rule.label} en ${friendlyName}${title ? ` ("${title.slice(0, 80)}")` : ''}.`,
+        });
+      } catch(e) {
+        console.warn('[proactive] error en trigger de enfoque sostenido:', e.message);
+      }
+      if (outcome && outcome.blocked) return;
       this._categoryStreakFired = true;
       this._categoryStreakFiredAt = Date.now();
-
-      this._tryTrigger({
-        type:             'sustained_focus',
-        category,
-        label:            rule.label,
-        friendlyName,
-        title,
-        elapsedSec:       elapsed,
-        elapsedFormatted,
-        context:          `El usuario lleva ${elapsedFormatted} ${rule.label} en ${friendlyName}${title ? ` ("${title.slice(0, 80)}")` : ''}.`,
-      }).catch(e => console.warn('[proactive] error en trigger de enfoque sostenido:', e.message));
       return;
     }
 
@@ -264,18 +454,24 @@ class ProactiveEngine {
     const followupThreshold = rule.minSec * FOLLOWUP_MULTIPLIER;
     if (elapsed < followupThreshold) return;
 
+    let outcome = null;
+    try {
+      outcome = await this._tryTrigger({
+        type:             'sustained_focus',
+        subtype:          'followup',
+        category,
+        label:            rule.label,
+        friendlyName,
+        title,
+        elapsedSec:       elapsed,
+        elapsedFormatted,
+        context:          `El usuario sigue concentrado después de ${elapsedFormatted} ${rule.label} en ${friendlyName}${title ? ` ("${title.slice(0, 80)}")` : ''}.`,
+      });
+    } catch(e) {
+      console.warn('[proactive] error en trigger de enfoque sostenido (follow-up):', e.message);
+    }
+    if (outcome && outcome.blocked) return;
     this._categoryStreakFollowupFired = true;
-    this._tryTrigger({
-      type:             'sustained_focus',
-      subtype:          'followup',
-      category,
-      label:            rule.label,
-      friendlyName,
-      title,
-      elapsedSec:       elapsed,
-      elapsedFormatted,
-      context:          `El usuario sigue concentrado después de ${elapsedFormatted} ${rule.label} en ${friendlyName}${title ? ` ("${title.slice(0, 80)}")` : ''}.`,
-    }).catch(e => console.warn('[proactive] error en trigger de enfoque sostenido (follow-up):', e.message));
   }
 
   /** El usuario se fue o volvió del PC — detecta regreso de una ausencia real. */
@@ -297,12 +493,202 @@ class ProactiveEngine {
 
     if (gapSec < RETURN_MIN_GAP_SEC || gapSec > RETURN_MAX_GAP_SEC) return;
 
+    // Fase F: al volver de una pausa, es buen momento para reintentar los
+    // diferidos que el gate decidió esperar (cola QUEUE). El gate re-evalúa
+    // cada uno con el contexto nuevo; los que siguen sin ser buen momento
+    // se quedan en cola sin quemar reintentos.
+    this._replayQueued();
+
     const minutes = Math.round(gapSec / 60);
     this._tryTrigger({
       type:   'return_from_break',
       gapSec,
       context: `El usuario estuvo alejado de la PC unos ${minutes} minutos y acaba de volver a estar activo.`,
     }).catch(e => console.warn('[proactive] error en trigger de regreso:', e.message));
+  }
+
+  /**
+   * Fase F: re-procesa la cola de diferidos con el contexto actual. Los que el
+   * gate admite (ACT/ESCALATE) entran al pipeline normal — el LLM produce.
+   */
+  _replayQueued() {
+    const ready = this._queue.poll(this._buildGateContext(Date.now()));
+    if (!ready.length) return;
+    console.log(`[proactive] reintentando ${ready.length} diferido(s) de la cola...`);
+    for (const { candidate, decision } of ready) {
+      this._tryTrigger({
+        type:   candidate.tipo,
+        kind:   candidate.kind,
+        ...candidate.payload,
+        context: candidate.payload.message || candidate.payload.title || '',
+      }).catch(e => console.warn('[proactive] error reintentando diferido:', e.message));
+    }
+  }
+
+  /**
+   * F-5: las propuestas enviadas sin respuesta tras `_ignoredAfterMs` se
+   * registran como 'ignored' (no molestar) y salen del seguimiento.
+   */
+  _markIgnoredStale() {
+    if (!this._store) return;
+    const now = Date.now();
+    for (const [proposalId, info] of this._sentFeedback) {
+      if (now - info.at >= this._ignoredAfterMs) {
+        this._store.record({ proposalId, type: info.type, decision: 'ignored' });
+        this._audit.push({ type: info.type, proposalId, outcome: 'ignored', reason: 'no_response', at: now });
+        this._sentFeedback.delete(proposalId);
+      }
+    }
+  }
+
+  /**
+   * F-5: estadísticas de SLO por tipo desde el feedback persistido. Las usa
+   * el gate (degradación automática) y la telemetría de no-molestia.
+   */
+  _sloStats() {
+    const byType = this._store?.getStats().byType ?? {};
+    return assessSlo(byType);
+  }
+
+  // ── Señales de los sensores (GitWatcher, SystemWatcher, TitleWatcher,
+  //    ClipboardWatcher, UpcomingEventsWatcher) ───────────────────────────────
+  // Todas pasan por el mismo _tryTrigger: cooldown por tipo, chat abierto,
+  // idle, gap global, y el LLM tiene la última palabra (puede decir NO).
+
+  _onGitRedflag({ kind, message, branch, count, file } = {}) {
+    if (!message) return;
+    this._tryTrigger({
+      type: 'git_redflag', kind, branch, count, file,
+      context: message,
+    }).catch(e => console.warn('[proactive] error en trigger git_redflag:', e.message));
+  }
+
+  _onSystemWarning({ kind, message } = {}) {
+    if (!message) return;
+    this._tryTrigger({
+      type: 'system_warning', kind,
+      context: message,
+    }).catch(e => console.warn('[proactive] error en trigger system_warning:', e.message));
+  }
+
+  _onErrorTitle({ title, app, category } = {}) {
+    if (!title) return;
+    this._tryTrigger({
+      type: 'error_title', app, category,
+      context: `La ventana activa parece mostrar un error: "${title.slice(0, 120)}".`,
+    }).catch(e => console.warn('[proactive] error en trigger error_title:', e.message));
+  }
+
+  _onClipboard({ kind, snippet } = {}) {
+    if (!kind || !snippet) return;
+    this._tryTrigger({
+      type: 'clipboard_context', kind,
+      context: kind === 'stacktrace'
+        ? `El usuario acaba de copiar un stacktrace de error: "${snippet.slice(0, 120)}".`
+        : `El usuario acaba de copiar una URL: "${snippet.slice(0, 120)}".`,
+    }).catch(e => console.warn('[proactive] error en trigger clipboard_context:', e.message));
+  }
+
+  _onUpcomingEvent({ content, when } = {}) {
+    if (!content) return;
+    const timeStr = when ? new Date(when).toLocaleTimeString('es-MX', { hour: '2-digit', minute: '2-digit' }) : '';
+    this._tryTrigger({
+      type: 'upcoming_event',
+      context: `El usuario pidió que recordaras: "${content}".${timeStr ? ` Es alrededor de las ${timeStr}.` : ''}`,
+    }).catch(e => console.warn('[proactive] error en trigger upcoming_event:', e.message));
+  }
+
+  // ── Fase D: errores del LSP como señal proactiva ──────────────────────────
+  // El LSPErrorWatcher emite `lsp:error` con el archivo y los diagnósticos de
+  // severidad 1. Aquí se convierte en un trigger del pipeline normal (cooldown,
+  // presupuesto, chat reciente, y el LLM con la última palabra).
+
+  _onLspError({ file, absPath, workspace, errors, focused, symbols, languageId, fileType } = {}) {
+    if (!file || !Array.isArray(errors) || !errors.length) return;
+    const first = errors[0];
+    this._tryTrigger({
+      type: 'lsp_error',
+      file, absPath, workspace, errors, symbols, focused,
+      languageId, fileType,
+      context: `Hay ${errors.length} error(es) de código en "${file}"${focused ? ' — es el archivo que estás viendo' : ''}. El primero: "${first.message.slice(0, 120)}" (línea ${(first.line ?? 0) + 1}).`,
+    }).catch(e => console.warn('[proactive] error en trigger lsp_error:', e.message));
+  }
+
+  /**
+   * Fase D: pide al LLM un parche de reemplazo exacto para el error. Devuelve
+   * `{ changes }` o null si no se pudo generar/parsear. Los `old` deben ser
+   * fragmentos EXACTOS del archivo (única ocurrencia); el executor los valida
+   * antes de proponer nada.
+   */
+  async _generatePatch(trigger) {
+    if (!trigger?.absPath) return null;
+    const fs = require('fs');
+    let content;
+    try { content = fs.readFileSync(trigger.absPath, 'utf-8'); }
+    catch(e) { return null; }
+
+    const firstErr = trigger.errors?.[0] || {};
+    const errLine  = (firstErr.line ?? 0);
+
+    // Contexto: el fragmento del archivo alrededor del error (texto EXACTO),
+    // el/los errores y el símbolo (función) donde está.
+    const lines   = content.split('\n');
+    const from    = Math.max(0, errLine - 30);
+    const to      = Math.min(lines.length, errLine + 40);
+    const slice   = lines.slice(from, to).join('\n');
+
+    let symbolsCtx = '';
+    if (Array.isArray(trigger.symbols) && trigger.symbols.length) {
+      const enclosing = [...trigger.symbols].reverse().find(s => s.line <= errLine) || trigger.symbols[0];
+      const near = trigger.symbols
+        .filter(s => Math.abs(s.line - errLine) <= 12)
+        .slice(0, 5)
+        .map(s => `${s.kindName} ${s.name} (línea ${s.line + 1})`);
+      symbolsCtx = `Símbolos del archivo:\n${near.join('\n') || '(sin símbolos cercanos)'}`;
+      if (enclosing) symbolsCtx += `\nEl error está dentro de: ${enclosing.kindName} ${enclosing.name}.`;
+    }
+
+    const errsCtx = trigger.errors.map(e => `- [línea ${(e.line ?? 0) + 1}] ${e.message}${e.code ? ` (${e.code})` : ''}`).join('\n');
+
+    // Lenguaje del archivo (viene del sensor / extensión): el LLM debe parchear
+    // en el idioma REAL del archivo. Sin esto, ante `implicit any` (7006) que
+    // llega vía checkJs en un .js, un LLM anota sintaxis TS y rompe el archivo.
+    const fileType = trigger.fileType || path.extname(trigger.file || '').toLowerCase();
+    const langRule = _patchLanguageRule(fileType);
+
+    const systemPrompt = `Eres un asistente de corrección de código. Generas un PARCHE de reemplazo exacto para eliminar los errores reportados. Reglas:
+1. Devuelve SOLO JSON: {"changes":[{"old":"...","new":"..."}]}
+2. "old" debe ser un fragmento de texto EXACTO del archivo que se te da (respetando espacios y saltos de línea) y debe aparecer UNA sola vez.
+3. "new" es el reemplazo corregido.
+4. Mínimo de cambios necesario; no reformatees el archivo.
+${langRule}`;
+
+    const userPrompt = `Archivo: ${trigger.file}${trigger.fileType ? ` (${trigger.fileType})` : ''}
+El contenido REAL del archivo (fragmento alrededor del error, delimitado por ---):
+---
+${slice}
+---
+Errores a corregir:
+${errsCtx}
+${symbolsCtx}
+Genera el parche JSON.`;
+
+    try {
+      const response = await LLMProvider.complete(
+        [{ role: 'user', content: userPrompt }],
+        systemPrompt
+      );
+      const parsed = _extractPatch(response);
+      if (!parsed || !Array.isArray(parsed.changes) || !parsed.changes.length) return null;
+      const changes = parsed.changes
+        .filter(c => c && typeof c.old === 'string' && c.old.trim() && typeof c.new === 'string')
+        .slice(0, 6);
+      if (!changes.length) return null;
+      return { changes };
+    } catch(e) {
+      console.warn('[proactive] error generando parche:', e.message);
+      return null;
+    }
   }
 
   // ── Evaluación temporal (heartbeat cada 5 min) ──────────────────────────────
@@ -327,7 +713,8 @@ class ProactiveEngine {
       return;
     }
 
-    const silenceMs = Date.now() - this._lastUserMsg;
+    const silenceBase = this._lastUserMsg || this._startedAt;
+    const silenceMs = Date.now() - silenceBase;
     if (silenceMs > SILENCE_THRESHOLD_MS) {
       const silenceHours = Math.round(silenceMs / (1000 * 60 * 60));
       await this._tryTrigger({
@@ -416,31 +803,140 @@ class ProactiveEngine {
 
   // ── Árbitro central: TODO trigger (de OS o de tiempo) pasa por aquí ────────
 
+  // ── Fase F: gate de contexto (determinista, sin LLM) ──────────────────────
+  // El LLM deja de decidir SI intervenir: este gate (normalizador → score →
+  // contexto → decisión) pone el criterio barato y traceable. El LLM solo
+  // PRODUCE el mensaje cuando el gate admite la señal.
+  //
+  // Devuelve:
+  //   - null            → el trigger no es señal de sensor (temporal/OS de
+  //                       personalidad) → cae al comportamiento anterior.
+  //   - { verdict: 'DROP', ... }    → silencio determinista (ni se consulta LLM).
+  //   - { verdict: 'QUEUE', ... }   → buen candidato, mal momento → se difiere.
+  //   - { verdict: 'ACT'|'ESCALATE', decisionId, score, ... } → el LLM produce.
+  _evaluateTrigger(trigger) {
+    const candidate = candidateFromTrigger(trigger);
+    if (!candidate) return null;
+
+    const now  = Date.now();
+    const ctx  = this._buildGateContext(now);
+    const score = scoreRelevancia(candidate.signal);
+    candidate.score = score;
+
+    const result = evaluateGate(candidate, ctx);
+    const auditEntry = {
+      sensor:      candidate.source.sensor,
+      type:        candidate.tipo,
+      kind:        candidate.kind,
+      signal:      candidate.signal,
+      score,
+      verdict:     result.decision.verdict,
+      reason:      result.decision.reason,
+      decisionId:  result.decision.decisionId,
+      flow:        result.flow,
+      budgetLimit: result.budgetLimit,
+      shadow:      this._shadowMode,
+      at:          now,
+    };
+    this._audit.push(auditEntry);
+
+    if (result.queue && !result.admit) {
+      this._queue.push(candidate, { now });
+    }
+
+    return { ...result.decision, score, flow: result.flow, candidate };
+  }
+
+  _buildGateContext(now) {
+    const osCtx = this._osSensor?.getCurrentContext?.() ?? {};
+    return {
+      now,
+      chatOpen:        this._chatOpen,
+      lastUserMsg:     this._lastUserMsg || 0,
+      idleSecs:        osCtx.idleSecs ?? 0,
+      appElapsedSec:   this._categoryStreakStart
+        ? Math.round((now - this._categoryStreakStart) / 1000)
+        : 0,
+      recentSwitches:  this._recentSwitches,
+      budgetUsed:      this._store?.dailyCount() ?? 0,
+      receptivity:     this._receptivity,
+      // F-5: tipos degradados por SLO → el gate les sube el umbral de ACT.
+      degradedTypes:   this._store ? this._degradedTypes() : undefined,
+    };
+  }
+
+  _degradedTypes() {
+    const { porTipo } = this._sloStats();
+    return new Set(Object.values(porTipo).filter(t => t.degraded).map(t => t.type));
+  }
+
   /**
    * Punto único de decisión. Aplica todos los filtros baratos (cooldowns,
    * chat abierto, idle, LLM disponible) y, si pasan, consulta al LLM con
    * criterio real. El LLM siempre puede decidir no decir nada.
    */
+  /**
+   * Árbitro central. Devuelve:
+   *   - { blocked: true }  → un pre-filtro lo frenó (chat abierto, cooldown,
+   *                          idle, sin LLM, gap global, lock en curso). El
+   *                          llamador NO debe consumir su oportunidad (racha,
+   *                          cooldown por tipo) y puede reintentar más tarde.
+   *   - null               → el LLM fue consultado y decidió no decir nada.
+   *   - message (string)   → mensaje enviado.
+   */
   async _tryTrigger(trigger) {
-    if (this._deciding) return null;          // ya hay una decisión en curso
-    if (this._chatOpen) return null;
-    if (!LLMProvider.getActiveProvider()) return null;
+    if (!this._running) return { blocked: true };         // aún no arrancado (workspace/MCP en init)
+    if (this._autonomyMode === 'observe') return { blocked: true }; // slider: solo observar
+    if (this._deciding) return { blocked: true };          // ya hay una decisión en curso
+    if (!LLMProvider.getActiveProvider()) return { blocked: true };
 
     const now = Date.now();
 
+    // Fase F: el gate decide ANTES del LLM. En shadow mode el gate y el audit
+    // corren, pero nunca se llega a consultar al LLM ni a enviar nada.
+    const gate = this._evaluateTrigger(trigger);
+    if (gate) {
+      if (this._shadowMode) {
+        console.log(`[proactive][shadow] gate: ${gate.verdict} (${gate.reason}) score=${gate.score?.toFixed(3)} — sin enviar`);
+        return { blocked: true, shadow: true, gate };
+      }
+      if (gate.verdict === 'DROP' || gate.verdict === 'QUEUE') {
+        console.log(`[proactive] gate: ${gate.verdict} (${gate.reason}) score=${gate.score?.toFixed(3)} — ${gate.verdict === 'QUEUE' ? 'diferido' : 'silencio'}`);
+        return { blocked: true, gate };
+      }
+      // ACT / ESCALATE → el LLM produce el mensaje (no decide si intervenir).
+      trigger._gate = gate;
+    }
+
+    // No interrumpir si el usuario está EN MEDIO de una conversación real
+    // (habló hace < 2 min). El chat abierto por sí solo NO bloquea: es el
+    // canal donde se muestran las propuestas (ventana principal de la app).
+    if (this._lastUserMsg && now - this._lastUserMsg < RECENT_CHAT_MS) return { blocked: true };
+
     // Ajusta el gap mínimo según qué tan receptivo esté el usuario
     const adjustedGap = Math.round(GLOBAL_MIN_GAP_MS * (1 - (this._currentProactiveScore - 0.3) * 0.5));
-    if (now - this._lastProactive < adjustedGap) return null;
+    if (now - this._lastProactive < adjustedGap) return { blocked: true };
 
-    const cooldown    = TRIGGER_COOLDOWN_MS[trigger.type] ?? GLOBAL_MIN_GAP_MS;
-    const lastAttempt = this._lastAttemptByType[trigger.type] || 0;
-    if (now - lastAttempt < cooldown) return null;
+    // Fase C: presupuesto diario duro — si ya se gastaron todas las
+    // iniciativas de hoy, se frena ANTES de consultar al LLM (el silencio es
+    // respeto). El recuento se hace solo sobre envíos reales.
+    if (this._store && this._store.dailyCount() >= DAILY_BUDGET) {
+      console.log(`[proactive] presupuesto diario agotado (${this._store.dailyCount()}/${DAILY_BUDGET})`);
+      return { blocked: true };
+    }
+
+    // Cooldown efectivo por tipo — crece si el usuario ha descartado este
+    // tipo varias veces seguidas (Fase A: el rechazo enseña).
+    const baseCooldown = TRIGGER_COOLDOWN_MS[trigger.type] ?? GLOBAL_MIN_GAP_MS;
+    const cooldown     = this._effectiveCooldownMs(trigger.type, baseCooldown);
+    const lastAttempt  = this._lastAttemptByType[trigger.type] || 0;
+    if (now - lastAttempt < cooldown) return { blocked: true };
 
     // No interrumpir si lleva mucho AFK — excepto el trigger que ES,
     // precisamente, "acaba de volver de estar AFK".
     if (trigger.type !== 'return_from_break') {
       const idleSecs = this._osSensor?.getCurrentContext()?.idleSecs ?? 0;
-      if (idleSecs > MAX_IDLE_TO_INTERRUPT) return null;
+      if (idleSecs > MAX_IDLE_TO_INTERRUPT) return { blocked: true };
     }
 
     this._lastAttemptByType[trigger.type] = now;
@@ -458,21 +954,259 @@ class ProactiveEngine {
       this._lastProactiveMessage = message;
       this._lastProactiveTrigger = trigger.type;
 
-      const payload = {
-        reason:     trigger.type,
-        suggestion: message,
-        actionType: 'proactive',
-        canHelp:    true,
-        utility:    1.0,
-        openChat:   true,
-      };
+      // Fase C: un envío real gasta presupuesto del día (solo cuando el LLM
+      // dio el OK — los intentos bloqueados/frustrados no cuentan).
+      if (this._store) this._store.incrementDaily();
+
+      const payload = await this._buildPayload(trigger, message);
 
       console.log(`[proactive] emitiendo: "${message.slice(0, 60)}..."`);
       this._bus.emit('initiative:trigger', payload);
+
+      // F-5: rastrear la propuesta enviada para marcarla "ignored" si el
+      // usuario no responde en el plazo. Solo las que tienen proposalId.
+      if (payload.proposalId) {
+        this._sentFeedback.set(payload.proposalId, { type: trigger.type, at: Date.now() });
+        this._markIgnoredStale();
+      }
+
       return message;
 
     } finally {
       this._deciding = false;
+    }
+  }
+
+  // ── Fase C: recap de pendientes al arrancar ─────────────────────────────────
+  // Retomar hilos: al arrancar, si hay recordatorios guardados (nodos
+  // `recordar_*`) con hora próxima o día de hoy, March ofrece retomarlos. Va
+  // por el mismo pipeline (LLM con la última palabra, cooldowns, presupuesto),
+  // así no se convierte en un ladrido automático al boot.
+
+  _collectPendingReminders() {
+    if (!this._graph?.queryNodes) return [];
+    let nodes = [];
+    try { nodes = this._graph.queryNodes({ type: 'Belief', limit: 50 }) || []; } catch(e) {
+      console.warn('[proactive] error leyendo recordatorios:', e.message);
+      return [];
+    }
+
+    const now = Date.now();
+    const pendings = [];
+    for (const node of nodes) {
+      if (!String(node.label || '').startsWith('recordar_')) continue;
+      const parsed = _parseEventTime(node.content, now);
+      if (!parsed) continue;
+      if (parsed.kind === 'time_event') {
+        if (parsed.ts < now || parsed.ts - now > PENDING_LOOKAHEAD_MS) continue;
+      } else {
+        // day_event: pendiente si es hoy (o mañana, para avisar con anticipación)
+        const day = _localDayString(parsed.ts);
+        const today = _localDayString(now);
+        if (day !== today && _dayOffset(parsed.ts, now) !== 1) continue;
+      }
+      pendings.push({ nodeId: node.id, content: node.content, when: parsed.ts, kind: parsed.kind });
+    }
+    return pendings;
+  }
+
+  /** Al arrancar: si hay pendientes, se ofrece retomarlos (si el LLM da el OK). */
+  async pendingRecap() {
+    if (!this._running) return null;
+    if (this._autonomyMode === 'observe') return null;
+    const pendings = this._collectPendingReminders();
+    if (!pendings.length) return null;
+
+    const list = pendings
+      .map(p => `${p.content.replace(/^pidió recordar:\s*/i, '')} (${_friendlyWhen(p.when)})`)
+      .slice(0, 3)
+      .join('; ');
+    return this._tryTrigger({
+      type: 'pending_recap',
+      context: `Al arrancar la sesión hay pendientes que el usuario pidió recordar: ${list}. Ofrece retomarlos con naturalidad.`,
+    });
+  }
+
+  // ── Fase A: propuestas con consentimiento ────────────────────────────────────
+
+  /**
+   * Ensambla el payload de iniciativa. `proposal` es un bloque DETERMINISTA
+   * (nunca lo inventa el LLM): título, preview y acción declarada vienen del
+   * mapa PROPOSAL_HINTS según tipo/kind del sensor. Si hay executor (Fase B),
+   * la preview se enriquece con el diff real (solo lectura) de la acción; la
+   * MUTACIÓN solo ocurre tras el clic del usuario (handleDecision). Si no hay
+   * hint, la iniciativa es solo informativa (proposal: null).
+   */
+  async _buildPayload(trigger, message) {
+    const proposal = await this._buildProposal(trigger);
+    return {
+      reason:     trigger.type,
+      suggestion: message,
+      actionType: 'proactive',
+      canHelp:    true,
+      utility:    1.0,
+      openChat:   true,
+      proposalId: proposal ? proposal.id : null,
+      proposal,
+    };
+  }
+
+  async _buildProposal(trigger) {
+    const byKind = PROPOSAL_HINTS[trigger.type];
+    if (!byKind) return null;
+    let hint = (trigger.kind && byKind[trigger.kind]) || byKind.default || null;
+    if (!hint) return null;
+
+    // Fase D: para apply_patch el parche lo genera el LLM y lo VALIDA el
+    // executor (fragmentos exactos y únicos). Si no se logra un parche
+    // válido, la propuesta cae a informativa (no_patch): nunca se promete
+    // un parche que no se pueda aplicar.
+    let action = null;
+    if (hint.action?.tool === 'apply_patch') {
+      const patch = await this._generatePatch(trigger);
+      if (patch && patch.changes && patch.changes.length) {
+        action = {
+          tool: 'apply_patch',
+          params: {
+            file:         trigger.file,
+            changes:      patch.changes,
+            targetErrors: trigger.errors || [],
+          },
+        };
+      } else {
+        hint = byKind.no_patch || null;
+        if (!hint) return null;
+      }
+    } else if (hint.action) {
+      // Fase B: la acción se resuelve en el backend (whitelist), nunca confía
+      // en lo que devuelva el renderer. Los params se derivan del trigger.
+      action = { tool: hint.action.tool, params: this._resolveActionParams(hint.action.tool, trigger) };
+    }
+
+    let preview = hint.preview;
+    let diff    = null;
+    if (action && this._executor) {
+      try {
+        const p = await this._executor.preview(action);
+        if (p && p.ok) {
+          if (p.preview) preview = p.preview;
+          if (p.diff)    diff    = p.diff;
+        }
+      } catch(e) {
+        console.warn('[proactive] error generando preview de acción:', e.message);
+      }
+    }
+
+    const proposal = {
+      id:               crypto.randomUUID(),
+      type:             trigger.type,
+      kind:             hint.kind || 'info',
+      title:            hint.title,
+      preview,
+      diff,
+      action,
+      requiresConsent:  action ? 'confirm' : null,
+      createdAt:        Date.now(),
+    };
+
+    if (action) {
+      // Memoria efímera de acciones pendientes (la ejecución llega en
+      // handleDecision). Se acota para no crecer sin límite.
+      this._pendingActions.set(proposal.id, { action, type: trigger.type, at: Date.now() });
+      if (this._pendingActions.size > 50) {
+        const oldest = this._pendingActions.keys().next().value;
+        this._pendingActions.delete(oldest);
+      }
+    }
+
+    return proposal;
+  }
+
+  /** Los params de la acción son deterministas y acotados al tipo de señal. */
+  _resolveActionParams(tool, trigger) {
+    if (tool === 'gitignore_add') return { file: trigger.file || '.env' };
+    return {};
+  }
+
+  /** Factor de cooldown según rechazos consecutivos persistidos del tipo. */
+  _effectiveCooldownMs(type, baseCooldown) {
+    const factor = this._store?.cooldownMultiplier(type) ?? 1;
+    return Math.round(baseCooldown * factor);
+  }
+
+  getCooldownFor(type) {
+    const base = TRIGGER_COOLDOWN_MS[type] ?? GLOBAL_MIN_GAP_MS;
+    return { base, effective: this._effectiveCooldownMs(type, base), factor: this._effectiveCooldownMs(type, base) / base };
+  }
+
+  /**
+   * El usuario respondió a una propuesta (botón del chat). Se persiste el
+   * feedback por tipo; el próximo cálculo de cooldown lo tiene en cuenta.
+   * Si aceptó y la propuesta tiene una acción pendiente, se ejecuta con el
+   * executor whitelisted (Fase B) — pero SIN sostener el lock `_deciding`,
+   * que ya se liberó al terminar `_tryTrigger`.
+   * Fire-and-forget: nunca debe romper ni bloquear el flujo del chat.
+   */
+  handleDecision({ proposalId, type, decision, reason } = {}) {
+    if (!proposalId || !type || !decision) return false;
+    if (decision !== 'accepted' && decision !== 'rejected') return false;
+
+    // F-5: la propuesta recibió respuesta → deja de estar "pendiente".
+    if (this._sentFeedback.has(proposalId)) this._sentFeedback.delete(proposalId);
+
+    // Fase F: el outcome real del usuario alimenta la receptividad (EMA).
+    this._receptivity = receptividad(this._receptivity, {
+      accepted: decision === 'accepted',
+      rejected: decision === 'rejected',
+    });
+    this._audit.push({ type, proposalId, outcome: decision, reason, at: Date.now() });
+
+    let state = false;
+    if (this._store) {
+      try {
+        state = this._store.record({ proposalId, type, decision, reason });
+        console.log(`[proactive] feedback ${decision} para "${type}" (factor cooldown ahora ×${this._store.cooldownMultiplier(type)})`);
+      } catch(e) {
+        console.warn('[proactive] error registrando decisión:', e.message);
+      }
+    }
+
+    if (decision === 'accepted') {
+      const pending = this._pendingActions.get(proposalId);
+      if (pending && this._executor) {
+        this._pendingActions.delete(proposalId);
+        this._executeProposal(pending, proposalId, type).catch(e =>
+          console.warn('[proactive] error ejecutando propuesta:', e.message)
+        );
+      }
+    } else {
+      // Descartada — la acción pendiente deja de existir.
+      this._pendingActions.delete(proposalId);
+    }
+
+    return state;
+  }
+  /**
+   * Ejecuta la acción de una propuesta aceptada y anuncia el resultado real
+   * al bus ('proposal:executed' → MarchCore → chat). Idempotente por
+   * proposalId y serializado por el lock propio del executor.
+   */
+  async _executeProposal(pending, proposalId, type) {
+    if (this._executor.isDone(proposalId)) {
+      this._bus.emit('proposal:executed', { proposalId, type, ok: true, skipped: true, detail: 'Ya estaba ejecutada.' });
+      return;
+    }
+    try {
+      const result = await this._executor.execute(pending.action, { proposalId });
+      this._bus.emit('proposal:executed', {
+        proposalId,
+        type,
+        ok:      !!result.ok,
+        skipped: !!result.skipped,
+        detail:  result.detail || result.reason || null,
+      });
+    } catch(e) {
+      this._bus.emit('proposal:executed', { proposalId, type, ok: false, detail: e.message });
     }
   }
 
@@ -496,10 +1230,21 @@ No siempre tiene que ser sobre el proyecto o el código: a veces lo más genuino
 hacer un comentario random, burlarte cariñosamente de algo, o simplemente decir algo que se te quedó pensando
 de una sesión anterior. Evita caer siempre en "¿cómo va el proyecto?" — revisa lo que ya dijiste antes y no lo repitas.
 
+REGLA DE MEMORIA FACTUAL: todo lo que digas sobre la persona, sus fechas, gustos o proyectos debe estar
+RESPALDADO por la memoria que aparece abajo en este prompt. Nunca inventes, completes ni infieras datos
+personales que no estén ahí (nombres, cumpleaños, horarios, detalles de su vida). Si solo tienes una pista
+vaga, pregunta con curiosidad en vez de afirmar. Un "no sé" o un "NO" es siempre mejor que inventar.
+
 ${memory}`;
 
     const antiRepeat = this._lastProactiveMessage
       ? `\nIMPORTANTE: la última vez que hablaste por iniciativa propia (motivo: ${this._lastProactiveTrigger}) dijiste textualmente:\n"${this._lastProactiveMessage}"\nNo repitas ese tema ni hagas una pregunta equivalente. Si no tienes algo genuinamente distinto que decir, responde NO.`
+      : '';
+
+    // Fase F: cuando el gate admitió (ACT/ESCALATE), el LLM PRODUCE el mensaje;
+    // no decide si intervenir. El criterio ya lo puso el gate determinista.
+    const productionMode = trigger._gate
+      ? `El gate de contexto ya evaluó esta señal como relevante (score ${trigger._gate.score?.toFixed(3) ?? '?'}, motivo: ${trigger._gate.reason}). Tu trabajo NO es decidir si hablar: ES hablarlo. Escribe el mensaje.`
       : '';
 
     const userPrompt = `Son las ${timeStr} (${now.toLocaleDateString('es-MX', { weekday: 'long', day: 'numeric', month: 'long' })}). Esta es la hora y fecha REAL en este momento, confía en este dato por encima de cualquier otra cosa.
@@ -510,12 +1255,14 @@ ${osCtx?.history?.length ? `Resumen del día (apps usadas): ${this._osSensor?.ge
 
 Razón para escribir: ${_triggerDescription(trigger)}
 ${antiRepeat}
+${productionMode}
 
 INSTRUCCIÓN CRÍTICA:
-Decide si hay algo genuino y relevante que decirle al usuario AHORA.
+${productionMode ? 'Escribe UN mensaje corto (1-3 oraciones máximo) en tu voz natural como March. No expliques por qué escribes. No anuncies que eres proactiva. Solo di lo que dirías.'
+  : `Decide si hay algo genuino y relevante que decirle al usuario AHORA.
 Si no hay nada genuino que decir, responde exactamente: NO
 Si sí hay algo, escribe UN mensaje corto (1-3 oraciones máximo) en tu voz natural como March.
-No expliques por qué escribes. No anuncies que eres proactiva. Solo di lo que dirías.`;
+No expliques por qué escribes. No anuncies que eres proactiva. Solo di lo que dirías.`}`;
 
     try {
       const response = await LLMProvider.complete(
@@ -614,7 +1361,8 @@ No expliques por qué escribes. No anuncies que eres proactiva. Solo di lo que d
         break;
       }
       case 'long_silence': {
-        const silenceMs    = Date.now() - this._lastUserMsg;
+        const silenceBase = this._lastUserMsg || this._startedAt;
+        const silenceMs    = Date.now() - silenceBase;
         const silenceHours = Math.max(1, Math.round(silenceMs / (1000 * 60 * 60)));
         const realSilence  = silenceMs > SILENCE_THRESHOLD_MS;
         trigger = {
@@ -683,6 +1431,23 @@ No expliques por qué escribes. No anuncies que eres proactiva. Solo di lo que d
         };
         break;
       }
+      case 'lsp_error': {
+        // Sin un error LSP real a mano, el parche no se puede generar y la
+        // propuesta cae a informativa (no_patch). Suficiente para probar el
+        // pipeline del trigger en vivo.
+        trigger = {
+          type: 'lsp_error',
+          file: '(simulación)',
+          absPath: '',
+          errors: [{ message: 'error de simulación', line: 0 }],
+          symbols: [],
+          focused: false,
+          forced: true,
+          forcedMismatch: true,
+          context: `[SIMULACIÓN DE TESTING] Se está forzando el trigger "lsp_error" — no hay un error LSP real ahora mismo.`,
+        };
+        break;
+      }
       default:
         trigger = {
           type: triggerType,
@@ -700,14 +1465,7 @@ No expliques por qué escribes. No anuncies que eres proactiva. Solo di lo que d
       this._lastAttemptByType[trigger.type] = firedAt;
       this._lastProactiveMessage      = message;
       this._lastProactiveTrigger      = trigger.type;
-      this._bus.emit('initiative:trigger', {
-        reason:     trigger.type,
-        suggestion: message,
-        actionType: 'proactive',
-        canHelp:    true,
-        utility:    1.0,
-        openChat:   true,
-      });
+      this._bus.emit('initiative:trigger', await this._buildPayload(trigger, message));
     } else {
       console.log('[proactive] LLM no generó mensaje en evaluación forzada');
     }
@@ -734,6 +1492,21 @@ No expliques por qué escribes. No anuncies que eres proactiva. Solo di lo que d
       recentSwitchesCount:   this._recentSwitches.length,
       awaySince:             this._idleStartedAt,
       proactiveScore:        this._currentProactiveScore,
+      autonomyMode:          this._autonomyMode,
+      feedback:              this._store?.getStats() ?? null,
+      pendingProposals:      this._pendingActions.size,
+      dailyBudget: {
+        dayKey: this._store?.getDailyStats().dayKey ?? null,
+        count:  this._store?.dailyCount() ?? 0,
+        limit:  DAILY_BUDGET,
+      },
+      gate: {
+        shadowMode:  this._shadowMode,
+        receptivity: this._receptivity,
+        queued:      this._queue.size(),
+        audit:       this._audit.getStats(),
+      },
+      slo: this._store ? this._sloStats() : null,
     };
   }
 }
@@ -768,6 +1541,18 @@ function _triggerDescription(trigger) {
       return `El usuario estuvo fuera de la PC unos ${Math.round((trigger.gapSec || 0) / 60)} minutos y acaba de volver. Un comentario breve y casual de bienvenida puede ser genuino aquí — pero no es obligatorio, si no tienes algo natural que decir responde NO.`;
     case 'session_end':
       return `El usuario venía de una sesión de ${Math.round((trigger.streakSec || 0) / 60)} minutos en una categoría de trabajo y acaba de cambiar a otra cosa. Puedes comentar algo sobre lo que estaba haciendo, preguntar cómo le fue, o simplemente no decir nada si no se siente genuino.`;
+    case 'git_redflag':
+      return `Hay una alerta de git en el repositorio del usuario: ${trigger.context} Si es algo que de verdad vale la pena señalar (p. ej. secretos a punto de filtrarse), dilo con naturalidad y sin regaños; si no es el momento o no es genuino, responde NO.`;
+    case 'system_warning':
+      return `Hay una advertencia del sistema: ${trigger.context} Avisa de forma breve y natural si lo amerita, sin sermonear ni repetir lo obvio. Si no hay nada genuino que decir, responde NO.`;
+    case 'error_title':
+      return `La ventana activa del usuario parece mostrar un error. Puedes ofrecer ayuda concreta, pero NO asumas que está frustrado ni inventes detalles que no ves. Si no se siente genuino, responde NO.`;
+    case 'clipboard_context':
+      return `El usuario acaba de copiar contenido de alto valor al portapapeles. Si es un error/stacktrace, puedes ofrecerte a ayudarle con él de forma natural. No menciones que lees el portapapeles. Si no es genuino, responde NO.`;
+    case 'upcoming_event':
+      return `Hay un recordatorio cercano que el usuario pidió que guardaras. Recuérdaselo de forma breve y natural, sin dramatismo.`;
+    case 'lsp_error':
+      return `El LSP detectó un error de código en el archivo que el usuario trabaja. Puedes avisarle con naturalidad y ofrecer el parche si es genuino; no inventes el error ni exageres su gravedad. Si no se siente genuino, responde NO.`;
     default:
       return trigger.context;
   }
@@ -779,6 +1564,79 @@ function _safeGetIdentity() {
   } catch(_) {
     return { core: 'Eres March 7th. Tienes carácter propio y eres cercana a la persona con quien hablas.' };
   }
+}
+
+// ── Helpers de Fase C ─────────────────────────────────────────────────────────
+
+function _localDayString(ts) {
+  const d = new Date(ts);
+  return `${d.getFullYear()}-${d.getMonth() + 1}-${d.getDate()}`;
+}
+
+/** 0 = mismo día, 1 = mañana, -1 = ayer... (día calendario local). */
+function _dayOffset(tsA, tsB) {
+  const a = new Date(tsA), b = new Date(tsB);
+  const da = new Date(a.getFullYear(), a.getMonth(), a.getDate());
+  const db = new Date(b.getFullYear(), b.getMonth(), b.getDate());
+  return Math.round((da - db) / 86400000);
+}
+
+function _friendlyWhen(ts) {
+  const offset = _dayOffset(ts, Date.now());
+  const time = new Date(ts).toLocaleTimeString('es-MX', { hour: '2-digit', minute: '2-digit' });
+  if (offset === 0) return `hoy a las ${time}`;
+  if (offset === 1) return `mañana a las ${time}`;
+  return new Date(ts).toLocaleDateString('es-MX', { day: 'numeric', month: 'long' });
+}
+
+/**
+ * Fase D: extrae el JSON `{ changes: [...] }` de la respuesta del LLM de
+ * parches. Defensivo: soporta JSON puro, bloques ```json y el caso de que el
+ * modelo envuelva el objeto con texto.
+ */
+function _extractPatch(response) {
+  if (!response) return null;
+  let text = String(response).trim();
+  if (!text) return null;
+
+  // Quitar fences de código.
+  text = text.replace(/^```(?:json)?\s*/i, '').replace(/```\s*$/, '').trim();
+
+  try {
+    const parsed = JSON.parse(text);
+    return parsed && typeof parsed === 'object' ? parsed : null;
+  } catch(_) {}
+
+  // Fallback: capturar el objeto JSON más externo con "changes".
+  const start = text.indexOf('{');
+  const end   = text.lastIndexOf('}');
+  if (start === -1 || end <= start) return null;
+  try {
+    const parsed = JSON.parse(text.slice(start, end + 1));
+    return parsed && typeof parsed === 'object' ? parsed : null;
+  } catch(_) {}
+
+  return null;
+}
+
+/**
+ * Regla de lenguaje para el prompt de parche: evita que el LLM use sintaxis de
+ * un lenguaje distinto al del archivo. El caso típico: un `.js` bajo checkJs
+ * reporta `implicit any` (7006) "en TS", y un LLM sin contexto anota
+ * `a: number` — sintaxis inválida en JS. Aquí se le dice explícitamente.
+ */
+function _patchLanguageRule(fileType) {
+  const t = String(fileType || '').toLowerCase();
+  if (t === '.ts' || t === '.tsx' || t === '.mts' || t === '.cts') {
+    return '5. El archivo es TypeScript: las anotaciones de tipos (a: number) son válidas.';
+  }
+  if (t === '.js' || t === '.jsx' || t === '.mjs' || t === '.cjs') {
+    return '5. El archivo es JavaScript: PROHIBIDO usar anotaciones de tipos de TypeScript (a: number) — es sintaxis inválida en JS y rompería el archivo. Los errores de tipos (implicit any) se resuelven con comentarios JSDoc (`/** @param {number} a */`) o simplemente dejando la firma sin tipos.';
+  }
+  if (t === '.py') {
+    return '5. El archivo es Python: respeta la sintaxis de Python (sin tipos TS, sin puntos y comas).';
+  }
+  return '';
 }
 
 module.exports = { ProactiveEngine };

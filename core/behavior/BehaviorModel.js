@@ -97,10 +97,13 @@ class BehaviorModel {
 
     if (osContext?.category === 'terminal') return 'medium';
 
-    // Mensajes muy rápidos (menos de 10s entre el último y este, si hay historial)
+    // Mensajes muy rápidos (menos de 10s entre el último y este, si hay historial).
+    // El historial en vivo lleva `ts` (SessionManager.addTurn); las sesiones
+    // restauradas de DB pueden no traer marca de tiempo — en ese caso se omite
+    // la heurística en vez de asumir falsamente que los mensajes fueron rápidos.
     if (history.length >= 2) {
-      const gap = Date.now() - (history[history.length - 1]?.timestamp || Date.now());
-      if (gap < 10_000) return 'medium';
+      const lastTs = history[history.length - 1]?.ts || history[history.length - 1]?.timestamp;
+      if (lastTs && (Date.now() - lastTs) < 10_000) return 'medium';
     }
 
     // Hora tardía + este es el primer mensaje tras silencio largo → puede ser urgente
@@ -111,7 +114,7 @@ class BehaviorModel {
 
     // Mensaje corto después de larga inactividad — el usuario está apurado
     if (history.length >= 1) {
-      const lastTs = history[history.length - 1]?.timestamp;
+      const lastTs = history[history.length - 1]?.ts || history[history.length - 1]?.timestamp;
       if (lastTs && (Date.now() - lastTs) > 60 * 60 * 1000 && text.length < 30) {
         return 'medium';
       }

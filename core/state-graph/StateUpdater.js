@@ -69,7 +69,10 @@ const LEGACY_LABELS = new Map([
 
 // Prefijos dinámicos permitidos: el LLM SÍ puede crear labels nuevos aquí,
 // a propósito, para ir "aprendiendo" cosas del usuario sin tocar los hechos fijos.
-const DYNAMIC_PREFIXES = ['proyecto_', 'preferencia_'];
+// 'recordar_' lo usa detectAndSaveInstant para "recuerda que X..." — se registra
+// aquí para que la validación sea consistente entre el camino instantáneo (regex)
+// y el camino LLM (antes era un label inventado que bypasseaba isValidLabel).
+const DYNAMIC_PREFIXES = ['proyecto_', 'preferencia_', 'recordar_'];
 
 // Patrones de contenido técnico/comando — mismo set que ContradictionResolver
 // pero definido localmente para evitar acoplamiento circular
@@ -151,7 +154,12 @@ const INSTANT_PATTERNS = [
   },
   {
     regex: /(?:recuerda(?:lo|la)?|no olvides|remember|don'?t forget)\s+(?:que\s+|that\s+)?(.{5,100})/i,
-    node: (m) => ({ type: 'Belief', label: `recordar_${Date.now()}`, content: `Pidió recordar: ${m[1].trim()}`, importance: 0.88, tags: ['recordar'] }),
+    // FIX: label único — antes era solo `recordar_${Date.now()}` y dos
+    // guardados en el MISMO milisegundo colisionaban; el resolver los
+    // fusionaba (" | Actualizado: ") y el contenido quedaba corrupto
+    // (ej. un day_event "aniversario el 15 de junio" mezclado con otra
+    // fecha se parseaba como time_event y nunca emitía).
+    node: (m) => ({ type: 'Belief', label: `recordar_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`, content: `Pidió recordar: ${m[1].trim()}`, importance: 0.88, tags: ['recordar'] }),
   },
 ];
 

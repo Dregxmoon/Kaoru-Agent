@@ -79,6 +79,18 @@ function _sanitizeParamsForLog(tool, params) {
 
 // ── Lista de patrones de comandos peligrosos (defense-in-depth) ────────────
 
+// NOTA HONESTA: esto es defensa en profundidad de una sola capa, NO una
+// sandbox. Un blocklist por regex sobre el string crudo es evadible por
+// diseño (codificación base64, variables de entorno, alias, comillas
+// partidas, sustitución de comandos anidada). No lo trates como el
+// mecanismo real de seguridad — el mecanismo real es que isHighImpact()
+// en ActionParser.js pide aprobación humana para CUALQUIER exec que no
+// esté en una lista explícita de comandos de solo lectura conocidos
+// (ver SAFE_READONLY_PATTERNS ahí) — eso es lo que no se puede
+// evadir con un truco de shell, porque no depende de reconocer el ataque,
+// depende de reconocer lo seguro. Este blocklist es un segundo cinturón
+// además de esa aprobación, para el caso de un comando ya aprobado que
+// resulta ser más destructivo de lo que parecía.
 const BLOCKED_COMMAND_PATTERNS = [
   /\brm\s+-rf?\b/i,
   /\b(shutdown|reboot|poweroff|halt)\b/i,
@@ -92,6 +104,14 @@ const BLOCKED_COMMAND_PATTERNS = [
   /\bsu\s+-/i,
   /\bpasswd\b/i,
   /\/etc\/(passwd|shadow|sudoers|fstab|crontab)\b/,
+  // patrones de ofuscación comunes — no exhaustivo, ver nota arriba
+  /\bbase64\s+(-d|--decode)\b/i,
+  /\beval\b/i,
+  /\bexec\s+\d*<>/i,
+  /\$\{?IFS\}?/,
+  /\bxxd\s+-r\b/i,
+  /\bprintf\b.*\\x/i,
+  /\/dev\/(tcp|udp)\//i,
 ];
 
 function _isBlockedCommand(command) {
@@ -283,15 +303,25 @@ const HANDLERS = {
 
 // ── Autenticación ───────────────────────────────────────────────────────────
 
+// Comparación en tiempo constante — timingSafeEqual lanza si los buffers
+// tienen longitud distinta, así que ese caso se resuelve aparte (la
+// longitud de una API key no es secreta en sí misma, el contenido sí).
+function _safeEqual(a, b) {
+  const bufA = Buffer.from(String(a), 'utf8');
+  const bufB = Buffer.from(String(b), 'utf8');
+  if (bufA.length !== bufB.length) return false;
+  return crypto.timingSafeEqual(bufA, bufB);
+}
+
 function _authenticate(headers) {
   if (!API_KEY) return true;
   // X-Api-Key (legacy, para compatibilidad con OpenClawBridge actual)
   const provided = headers['x-api-key'] || headers['X-Api-Key'] || '';
-  if (provided === API_KEY) return true;
+  if (provided && _safeEqual(provided, API_KEY)) return true;
   // Authorization: Bearer (estándar)
   const auth = headers['authorization'] || headers['Authorization'] || '';
   const match = auth.match(/^Bearer\s+(.+)$/i);
-  return match !== null && match[1] === API_KEY;
+  return match !== null && _safeEqual(match[1], API_KEY);
 }
 
 // ── HTTP Server ─────────────────────────────────────────────────────────────

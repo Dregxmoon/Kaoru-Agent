@@ -19,6 +19,12 @@ const LSP_SERVERS = {
   },
 };
 
+// Timeout por request JSON-RPC: si el server se cuelga (o muere sin avisar),
+// la promesa debe resolverse como fallo en vez de quedar colgada para siempre.
+// Antes no había timeout: un `_request` sin respuesta dejaba la promesa en el
+// aire y `_pending` crecía sin límite — error silencioso de Fase D.
+const REQUEST_TIMEOUT_MS = 20_000;
+
 class LSPManager {
   constructor() {
     this._process = null;
@@ -31,6 +37,9 @@ class LSPManager {
     this._workspacePath = null;
     this._started = false;
     this._restartTimer = null;
+    // Fase D: documentos ya abiertos en el server (uri → versión), para no
+    // re-enviar didOpen sin necesidad y poder versionar los didChange.
+    this._openedDocs = new Map();
   }
 
   get isRunning() {
@@ -42,12 +51,15 @@ class LSPManager {
     return this._serverConfig.filePatterns || [];
   }
 
-  async start(workspacePath, language = 'typescript') {
+  async start(workspacePath, language = null) {
     if (this.isRunning) {
       await this.stop();
     }
 
-    const config = LSP_SERVERS[language] || LSP_SERVERS.typescript;
+    // Fase D: elegir el servidor según el contenido del workspace, no a ciegas
+    // (antes se asumía typescript siempre, incluso para repos de otros lenguajes).
+    const resolvedLanguage = language || LSPManager.detectLanguageForWorkspace(workspacePath);
+    const config = LSP_SERVERS[resolvedLanguage] || LSP_SERVERS.typescript;
     this._serverConfig = config;
     this._workspacePath = path.resolve(workspacePath);
 
@@ -101,6 +113,11 @@ class LSPManager {
             textDocument: {
               synchronization: { didSave: true },
               diagnostic: { relatedDocumentSupport: false },
+              // Fase D: declarar soporte de publishDiagnostics activa el push
+              // de diagnósticos en typescript-language-server (si no, la
+              // configura `features.diagnosticsSupport=false` y nunca envía
+              // errores — error silencioso detectado en la verificación en vivo).
+              publishDiagnostics: { relatedInformation: true },
             },
             workspace: {
               symbol: {},
@@ -144,16 +161,21 @@ class LSPManager {
     this._process = null;
     this._started = false;
     this._diagnostics.clear();
+    this._openedDocs.clear();
   }
 
   async openDocument(filePath) {
     const absPath = path.resolve(filePath);
     if (!fs.existsSync(absPath)) return;
     const uri = `file://${absPath}`;
+    // Fase D: no re-enviar didOpen si el documento ya está abierto (muchos
+    // servers lo toleran, pero reabrir resetea su estado del buffer).
+    if (this._openedDocs.has(uri)) return;
     const ext = path.extname(absPath);
     const languageId = this._detectLanguage(ext);
     const content = fs.readFileSync(absPath, 'utf-8');
 
+    this._openedDocs.set(uri, 1);
     this._notify('textDocument/didOpen', {
       textDocument: {
         uri,
@@ -164,13 +186,35 @@ class LSPManager {
     });
   }
 
-  async changeDocument(filePath, content, version = 2) {
+  async changeDocument(filePath, content, version = null) {
     const absPath = path.resolve(filePath);
     const uri = `file://${absPath}`;
+    // Si el documento no estaba abierto, abrirlo con el contenido nuevo.
+    if (!this._openedDocs.has(uri)) {
+      const ext = path.extname(absPath);
+      const languageId = this._detectLanguage(ext);
+      this._openedDocs.set(uri, 1);
+      this._notify('textDocument/didOpen', {
+        textDocument: { uri, languageId, version: 1, text: content },
+      });
+      return;
+    }
+    // Fase D: versión incremental real — antes el version se quedaba en 2
+    // para siempre y el server podía ignorar los didChange posteriores.
+    const nextVersion = version ?? (this._openedDocs.get(uri) || 0) + 1;
+    this._openedDocs.set(uri, nextVersion);
     this._notify('textDocument/didChange', {
-      textDocument: { uri, version },
+      textDocument: { uri, version: nextVersion },
       contentChanges: [{ text: content }],
     });
+  }
+
+  /** Olvida un documento abierto (p.ej. al dejar de escanearlo). */
+  closeDocument(filePath) {
+    const uri = `file://${path.resolve(filePath)}`;
+    if (!this._openedDocs.has(uri)) return;
+    this._openedDocs.delete(uri);
+    this._notify('textDocument/didClose', { textDocument: { uri } });
   }
 
   async getDiagnostics(filePath) {
@@ -275,7 +319,11 @@ class LSPManager {
   _request(method, params) {
     return new Promise((resolve, reject) => {
       const id = this._requestId++;
-      this._pending.set(id, { resolve, reject, method });
+      const timer = setTimeout(() => {
+        this._pending.delete(id);
+        reject(new Error(`LSP request "${method}" timed out after ${REQUEST_TIMEOUT_MS}ms`));
+      }, REQUEST_TIMEOUT_MS);
+      this._pending.set(id, { resolve, reject, method, timer });
       this._send({ jsonrpc: '2.0', id, method, params });
     });
   }
@@ -326,6 +374,7 @@ class LSPManager {
       const pending = this._pending.get(msg.id);
       if (pending) {
         this._pending.delete(msg.id);
+        if (pending.timer) clearTimeout(pending.timer);
         if (msg.error) {
           pending.reject(new Error(msg.error.message || 'LSP error'));
         } else {
@@ -345,6 +394,7 @@ class LSPManager {
 
   _rejectAllPending(reason) {
     for (const [id, pending] of this._pending) {
+      if (pending.timer) clearTimeout(pending.timer);
       pending.reject(new Error(reason));
     }
     this._pending.clear();
@@ -364,6 +414,26 @@ class LSPManager {
   }
 
   // ── Helpers ───────────────────────────────────────────────────────────────
+
+  /**
+   * Elige el lenguaje/servidor LSP según lo que hay en el workspace:
+   *   - tsconfig.json o TS como dependencia → typescript
+   *   - de lo contrario → javascript (typescript-language-server sirve ambos)
+   */
+  static detectLanguageForWorkspace(ws) {
+    try {
+      const root = path.resolve(ws);
+      if (fs.existsSync(path.join(root, 'tsconfig.json'))) return 'typescript';
+      const pkgPath = path.join(root, 'package.json');
+      if (fs.existsSync(pkgPath)) {
+        const pkg = JSON.parse(fs.readFileSync(pkgPath, 'utf-8'));
+        const deps = { ...(pkg.dependencies || {}), ...(pkg.devDependencies || {}) };
+        const hasTS = Object.keys(deps).some(d => /^typescript(@|$)/.test(d) || d.startsWith('@types/'));
+        if (hasTS) return 'typescript';
+      }
+    } catch(_) {}
+    return 'javascript';
+  }
 
   _detectLanguage(ext) {
     if (this._serverConfig) return this._serverConfig.languageId;

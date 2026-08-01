@@ -58,12 +58,242 @@ const RECENCY_HALFLIFE_DAYS = 21;
 const SEMANTIC_CANDIDATES   = 24; // cuántos candidatos trae sqlite-vec antes de re-rankear
 
 // ── DB en memoria como fallback ───────────────────────────────────────────────
+// ANTES esto era solo-escritura: prepare().get() devolvía siempre undefined y
+// all() siempre [] → la memoria en RAM creaba nodos pero jamás los podía leer,
+// y TODO el recall (queryNodes, getWorldModel, resume de sesión) devolvía vacío
+// en silencio si better-sqlite3 no cargaba. Ahora es un mini-store en Map que
+// interpreta SOLO las consultas exactas que emite StateGraph (conjunto cerrado,
+// ver abajo); SQL no reconocido se degrada a noop/undefined sin truar.
 let _memoryDBSilentWarningShown = false;
+
+class MemoryStatement {
+  constructor(db, sql) {
+    this._db  = db;
+    this._sql = sql.trim().replace(/\s+/g, ' ');
+    this._classify();
+  }
+
+  _classify() {
+    const s = this._sql;
+    if (/^(CREATE|PRAGMA|BEGIN|COMMIT)/i.test(s)) { this._kind = 'noop'; return; }
+    if (/^INSERT INTO (node_vectors|app_history)/i.test(s)) { this._kind = 'noop'; return; }
+    if (/^DELETE FROM (node_vectors|app_history)/i.test(s)) { this._kind = 'noop'; return; }
+    if (/^SELECT name FROM sqlite_master/i.test(s)) { this._kind = 'meta'; return; }
+    if (/^INSERT INTO nodes/i.test(s)) { this._kind = 'insertNode'; return; }
+    if (/^INSERT INTO sessions/i.test(s)) { this._kind = 'insertSession'; return; }
+    if (/^UPDATE nodes/i.test(s)) { this._kind = 'updateNodes'; return; }
+    if (/^UPDATE sessions/i.test(s)) { this._kind = 'updateSessions'; return; }
+    if (/^SELECT \* FROM sessions/i.test(s)) { this._kind = 'selectSessions'; return; }
+    if (/^SELECT \* FROM nodes/i.test(s)) { this._kind = 'selectNodes'; return; }
+    if (/^SELECT id, importance, decay_rate, last_accessed_at FROM nodes/i.test(s)) { this._kind = 'selectDecay'; return; }
+    if (/^SELECT id FROM nodes/i.test(s)) { this._kind = 'selectNodeIds'; return; }
+    if (/^SELECT label, COUNT\(\*\) as cnt FROM nodes/i.test(s)) { this._kind = 'selectDupLabels'; return; }
+    if (/^SELECT type, COUNT\(\*\) as c FROM nodes/i.test(s)) { this._kind = 'selectTypeCount'; return; }
+    if (/^SELECT COUNT\(\*\) as c FROM nodes/i.test(s)) { this._kind = 'selectCount'; return; }
+    this._kind = 'noop';
+  }
+
+  /** Lista de descriptores de parámetros en orden de aparición en el SQL. */
+  _descs() {
+    const out = [];
+    const re  = /\?/g;
+    let m;
+    while ((m = re.exec(this._sql)) !== null) {
+      const pre = this._sql.slice(Math.max(0, m.index - 30), m.index);
+      let d;
+      if (/LIKE \?$/.test(pre)) d = 'like';
+      else if (/LIMIT \?$/.test(pre)) d = 'limit';
+      else if (/id IN/.test(pre)) d = 'ids';
+      else if (/type=\?$/.test(pre)) d = 'type';
+      else if (/label=\?$/.test(pre)) d = 'label';
+      else if (/archived=\?$/.test(pre)) d = 'archived';
+      else if (/started_at > \?$/.test(pre)) d = 'since';
+      else if (/history_json=\?$/.test(pre)) d = 'historyJson';
+      else if (/ended_at=\?$/.test(pre)) d = 'endedAt';
+      else if (/summary=\?$/.test(pre)) d = 'summary';
+      else if (/turn_count=\?$/.test(pre)) d = 'turnCount';
+      else if (/episode_id=\?$/.test(pre)) d = 'episodeId';
+      else if (/last_accessed_at=\?$/.test(pre)) d = 'lastAccessedAt';
+      else if (/importance=\?$/.test(pre)) d = 'importance';
+      else if (/updated_at=\?$/.test(pre)) d = 'updatedAt';
+      else if (/id=\?$/.test(pre)) d = 'id';
+      else d = 'arg';
+      out.push(d);
+    }
+    return out;
+  }
+
+  /**
+   * Filtra y ordena nodos consumiendo los parámetros ESTRICTAMENTE en orden
+   * de aparición en el SQL (todos los queries de StateGraph pasan los args en
+   * ese orden). Los descriptores de tipo SET (updatedAt, importance, ...) se
+   * consumen y se ignoran — solo afectan a updateNodes/updateSessions.
+   */
+  _nodes(args) {
+    const descs = this._descs();
+    let list = [...this._db._nodes.values()];
+    let ai = 0;
+    const ids = [];
+    while (ai < descs.length) {
+      const d = descs[ai];
+      const v = args[ai];
+      ai++;
+      switch (d) {
+        case 'id':   list = list.filter(n => n.id === v); break;
+        case 'ids':  ids.push(v); break;
+        case 'like': list = list.filter(n => (n.label || '').includes(v) || (n.content || '').includes(v)); break;
+        case 'type': list = list.filter(n => n.type === v); break;
+        case 'label': list = list.filter(n => n.label === v); break;
+        case 'archived': list = list.filter(n => n.archived === v); break;
+        case 'limit': list = list.slice(0, v); break;
+        default: break; // SET values: updatedAt, importance, lastAccessedAt, summary, etc.
+      }
+    }
+    if (ids.length) list = list.filter(n => ids.includes(n.id));
+
+    // Condiciones literales (sin parámetro) presentes en el SQL
+    if (this._sql.includes('archived=0')) list = list.filter(n => n.archived === 0);
+    else if (this._sql.includes('archived=1')) list = list.filter(n => n.archived === 1);
+    const typeIn = this._sql.match(/type IN \(([^)]+)\)/);
+    if (typeIn) {
+      const types = typeIn[1].split(',').map(x => x.trim().replace(/'/g, ''));
+      list = list.filter(n => types.includes(n.type));
+    }
+    const eq = this._sql.match(/type='([^']+)'/);
+    if (eq) list = list.filter(n => n.type === eq[1]);
+    if (this._sql.includes('history_json IS NOT NULL')) list = list.filter(n => n.history_json != null);
+
+    const orderBy = this._sql.match(/ORDER BY ([^L]+?)(?:LIMIT|$)/);
+    if (orderBy) {
+      const parts = orderBy[1].split(',').map(x => x.trim()).filter(Boolean);
+      for (let i = parts.length - 1; i >= 0; i--) {
+        const p = parts[i];
+        const desc = p.endsWith(' DESC');
+        const col = p.replace(/ DESC$/, '').trim();
+        list.sort((a, b) => {
+          const av = a[col], bv = b[col];
+          if (av === bv) return 0;
+          return (av < bv ? -1 : 1) * (desc ? -1 : 1);
+        });
+      }
+    }
+    const lm = this._sql.match(/LIMIT (\d+)/);
+    if (lm) list = list.slice(0, Number(lm[1]));
+    return list;
+  }
+
+  _setAssignments(args) {
+    const setClause = (this._sql.match(/SET (.*?)(?:WHERE|$)/s) || [])[1] || '';
+    const setParamsBefore = [];
+    const setParamCount = (setClause.match(/\?/g) || []).length;
+    const setArgs = args.slice(0, setParamCount);
+    let si = 0;
+    const assigns = [];
+    for (const piece of setClause.split(',').map(x => x.trim()).filter(Boolean)) {
+      const m = piece.match(/^([\w_]+)\s*=\s*(.+)$/);
+      if (!m) continue;
+      const col = m[1], rhs = m[2];
+      if (rhs === '?') assigns.push({ col, value: setArgs[si++] });
+      else if (/^[\w_]+\s*\+\s*\d+$/.test(rhs)) { const [c, add] = rhs.split('+').map(x => x.trim()); assigns.push({ col, value: undefined, inc: { c, add: Number(add) } }); }
+      else if (/^\d+$/.test(rhs)) assigns.push({ col, value: Number(rhs) });
+      else assigns.push({ col, value: rhs.replace(/^['"]|['"]$/g, '') });
+    }
+    return assigns;
+  }
+
+  run(...args) {
+    if (this._kind === 'insertNode') {
+      const cols = (this._sql.match(/\(([^)]+)\)\s*VALUES/) || [])[1]?.split(',').map(c => c.trim().replace(/['"`]/g, '')) || [];
+      const id = this._db._nextId++;
+      const node = { id, archived: 0, access_count: 0 }; // defaults de la tabla real
+      cols.forEach((c, i) => { node[c] = args[i]; });
+      if (typeof node.tags !== 'string') node.tags = JSON.stringify(node.tags || []);
+      this._db._nodes.set(id, node);
+      return { lastInsertRowid: id, changes: 1 };
+    }
+    if (this._kind === 'insertSession') {
+      const id = this._db._nextSessionId++;
+      this._db._sessions.set(id, { id, started_at: args[0], ended_at: null, summary: null, turn_count: 0, episode_id: null, history_json: null });
+      return { lastInsertRowid: id, changes: 1 };
+    }
+    if (this._kind === 'updateNodes') {
+      const targets = this._nodes(args);
+      for (const n of targets) {
+        for (const a of this._setAssignments(args)) {
+          if (a.inc) n[a.inc.c] = (n[a.inc.c] || 0) + a.inc.add;
+          else n[a.col] = a.value;
+        }
+      }
+      return { changes: targets.length };
+    }
+    if (this._kind === 'updateSessions') {
+      const targets = this._selectSessions(args);
+      for (const s of targets) {
+        for (const a of this._setAssignments(args)) s[a.col] = a.value;
+      }
+      return { changes: targets.length };
+    }
+    return { changes: 0 };
+  }
+
+  get(...args) {
+    if (this._kind === 'meta') return undefined;
+    if (this._kind === 'selectNodes') return this._nodes(args)[0];
+    if (this._kind === 'selectNodeIds') return { id: this._nodes(args)[0]?.id };
+    if (this._kind === 'selectSessions') return this._selectSessions(args)[0];
+    if (this._kind === 'selectCount') return { c: this._nodes(args).length };
+    return undefined;
+  }
+
+  all(...args) {
+    if (this._kind === 'selectNodes') return this._nodes(args);
+    if (this._kind === 'selectNodeIds') return this._nodes(args).map(n => ({ id: n.id }));
+    if (this._kind === 'selectDecay') {
+      return this._nodes(args).map(n => ({ id: n.id, importance: n.importance, decay_rate: n.decay_rate, last_accessed_at: n.last_accessed_at }));
+    }
+    if (this._kind === 'selectSessions') return this._selectSessions(args);
+    if (this._kind === 'selectDupLabels') {
+      const by = new Map();
+      for (const n of this._nodes(args)) by.set(n.label, (by.get(n.label) || 0) + 1);
+      return [...by].filter(([, c]) => c > 1).map(([label, cnt]) => ({ label, cnt }));
+    }
+    if (this._kind === 'selectTypeCount') {
+      const by = new Map();
+      for (const n of this._nodes(args)) by.set(n.type, (by.get(n.type) || 0) + 1);
+      return [...by].map(([type, c]) => ({ type, c }));
+    }
+    return [];
+  }
+
+  _selectSessions(args) {
+    const descs = this._descs();
+    let list = [...this._db._sessions.values()];
+    let ai = 0;
+    while (ai < descs.length) {
+      const d = descs[ai];
+      const v = args[ai];
+      ai++;
+      if (d === 'since') list = list.filter(x => x.started_at > v);
+      else if (d === 'id') list = list.filter(x => x.id === v);
+      else if (d === 'limit') list = list.slice(0, v);
+      // historyJson/endedAt/summary/turnCount/episodeId son SET → se ignoran al filtrar
+    }
+    if (this._sql.includes('ended_at IS NULL')) list = list.filter(x => x.ended_at == null);
+    else if (this._sql.includes('ended_at IS NOT NULL')) list = list.filter(x => x.ended_at != null);
+    if (this._sql.includes('history_json IS NOT NULL')) list = list.filter(x => x.history_json != null);
+    list.sort((a, b) => (b.started_at || 0) - (a.started_at || 0));
+    const lm = this._sql.match(/LIMIT (\d+)/);
+    if (lm) list = list.slice(0, Number(lm[1]));
+    return list;
+  }
+}
 
 class MemoryDB {
   constructor() {
-    this._nodes  = new Map();
-    this._nextId = 1;
+    this._nodes    = new Map();
+    this._sessions = new Map();
+    this._nextId   = 1;
+    this._nextSessionId = 1;
     if (!_memoryDBSilentWarningShown) {
       _memoryDBSilentWarningShown = true;
       setInterval(() => {
@@ -72,12 +302,7 @@ class MemoryDB {
     }
   }
   prepare(sql) {
-    const db = this;
-    return {
-      run:  (...args) => ({ lastInsertRowid: db._nextId++ }),
-      get:  (...args) => undefined,
-      all:  (...args) => [],
-    };
+    return new MemoryStatement(this, sql);
   }
   exec() {}
   transaction(fn) { return fn; }
@@ -902,6 +1127,43 @@ class StateGraph {
     return this._db.prepare(`
       SELECT id FROM nodes WHERE label=? AND archived=0 ORDER BY last_accessed_at DESC, importance DESC
     `).all(label);
+  }
+
+  /**
+   * Fase C: /olvida X. Archiva (soft-delete) los nodos activos que matcheen
+   * `text` en label o content. Prioriza matches de label; si no hay ninguno,
+   * archiva los primeros matches de contenido (hasta MAX=5) para no arrasar
+   * memoria. Devuelve qué se encontró y qué se archivó.
+   */
+  forget(text) {
+    const q = String(text || '').trim().toLowerCase();
+    if (!q) return { found: 0, archived: 0, nodes: [], error: 'texto vacío' };
+
+    const rows = this._db.prepare(`
+      SELECT id, label, content, type FROM nodes
+      WHERE archived=0 AND (label LIKE ? OR content LIKE ?)
+      ORDER BY importance DESC
+      LIMIT 20
+    `).all(`%${q}%`, `%${q}%`);
+
+    if (!rows.length) return { found: 0, archived: 0, nodes: [] };
+
+    const byLabel = rows.filter(r => (r.label || '').toLowerCase().includes(q));
+    const targets = (byLabel.length ? byLabel : rows.slice(0, 5));
+
+    const nodes = [];
+    for (const t of targets) {
+      if (this.usingFallback) break;
+      this._archiveNode(t.id);
+      nodes.push({ id: t.id, type: t.type, label: t.label, content: String(t.content || '').slice(0, 80) });
+    }
+
+    return {
+      found: rows.length,
+      archived: nodes.length,
+      nodes,
+      warning: this.usingFallback ? 'memoria en RAM (no persistente): el archivo no sobrevive al reinicio' : null,
+    };
   }
 
   close() {

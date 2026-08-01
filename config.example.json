@@ -8,6 +8,15 @@
     },
     "fallback": ["gemini", "openai"]
   },
+  "autonomy": "suggest",
+  "sensors": {
+    "git": true,
+    "system": true,
+    "title": true,
+    "clipboard": false,
+    "events": true,
+    "lsp": true
+  },
   "mcp": {
     "servers": []
   }

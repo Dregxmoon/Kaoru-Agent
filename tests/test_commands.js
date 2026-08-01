@@ -143,9 +143,14 @@ function testModel() {
   console.log(C.bold('\n── Test 6: /model ──────────────────────────────────────────'));
 
   let configured = null;
+  const mockProviders = [
+    { id: 'groq', name: 'groq', free: true, hasKey: true },
+    { id: 'gemini', name: 'gemini', free: true, hasKey: false },
+  ];
   const mockLLMProvider = {
     getActiveProvider: () => configured || 'groq',
     configure: (cfg) => { configured = cfg.llm.primary; },
+    getAvailableProviders: () => mockProviders,
   };
 
   const ctx = { LLMProvider: mockLLMProvider };

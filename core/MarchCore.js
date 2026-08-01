@@ -30,8 +30,18 @@ const { SessionManager }               = require('./state-graph/SessionManager.j
 const { StateUpdater }                 = require('./state-graph/StateUpdater.js');
 const { OSSensor }                     = require('../infrastructure/sensors/OSSensor.js');
 const { LinuxOSSensor }                = require('../infrastructure/sensors/LinuxOSSensor.js');
+const { GitWatcher }                   = require('../infrastructure/sensors/GitWatcher.js');
+const { SystemWatcher }                = require('../infrastructure/sensors/SystemWatcher.js');
+const { TitleWatcher }                 = require('../infrastructure/sensors/TitleWatcher.js');
+const { ClipboardWatcher }             = require('../infrastructure/sensors/ClipboardWatcher.js');
+const { UpcomingEventsWatcher }        = require('../infrastructure/sensors/UpcomingEventsWatcher.js');
 const { getEventBus }                  = require('../infrastructure/event-bus/EventBus.js');
+const { LSPErrorWatcher }              = require('../infrastructure/sensors/LSPErrorWatcher.js');
+const { SymbolIndex }                  = require('./lsp/SymbolIndex.js');
 const { ProactiveEngine }              = require('./behavior/ProactiveEngine.js');
+const { ProposalStore }                = require('./behavior/ProposalStore.js');
+const { ProactiveExecutor }            = require('./behavior/ProactiveExecutor.js');
+const { TelemetryStore }               = require('./telemetry/TelemetryStore.js');
 const { BehaviorModel }                = require('./behavior/BehaviorModel.js');
 const { getPlanner, setProjectCWD, isHighImpact } = require('./planner/Planner.js');
 const { getOpenClawBridge }            = require('./planner/OpenClawBridge.js');
@@ -76,9 +86,24 @@ let _mcp          = null;
 let _mcpReadyPromise = Promise.resolve();
 let _openclawProcess = null;
 let _openclawStarting = false;
+let _openclawWorkspace = null;
 let _taskDetector = null;
 let _toolRegistry = null;
 let _lspManager = null;
+let _gitWatcher   = null;
+let _systemWatcher = null;
+let _titleWatcher = null;
+let _clipboardWatcher = null;
+let _eventsWatcher = null;
+let _proposalStore = null;
+let _proactiveExecutor = null;
+let _lspErrorWatcher = null;
+let _symbolIndex = null;
+let _telemetry = null;
+let _activeWorkspace = null;
+let _onProposalResult = null;
+let _proposalExecutedUnsub = null;
+let _lastProposal = null;   // { id, type } de la última propuesta emitida (debug/testing)
 
 let _pruneTimer      = null;
 let _pruneInitTimer  = null;
@@ -127,7 +152,28 @@ if (process.env.DEBUG) console.log('[march-core] graph.usingFallback:', _graph.u
     console.log(`[march-core] OSSensor no disponible para ${process.platform}`);
   }
 
-  _proactive  = new ProactiveEngine(_graph);
+  _proactive  = new ProactiveEngine(_graph, {
+    store: (_proposalStore = new ProposalStore({
+      filePath: app
+        ? path.join(app.getPath('userData'), 'proactive_feedback.json')
+        : null,
+    })),
+    executor: (_proactiveExecutor = new ProactiveExecutor({
+      getWorkspace: () => _activeWorkspace,
+      // Fase D: guard de archivos abiertos en el editor + verificación LSP
+      // post-parche (pull real al LSPManager).
+      getOpenFiles: () => _lspErrorWatcher?.getOpenFiles() ?? [],
+      getDiagnostics: async (absPath) => {
+        if (!_lspManager?.isRunning) return null;
+        try { return await _lspManager.getDiagnostics(absPath); } catch { return null; }
+      },
+      notifyChanged: (absPath, content) => {
+        try { _lspManager?.changeDocument(absPath, content); } catch {}
+      },
+    })),
+  });
+  _proactive.setAutonomyMode(_readAutonomyConfig());
+  console.log(`[march-core] autonomía: ${_proactive.getAutonomyMode()}`);
 
   _behavior = new BehaviorModel(_graph);
   _planner  = getPlanner();
@@ -140,6 +186,19 @@ if (process.env.DEBUG) console.log('[march-core] graph.usingFallback:', _graph.u
 
   _lspManager = new (require('./lsp/LSPManager.js').LSPManager)();
   _toolRegistry.setLSPManager(_lspManager);
+
+  // ── Fase D: índice de símbolos + watcher de errores LSP ─────────────────
+  // El LSP pasa a ser un SENSOR del camino proactivo: el watcher convierte
+  // los diagnósticos (severidad 1 = errores) en señales `lsp:error`, y el
+  // índice de símbolos da contexto de función/clase al parche. Nunca rompe
+  // el arranque: sin LSP o sin workspace solo trackea el foco del editor.
+  _symbolIndex = new SymbolIndex({ lsp: _lspManager });
+  _lspErrorWatcher = new LSPErrorWatcher({
+    lsp:            _lspManager,
+    getWorkspace:   () => _activeWorkspace,
+    getCurrentTitle: () => _osSensor?.getCurrentContext()?.title || '',
+    getSymbols:     (file) => _symbolIndex.getSymbolsFor(file),
+  });
 
   _skillManager = new (require('./skills/SkillManager.js').SkillManager)({
     skillsDir: path.join(__dirname, '..', 'skills'),
@@ -163,6 +222,45 @@ if (process.env.DEBUG) console.log('[march-core] graph.usingFallback:', _graph.u
     _grounding.setOSSensor(_osSensor);
     _proactive.setOSSensor(_osSensor);
   }
+
+  // ── Sensores de señales ────────────────────────────────────────────────────
+  // Vigilan git, sistema, títulos de ventana, portapapeles (opt-in) y
+  // recordatorios próximos. Cada uno emite eventos al bus que el
+  // ProactiveEngine ya consume. Nunca rompen el arranque: si uno falla,
+  // se loggea y el resto sigue normal. Config: cfg.sensors = { git, system,
+  // title, clipboard, events } (todos activos salvo clipboard, que es
+  // opt-in por privacidad).
+  const sensorsCfg = _readSensorsConfig();
+  const startSensor = (label, factory) => {
+    try { const s = factory(); s.start(); return s; }
+    catch(e) { console.warn(`[march-core] sensor ${label} no disponible:`, e.message); return null; }
+  };
+  if (sensorsCfg.git !== false) {
+    _gitWatcher = startSensor('git', () => new GitWatcher({ workspace: projectCWD }));
+  }
+  if (sensorsCfg.system !== false) {
+    _systemWatcher = startSensor('system', () => new SystemWatcher());
+  }
+  if (sensorsCfg.title !== false) {
+    _titleWatcher = startSensor('title', () => new TitleWatcher());
+  }
+  if (sensorsCfg.clipboard === true) {
+    _clipboardWatcher = startSensor('clipboard', () => new ClipboardWatcher());
+  }
+  if (sensorsCfg.events !== false) {
+    _eventsWatcher = startSensor('upcoming-events', () => new UpcomingEventsWatcher({ graph: _graph }));
+  }
+  console.log(`[march-core] sensores de señales: git=${_gitWatcher ? 'on' : 'off'} system=${_systemWatcher ? 'on' : 'off'} title=${_titleWatcher ? 'on' : 'off'} clipboard=${_clipboardWatcher ? 'on' : 'off'} eventos=${_eventsWatcher ? 'on' : 'off'}`);
+
+  // ── Fase E: telemetría local ─────────────────────────────────────────────
+  // Mide uso real (mensajes/día, tiempo de respuesta, silencios, reuso) en
+  // JSON local. El baseline de la tasa de aceptación vive en ProposalStore
+  // desde la Fase A — aquí solo se agregan los turnos de conversación.
+  _telemetry = new TelemetryStore({
+    filePath: app
+      ? path.join(app.getPath('userData'), 'telemetry.json')
+      : null,
+  });
 
   // ── IntentDetector ────────────────────────────────────────────────────────
   // FIX Fase 3b: cargar sqlite-vec en la misma conexión del StateGraph
@@ -200,7 +298,16 @@ if (process.env.DEBUG) console.log('[march-core] graph.usingFallback:', _graph.u
 
   _initiativeUnsub = _bus.on('initiative:trigger', (payload) => {
     if (process.env.DEBUG) console.log(`[march-core] initiative: "${payload.suggestion?.slice(0, 60)}"`);
+    _lastProposal = payload.proposal ? { id: payload.proposal.id, type: payload.proposal.type } : null;
     if (_onInitiative) _onInitiative(payload);
+  });
+
+  // Fase B: resultado de ejecutar una propuesta proactiva (el clic "Sí, hazlo"
+  // ya se procesó en el ProactiveEngine). Se reenvía al renderer para que
+  // confirme en el bubble de la propuesta con la verificación REAL.
+  _proposalExecutedUnsub = _bus.on('proposal:executed', (payload) => {
+    if (process.env.DEBUG) console.log(`[march-core] proposal:executed ok=${payload.ok} "${payload.detail || ''}"`);
+    if (_onProposalResult) _onProposalResult(payload);
   });
 
   _scheduleDailyPrune();
@@ -218,6 +325,7 @@ if (process.env.DEBUG) console.log('[march-core] graph.usingFallback:', _graph.u
     } catch(e) { console.warn('[march-core] no se pudo leer config.json:', e.message); }
   }
   const _initialWorkspace = _envWorkspace || _persistedWorkspace || projectCWD;
+  _activeWorkspace = _initialWorkspace;
 
   _startOpenClaw(_initialWorkspace);
 
@@ -227,6 +335,15 @@ if (process.env.DEBUG) console.log('[march-core] graph.usingFallback:', _graph.u
       if (r.ok) {
         console.log(`[march-core] workspace inicial (${_envWorkspace ? 'MARCH_WORKSPACE' : ( _persistedWorkspace ? 'persistido' : 'default' )}):`, r.path);
         _proactive.start();
+        // Fase C: ofrecer retomar lo pendiente (recordatorios) al arrancar.
+        _proactive.pendingRecap().catch(e =>
+          console.warn('[march-core] error en recap de pendientes:', e.message)
+        );
+        // Fase D: watcher de errores LSP (con su propio scope).
+        if (_readSensorsConfig().lsp !== false && _lspErrorWatcher) {
+          _lspErrorWatcher.start();
+          console.log('[march-core] LSPErrorWatcher activo');
+        }
       }
       else console.warn('[march-core] workspace inicial inválido:', r.error);
     });
@@ -252,6 +369,8 @@ if (process.env.DEBUG) console.log('[march-core] graph.usingFallback:', _graph.u
 }
 
 function onInitiative(cb) { _onInitiative = cb; }
+
+function onProposalResult(cb) { _onProposalResult = cb; }
 
 function setChatOpen(open) {
   _proactive?.setChatOpen(open);
@@ -303,6 +422,87 @@ function _loadMCPConfig() {
   }
 }
 
+function _readSensorsConfig() {
+  try {
+    if (!_configPath || !fs.existsSync(_configPath)) return {};
+    const cfg = JSON.parse(fs.readFileSync(_configPath, 'utf-8'));
+    return (cfg && cfg.sensors) || {};
+  } catch(e) {
+    return {};
+  }
+}
+
+function _readAutonomyConfig() {
+  try {
+    if (!_configPath || !fs.existsSync(_configPath)) return 'suggest';
+    const cfg = JSON.parse(fs.readFileSync(_configPath, 'utf-8'));
+    return (cfg && cfg.autonomy) || 'suggest';
+  } catch(e) {
+    return 'suggest';
+  }
+}
+
+// Fase A: el usuario respondió a una propuesta (aceptar/descartar) desde el
+// chat. Se reenvía al ProactiveEngine, que persiste el feedback y ajusta la
+// frecuencia futura de ese tipo de iniciativa.
+function handleProposalDecision(decision) {
+  return _proactive?.handleDecision(decision) ?? false;
+}
+
+// ── Debug / testing (local, vía Control API) ──────────────────────────────────
+// Permiten verificar el flujo Fase B en vivo: forzar el scan del GitWatcher
+// (que dispara el trigger real del sensor) y resolver la última propuesta
+// emitida como si el usuario hubiera clicado su botón.
+
+function debugGitScan() {
+  if (!_gitWatcher) return { ok: false, error: 'GitWatcher no activo' };
+  return _gitWatcher.poll()
+    .then(() => ({ ok: true, stats: _gitWatcher.getStats() }))
+    .catch(e => ({ ok: false, error: e.message }));
+}
+
+function debugResolveLastProposal(accepted) {
+  if (!_lastProposal) return { ok: false, error: 'no hay una propuesta reciente para resolver' };
+  const decision = accepted ? 'accepted' : 'rejected';
+  const ok = _proactive?.handleDecision({ proposalId: _lastProposal.id, type: _lastProposal.type, decision }) ?? false;
+  return { ok, proposal: _lastProposal, decision };
+}
+
+/** Fase D: fuerza un scan del LSPErrorWatcher (verificación en vivo). */
+function debugLSPScan() {
+  if (!_lspErrorWatcher) return Promise.resolve({ ok: false, error: 'LSPErrorWatcher no activo' });
+  return _lspErrorWatcher.poll()
+    .then(() => ({ ok: true, stats: _lspErrorWatcher.getStats() }))
+    .catch(e => ({ ok: false, error: e.message }));
+}
+
+// ── Fase E: reporte de telemetría ─────────────────────────────────────────────
+
+/** "¿Estamos mejor que el mes pasado?" — métricas de uso real con baseline. */
+function getTelemetryReport(opts = {}) {
+  if (!_telemetry) return { ok: false, error: 'telemetría no inicializada' };
+  const decisions = _proposalStore?.getDecisions?.() ?? [];
+  return { ok: true, report: _telemetry.report({ decisions, ...opts }) };
+}
+
+/** Snapshots diarios crudos (para el Control API / debugging). */
+function getTelemetryStats() {
+  return _telemetry?.getStats() ?? null;
+}
+
+// ── Fase C: compañero persistente ─────────────────────────────────────────────
+
+/** /olvida X — archiva los nodos de memoria que matcheen el texto. */
+function forgetMemory(text) {
+  if (!_graph) return { found: 0, archived: 0, error: 'grafo no inicializado' };
+  return _graph.forget(text);
+}
+
+/** Al arrancar: ofrece retomar lo pendiente (recordatorios guardados). */
+function pendingRecap() {
+  return _proactive?.pendingRecap() ?? Promise.resolve(null);
+}
+
 async function mcpListServers() {
   return _mcp ? _mcp.listServers() : [];
 }
@@ -338,6 +538,7 @@ async function setActiveWorkspace(newPath) {
   }
 
   setProjectCWD(resolved);
+  _activeWorkspace = resolved;
 
   if (_mcp) {
     const fsServer = _mcp.listServers().find(s => s.name === 'filesystem');
@@ -362,12 +563,26 @@ async function setActiveWorkspace(newPath) {
   if (_lspManager) {
     (async () => {
       try { await _lspManager.stop(); } catch {}
-      try { await _lspManager.start(resolved, 'typescript'); console.log('[march-core] LSP listo para', resolved); }
+      try { await _lspManager.start(resolved); console.log('[march-core] LSP listo para', resolved); }
       catch(e) { console.warn('[march-core] LSP no disponible:', e.message); }
     })();
   }
 
+  // ── Fase D: reset del scope del watcher (no mezclar proyectos) ────
+  if (_lspErrorWatcher) {
+    _lspErrorWatcher.resetWorkspace(resolved);
+    if (_readSensorsConfig().lsp !== false) _lspErrorWatcher.poll().catch(() => {});
+  }
+
+  // ── FIX (auditoría Fase D): OpenClaw corre con OPENCLAW_ALLOWED_PATH fijado
+  // al workspace inicial; si el usuario cambia de proyecto, cualquier comando
+  // del nuevo workspace se rechazaría con "cwd outside allowed path". Se
+  // reinicia el server con el nuevo path permitido (pocas veces al día, y el
+  // bridge ya maneja la indisponibilidad transitoria).
+  _restartOpenClawForWorkspace(resolved);
+
   _bus.emit('workspace:changed', { path: resolved });
+  if (_gitWatcher) { _gitWatcher.setWorkspace(resolved); }
   console.log('[march-core] workspace activo:', resolved);
   return { ok: true, path: resolved };
 }
@@ -400,6 +615,7 @@ async function shutdown() {
     try { await _mcp.disconnectAll(); } catch(e) { console.warn('[march-core] error desconectando MCP:', e.message); }
   }
   if (_initiativeUnsub) { _initiativeUnsub(); _initiativeUnsub = null; }
+  if (_proposalExecutedUnsub) { _proposalExecutedUnsub(); _proposalExecutedUnsub = null; }
 
   await closeSession();
 
@@ -413,7 +629,22 @@ async function shutdown() {
   if (_lspManager) {
     try { await _lspManager.stop(); } catch(e) { console.warn('[march-core] error cerrando LSP:', e.message); }
   }
+  if (_lspErrorWatcher) {
+    try { _lspErrorWatcher.stop(); } catch(e) { console.warn('[march-core] error deteniendo LSPErrorWatcher:', e.message); }
+    _lspErrorWatcher = null;
+  }
   _proactive?.stop();
+  for (const [name, sensor] of [
+    ['git', _gitWatcher], ['system', _systemWatcher], ['title', _titleWatcher],
+    ['clipboard', _clipboardWatcher], ['upcoming-events', _eventsWatcher],
+  ]) {
+    try { sensor?.stop(); } catch(e) { console.warn(`[march-core] error deteniendo sensor ${name}:`, e.message); }
+  }
+  _gitWatcher = _systemWatcher = _titleWatcher = _clipboardWatcher = _eventsWatcher = null;
+  _proposalStore = null;
+  _proactiveExecutor = null;
+  _activeWorkspace = null;
+  _onProposalResult = null;
   if (_pruneTimer) { clearInterval(_pruneTimer); _pruneTimer = null; }
   if (_pruneInitTimer) { clearTimeout(_pruneInitTimer); _pruneInitTimer = null; }
   if (_graph) { try { _graph.close(); } catch(e) { console.warn('[march-core] error cerrando DB:', e.message); } }
@@ -437,6 +668,7 @@ function _startOpenClaw(workspacePath) {
     return;
   }
   _openclawStarting = true;
+  _openclawWorkspace = workspacePath ? path.resolve(workspacePath) : null;
 
   // Generar API key para openclaw-server y pasarla vía entorno
   const apiKey = crypto.randomBytes(32).toString('hex');
@@ -530,8 +762,26 @@ function _stopOpenClaw() {
   getOpenClawBridge().resetAvailabilityCache();
 }
 
+/**
+ * FIX (auditoría Fase D): al cambiar de workspace, OpenClaw debe servir el
+ * nuevo path permitido. Si el server corre con el path inicial, los comandos
+ * del nuevo proyecto serían rechazados en silencio ("cwd outside allowed path").
+ */
+function _restartOpenClawForWorkspace(ws) {
+  const resolved = path.resolve(ws);
+  if (_openclawWorkspace === resolved) return; // mismo workspace → no tocar nada
+  if (!_openclawStarting && _openclawProcess) {
+    console.log('[march-core] workspace cambió — reiniciando OpenClaw para el nuevo allowed path');
+    try { _stopOpenClaw(); } catch (_) {}
+  }
+  if (!_openclawProcess && !_openclawStarting) {
+    _startOpenClaw(resolved);
+  }
+}
+
 function addTurn(role, content) {
   _session?.addTurn(role, content);
+  _telemetry?.recordTurn(role);
   _bus.emit('memory:turn-added', { role, content });
 }
 
@@ -985,10 +1235,21 @@ function getStats() {
     session:        _session?.getStats()            ?? { error: 'no inicializado' },
     osSensor:       _osSensor?.getCurrentContext()  ?? null,
     proactive:      _proactive?.getStats()          ?? null,
+    autonomy:       _proactive?.getAutonomyMode()   ?? null,
+    executor:       _proactiveExecutor?.getStats()  ?? null,
+    signals: {
+      git:       _gitWatcher?.getStats()      ?? null,
+      system:    _systemWatcher?.getStats()   ?? null,
+      title:     _titleWatcher?.getStats()    ?? null,
+      clipboard: _clipboardWatcher?.getStats() ?? null,
+      events:    _eventsWatcher?.getStats()   ?? null,
+      lsp:       _lspErrorWatcher?.getStats() ?? null,
+    },
     planner:        _planner?.getStats()            ?? null,
     openclaw:       _bridge?.getStats()             ?? null,
     intentDetector: _detector ? { ready: _detector.isReady() } : null,
     lsp:            _lspManager ? { running: _lspManager.isRunning, filePatterns: _lspManager.supportedFilePatterns } : null,
+    telemetry:      _telemetry?.getStats() ?? null,
     eventBus:       busEvents,
     provider:       LLMProvider.getActiveProvider() ?? 'groq',
     usingFallback:  _graph?.usingFallback           ?? false,
@@ -1053,7 +1314,16 @@ module.exports = {
   getBridge,
   getTaskDetector:  getTaskDetector_,
   onInitiative,
+  onProposalResult,
   setChatOpen,
+  handleProposalDecision,
+  debugGitScan,
+  debugResolveLastProposal,
+  debugLSPScan,
+  getTelemetryReport,
+  getTelemetryStats,
+  forgetMemory,
+  pendingRecap,
   reloadLLMConfig,
   forceProactive,
   isOpenClawAvailable,
