@@ -1,3 +1,4 @@
+## ASISTENTE PERSONAL 
 
 **Un compañero de escritorio con IA que observa el sistema operativo, recuerda con contexto, y actúa solo cuando tiene permiso — con un motor de decisión determinista y auditable.**
 
