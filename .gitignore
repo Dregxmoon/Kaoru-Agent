@@ -5,7 +5,6 @@ dist/
 # ── Configuración sensible (nunca se sube) ───────────────────────────────────
 # La config real de cada máquina vive en %APPDATA% / ~/.config/vtuber-overlay/
 *.env
-!*.env.example
 config.json
 .march7th/
 
