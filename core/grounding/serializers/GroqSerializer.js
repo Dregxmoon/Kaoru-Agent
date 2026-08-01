@@ -43,7 +43,7 @@ const path = require('path');
 // ── Identity (cacheada) ───────────────────────────────────────────────────────
 // La identidad NO cambia entre turnos. Se serializa UNA SOLA VEZ al cargar
 // el módulo y se reusa en cada llamada, ahorrando ~400-600 tokens por turno.
-const IDENTITY_PATH = path.join(__dirname, '../identity/identity.json');
+const IDENTITY_PATH = path.join(__dirname, '../../identity/identity.json');
 
 let _serializedIdentity = null; // cache de la sección ya formateada
 let _identityRawCache   = null;
