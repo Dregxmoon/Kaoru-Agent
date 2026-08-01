@@ -34,10 +34,10 @@ function testParse() {
   assert(r1.name === 'help', 'parse: "/help" → name=help', JSON.stringify(r1));
   assert(r1.args.length === 0, 'parse: "/help" → 0 args');
 
-  const r2 = _parse('/mode task');
-  assert(r2.name === 'mode', 'parse: "/mode task" → name=mode');
-  assert(r2.args.length === 1, 'parse: "/mode task" → 1 arg');
-  assert(r2.args[0] === 'task', 'parse: "/mode task" → args[0]=task');
+  const r2 = _parse('/agent coder');
+  assert(r2.name === 'agent', 'parse: "/agent coder" → name=agent');
+  assert(r2.args.length === 1, 'parse: "/agent coder" → 1 arg');
+  assert(r2.args[0] === 'coder', 'parse: "/agent coder" → args[0]=coder');
 
   const r3 = _parse('/model groq');
   assert(r3.name === 'model', 'parse: "/model groq" → name=model');
@@ -67,7 +67,7 @@ function testRegisteredCommands() {
   const names = getNames();
   assert(names.includes('help'), 'help registrado');
   assert(names.includes('clear'), 'clear registrado');
-  assert(names.includes('mode'), 'mode registrado');
+  assert(!names.includes('mode'), 'mode eliminado (modo automático por intención)');
   assert(names.includes('model'), 'model registrado');
   assert(names.includes('memory'), 'memory registrado');
   assert(names.includes('retry'), 'retry registrado');
@@ -103,37 +103,6 @@ function testClear() {
     assert(!r.error, 'clear sin error');
     assert(r.result.includes('borrado'), 'clear confirma borrado');
     assert(history.length === 0, 'sessionHistory se vació');
-  });
-}
-
-// ── Test 5: /mode ──────────────────────────────────────────────────────────
-
-function testMode() {
-  console.log(C.bold('\n── Test 5: /mode ───────────────────────────────────────────'));
-
-  let appliedMode = null;
-  let ipcMode = null;
-  const ctx = {
-    chatMode: 'conversational',
-    applyModeUI: (m) => { appliedMode = m; },
-    sendIPC: (ch, d) => { ipcMode = d; },
-  };
-
-  return execute('/mode task', ctx).then(r => {
-    assert(!r.error, 'mode task sin error');
-    assert(appliedMode === 'task', 'applyModeUI llamado con task');
-    assert(ipcMode === 'task', 'IPC enviado con task');
-  }).then(() => {
-    return execute('/mode conversational', ctx);
-  }).then(r => {
-    assert(!r.error, 'mode conversational sin error');
-    assert(appliedMode === 'conversational', 'applyModeUI llamado con conversational');
-    assert(ipcMode === 'conversational', 'IPC enviado con conversational');
-  }).then(() => {
-    return execute('/mode invalido', ctx);
-  }).then(r => {
-    assert(!r.error, 'mode inválido no es error');
-    assert(r.result.includes('actual'), 'mode inválido muestra modo actual');
   });
 }
 
@@ -253,14 +222,8 @@ const mockAgentManager = {
 function testAgentCommand() {
   console.log(C.bold('\n── Test 10: /agent ───────────────────────────────────────────'));
 
-  let appliedMode = null;
-  let ipcMode = null;
-
   const ctx = {
     sessionHistory: [],
-    chatMode: 'conversational',
-    applyModeUI: (m) => { appliedMode = m; },
-    sendIPC: (ch, d) => { ipcMode = d; },
     fs: require('fs'),
     path: require('path'),
     process: { cwd: () => process.cwd() },
@@ -282,8 +245,6 @@ function testAgentCommand() {
     // Después de cambiar a coder, verificar que funciona
     assert(r.result.includes('Programación'), 'agent coder (segunda vez) funciona');
   }).then(() => {
-    appliedMode = null;
-    ipcMode = null;
     return execute('/agent conversation', ctx);
   }).then(r => {
     assert(!r.error, 'agent conversation sin error');
@@ -386,12 +347,8 @@ function testFix() {
 function testCode() {
   console.log(C.bold('\n── Test 17: /code ───────────────────────────────────────────'));
 
-  let appliedMode = null;
   const ctx = {
     sessionHistory: [],
-    chatMode: 'conversational',
-    applyModeUI: (m) => { appliedMode = m; },
-    sendIPC: (ch, d) => {},
     fs: require('fs'),
     path: require('path'),
     process: { cwd: () => process.cwd() },
@@ -456,7 +413,6 @@ async function main() {
   testRegisteredCommands();
   await testHelp();
   await testClear();
-  await testMode();
   await testModel();
   await testMemory();
   await testExport();

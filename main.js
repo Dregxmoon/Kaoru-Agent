@@ -213,11 +213,9 @@ let isClickThrough = true;
 let currentView    = 'full';
 let userHasMoved   = false;
 let chatTheme      = 'dark';
-let chatMode       = 'conversational';
 
 const savedConfig    = loadConfig();
 chatTheme            = savedConfig.chatTheme ?? 'dark';
-chatMode             = savedConfig.chatMode  ?? 'conversational';
 
 const maskedConfig = JSON.parse(JSON.stringify(savedConfig));
 if (maskedConfig.llm?.apiKeys) {
@@ -334,7 +332,6 @@ function createChatWindow() {
 
   chatWindow.webContents.once('did-finish-load', () => {
     chatWindow.webContents.send('init-theme', chatTheme);
-    chatWindow.webContents.send('init-mode', chatMode);
 
     const usingFallback = MarchCore.getGraph()?.usingFallback ?? false;
     chatWindow.webContents.send('memory-status', { usingFallback });
@@ -435,13 +432,6 @@ ipcMain.on('chat-close', () => {
 });
 
 ipcMain.on('chat-theme-changed', (e, theme) => { chatTheme = theme; saveConfig({ chatTheme: theme }); });
-
-ipcMain.on('chat-mode-changed', (e, mode) => {
-  if (mode !== 'conversational' && mode !== 'task') return;
-  chatMode = mode;
-  saveConfig({ chatMode: mode });
-  console.log('[march7th] modo de chat cambiado a:', mode);
-});
 
 
 
@@ -697,9 +687,10 @@ ipcMain.handle('openclaw-execute-plan', async (e, { plan }) => {
   }
 });
 
-// ── IPC: agent-run (Fase 2 — reemplaza processMessage → complete → parse → execute)
-ipcMain.handle('agent-run', async (e, { text, mode }) => {
-  console.log(`[main] agent-run: mode=${mode}, text="${text.slice(0, 80)}"`);
+// ── IPC: agent-run (loop cerrado con herramientas; el modo fast/smart lo
+//    elige MarchCore automáticamente según la intención detectada)
+ipcMain.handle('agent-run', async (e, { text }) => {
+  console.log(`[main] agent-run: text="${text?.slice(0, 80)}"`);
 
   if (!text || !text.trim()) {
     return { response: null, iterations: 0, toolResults: [], error: 'texto vacío' };
@@ -707,8 +698,6 @@ ipcMain.handle('agent-run', async (e, { text, mode }) => {
 
   try {
     const result = await MarchCore.runAgent(text, {
-      mode: mode || 'smart',
-      maxIterations: mode === 'conversational' ? 8 : 25,
 
       onApprovalNeeded: async (action) => {
         return new Promise((resolve) => {

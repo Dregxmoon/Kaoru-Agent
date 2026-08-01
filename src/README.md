@@ -34,7 +34,7 @@ Interfaz completa de conversación con March.
 
 | Evento | Propósito |
 |---|---|
-| `init-theme` / `init-mode` | Tema inicial (dark/sakura) y modo (conversación/tareas) |
+| `init-theme` | Tema inicial (dark/sakura) |
 | `chat-message` | Mensaje entrante desde el main process |
 | `chat-speak` | Texto a sintetizar por TTS |
 | `memory-status` | Estado del banner de memoria |

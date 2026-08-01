@@ -101,23 +101,6 @@ register({
 });
 
 register({
-  name: 'mode',
-  description: 'Cambia entre modo conversación y tareas',
-  usage: '/mode <conversational|task>',
-  completions: ['conversational', 'task'],
-  handler: async (args, ctx) => {
-    const valid = { conversational: 'conversational', conversation: 'conversational', task: 'task', tasks: 'task' };
-    const mode = valid[args[0]];
-    if (!mode) {
-      return `Modo actual: \`${ctx.chatMode}\`. Usa \`/mode conversational\` o \`/mode task\`.`;
-    }
-    if (ctx.applyModeUI) ctx.applyModeUI(mode);
-    if (ctx.sendIPC) ctx.sendIPC('chat-mode-changed', mode);
-    return `Modo cambiado a: **${mode === 'task' ? 'Tareas (GPT-OSS)' : 'Conversacion'}**`;
-  },
-});
-
-register({
   name: 'model',
   description: 'Cambia el proveedor LLM activo',
   usage: '/model <nombre>',
@@ -307,9 +290,6 @@ register({
 
     const switched = AgentManager.setActive(name);
     if (!switched) return `Agente desconocido: \`${name}\`. Usa \`/agent\` para ver la lista.`;
-
-    if (ctx.applyModeUI) ctx.applyModeUI(AgentManager.getMode());
-    if (ctx.sendIPC) ctx.sendIPC('chat-mode-changed', AgentManager.getMode());
 
     return `Agente cambiado a: **${switched.label}**\n\n${switched.description}`;
   },
@@ -527,8 +507,6 @@ register({
     const AgentManager = require('../agents/AgentManager.js');
     const switched = AgentManager.setActive('coder');
     if (!switched) return 'Error al cambiar a agente coder.';
-    if (ctx.applyModeUI) ctx.applyModeUI(AgentManager.getMode());
-    if (ctx.sendIPC) ctx.sendIPC('chat-mode-changed', AgentManager.getMode());
     return [
       `Cambiado a: **${switched.label}**`,
       '',

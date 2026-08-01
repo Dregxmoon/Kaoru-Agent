@@ -65,11 +65,6 @@ html,body { width:100%; height:100%; overflow:hidden; background:var(--bg-base);
 .openclaw-badge { display:inline-flex; align-items:center; gap:3px; font-family:var(--font-mono); font-size:9px; color:#555; -webkit-app-region:no-drag; }
 .openclaw-badge.offline { color:#555; }
 
-/* Toggle de modo */
-.mode-toggle { display:inline-flex; align-items:center; gap:4px; font-family:var(--font-mono); font-size:9px; color:var(--text-secondary); background:none; border:1px solid var(--border); border-radius:2px; padding:1px 6px; cursor:pointer; -webkit-app-region:no-drag; transition:all .2s; }
-.mode-toggle:hover { border-color:var(--accent); color:var(--accent); }
-.mode-toggle.task { color:var(--accent); border-color:var(--accent); }
-
 #keys-banner { display:none; align-items:center; gap:8px; padding:6px 12px; background:var(--bg-input); border-bottom:1px solid var(--border); font-family:var(--font-mono); font-size:10px; color:var(--text-secondary); flex-shrink:0; z-index:2; }
 #keys-banner.visible { display:flex; }
 #open-settings-btn { margin-left:auto; padding:2px 8px; border:1px solid var(--border); background:transparent; color:var(--text-secondary); font-family:var(--font-mono); font-size:9px; cursor:pointer; }
@@ -251,6 +246,7 @@ html,body { width:100%; height:100%; overflow:hidden; background:var(--bg-base);
 
 #model-panel { background:var(--bg-base); display:flex; flex-direction:column; align-items:center; position:relative; overflow:hidden; }
 #model-canvas-container { width:100%; flex:1; position:relative; min-height:0; }
+#model-canvas-container { width:100%; flex:1; position:relative; min-height:0; }
 #live2d-chat-canvas { width:100%; height:100%; display:block; }
 #view-indicator { position:absolute; bottom:4px; right:6px; z-index:10; font-family:var(--font-mono); font-size:8px; color:var(--text-secondary); opacity:.3; pointer-events:none; }
 /* ── Terminal-style messages ──────────────────────────────────────────── */
@@ -338,9 +334,6 @@ html,body { width:100%; height:100%; overflow:hidden; background:var(--bg-base);
     <span id="openclaw-badge" class="openclaw-badge offline" title="OpenClaw no disponible">OFFLINE</span>
     <button id="mcp-btn" class="mcp-badge" title="Servidores MCP">MCP <span id="mcp-count">0</span></button>
     <button id="workspace-btn" class="mcp-badge" title="Elegir carpeta de proyecto">dir</button>
-    <button id="mode-toggle" class="mode-toggle" title="Modo conversación: rápido. Clic para modo tareas.">
-      <span class="mode-label">fast</span>
-    </button>
     <div id="theme-toggle" title="Cambiar tema"></div>
     <button id="close-btn" title="Cerrar">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14">
@@ -561,33 +554,6 @@ let activePlanId      = null;
 let pendingPlan        = null;  // plan extraído
 let pendingLlmResponse = null;  // respuesta LLM original con el plan
 let pendingPlanMsgDiv  = null;  // div del mensaje donde se renderizó el plan
-
-// Modo de chat: 'conversational' (Groq fast) o 'task' (Kimi K2, modo smart de
-// LLMProvider — ver LLMProvider.js v5). main.js envía el valor guardado vía
-// 'init-mode' cuando esta ventana termina de cargar.
-let chatMode = 'conversational';
-
-function applyModeUI(mode) {
-  chatMode = (mode === 'task') ? 'task' : 'conversational';
-  const btn = document.getElementById('mode-toggle');
-  if (!btn) return;
-  const isTask = chatMode === 'task';
-  btn.classList.toggle('task', isTask);
-  const iconEl = btn.querySelector('.mode-icon');
-  if (iconEl) iconEl.textContent = isTask ? '[T]' : '[C]';
-  btn.querySelector('.mode-label').textContent = isTask ? 'Tareas (GPT-OSS)' : 'Conversación';
-  btn.title = isTask
-    ? 'Modo tareas: usa GPT-OSS 120B vía Groq — más lento, mejor para programar, leer documentación y usar herramientas. Clic para volver a conversación.'
-    : 'Modo conversación: rápido y económico. Clic para pasar a modo tareas (GPT-OSS 120B).';
-}
-
-document.getElementById('mode-toggle').addEventListener('click', () => {
-  const next = chatMode === 'task' ? 'conversational' : 'task';
-  applyModeUI(next);
-  updateLlmHint();
-  ipcRenderer.send('chat-mode-changed', next);
-  console.log('modo cambiado a:', next);
-});
 
 const sessionHistory      = [];
 const MAX_SESSION_HISTORY = 20;
@@ -1173,7 +1139,7 @@ async function processMessage(text, files = []) {
   if (trimmed.startsWith('/')) {
     addMessage('user', trimmed);
     const cmdCtx = {
-      sessionHistory, pushToSession, chatMode, applyModeUI,
+      sessionHistory, pushToSession,
       LLMProvider, ipcRenderer,
       sendIPC: (ch, d) => ipcRenderer.send(ch, d),
       addMessage, processMessage,
@@ -1235,7 +1201,6 @@ async function processMessage(text, files = []) {
 
       const result = await ipcRenderer.invoke('agent-run', {
         text: trimmed,
-        mode: chatMode,
       });
 
       _agentProgressEl = null;
@@ -1593,8 +1558,7 @@ function updateLlmHint() {
   const p = all.find(x => x.id === active);
   if (p) {
     const cost = p.free ? 'gratis' : 'pago';
-    const modeLabel = chatMode === 'task' ? 'Tareas' : 'Conversacion';
-    hintEl.textContent = `${p.name} (${cost}) — ${modeLabel} · /help`;
+    hintEl.textContent = `${p.name} (${cost}) · /help`;
   } else {
     hintEl.textContent = 'Sin LLM activo · /help';
   }
@@ -2052,7 +2016,6 @@ window.addEventListener('resize', () => {
 // ── IPC listeners ─────────────────────────────────────────────────────────────
 document.getElementById('close-btn').addEventListener('click', () => ipcRenderer.send('chat-close'));
 ipcRenderer.on('init-theme',   (e, theme) => setTheme(theme));
-ipcRenderer.on('init-mode',    (e, mode)  => { applyModeUI(mode || 'conversational'); updateLlmHint(); });
 ipcRenderer.on('chat-speak',   (e, text)  => speak(text));
 ipcRenderer.on('chat-message', (e, text)  => processMessage(text));
 

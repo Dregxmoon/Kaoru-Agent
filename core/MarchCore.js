@@ -1171,6 +1171,39 @@ async function executeTool(tool, params) {
 // ── AgentLoop (loop cerrado con tool-calling, skills y precedencia) ───────────
 
 /**
+ * Resuelve el modo de ejecución del agente.
+ *
+ * Sin override explícito (opts.mode) se elige automáticamente según la
+ * intención detectada por TaskDetector: mensaje con tarea → 'smart' (modelo
+ * potente, más iteraciones); conversación/saludo → 'fast' (rápido y barato).
+ * El override sigue existiendo para llamadas internas/programáticas.
+ *
+ * @param {string} userMessage - Mensaje del usuario
+ * @param {object} opts - Opciones de runAgent()
+ * @returns {{mode: string, maxIterations: number}}
+ */
+function _resolveAgentMode(userMessage, opts = {}) {
+  if (opts.mode) {
+    return {
+      mode: opts.mode,
+      maxIterations: opts.maxIterations || (opts.mode === 'fast' ? 8 : 25),
+    };
+  }
+
+  let isTask = false;
+  try {
+    const intent = _taskDetector?.detect(userMessage);
+    isTask = !!(intent && intent.isTask && intent.confidence !== 'none');
+  } catch (_) {
+    // si el detector falla, se asume conversación (fast)
+  }
+
+  return isTask
+    ? { mode: 'smart', maxIterations: 25 }
+    : { mode: 'fast', maxIterations: 8 };
+}
+
+/**
  * Ejecuta el loop cerrado de agente para un mensaje del usuario.
  * Reemplaza el flujo plan→execute con un loop single-step donde el LLM
  * decide tool por tool, condicionado por el resultado real del paso anterior.
@@ -1193,10 +1226,13 @@ async function runAgent(userMessage, opts = {}) {
     return { response: null, iterations: 0, toolResults: [], error: 'No se pudo construir contexto' };
   }
 
+  // ── Modo automático por intención: sin override explícito, TaskDetector
+  //    decide entre 'fast' (charla, barato/rápido) y 'smart' (tarea, potente).
+  const { mode, maxIterations } = _resolveAgentMode(userMessage, opts);
   const loop = new AgentLoop({
-    maxIterations: opts.maxIterations || 25,
+    maxIterations,
     bridge: _bridge,
-    mode: opts.mode || 'smart',
+    mode,
   });
 
   const result = await loop.run(
