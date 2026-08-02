@@ -3,9 +3,11 @@
 const fs = require('fs');
 const path = require('path');
 
+const { distanceToSimilarity } = require('../grounding/IntentDetector.js');
+
 const SKILL_TABLE = 'skill_catalog';
 const VECTOR_TABLE = 'skill_vectors';
-const DEFAULT_THRESHOLD = 0.72;
+const DEFAULT_THRESHOLD = 0.35;
 const DEFAULT_TOP_K = 3;
 const VECTOR_DIMS = 384;
 const SKILL_CATALOG = [];
@@ -207,7 +209,7 @@ class SkillManager {
     }
 
     const merged = rows
-      .filter(r => r.distance <= (1 - this.threshold));
+      .filter(r => distanceToSimilarity(r.distance) >= this.threshold);
 
     if (merged.length === 0) return [];
 
@@ -222,7 +224,7 @@ class SkillManager {
         replaces_domains: cached?.replaces_domains || null,
         content: r.content,
         distance: r.distance,
-        score: 1 - r.distance,
+        score: distanceToSimilarity(r.distance),
       };
     });
   }
@@ -261,6 +263,7 @@ class SkillManager {
 
   async ensureIndexed() {
     if (!this.db) return false;
+    this._ensureTables(this.db);
     await this.scan();
     const count = this.db.prepare(`SELECT COUNT(*) as cnt FROM ${SKILL_TABLE}`).get();
     if (count.cnt > 0) return false;

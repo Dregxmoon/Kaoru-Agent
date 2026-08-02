@@ -377,13 +377,21 @@ class ProactiveExecutor {
     // TS-en-JS; aquí se comprueba que el archivo JS siga siendo JS válido.
     const syntaxErr = await this._syntaxCheck(applied.content, abs);
     if (syntaxErr) {
-      try { fs.writeFileSync(abs, original); } catch(_) {}
-      this._patchBackups.delete(abs);
-      return {
-        ok: false,
-        detail: `el parche dejó el archivo con sintaxis JS inválida (${syntaxErr}) — revertí el cambio.`,
-        rolledBack: true,
-      };
+      try {
+        fs.writeFileSync(abs, original);
+        this._patchBackups.delete(abs);
+        return {
+          ok: false,
+          detail: `el parche dejó el archivo con sintaxis JS inválida (${syntaxErr}) — revertí el cambio.`,
+          rolledBack: true,
+        };
+      } catch (e) {
+        return {
+          ok: false,
+          detail: `el parche dejó el archivo con sintaxis JS inválida (${syntaxErr}) y ADEMÁS no se pudo revertir: ${e.message}.`,
+          rolledBack: false,
+        };
+      }
     }
 
     // Verificación post-acción con el LSP real (o stub inyectado).
@@ -397,13 +405,21 @@ class ProactiveExecutor {
         const regression = after.filter(a => !_matchesTarget(a, target));
         if (regression.length) {
           // Rollback: restaurar el contenido original y reportar el fallo REAL.
-          try { fs.writeFileSync(abs, original); } catch(_) {}
-          this._patchBackups.delete(abs);
-          return {
-            ok: false,
-            detail: `la verificación LSP encontró un error nuevo tras el parche (${regression[0].message.slice(0, 90)}) — revertí el cambio.`,
-            rolledBack: true,
-          };
+          try {
+            fs.writeFileSync(abs, original);
+            this._patchBackups.delete(abs);
+            return {
+              ok: false,
+              detail: `la verificación LSP encontró un error nuevo tras el parche (${regression[0].message.slice(0, 90)}) — revertí el cambio.`,
+              rolledBack: true,
+            };
+          } catch (e) {
+            return {
+              ok: false,
+              detail: `la verificación LSP encontró un error nuevo tras el parche (${regression[0].message.slice(0, 90)}) y ADEMÁS no se pudo revertir: ${e.message}.`,
+              rolledBack: false,
+            };
+          }
         }
 
         const fixed = target.length > 0 && !after.some(a => _matchesTarget(a, target));

@@ -269,7 +269,7 @@ description: "Writing and running tests for Node.js projects"
 # Test Content
 Content about testing`);
 
-    const sm = new SkillManager({ skillsDir, db, threshold: 0.5, topK: 3 });
+    const sm = new SkillManager({ skillsDir, db, threshold: 0.15, topK: 3 });
     await sm.scan(true);
     await sm.index();
 
@@ -385,8 +385,10 @@ Content`);
       assert(matches[0].score >= 0 && matches[0].score <= 1, 'score entre 0 y 1');
       assert(typeof matches[0].distance === 'number', 'distance es número');
       assert(matches[0].distance >= 0, 'distance >= 0');
-      assert(Math.abs(matches[0].score - (1 - matches[0].distance)) < 0.001,
-        'score + distance ≈ 1');
+      // sqlite-vec devuelve distancia L2; para vectores normalizados la
+      // similitud coseno es 1 - (d²/2).
+      assert(Math.abs(matches[0].score - (1 - (matches[0].distance * matches[0].distance) / 2)) < 0.001,
+        'score + distance²/2 ≈ 1');
     }
 
     fs.rmSync(skillsDir, { recursive: true, force: true });

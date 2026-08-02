@@ -24,7 +24,7 @@ const CATEGORIES = {
   skill: 'IA / LLM', credenciales: 'Config',
   init: 'Desarrollo', review: 'Desarrollo', plan: 'Desarrollo',
   fix: 'Desarrollo', undo: 'Desarrollo', retry: 'Desarrollo',
-  'cambio-modelo': 'Modelo',
+  'cambio-modelo': 'Modelo', 'modelo-vistas': 'Modelo',
 };
 
 function getHelp() {
@@ -589,6 +589,48 @@ register({
       const res = await ctx.ipcRenderer.invoke('model-set', { id: target.id });
       if (res.error) return `Error al cambiar modelo: ${res.error}`;
       return `Modelo cambiado a: **${target.name}**`;
+    } catch (e) {
+      return `Error: ${e.message}`;
+    }
+  },
+});
+
+register({
+  name: 'modelo-vistas',
+  description: 'Selecciona el tamaño de vista del modelo (cuerpo completo, medio cuerpo, solo cabeza o aleatorio)',
+  usage: '/modelo-vistas [full|half|head|random]',
+  handler: async (args, ctx) => {
+    if (!ctx.ipcRenderer) return 'IPC no disponible.';
+    const MODES = ['full', 'half', 'head', 'random'];
+    const LABELS = { full: 'Cuerpo completo', half: 'Medio cuerpo', head: 'Solo cabeza', random: 'Aleatorio' };
+    try {
+      const state = await ctx.ipcRenderer.invoke('views-get');
+      if (!state || !state.mode) return 'No se pudo leer el modo de vista.';
+      const mode = state.mode;
+
+      const q = (args[0] || '').trim().toLowerCase();
+      if (!q) {
+        const buttons = MODES.map(m =>
+          `<button class="view-toggle-btn ${m === mode ? 'active' : ''}" data-view-mode="${m}">${LABELS[m]}${m === mode ? ' <span class="view-state">✓</span>' : ''}</button>`
+        ).join('\n');
+        return [
+          `**Tamaño de vista del modelo:**`,
+          '',
+          `<div class="view-toggle-group">\n${buttons}\n</div>`,
+          '',
+          `La opción que elijas queda guardada como la predeterminada para este modelo. \`Aleatorio\` hace que el modelo rote automáticamente entre las tres vistas.`,
+          '',
+          `También puedes usar: \`/modelo-vistas full\`, \`/modelo-vistas half\`, \`/modelo-vistas head\`, \`/modelo-vistas random\`.`,
+        ].join('\n');
+      }
+
+      if (!MODES.includes(q)) {
+        return `Modo desconocido: \`${q}\`. Usa \`full\`, \`half\`, \`head\` o \`random\`.`;
+      }
+
+      const res = await ctx.ipcRenderer.invoke('views-set', { mode: q });
+      if (res.error) return `Error: ${res.error}`;
+      return `Modo de vista guardado: **${LABELS[q]}**${q === 'random' ? ' — el modelo rotará entre las tres vistas.' : ' — el modelo queda fijo en esa posición.'}`;
     } catch (e) {
       return `Error: ${e.message}`;
     }

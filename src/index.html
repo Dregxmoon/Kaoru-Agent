@@ -42,7 +42,7 @@ window.PIXI = PIXI;
 // de duplicar la resolución en el renderer.
 let _pythonBinPromise = null;
 function getPythonBin() {
-  if (!_pythonBinPromise) _pythonBinPromise = ipcRenderer.invoke('get-python-bin');
+  if (!_pythonBinPromise) _pythonBinPromise = ipcRenderer.invoke('get-python-bin').catch(() => null);
   return _pythonBinPromise;
 }
 
@@ -53,17 +53,76 @@ const TTS_VOICE  = 'ja-JP-NanamiNeural';
 
 let pixiApp, model;
 let currentView   = 'full';
-let modelNaturalH = 0;
 let isDragging    = false;
 let dragMoved     = false;
 let isSpeaking    = false;
 let audioCtx      = null;
 
+// Auto-fit por contenido real del modelo (bounds del mesh, no del canvas).
+// Concepto "piso": el borde inferior de la ventana es el corte del cuerpo.
+//   full: f=1.0 → los pies tocan el piso (cuerpo completo).
+//   half: f=0.5 → la cintura está en el piso (medio cuerpo hacia arriba).
+//   head: f=0.25 → el cuello está en el piso (solo cabeza hacia arriba).
+// crop=true escala por altura (recorta los lados); false respeta el ancho.
 const VIEW = {
-  full: { sr: 0.92, ax: 0.5, ay: 1.00, py: 1.00 },
-  half: { sr: 1.70, ax: 0.5, ay: 0.72, py: 1.10 },
-  head: { sr: 3.80, ax: 0.5, ay: 0.18, py: 0.90 },
+  full: { f: 1.00, tw: 0.98, crop: false },
+  half: { f: 0.50, tw: 1.00, crop: true  },
+  head: { f: 0.25, tw: 1.00, crop: true  },
 };
+const VIEW_LABELS = { full: 'Cuerpo completo', half: 'Medio cuerpo', head: 'Solo cabeza' };
+
+let modelBounds  = null; // {x,y,width,height} del contenido en px del canvas nativo
+let modelNativeW = 0;
+let modelNativeH = 0;
+let viewMode     = 'random'; // 'full' | 'half' | 'head' | 'random'
+
+function computeContentBounds(model) {
+  try {
+    const im = model.internalModel, core = im && im.coreModel;
+    if (!core || typeof core.getDrawableCount !== 'function') return null;
+    const cw = model.width, ch = model.height;
+    if (!cw || !ch) return null;
+    const cnt = core.getDrawableCount();
+    let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+    for (let i = 0; i < cnt; i++) {
+      const pos = core.getDrawableVertexPositions(i);
+      const c = core.getDrawableVertexCount(i);
+      if (!pos || !c) continue;
+      for (let j = 0; j < c; j++) {
+        const x = pos[j * 2], y = pos[j * 2 + 1];
+        if (x < minX) minX = x; if (x > maxX) maxX = x;
+        if (y < minY) minY = y; if (y > maxY) maxY = y;
+      }
+    }
+    if (minX === Infinity) return null;
+    const B = {
+      x: (minX + 0.5) * cw,
+      y: ch * (0.5 - maxY * cw / ch),
+      width: (maxX - minX) * cw,
+      height: (maxY - minY) * cw,
+    };
+    // Centro horizontal de la cabeza (banda superior del contenido): las vistas
+    // recortadas (half/head) se centran en él para que la cara no quede cortada.
+    B.headCx = null;
+    const bound = B.y + B.height * 0.35;
+    let hMinX = Infinity, hMaxX = -Infinity;
+    for (let i = 0; i < cnt; i++) {
+      const pos = core.getDrawableVertexPositions(i);
+      const c = core.getDrawableVertexCount(i);
+      if (!pos || !c) continue;
+      for (let j = 0; j < c; j++) {
+        const px = (pos[j * 2] + 0.5) * cw;
+        const py = ch * (0.5 - pos[j * 2 + 1] * cw / ch);
+        if (py <= bound) {
+          if (px < hMinX) hMinX = px;
+          if (px > hMaxX) hMaxX = px;
+        }
+      }
+    }
+    if (hMinX <= hMaxX) B.headCx = (hMinX + hMaxX) / 2;
+    return B;
+  } catch (_) { return null; }
+}
 
 // ── Emociones de voz ──────────────────────────────────────────────────────────
 const EMOTION_PROFILES = {
@@ -176,11 +235,19 @@ async function loadModel() {
 
   try {
     model = await PIXI.live2d.Live2DModel.from(fileUrl);
-    modelNaturalH = model.height;
+    modelNativeW = model.width;
+    modelNativeH = model.height;
+    modelBounds  = computeContentBounds(model) || { x: 0, y: 0, width: modelNativeW || 1, height: modelNativeH || 1 };
     pixiApp.stage.addChild(model);
     applyView(currentView);
     setupInteraction();
     startIdle();
+    ipcRenderer.invoke('views-get').then(s => {
+      if (s && s.mode) {
+        viewMode = s.mode;
+        if (viewMode !== 'random') applyView(viewMode, true);
+      }
+    }).catch(() => {});
     console.log('[overlay] modelo cargado:', _modelInfo.name);
   } catch(err) {
     console.error('[overlay] error cargando modelo:', err);
@@ -198,16 +265,25 @@ function reloadModel() {
 // ── Vistas ────────────────────────────────────────────────────────────────────
 function applyView(view, animate = false) {
   if (!model || !pixiApp) return;
+  if (!VIEW[view]) return;
   const cfg = VIEW[view];
   const W   = pixiApp.screen.width;
   const H   = pixiApp.screen.height;
-  const ts  = (H / modelNaturalH) * cfg.sr;
-  const tx  = W * cfg.ax;
-  const ty  = H * cfg.py;
+  const B   = modelBounds || { x: 0, y: 0, width: modelNativeW || 1, height: modelNativeH || 1 };
+  const cw  = modelNativeW || B.width;
+  const ch  = modelNativeH || B.height;
+  const ts  = cfg.crop
+    ? (H / cfg.f) / B.height
+    : Math.min((W * cfg.tw) / B.width, H / B.height);
+  const S   = ts * B.height;
+  const cx  = (cfg.crop && B.headCx != null ? B.headCx : B.x + B.width / 2) / cw;
+  const ay  = B.y / ch;
+  const tx  = W / 2;
+  const ty  = H - S * cfg.f;
 
   if (!animate) {
     model.scale.set(ts);
-    model.anchor.set(cfg.ax, cfg.ay);
+    model.anchor.set(cx, ay);
     model.position.set(tx, ty);
     currentView = view;
     return;
@@ -222,7 +298,7 @@ function applyView(view, animate = false) {
     const t = Math.min((now - start) / dur, 1);
     const e = ease(t);
     model.scale.set(fs + (ts - fs) * e);
-    model.anchor.set(fax + (cfg.ax - fax) * e, fay + (cfg.ay - fay) * e);
+    model.anchor.set(fax + (cx - fax) * e, fay + (ay - fay) * e);
     model.position.set(fx + (tx - fx) * e, fy + (ty - fy) * e);
     if (t < 1) requestAnimationFrame(tick);
     else { currentView = view; triggerMotion(); }
@@ -257,21 +333,25 @@ const VIEW_PERSONALITY = {
 };
 
 function pickNextView() {
-  const w = VIEW_PERSONALITY.weights;
-  const total = w.full + w.half + w.head;
-  const r = Math.random() * total;
-  if (r < w.full) return 'full';
-  if (r < w.full + w.half) return 'half';
-  return 'head';
+  const names = Object.keys(VIEW);
+  const total = names.reduce((s, v) => s + VIEW_PERSONALITY.weights[v], 0);
+  let r = Math.random() * total;
+  for (const v of names) {
+    r -= VIEW_PERSONALITY.weights[v];
+    if (r <= 0) return v;
+  }
+  return names[names.length - 1];
 }
 
 function startAutonomousView() {
+  if (viewMode !== 'random') return;
   const schedule = () => {
     const d    = VIEW_PERSONALITY.duration[currentView];
     const wait = (d.min + Math.random() * (d.max - d.min)) * 1000;
     setTimeout(() => {
+      if (viewMode !== 'random') { schedule(); return; }
       const next = pickNextView();
-      if (model && next !== currentView) {
+      if (next && model && next !== currentView) {
         applyView(next, true);
         ipcRenderer.send('view-changed', next);
       }
@@ -348,8 +428,17 @@ function setupInteraction() {
 
 // ── IPC desde main.js ─────────────────────────────────────────────────────────
 ipcRenderer.on('set-view', (e, view) => {
+  if (!VIEW[view]) return;
   if (!model) { currentView = view; return; }
   applyView(view, view !== currentView);
+});
+
+ipcRenderer.on('views-changed', (e, s) => {
+  if (!s || !s.mode) return;
+  viewMode = s.mode;
+  if (model && viewMode !== 'random') {
+    applyView(viewMode, viewMode !== currentView);
+  }
 });
 
 ipcRenderer.on('speak', (e, payload) => {

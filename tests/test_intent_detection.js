@@ -60,7 +60,7 @@ const TEST_CASES = [
   {
     message:        'crea un archivo llamado utils.js',
     expectedAction: 'create_file',
-    expectedLevel:  ['high'],
+    expectedLevel:  ['high', 'medium'],
     shouldDetect:   true,
     label:          'Frase directa → create_file',
   },

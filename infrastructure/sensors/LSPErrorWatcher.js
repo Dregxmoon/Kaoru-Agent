@@ -201,7 +201,7 @@ class LSPErrorWatcher {
       const rel = path.relative(ws, abs);
       let symbols = null;
       if (this._getSymbols && (abs === focused || abs === candidates[0])) {
-        try { symbols = await this._getSymbols(abs); } catch(_) {}
+        try { symbols = await this._getSymbols(abs); } catch(e) { console.warn('[lsp] falló al obtener símbolos:', e && e.message ? e.message : e); }
       }
       this._emitted += 1;
       this._bus.emit('lsp:error', {

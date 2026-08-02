@@ -587,7 +587,7 @@ class StateGraph {
     }
 
     try {
-      const { embedText, float32ToBuffer } = require('../grounding/IntentDetector.js');
+      const { embedText, float32ToBuffer, distanceToSimilarity } = require('../grounding/IntentDetector.js');
       const queryVec = await embedText(searchText.slice(0, 500));
 
       const candidates = this._db.prepare(`
@@ -615,7 +615,7 @@ class StateGraph {
 
       const scored = rows.map(node => {
         const distance   = distanceById.get(node.id) ?? 1;
-        const similarity = Math.max(0, 1 - distance);
+        const similarity = distanceToSimilarity(distance);
         const daysSince   = Math.max(0, (now - node.last_accessed_at) / (1000 * 60 * 60 * 24));
         // recencyBoost va de 1.0 (justo ahora) a 0.5 (muy viejo) — nunca
         // llega a 0, para que un recuerdo viejo pero muy relevante todavía

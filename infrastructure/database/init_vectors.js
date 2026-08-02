@@ -319,6 +319,7 @@ const BUILTIN_INTENT_CATALOG = [
     description: 'Realizar una operación de git',
     phrases: [
       'haz un commit',
+      'haz un commit con los cambios de hoy',
       'sube los cambios',
       'push al repositorio',
       'git push',
@@ -333,6 +334,7 @@ const BUILTIN_INTENT_CATALOG = [
       'sube esto a github',
       'revisa el estado del repo',
       'haz un pull request',
+      'haz commit de los cambios',
     ],
   },
   {
@@ -343,6 +345,7 @@ const BUILTIN_INTENT_CATALOG = [
       'instala el paquete',
       'agrega la dependencia',
       'npm install express',
+      'npm install',
       'instala express',
       'pip install',
       'yarn add',
@@ -351,6 +354,9 @@ const BUILTIN_INTENT_CATALOG = [
       'add dependency',
       'instala axios',
       'agrega esta librería al proyecto',
+      'ejecuta npm install',
+      'corre npm install',
+      'instala paquetes en la terminal',
     ],
   },
   {
@@ -456,6 +462,10 @@ const BUILTIN_INTENT_CATALOG = [
       'hola',
       'buenos días',
       'cómo estás',
+      'recuerdas lo que hablamos',
+      'qué te conté sobre mi proyecto',
+      'recuerda mi proyecto',
+      'recuerdas mi proyecto',
     ],
   },
 ];
@@ -736,7 +746,9 @@ async function populateCatalog(db, catalog = INTENT_CATALOG) {
       }
 
       const vector = await embed(phrase);
-      insertVector.run(info.lastInsertRowid, float32ToBuffer(vector));
+      // sqlite-vec + better-sqlite3 exige rowid explícito como BigInt
+      // (con number lanza "Only integers are allowed for primary key values").
+      insertVector.run(BigInt(info.lastInsertRowid), float32ToBuffer(vector));
       totalPhrases++;
     }
   }
@@ -817,7 +829,7 @@ async function addPhrase(db, action, phrase, opts = {}) {
 
   const vector = await embed(clean);
   db.prepare(`INSERT INTO intent_vectors (rowid, embedding) VALUES (?, ?)`)
-    .run(info.lastInsertRowid, float32ToBuffer(vector));
+    .run(BigInt(info.lastInsertRowid), float32ToBuffer(vector));
 
   console.log(`[init-vectors] + frase agregada a "${action}": "${clean}"`);
   return { added: true };
@@ -920,7 +932,8 @@ async function main() {
     const results = await testDetect(db, query);
     console.log(`\n[init-vectors] === Resultados para "${query}" ===`);
     results.forEach((r, i) => {
-      console.log(`  ${i + 1}. [${r.action}] "${r.phrase}"  (distancia: ${r.distance.toFixed(4)})`);
+      const sim = Math.max(0, 1 - (r.distance * r.distance) / 2);
+      console.log(`  ${i + 1}. [${r.action}] "${r.phrase}"  (distancia: ${r.distance.toFixed(4)}, sim: ${sim.toFixed(4)})`);
     });
   }
 

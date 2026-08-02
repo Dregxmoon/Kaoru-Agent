@@ -35,8 +35,8 @@ const path = require('path');
 // Los scores de este modelo rara vez superan 0.95 en matches perfectos.
 // 0.72 filtra la mayoría de preguntas conversacionales que accidentalmente
 // comparten vocabulario con acciones de herramienta.
-const THRESHOLD_HIGH = 0.78;
-const THRESHOLD_LOW  = 0.62;
+const THRESHOLD_HIGH = 0.75;
+const THRESHOLD_LOW  = 0.55;
 
 // Número de candidatos a recuperar de sqlite-vec antes de agregar por acción.
 // Más candidatos = más preciso, pero más lento. 8 es el sweet spot para
@@ -101,6 +101,24 @@ async function embedText(text) {
 
 function float32ToBuffer(arr) {
   return _float32ToBuffer(arr);
+}
+
+/**
+ * Convierte la distancia devuelta por sqlite-vec a similitud coseno.
+ *
+ * IMPORTANTE: las tablas vec0 usan la métrica por defecto (distancia
+ * EUCLIDIANA/L2), NO coseno. Como todos los embeddings se guardan con
+ * `normalize: true` (L2), la relación entre distancia L2 y similitud
+ * coseno es:  cos_sim = 1 - (d² / 2)   (derivado de ||a-b||² = 2(1-cos)).
+ *
+ * El código anterior calculaba `score = 1 - distance`, lo que suponía
+ * distancia coseno y devolvía scores irrealmente bajos (el `high` era
+ * prácticamente inalcanzable). Usar este helper en toda lectura de
+ * vec0 mantiene los thresholds calibrados en similitud real.
+ */
+function distanceToSimilarity(d) {
+  const dist = typeof d === 'number' && Number.isFinite(d) ? d : 1;
+  return Math.max(0, 1 - (dist * dist) / 2);
 }
 
 // ── IntentDetector ────────────────────────────────────────────────────────────
@@ -221,8 +239,8 @@ class IntentDetector {
     }
 
     // ── 2. Búsqueda por similitud coseno en sqlite-vec ─────────────────────
-    // sqlite-vec devuelve "distance" que es 1 - cosine_similarity.
-    // Para obtener el score de similitud: score = 1 - distance.
+    // sqlite-vec devuelve distancia EUCLIDIANA (L2). Con embeddings
+    // normalizados, cos_sim = 1 - (distancia²/2) → distanceToSimilarity().
     let rows;
     try {
       rows = this._queryVec.all(
@@ -239,17 +257,21 @@ class IntentDetector {
     }
 
     // ── 3. Agregar scores por acción ──────────────────────────────────────────
-    // En lugar de tomar solo el mejor resultado individual, agrupamos
-    // todos los candidatos por acción y sumamos sus scores.
-    // Esto significa que una acción con 3 frases similares al mensaje
-    // vence a otra con solo 1 frase muy similar — más robusto.
+    // Score de una acción = la mejor coincidencia individual entre sus frases
+    // y el mensaje (máximo de similitud coseno). Usar el máximo en lugar de
+    // sumar todos los candidatos y dividir por TOP_K: la media diluida
+    // (rawScore/TOP_K) aplastaba los scores de este modelo (0.05–0.5) por
+    // debajo de cualquier umbral, dejando el detector permanentemente en 'none'.
+    // Medido empíricamente contra el catálogo: el máximo por acción separa
+    // mejor frases de herramienta (0.64–0.90) de conversacionales (0.47–0.68)
+    // que la suma/8 (0.08–0.47 solapado).
     const actionScores = new Map();
     const actionMeta   = new Map();
 
     for (const row of rows) {
-      const score = Math.max(0, 1 - (row.distance ?? 1)); // distance → similarity
+      const score = distanceToSimilarity(row.distance);
       const prev  = actionScores.get(row.action) ?? 0;
-      actionScores.set(row.action, prev + score);
+      actionScores.set(row.action, Math.max(prev, score));
 
       if (!actionMeta.has(row.action)) {
         actionMeta.set(row.action, {
@@ -262,18 +284,16 @@ class IntentDetector {
       }
     }
 
-    // Normalizar: dividir por TOP_K para que el score máximo posible sea 1.0
-    // (si todos los candidatos apuntan a la misma acción)
     const normalized = [];
-    for (const [action, rawScore] of actionScores) {
+    for (const [action, score] of actionScores) {
       const meta = actionMeta.get(action);
       normalized.push({
         action,
         tool:        meta.tool,
         description: meta.description,
         topPhrase:   meta.topPhrase,
-        score:       rawScore / TOP_K,
-        rawScore,
+        score,
+        rawScore:    score,
       });
     }
 
@@ -360,4 +380,4 @@ function getIntentDetector(db) {
   return _instance;
 }
 
-module.exports = { IntentDetector, getIntentDetector, THRESHOLD_HIGH, THRESHOLD_LOW, embedText, float32ToBuffer };
+module.exports = { IntentDetector, getIntentDetector, THRESHOLD_HIGH, THRESHOLD_LOW, embedText, float32ToBuffer, distanceToSimilarity };

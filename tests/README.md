@@ -101,7 +101,6 @@ ELECTRON_RUN_AS_NODE=1 ./node_modules/electron/dist/electron tests/<suite>.js
 | Suite | Cobertura |
 |---|---|
 | `test_intent_detection` | Detección semántica de intención + fallback a LLM |
-| `test_prompt_composer` | Construcción del prompt por proveedor, presupuesto, secciones críticas |
 | `test_no_fabrication` | Anti-alucinación en la composición del contexto |
 | `test_lsp` | Cliente LSP (typescript-language-server) |
 | `test_lsp_errors` | Sensor LSP → señal → parche → verificación + rollback + blindaje de lenguaje |

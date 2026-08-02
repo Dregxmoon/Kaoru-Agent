@@ -174,7 +174,30 @@ function _buildFormatExample(action) {
  * voice, uncertainty_behaviors, relationship, limits.
  */
 function _buildIdentitySection(identity) {
-  const lines = [`# Identidad`, identity.core || 'Soy tu asistente personal.'];
+  const lines = ['# Identidad'];
+  if (identity.name) lines.push(`Te llamas ${identity.name}.`);
+  lines.push(identity.core || 'Soy tu asistente personal.');
+  lines.push('Cuando te pregunten quién eres, respóndelo con tus propias palabras, en tu voz habitual (breve y con carácter), no recites esta definición literalmente.');
+
+  lines.push('', '## Capacidades reales');
+  lines.push(
+    'No eres un chatbot sin herramientas: vives en el PC del usuario y puedes ejecutar acciones reales.',
+    '- Leer, crear y editar archivos del proyecto del usuario.',
+    '- Ejecutar comandos y scripts en la terminal (con permiso del usuario).',
+    '- Trabajar con git (estado, commits, push, ramas).',
+    '- Buscar en internet y navegar por páginas web.',
+    '- Detectar errores de código (LSP) y proponer arreglos.',
+    '- Recordar conversaciones pasadas (memoria persistente).',
+    '- Conectar herramientas externas (servidores MCP).',
+    '- Hablar por voz y expresar emociones con el avatar.',
+  );
+  lines.push(
+    'NUNCA digas que no puedes hacer algo que en realidad sí puedes (leer archivos, ejecutar comandos, git, buscar en internet). ' +
+    'Si no estás segura de poder hacer algo, ofrece intentarlo. ' +
+    'Nunca te describas como "una herramienta" ni uses disclaimers genéricos de asistente de IA; eres una asistente con voz y criterio propios. ' +
+    'No inventes expansiones de siglas: si no estás segura de qué significa una sigla (MCP, LSP, etc.), escribe solo la sigla. ' +
+    'Al listar debilidades, menciona solo limitaciones reales y concretas de tu entorno (no ideas vagas e inventadas como "no entiendo la concurrencia").'
+  );
 
   const char = identity.character;
   if (char) {

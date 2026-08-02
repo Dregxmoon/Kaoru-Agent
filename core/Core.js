@@ -223,7 +223,7 @@ if (process.env.DEBUG) console.log('[core] graph.usingFallback:', _graph.usingFa
   _skillManager = new (require('./skills/SkillManager.js').SkillManager)({
     skillsDir: path.join(__dirname, '..', 'skills'),
     db: (!_graph.usingFallback && _graph._db) ? _graph._db : null,
-    threshold: 0.72,
+    threshold: 0.35,
     topK: 3,
   });
   if (!_graph.usingFallback && _graph._db) {
@@ -591,7 +591,7 @@ async function setActiveWorkspace(newPath) {
   // ── Fase D: reset del scope del watcher (no mezclar proyectos) ────
   if (_lspErrorWatcher) {
     _lspErrorWatcher.resetWorkspace(resolved);
-    if (_readSensorsConfig().lsp !== false) _lspErrorWatcher.poll().catch(() => {});
+    if (_readSensorsConfig().lsp !== false) _lspErrorWatcher.poll().catch(e => console.warn('[core] scan LSP falló:', e && e.message ? e.message : e));
   }
 
   // ── FIX (auditoría Fase D): OpenClaw corre con OPENCLAW_ALLOWED_PATH fijado
@@ -860,7 +860,7 @@ function _restartOpenClawForWorkspace(ws) {
   if (_openclawWorkspace === resolved) return; // mismo workspace → no tocar nada
   if (!_openclawStarting && _openclawProcess) {
     console.log('[core] workspace cambió — reiniciando OpenClaw para el nuevo allowed path');
-    try { _stopOpenClaw(); } catch (_) {}
+    try { _stopOpenClaw(); } catch (e) { console.warn('[core] falló al detener OpenClaw:', e && e.message ? e.message : e); }
   }
   if (!_openclawProcess && !_openclawStarting) {
     _startOpenClaw(resolved);

@@ -155,14 +155,19 @@ class LSPManager {
     if (!this._process) return;
     try {
       await this._request('shutdown', null);
-    } catch (_) {}
+    } catch (e) {
+      console.warn('[lsp] shutdown request falló:', e && e.message ? e.message : e);
+    }
     this._notify('exit', null);
     // `npx` re-ejecuta typescript-language-server en un hijo — matar npx no
     // basta. Recorremos /proc y matamos también a los descendientes.
     try {
       this._killTree(this._process.pid);
-    } catch (_) {}
-    this._process.kill();
+    } catch (e) {
+      console.warn('[lsp] killTree falló:', e && e.message ? e.message : e);
+    }
+    try { this._process.kill(); }
+    catch (e) { console.warn('[lsp] kill del proceso falló:', e && e.message ? e.message : e); }
     this._process = null;
     this._started = false;
     this._diagnostics.clear();

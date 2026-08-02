@@ -393,9 +393,39 @@ function testCambioModelo() {
   });
 }
 
-// ── Test 19: Nuevos comandos en getNames ─────────────────────────────────────
+// ── Test 19: /modelo-vistas ───────────────────────────────────────────────────
+function testModeloVistas() {
+  console.log(C.bold('\n── Test 19: /modelo-vistas ───────────────────────────────────'));
+
+  const mockIPC = {
+    invoke: async (ch, payload) => {
+      if (ch === 'views-get') return { modelId: 'March 7th', mode: 'random', activeView: 'full' };
+      if (ch === 'views-set') return { ok: true, modelId: 'March 7th', mode: payload.mode, activeView: payload.mode === 'random' ? 'full' : payload.mode };
+      return null;
+    },
+  };
+
+  return execute('/modelo-vistas', { ipcRenderer: mockIPC }).then(r => {
+    assert(!r.error, 'modelo-vistas sin error');
+    assert(r.result.includes('Cuerpo completo'), 'menú muestra cuerpo completo');
+    assert(r.result.includes('Aleatorio'), 'menú muestra aleatorio');
+    assert(r.result.includes('view-toggle-group'), 'menú renderiza botones de toggle');
+  }).then(() => execute('/modelo-vistas full', { ipcRenderer: mockIPC })).then(r => {
+    assert(!r.error, 'fijar full no da error');
+    assert(r.result.includes('queda fijo'), 'confirma vista fija');
+  }).then(() => execute('/modelo-vistas random', { ipcRenderer: mockIPC })).then(r => {
+    assert(!r.error, 'aleatorio no da error');
+    assert(r.result.includes('rotará'), 'confirma modo aleatorio');
+  }).then(() => execute('/modelo-vistas foo', { ipcRenderer: mockIPC })).then(r => {
+    assert(r.result && r.result.includes('Modo desconocido'), 'modo inválido se reporta');
+  }).then(() => execute('/modelo-vistas', {})).then(r => {
+    assert(r.result && r.result.includes('IPC'), 'sin IPC menciona IPC');
+  });
+}
+
+// ── Test 20: Nuevos comandos en getNames ─────────────────────────────────────
 function testNewRegisteredCommands() {
-  console.log(C.bold('\n── Test 19: Registro de comandos nuevos ─────────────────────'));
+  console.log(C.bold('\n── Test 20: Registro de comandos nuevos ─────────────────────'));
 
   const names = getNames();
   assert(names.includes('agent'), '/agent registrado');
@@ -406,6 +436,7 @@ function testNewRegisteredCommands() {
   assert(names.includes('fix'), '/fix registrado');
   assert(names.includes('code'), '/code registrado');
   assert(names.includes('cambio-modelo'), '/cambio-modelo registrado');
+  assert(names.includes('modelo-vistas'), '/modelo-vistas registrado');
 }
 
 // ── Test 20: Inyección no rompe ─────────────────────────────────────────────
@@ -458,6 +489,7 @@ async function main() {
   await testFix();
   await testCode();
   await testCambioModelo();
+  await testModeloVistas();
   testNewRegisteredCommands();
   await testUnknownCommand();
   await testEdgeCases();

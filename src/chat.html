@@ -247,13 +247,19 @@ html,body { width:100%; height:100%; overflow:hidden; background:var(--bg-base);
 
 #model-panel { background:var(--bg-base); display:flex; flex-direction:column; align-items:center; position:relative; overflow:hidden; }
 #model-canvas-container { width:100%; flex:1; position:relative; min-height:0; }
-#model-canvas-container { width:100%; flex:1; position:relative; min-height:0; }
+#model-load-error { display:none; position:absolute; inset:0; align-items:center; justify-content:center; text-align:center; font-family:var(--font-mono); font-size:11px; color:var(--text-secondary); padding:12px; box-sizing:border-box; }
+#model-load-error.visible { display:flex; }
 #live2d-chat-canvas { width:100%; height:100%; display:block; }
 #view-indicator { position:absolute; bottom:4px; right:6px; z-index:10; font-family:var(--font-mono); font-size:8px; color:var(--text-secondary); opacity:.3; pointer-events:none; }
 /* Botones de selección de modelo (renderizados por /cambio-modelo) */
 .model-select-btn { display:inline-block; margin:4px 6px 0 0; padding:6px 12px; background:var(--bg-input); border:1px solid var(--border-accent); border-radius:6px; color:var(--accent); font-family:var(--font-mono); font-size:11px; cursor:pointer; transition:background .15s, color .15s; }
 .model-select-btn:hover:not(.active) { background:var(--accent); color:#fff; }
 .model-select-btn.active { background:var(--accent); color:#fff; opacity:.85; cursor:default; }
+.view-toggle-group { display:flex; flex-wrap:wrap; gap:6px; margin-top:4px; }
+.view-toggle-btn { display:inline-flex; align-items:center; gap:6px; padding:6px 12px; background:var(--bg-input); border:1px solid var(--border-accent); border-radius:6px; color:var(--text-secondary); font-family:var(--font-mono); font-size:11px; cursor:pointer; transition:background .15s, color .15s; }
+.view-toggle-btn:hover:not(.active) { background:var(--accent); color:#fff; }
+.view-toggle-btn.active { background:var(--accent); color:#fff; opacity:.85; }
+.view-toggle-btn .view-state { font-size:10px; opacity:.8; }
 /* ── Terminal-style messages ──────────────────────────────────────────── */
 .plan-card { background:var(--bg-input); border:1px solid var(--border-accent); border-radius:8px; padding:10px 14px; margin-top:8px; font-family:var(--font-mono); font-size:11px; }
 .plan-header { color:var(--accent); font-size:10px; letter-spacing:.06em; margin-bottom:6px; display:flex; align-items:center; gap:6px; }
@@ -340,7 +346,7 @@ html,body { width:100%; height:100%; overflow:hidden; background:var(--bg-base);
     <button id="mcp-btn" class="mcp-badge" title="Servidores MCP">MCP <span id="mcp-count">0</span></button>
     <button id="workspace-btn" class="mcp-badge" title="Elegir carpeta de proyecto">dir</button>
     <div id="theme-toggle" title="Cambiar tema"></div>
-    <button id="close-btn" title="Cerrar">
+    <button id="close-btn" title="Cerrar y salir">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14">
         <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
       </svg>
@@ -394,7 +400,7 @@ html,body { width:100%; height:100%; overflow:hidden; background:var(--bg-base);
   </section>
 
   <section id="model-panel">
-    <div id="model-canvas-container"><canvas id="live2d-chat-canvas"></canvas></div>
+    <div id="model-canvas-container"><canvas id="live2d-chat-canvas"></canvas><div id="model-load-error"></div></div>
     <div id="view-indicator">FULL</div>
   </section>
 </div>
@@ -523,20 +529,73 @@ window.PIXI = PIXI;
 // portable, ver resolvePythonBin en main.js) y se cachea.
 let _pythonBinPromise = null;
 function getPythonBin() {
-  if (!_pythonBinPromise) _pythonBinPromise = ipcRenderer.invoke('get-python-bin');
+  if (!_pythonBinPromise) _pythonBinPromise = ipcRenderer.invoke('get-python-bin').catch(() => null);
   return _pythonBinPromise;
 }
 const TTS_VOICE  = 'ja-JP-NanamiNeural';
 
+// Auto-fit por contenido real del modelo (bounds del mesh, no del canvas).
+// Concepto "piso": el borde inferior de la ventana es el corte del cuerpo.
+//   full: f=1.0 → los pies tocan el piso. half: f=0.5 → cintura en el piso.
+//   head: f=0.25 → cuello en el piso. crop=true escala por altura (recorta lados).
 const VIEW = {
-  full: { sr: 0.85, ax: 0.5, ay: 1.00, py: 1.00 },
-  half: { sr: 1.55, ax: 0.5, ay: 0.72, py: 1.08 },
-  head: { sr: 3.20, ax: 0.5, ay: 0.18, py: 0.88 },
+  full: { f: 1.00, tw: 0.98, crop: false },
+  half: { f: 0.50, tw: 1.00, crop: true  },
+  head: { f: 0.25, tw: 1.00, crop: true  },
 };
+const VIEW_LABELS = { full: 'Cuerpo completo', half: 'Medio cuerpo', head: 'Solo cabeza', random: 'Aleatorio' };
 const VIEW_PERSONALITY = {
   weights:  { full: 50, half: 30, head: 20 },
   duration: { full:{min:30,max:80}, half:{min:18,max:45}, head:{min:10,max:25} },
 };
+
+function computeContentBounds(model) {
+  try {
+    const im = model.internalModel, core = im && im.coreModel;
+    if (!core || typeof core.getDrawableCount !== 'function') return null;
+    const cw = model.width, ch = model.height;
+    if (!cw || !ch) return null;
+    const cnt = core.getDrawableCount();
+    let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+    for (let i = 0; i < cnt; i++) {
+      const pos = core.getDrawableVertexPositions(i);
+      const c = core.getDrawableVertexCount(i);
+      if (!pos || !c) continue;
+      for (let j = 0; j < c; j++) {
+        const x = pos[j * 2], y = pos[j * 2 + 1];
+        if (x < minX) minX = x; if (x > maxX) maxX = x;
+        if (y < minY) minY = y; if (y > maxY) maxY = y;
+      }
+    }
+    if (minX === Infinity) return null;
+    const B = {
+      x: (minX + 0.5) * cw,
+      y: ch * (0.5 - maxY * cw / ch),
+      width: (maxX - minX) * cw,
+      height: (maxY - minY) * cw,
+    };
+    // Centro horizontal de la cabeza (banda superior): las vistas recortadas
+    // (half/head) se centran en él para que la cara no quede cortada.
+    B.headCx = null;
+    const bound = B.y + B.height * 0.35;
+    let hMinX = Infinity, hMaxX = -Infinity;
+    for (let i = 0; i < cnt; i++) {
+      const pos = core.getDrawableVertexPositions(i);
+      const c = core.getDrawableVertexCount(i);
+      if (!pos || !c) continue;
+      for (let j = 0; j < c; j++) {
+        const px = (pos[j * 2] + 0.5) * cw;
+        const py = ch * (0.5 - pos[j * 2 + 1] * cw / ch);
+        if (py <= bound) {
+          if (px < hMinX) hMinX = px;
+          if (px > hMaxX) hMaxX = px;
+        }
+      }
+    }
+    if (hMinX <= hMaxX) B.headCx = (hMinX + hMaxX) / 2;
+    return B;
+  } catch (_) { return null; }
+}
 
 const LLMProvider     = require('../core/llm/LLMProvider.js');
 const CommandRegistry = require('../core/commands/CommandRegistry.js');
@@ -544,7 +603,11 @@ const FileResolver    = require('../core/commands/FileResolver.js');
 const AgentManager    = require('../core/agents/AgentManager.js');
 
 // ── Estado global ─────────────────────────────────────────────────────────────
-let pixiApp, model, modelNaturalH;
+let pixiApp, model;
+let modelBounds  = null;
+let modelNativeW = 0;
+let modelNativeH = 0;
+let viewMode     = 'random';
 let currentView  = 'head';
 let isSpeaking   = false;
 let audioCtx     = null;
@@ -555,9 +618,9 @@ let _motionTimer = null;
 let _workspacePath = null;
 let _atProjectFiles = null;
 
-ipcRenderer.invoke('get-model-info').then(info => { if (info && info.model3Path) _modelInfo = info; }).catch(() => {});
-ipcRenderer.invoke('models-list').then(models => { _modelNames = (models || []).map(m => m.name); }).catch(() => {});
-ipcRenderer.invoke('get-workspace').then(p => { if (p) _applyWorkspaceUI(p); }).catch(() => {});
+ipcRenderer.invoke('get-model-info').then(info => { if (info && info.model3Path) _modelInfo = info; }).catch(e => console.error('[chat] no se pudo obtener info del modelo:', e && e.message || e));
+ipcRenderer.invoke('models-list').then(models => { _modelNames = (models || []).map(m => m.name); }).catch(e => console.error('[chat] no se pudo listar modelos:', e && e.message || e));
+ipcRenderer.invoke('get-workspace').then(p => { if (p) _applyWorkspaceUI(p); }).catch(e => console.error('[chat] no se pudo obtener workspace:', e && e.message || e));
 
 // Fase 3
 let openclawAvailable = false;
@@ -902,21 +965,36 @@ function mcpStatusLabel(status) {
 async function refreshMcpBadge() {
   try {
     const servers = await ipcRenderer.invoke('mcp-list-servers');
-    const connected = servers.filter(s => s.status === 'connected').length;
     const badge = document.getElementById('mcp-btn');
     const count = document.getElementById('mcp-count');
+    if (servers && servers.error) {
+      console.error('[mcp] no se pudo listar servidores:', servers.error);
+      count.textContent = '?';
+      badge.title = 'Error consultando servidores MCP';
+      badge.classList.remove('active');
+      return;
+    }
+    const connected = servers.filter(s => s.status === 'connected').length;
     count.textContent = connected;
     badge.classList.toggle('active', connected > 0);
-  } catch(e) { /* silencioso — no es crítico para el resto de la app */ }
+  } catch(e) { console.error('[mcp] error al listar servidores:', e.message || e); }
 }
 
 async function renderMcpServerList() {
   const listEl  = document.getElementById('mcp-server-list');
   const emptyEl = document.getElementById('mcp-empty-msg');
   let servers = [];
-  try { servers = await ipcRenderer.invoke('mcp-list-servers'); } catch(e) {}
+  try { servers = await ipcRenderer.invoke('mcp-list-servers'); } catch(e) { console.error('[mcp] error al listar servidores:', e.message || e); }
+
+  if (servers && servers.error) {
+    emptyEl.style.display = 'block';
+    emptyEl.textContent = `No se pudieron cargar los servidores MCP: ${servers.error}`;
+    listEl.innerHTML = '';
+    return;
+  }
 
   emptyEl.style.display = servers.length ? 'none' : 'block';
+  emptyEl.textContent = 'Sin servidores MCP configurados.';
   listEl.innerHTML = servers.map(s => `
     <div class="mcp-server-row" data-id="${s.id}">
       <div class="mcp-status-dot ${s.status}" title="${mcpStatusLabel(s.status)}"></div>
@@ -1031,6 +1109,10 @@ async function mcpSearch(query) {
   resultsEl.innerHTML = '<div class="mcp-empty">Buscando...</div>';
   try {
     const results = await ipcRenderer.invoke('mcp-search-registry', { query });
+    if (results && results.error) {
+      resultsEl.innerHTML = `<div class="mcp-empty">Error buscando: ${escapeHtml(results.error)}</div>`;
+      return;
+    }
     if (!results.length) {
       resultsEl.innerHTML = '<div class="mcp-empty">Sin resultados.</div>';
       return;
@@ -1699,6 +1781,7 @@ function _cmdArgCompletions(cmdName) {
   if (cmdName === 'model') return _providerNames.length > 0 ? _providerNames : null;
   if (cmdName === 'provider') return ['set', 'add', 'remove'];
   if (cmdName === 'cambio-modelo') return _modelNames.length > 0 ? _modelNames : null;
+  if (cmdName === 'modelo-vistas') return ['full', 'half', 'head', 'all'];
   return cmd.completions || null;
 }
 
@@ -1956,8 +2039,16 @@ async function loadModel() {
   checkOpenClaw();
 
   if (!_modelInfo) _modelInfo = await ipcRenderer.invoke('get-model-info').catch(() => null);
-  if (!_modelInfo || !_modelInfo.model3Path) return;
-  if (!fs.existsSync(_modelInfo.model3Path)) { console.error('Modelo no encontrado:', _modelInfo.model3Path); return; }
+  if (!_modelInfo || !_modelInfo.model3Path) {
+    console.error('[chat] no hay modelo Live2D configurado — el panel quedará vacío');
+    _showModelError('No hay modelo Live2D disponible. Configúralo con /cambio-modelo.');
+    return;
+  }
+  if (!fs.existsSync(_modelInfo.model3Path)) {
+    console.error('Modelo no encontrado:', _modelInfo.model3Path);
+    _showModelError('Modelo no encontrado: ' + _modelInfo.model3Path);
+    return;
+  }
 
   const container = document.getElementById('model-canvas-container');
   const oldCanvas = document.getElementById('live2d-chat-canvas');
@@ -1977,14 +2068,40 @@ async function loadModel() {
 
   try {
     model = await PIXI.live2d.Live2DModel.from(fileUrl);
-    modelNaturalH = model.height;
+    modelNativeW = model.width;
+    modelNativeH = model.height;
+    modelBounds  = computeContentBounds(model) || { x: 0, y: 0, width: modelNativeW || 1, height: modelNativeH || 1 };
     pixiApp.stage.addChild(model);
+    _hideModelError();
+    ipcRenderer.invoke('views-get').then(s => {
+      if (s && s.mode) {
+        viewMode = s.mode;
+        if (viewMode !== 'random' && VIEW[viewMode]) currentView = viewMode;
+        if (model) applyView(currentView, false);
+        _refreshViewButtons();
+      }
+    }).catch(() => {});
     applyView('head', false);
     setTimeout(triggerMotion, 600);
     clearInterval(_motionTimer);
     _motionTimer = setInterval(triggerMotion, 8000);
     startAutonomousView();
-  } catch(e) { console.error('model error:', e); }
+  } catch(e) {
+    console.error('model error:', e);
+    _showModelError('No se pudo cargar el modelo Live2D: ' + (e && e.message || e));
+  }
+}
+
+function _showModelError(msg) {
+  const el = document.getElementById('model-load-error');
+  if (!el) return;
+  el.textContent = msg;
+  el.classList.add('visible');
+}
+
+function _hideModelError() {
+  const el = document.getElementById('model-load-error');
+  if (el) el.classList.remove('visible');
 }
 
 async function reloadModel() {
@@ -1997,15 +2114,24 @@ async function reloadModel() {
 
 function applyView(view, animate = false) {
   if (!model || !pixiApp) { currentView = view; return; }
+  if (!VIEW[view]) return;
   const cfg = VIEW[view];
   const W = pixiApp.screen.width, H = pixiApp.screen.height;
-  const ts = (H / modelNaturalH) * cfg.sr;
-  const tx = W * cfg.ax, ty = H * cfg.py;
+  const B   = modelBounds || { x: 0, y: 0, width: modelNativeW || 1, height: modelNativeH || 1 };
+  const cw  = modelNativeW || B.width;
+  const ch  = modelNativeH || B.height;
+  const ts  = cfg.crop
+    ? (H / cfg.f) / B.height
+    : Math.min((W * cfg.tw) / B.width, H / B.height);
+  const S   = ts * B.height;
+  const cx  = (cfg.crop && B.headCx != null ? B.headCx : B.x + B.width / 2) / cw;
+  const ay  = B.y / ch;
+  const tx  = W / 2, ty = H - S * cfg.f;
   viewIndicator.textContent = view.toUpperCase();
   viewIndicator.style.opacity = '.5';
   setTimeout(() => { viewIndicator.style.opacity = '0'; }, 2000);
   if (!animate) {
-    model.scale.set(ts); model.anchor.set(cfg.ax, cfg.ay); model.position.set(tx, ty);
+    model.scale.set(ts); model.anchor.set(cx, ay); model.position.set(tx, ty);
     currentView = view; return;
   }
   const dur = 700, start = performance.now();
@@ -2015,7 +2141,7 @@ function applyView(view, animate = false) {
   const tick = (n) => {
     const t = Math.min((n - start)/dur, 1), e = ease(t);
     model.scale.set(fs2+(ts-fs2)*e);
-    model.anchor.set(fax+(cfg.ax-fax)*e, fay+(cfg.ay-fay)*e);
+    model.anchor.set(fax+(cx-fax)*e, fay+(ay-fay)*e);
     model.position.set(fx+(tx-fx)*e, fy+(ty-fy)*e);
     if (t < 1) requestAnimationFrame(tick);
     else { currentView = view; triggerMotion(); }
@@ -2033,18 +2159,24 @@ function triggerMotion() {
 }
 
 function pickNextView() {
-  const w = VIEW_PERSONALITY.weights, total = w.full+w.half+w.head, r = Math.random()*total;
-  if (r < w.full) return 'full';
-  if (r < w.full+w.half) return 'half';
-  return 'head';
+  const names = Object.keys(VIEW);
+  const total = names.reduce((s, v) => s + VIEW_PERSONALITY.weights[v], 0);
+  let r = Math.random() * total;
+  for (const v of names) {
+    r -= VIEW_PERSONALITY.weights[v];
+    if (r <= 0) return v;
+  }
+  return names[names.length - 1];
 }
 function startAutonomousView() {
+  if (viewMode !== 'random') return;
   const schedule = () => {
     const d = VIEW_PERSONALITY.duration[currentView];
     const wait = (d.min + Math.random()*(d.max-d.min)) * 1000;
     setTimeout(() => {
+      if (viewMode !== 'random') { schedule(); return; }
       const next = pickNextView();
-      if (model && next !== currentView) applyView(next, true);
+      if (next && model && next !== currentView) applyView(next, true);
       schedule();
     }, wait);
   };
@@ -2069,6 +2201,15 @@ ipcRenderer.on('model-changed', (e, info) => {
   reloadModel();
 });
 
+ipcRenderer.on('views-changed', (e, s) => {
+  if (!s || !s.mode) return;
+  viewMode = s.mode;
+  if (viewMode !== 'random' && VIEW[viewMode] && model) {
+    applyView(viewMode, viewMode !== currentView);
+  }
+  _refreshViewButtons();
+});
+
 // Clic en los botones de modelo que renderiza /cambio-modelo → carga al instante
 messagesEl.addEventListener('click', async (e) => {
   const btn = e.target.closest('[data-model-set]');
@@ -2084,6 +2225,37 @@ messagesEl.addEventListener('click', async (e) => {
     btn.disabled = false;
   }
 });
+
+// Clic en los botones de selección de vista que renderiza /modelo-vistas
+messagesEl.addEventListener('click', async (e) => {
+  const btn = e.target.closest('[data-view-mode]');
+  if (!btn) return;
+  const mode = btn.getAttribute('data-view-mode');
+  const activeBtn = btn.closest('.view-toggle-group');
+  if (activeBtn) activeBtn.querySelectorAll('[data-view-mode]').forEach(b => { b.disabled = true; });
+  try {
+    const res = await ipcRenderer.invoke('views-set', { mode });
+    if (res.error) { addMessage('assistant', `Error: ${res.error}`); return; }
+    viewMode = res.mode;
+    if (viewMode !== 'random' && VIEW[viewMode] && model) applyView(viewMode, viewMode !== currentView);
+    _refreshViewButtons();
+  } catch (err) {
+    addMessage('assistant', `Error: ${err.message}`);
+  } finally {
+    if (activeBtn) activeBtn.querySelectorAll('[data-view-mode]').forEach(b => { b.disabled = false; });
+  }
+});
+
+function _refreshViewButtons() {
+  document.querySelectorAll('.view-toggle-group').forEach(group => {
+    group.querySelectorAll('[data-view-mode]').forEach(b => {
+      const m = b.getAttribute('data-view-mode');
+      const active = m === viewMode;
+      b.classList.toggle('active', active);
+      b.textContent = `${VIEW_LABELS[m] || m}${active ? ' ✓' : ''}`;
+    });
+  });
+}
 
 // Fase 3
 ipcRenderer.on('openclaw-status', (e, { available }) => updateOpenClawBadge(available));
@@ -2137,6 +2309,7 @@ ipcRenderer.on('plan-finished', (e, { planId }) => {
 });
 
 ipcRenderer.on('initiative', (e, payload) => {
+  if (!payload || typeof payload.suggestion !== 'string' || !payload.suggestion) return;
   (async () => {
     const { bubble } = addMessage('assistant', '');
     const badge = document.createElement('span');

@@ -25,6 +25,7 @@ Comandos incluidos:
 | `/init` | Analiza el **workspace activo** (package.json, extensiones, estructura) y lo guarda en memoria |
 | `/model` | Cambia el proveedor de LLM (Groq / Gemini / OpenAI) |
 | `/cambio-modelo` | Cambia el modelo Live2D (lista los disponibles como botones; matching difuso al escribir) |
+| `/modelo-vistas` | Selecciona el tamaño de vista del modelo: `/modelo-vistas` (menú con botones), `/modelo-vistas full` (cuerpo completo fijo), `/modelo-vistas half`, `/modelo-vistas head`, `/modelo-vistas random` (rota entre las tres). La opción elegida queda como predeterminada del modelo |
 | `/provider` | Gestión de proveedores (`set` / `add` / `remove`) |
 | `/agent` | Ejecuta el bucle agente sobre un mensaje |
 | `/plan` | Crea/ejecuta un plan de pasos |
@@ -70,4 +71,4 @@ flowchart LR
 
 ## Verificación
 
-`test_commands` (98 tests) — registro, ejecución, resolución de archivos y contratos IPC.
+`test_commands` (110 tests) — registro, ejecución, resolución de archivos y contratos IPC.

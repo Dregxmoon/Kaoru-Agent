@@ -6,17 +6,39 @@
  * chat al frente. Si no, levanta la app ya apuntando a este directorio.
  */
 const http = require('http');
+const net = require('net');
 const { spawn } = require('child_process');
 const path = require('path');
 
 const cwd = process.cwd();
-const url = `http://127.0.0.1:3131/workspace?path=${encodeURIComponent(cwd)}`;
+const base = 'http://127.0.0.1:3131';
 
-http.get(url, () => {
-  http.get('http://127.0.0.1:3131/chat?action=open', () => {
-    console.log(`El asistente ya estaba corriendo — cambiado a: ${cwd}`);
+function silentGet(p) {
+  return new Promise((resolve) => {
+    const req = http.get(base + p, (res) => { res.resume(); resolve(res.statusCode); });
+    req.setTimeout(800, () => { req.destroy(); resolve(-1); });
+    req.on('error', () => resolve(-1));
   });
-}).on('error', () => {
+}
+
+function isAlive() {
+  return new Promise((resolve) => {
+    const sock = net.connect(3131, '127.0.0.1');
+    sock.setTimeout(800, () => { sock.destroy(); resolve(true); });
+    sock.on('connect', () => { sock.destroy(); resolve(true); });
+    sock.on('error', () => { sock.destroy(); resolve(false); });
+  });
+}
+
+async function main() {
+  if (await isAlive()) {
+    await silentGet(`/workspace?path=${encodeURIComponent(cwd)}`);
+    await silentGet('/chat?action=open');
+    console.log(`El asistente ya estaba corriendo — cambiado a: ${cwd}`);
+    console.log('Si no responde (instancia colgada), ciérrala y vuelve a ejecutar.');
+    return;
+  }
+
   const appRoot = path.join(__dirname, '..');
   console.log(`Iniciando asistente en: ${cwd}`);
   spawn('npx', ['electron', appRoot], {
@@ -25,4 +47,6 @@ http.get(url, () => {
     stdio: 'inherit',
     detached: true,
   }).unref();
-});
+}
+
+main();

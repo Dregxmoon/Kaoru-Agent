@@ -220,6 +220,8 @@ let currentView    = 'full';
 let userHasMoved   = false;
 let chatTheme      = 'dark';
 
+const VIEW_NAMES = ['full', 'half', 'head'];
+
 const savedConfig    = loadConfig();
 chatTheme            = savedConfig.chatTheme ?? 'dark';
 
@@ -261,13 +263,6 @@ function setClickThrough(enabled) {
   if (tray) tray.setContextMenu(buildTrayMenu());
 }
 
-function sendView(view) {
-  currentView = view;
-  if (!mainWindow || mainWindow.isDestroyed()) return;
-  mainWindow.webContents.send('set-view', view);
-  if (tray) tray.setContextMenu(buildTrayMenu());
-}
-
 function sendSpeak(text, emotion) {
   if (!mainWindow || mainWindow.isDestroyed()) return;
   mainWindow.webContents.send('speak', emotion ? { text, emotion } : text);
@@ -275,8 +270,10 @@ function sendSpeak(text, emotion) {
 
 // ── Ventana overlay ───────────────────────────────────────────────────────────
 function createWindow() {
-  const views = ['full', 'half', 'head'];
-  currentView = views[Math.floor(Math.random() * views.length)];
+  const mode = getModelViewMode(activeModelId);
+  currentView = mode === 'random'
+    ? VIEW_NAMES[Math.floor(Math.random() * VIEW_NAMES.length)]
+    : mode;
 
   mainWindow = new BrowserWindow({
     ...getBottomRightBounds(),
@@ -336,6 +333,11 @@ function createChatWindow() {
     console.log(`[chat] ${msg}`);
   });
 
+  if (mainWindow && !mainWindow.isDestroyed()) mainWindow.hide();
+
+  const sessionPromise = Core.startSession().catch(e => { console.error('[session] error:', e.message); return null; });
+  Core.setChatOpen(true);
+
   chatWindow.webContents.once('did-finish-load', () => {
     chatWindow.webContents.send('init-theme', chatTheme);
 
@@ -352,11 +354,6 @@ function createChatWindow() {
       }
     }).catch(() => {});
   });
-
-  if (mainWindow && !mainWindow.isDestroyed()) mainWindow.hide();
-
-  const sessionPromise = Core.startSession().catch(e => { console.error('[session] error:', e.message); return null; });
-  Core.setChatOpen(true);
 
   chatWindow.on('closed', () => {
     Core.closeSession().catch(e => console.error('[session] close error:', e.message));
@@ -388,14 +385,16 @@ function toggleChatWindow() {
 // ── Tray ──────────────────────────────────────────────────────────────────────
 function buildTrayMenu() {
   const chatOpen = chatWindow && !chatWindow.isDestroyed() && chatWindow.isVisible();
+  const mode = getModelViewMode(activeModelId);
   return Menu.buildFromTemplate([
     { label: chatOpen ? 'Cerrar chat' : 'Abrir chat', click: toggleChatWindow },
     { type: 'separator' },
     { label: isClickThrough ? 'Bloquear (mover overlay)' : 'Pasar clics', click: () => setClickThrough(!isClickThrough) },
     { type: 'separator' },
-    { label: `${currentView === 'full' ? '> ' : ''}Cuerpo completo`, click: () => sendView('full') },
-    { label: `${currentView === 'half' ? '> ' : ''}Medio cuerpo`,    click: () => sendView('half') },
-    { label: `${currentView === 'head' ? '> ' : ''}Solo cabeza`,     click: () => sendView('head') },
+    { label: `${mode === 'full' ? '> ' : ''}Cuerpo completo`, click: () => applyViewMode('full') },
+    { label: `${mode === 'half' ? '> ' : ''}Medio cuerpo`,    click: () => applyViewMode('half') },
+    { label: `${mode === 'head' ? '> ' : ''}Solo cabeza`,     click: () => applyViewMode('head') },
+    { label: `${mode === 'random' ? '> ' : ''}Aleatorio`,     click: () => applyViewMode('random') },
     { type: 'separator' },
     { label: 'Prueba de voz', submenu: [
       { label: 'Saludo',      click: () => sendSpeak('Hola! Estoy aqui para ayudarte!') },
@@ -431,10 +430,8 @@ ipcMain.on('view-changed', (e, view) => { currentView = view; if (tray) tray.set
 ipcMain.on('model-dblclick', () => toggleChatWindow());
 
 ipcMain.on('chat-close', () => {
-  if (chatWindow && !chatWindow.isDestroyed()) chatWindow.hide();
-  if (mainWindow && !mainWindow.isDestroyed()) mainWindow.show();
-  Core.setChatOpen(false);
-  if (tray) tray.setContextMenu(buildTrayMenu());
+  console.log('[main] chat cerrado — saliendo del asistente');
+  app.quit();
 });
 
 ipcMain.on('chat-theme-changed', (e, theme) => { chatTheme = theme; saveConfig({ chatTheme: theme }); });
@@ -483,6 +480,7 @@ function broadcastModelChanged() {
   const payload = { ...info, models: listModels() };
   if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('model-changed', payload);
   if (chatWindow && !chatWindow.isDestroyed()) chatWindow.webContents.send('model-changed', payload);
+  broadcastViewsChanged();
 }
 
 ipcMain.handle('models-list', () => listModels());
@@ -525,7 +523,50 @@ ipcMain.handle('model-import', (e, { folderPath } = {}) => {
   return { ok: true, info: getActiveModel() };
 });
 
+// ── Modo de vista del modelo (full | half | head | random) ────────────────────
+const VIEW_MODES = ['full', 'half', 'head', 'random'];
 
+function getModelViewMode(id) {
+  const saved = (savedConfig.modelViews && savedConfig.modelViews[id]) || {};
+  const m = saved.mode;
+  return VIEW_MODES.includes(m) ? m : 'random';
+}
+
+function saveModelViewMode(id, mode) {
+  const cfg = loadConfig();
+  const mv = cfg.modelViews || {};
+  mv[id] = { mode };
+  saveConfig({ modelViews: mv });
+  savedConfig.modelViews = mv;
+}
+
+function currentViewsState() {
+  return { modelId: activeModelId, mode: getModelViewMode(activeModelId), activeView: currentView };
+}
+
+function broadcastViewsChanged() {
+  const payload = currentViewsState();
+  if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('views-changed', payload);
+  if (chatWindow && !chatWindow.isDestroyed()) chatWindow.webContents.send('views-changed', payload);
+}
+
+function applyViewMode(mode, { broadcast = true } = {}) {
+  if (!VIEW_MODES.includes(mode)) return { error: `Modo inválido: ${mode}` };
+  saveModelViewMode(activeModelId, mode);
+  if (mode !== 'random') {
+    currentView = mode;
+    if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('set-view', mode);
+  }
+  if (broadcast) broadcastViewsChanged();
+  if (tray) tray.setContextMenu(buildTrayMenu());
+  return { ok: true, ...currentViewsState() };
+}
+
+ipcMain.handle('views-get', () => currentViewsState());
+
+ipcMain.handle('views-set', (e, { mode } = {}) => applyViewMode(mode));
+
+ipcMain.handle('views-reset', () => applyViewMode('random'));
 
 // FIX — antes este handler duplicaba ~30 líneas de SQL (CREATE TABLE,
 // DELETE, INSERT) que ya existían en init_vectors.js, y esa copia NO
@@ -550,9 +591,6 @@ ipcMain.handle('init-vectors', async () => {
 });
 
 
-
-// ── IPC: aprobación de planes (Fase 3) ───────────────────────────────────────
-ipcMain.on('plan-approval-response', () => {});
 
 // ── IPC: memoria ──────────────────────────────────────────────────────────────
 ipcMain.on('memory-add-turn', (e, { role, content }) => {
@@ -863,17 +901,17 @@ ipcMain.handle('get-workspace', () => {
 
 ipcMain.handle('mcp-list-servers', async () => {
   try { return await Core.mcpListServers(); }
-  catch (err) { console.error('[main] error en mcp-list-servers:', err.message); return []; }
+  catch (err) { console.error('[main] error en mcp-list-servers:', err.message); return { error: err.message }; }
 });
 
 ipcMain.handle('mcp-list-tools', () => {
   try { return Core.mcpListAllTools(); }
-  catch (err) { console.error('[main] error en mcp-list-tools:', err.message); return []; }
+  catch (err) { console.error('[main] error en mcp-list-tools:', err.message); return { error: err.message }; }
 });
 
 ipcMain.handle('mcp-search-registry', async (e, { query }) => {
   try { return await Core.mcpSearchRegistry(query || ''); }
-  catch (err) { console.error('[main] error en mcp-search-registry:', err.message); return []; }
+  catch (err) { console.error('[main] error en mcp-search-registry:', err.message); return { error: err.message }; }
 });
 
 // Agrega un servidor y lo persiste en config.json. `serverCfg` trae al
@@ -1000,7 +1038,7 @@ function _serializeResult(result) {
 
 // ── Servidor HTTP local ───────────────────────────────────────────────────────
 const VALID_EMOTIONS = ['happy','excited','sad','tired','gentle','default'];
-const VALID_VIEWS    = ['full','half','head'];
+const VALID_VIEWS    = ['full','half','head','random'];
 
 // Token generado al arrancar — sin esto, cualquier página web abierta en
 // el navegador del usuario podía disparar estos endpoints en silencio con
@@ -1020,8 +1058,8 @@ const HELP_TEXT = `
   curl "http://localhost:3131/speak?text=hola&token=${CONTROL_API_TOKEN}"
   curl "http://localhost:3131/speak?text=lo+siento&emotion=sad&token=${CONTROL_API_TOKEN}"
   curl "http://localhost:3131/view?v=half&token=${CONTROL_API_TOKEN}"
-  curl "http://localhost:3131/chat?action=open&token=${CONTROL_API_TOKEN}"
-  curl "http://localhost:3131/chat?action=close&token=${CONTROL_API_TOKEN}"
+  curl "http://localhost:3131/chat?action=open&token=${CONTROL_API_TOKEN}"   # abre el chat
+  curl "http://localhost:3131/chat?action=close&token=${CONTROL_API_TOKEN}"  # cierra y sale
   curl "http://localhost:3131/workspace?path=/ruta/al/proyecto&token=${CONTROL_API_TOKEN}"
   curl "http://localhost:3131/telemetry/report&token=${CONTROL_API_TOKEN}"
   curl "http://localhost:3131/telemetry/stats&token=${CONTROL_API_TOKEN}"
@@ -1067,17 +1105,14 @@ function startControlServer() {
     if (url.pathname === '/view') {
       const v = (url.searchParams.get('v') || '').toLowerCase();
       if (!VALID_VIEWS.includes(v)) { res.writeHead(400); res.end(`validos: ${VALID_VIEWS.join(', ')}`); return; }
-      sendView(v); res.writeHead(200); res.end(`ok: ${v}`); return;
+      applyViewMode(v); res.writeHead(200); res.end(`ok: ${v}`); return;
     }
     if (url.pathname === '/chat') {
       const action = (url.searchParams.get('action') || '').toLowerCase();
       if (action === 'open') createChatWindow();
       else if (action === 'close') {
-        if (chatWindow && !chatWindow.isDestroyed()) {
-          chatWindow.hide();
-          if (mainWindow && !mainWindow.isDestroyed()) mainWindow.show();
-          Core.setChatOpen(false);
-        }
+        console.log('[asistente] Control API: cerrando asistente');
+        app.quit();
       } else toggleChatWindow();
       res.writeHead(200); res.end(`ok: chat ${action || 'toggled'}`); return;
     }
@@ -1087,6 +1122,8 @@ function startControlServer() {
       Core.setActiveWorkspace(p).then(result => {
         res.writeHead(result.ok ? 200 : 400);
         res.end(result.ok ? `ok: workspace -> ${result.path}` : `error: ${result.error}`);
+      }).catch(err => {
+        res.writeHead(500); res.end(`error: ${err.message}`);
       });
       return;
     }
@@ -1097,6 +1134,8 @@ function startControlServer() {
       Core.debugGitScan().then(r => {
         res.writeHead(r.ok ? 200 : 500);
         res.end(r.ok ? `ok: scan git realizado\n${JSON.stringify(r.stats, null, 2)}` : `error: ${r.error}`);
+      }).catch(err => {
+        res.writeHead(500); res.end(`error: ${err.message}`);
       });
       return;
     }
@@ -1114,6 +1153,8 @@ function startControlServer() {
       Core.debugLSPScan().then(r => {
         res.writeHead(r.ok ? 200 : 500);
         res.end(r.ok ? `ok: scan LSP realizado\n${JSON.stringify(r.stats, null, 2)}` : `error: ${r.error}`);
+      }).catch(err => {
+        res.writeHead(500); res.end(`error: ${err.message}`);
       });
       return;
     }
@@ -1314,7 +1355,8 @@ app.on('before-quit', (event) => {
   event.preventDefault();
   _quitting = true;
   (async () => {
-    try { await withTimeout(Core.shutdown(), 8000); } catch(_) {}
+    try { await withTimeout(Core.shutdown(), 8000); }
+    catch (e) { console.error('[main] shutdown con errores:', e && e.message ? e.message : e); }
     app.quit();
   })();
 });

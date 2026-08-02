@@ -14,6 +14,12 @@ Ventana overlay que renderiza el modelo Cubism usando **Pixi.js + live2d-display
 - Burbuja de texto temporal para comandos de voz.
 - Comunicación con el main process vía IPC (TTS, STT, estado).
 - Carga el modelo Live2D activo (`models/`); se recarga en caliente al recibir `model-changed`.
+- **Auto-fit por contenido + "piso"**: el tamaño de cada vista (full / half / head) se calcula de los
+  límites reales del mesh (`coreModel.getDrawableVertexPositions`), no del canvas del modelo, para que
+  cualquier modelo importado entre en pantalla. El borde inferior de la ventana es el "piso": en `full`
+  los pies tocan el piso, en `half` la cintura, en `head` el cuello — la cabeza siempre arriba. Así un
+  modelo pequeño queda anclado abajo (no flota en el medio). Solo rota entre las vistas que estén
+  activas (`views-changed`); con una sola vista el modelo queda fijo.
 
 ## `chat.html` — ventana de chat
 
@@ -47,6 +53,7 @@ Interfaz completa de conversación con el asistente.
 | `stt-*` | Eventos de reconocimiento de voz |
 | `telemetry-report` | Reporte `/telemetria` |
 | `model-changed` | Cambio de modelo Live2D (recarga del canvas) |
+| `views-changed` | Cambio del modo de vista del modelo (`full`/`half`/`head`/`random`, del comando `/modelo-vistas`) |
 | `resumed-session` | Sesión anterior retomada en silencio (repuebla el historial sin mensaje de sistema) |
 | `workspace-changed` | Cambio del workspace activo (actualiza UI y resetea la caché de archivos) |
 
