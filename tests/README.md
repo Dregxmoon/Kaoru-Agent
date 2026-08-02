@@ -52,6 +52,16 @@ Cada archivo de `tests/` es una suite ejecutable de forma independiente:
 ELECTRON_RUN_AS_NODE=1 ./node_modules/electron/dist/electron tests/<suite>.js
 ```
 
+Para correr todas a la vez:
+
+```bash
+npm test     # = bash tests/run-all.sh
+```
+
+> **Cierra el asistente antes de la regresión completa:** las suites `test_server_security` e
+> `test_integration_stress` levantan su propio servidor de control en `:18789`. Si el asistente
+> ya está corriendo y ocupa ese puerto, esas suites fallan con 401/errores de conexión.
+
 > **Importante (ABI de Electron):** `better-sqlite3` y `sqlite-vec` están compilados para el ABI de
 > Electron, no para el Node del sistema. Bajo `node` del sistema, `StateGraph` cae a memoria en RAM y
 > la persistencia real no se verifica. Las suites de memoria, estado, sensores y motor proactivo

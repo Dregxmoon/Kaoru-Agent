@@ -175,6 +175,7 @@ function post(url, headers, body, timeoutMs = 20_000) {
       port:     parsed.port || (parsed.protocol === 'https:' ? 443 : 80),
       path:     parsed.pathname + parsed.search,
       method:   'POST',
+      family:   4,
       headers:  { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(payload), ...headers },
     };
     options.agent = AGENT_BY_PROTOCOL[parsed.protocol] || lib.globalAgent;

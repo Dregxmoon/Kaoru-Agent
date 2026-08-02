@@ -1161,15 +1161,15 @@ function startControlServer() {
     // Fase E: reporte de telemetría "¿mejor que el mes pasado?" (datos locales)
     if (url.pathname === '/telemetry/report') {
       const r = Core.getTelemetryReport();
-      res.writeHead(r.ok ? 200 : 500);
       res.setHeader('Content-Type', 'application/json; charset=utf-8');
+      res.writeHead(r.ok ? 200 : 500);
       res.end(JSON.stringify(r, null, 2));
       return;
     }
     if (url.pathname === '/telemetry/stats') {
       const s = Core.getTelemetryStats();
-      res.writeHead(s ? 200 : 500);
       res.setHeader('Content-Type', 'application/json; charset=utf-8');
+      res.writeHead(s ? 200 : 500);
       res.end(JSON.stringify(s, null, 2));
       return;
     }

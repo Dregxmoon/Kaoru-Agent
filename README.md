@@ -265,12 +265,17 @@ También expone una **Control API** de diagnóstico en `http://localhost:3131` (
 ### Probar
 
 ```bash
-# Suite de pruebas (cada archivo es ejecutable independientemente)
-node tests/test_agent_loop.js
-node tests/test_proactive.js
-node tests/test_lsp_errors.js
-# ... (ver tests/README.md para la matriz completa)
+# Regresión completa (todas las suites bajo el Node de Electron)
+npm test
+
+# O una suite individual (también requiere el ABI de Electron)
+ELECTRON_RUN_AS_NODE=1 ./node_modules/electron/dist/electron tests/test_skills.js
 ```
+
+> `better-sqlite3` y `sqlite-vec` están compilados para el **ABI de Electron**, no para el Node
+> del sistema: las suites que tocan memoria/persistencia (indexado en BD y matching semántico)
+> deben correr con `ELECTRON_RUN_AS_NODE=1`. `test_intent_detection` exige haber ejecutado antes
+> `init_vectors.js` (también bajo Electron) para indexar las intenciones en `data/core.db`.
 
 ---
 
@@ -304,7 +309,50 @@ El proyecto se desarrolla por fases — ver [`ROADMAP.md`](./ROADMAP.md) para la
 
 ---
 
-## 9. Licencia y atribuciones
+## 9. Pruebas y capturas
+
+La suite de pruebas es **ejecutable e independiente por archivo** (`tests/`), con cobertura de comandos, motor de proactividad, detección de intenciones, skills, integraciones LSP y seguridad de la Control API. La regresión completa se ejecuta con `npm test` (usando el Node de Electron): **939 pruebas en verde · 0 fallos**. Antes de correrla, cierra el asistente para que las suites de seguridad puedan levantar su propio servidor en `:18789`.
+
+### Pruebas
+
+La suite de pruebas ejecutándose y el comando `/init`, que analiza el proyecto desde el chat:
+
+![Suite de pruebas](./screenshots/05-tests.png)
+
+![Comando /init](./screenshots/09-init.png)
+
+### Datos
+
+La Control API de diagnóstico (`http://localhost:3131`, token por sesión — incluye `/help`, `/telemetry/stats`, `/telemetry/report`, `/debug/lsp-scan`, `/workspace` y `/chat`) y la telemetría local que compara el uso mes a mes con `/telemetria`:
+
+![Control API](./screenshots/06-control-api.png)
+
+![Telemetría local](./screenshots/10-telemetria.png)
+
+### El asistente en acción
+
+El overlay Live2D con el modelo por defecto (**March 7th**) sobre el escritorio, el chat con una conversación real, el panel de comandos `/stats`, el renderizado de Markdown, una propuesta proactiva y las vistas del modelo:
+
+| | |
+|---|---|
+| ![Overlay March 7th](./screenshots/01-overlay-desktop.png) | ![Personaje March 7th](./screenshots/02-overlay-character.png) |
+
+![Conversación en el chat](./screenshots/03-chat-conversacion.png)
+
+![Propuesta proactiva](./screenshots/07-propuesta.png)
+
+![Renderizado Markdown](./screenshots/08-markdown.png)
+
+![Vistas del modelo](./screenshots/11-overlay-vistas.png)
+
+![Modelos disponibles](./screenshots/12-modelos.png)
+
+> Los modelos mostrados en `12-modelos.png` son de terceros y de uso de fan: *hutao* y *huohuo* © HoYoverse; *Miku* Solo **March 7th** se distribuye con el repositorio (ver [Licencia y atribuciones](#10-licencia-y-atribuciones)).
+
+
+---
+
+## 10. Licencia y atribuciones
 
 El código fuente se distribuye bajo licencia **MIT** — ver [`LICENSE`](./LICENSE).
 
