@@ -1,0 +1,70 @@
+name: CI
+
+on:
+  push:
+    branches: [dev, produccion]
+  pull_request:
+    branches: [dev, produccion]
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: Tests (Electron runner)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Dependencias del sistema (build tools + libs de Electron)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential python3 libnss3 libatk-bridge2.0-0 libgtk-3-0 libgbm1 libasound2
+
+      - name: Instalar dependencias (postinstall descarga Electron y reconstruye better-sqlite3)
+        run: npm ci
+
+      - name: Indexar intenciones (init_vectors.js → data/core.db)
+        run: ELECTRON_RUN_AS_NODE=1 ./node_modules/electron/dist/electron infrastructure/database/init_vectors.js
+
+      - name: Regresión completa
+        run: npm test
+
+  build-portable:
+    name: Build Windows portable (produccion)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    if: github.ref == 'refs/heads/produccion'
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Instalar wine
+        run: |
+          sudo dpkg --add-architecture i386
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends wine64 wine32
+
+      - name: Instalar dependencias
+        run: npm ci
+
+      - name: Empaquetar ejecutable portable
+        run: npm run build-portable
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: asistente-portable-win
+          path: dist/*.exe
+          if-no-files-found: warn
