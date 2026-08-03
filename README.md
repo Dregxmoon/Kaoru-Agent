@@ -245,6 +245,14 @@ Cada modelo es una carpeta dentro de `models/` que contiene al menos un archivo 
 
 Los modelos que el usuario importa se guardan en `models/`, quedan excluidos del repositorio (`.gitignore` del proyecto y global de git) y no se suben a GitHub; solo el modelo por defecto (`March 7th`) forma parte del repo.
 
+### Gestos del modelo (expresiones y animaciones)
+
+Muchos modelos traen carpetas con `*.exp3.json` / `*.motion3.json` que su `model3.json` **no referencia**, así que el SDK jamás las carga y el modelo se queda quieto. El asistente los **descubre y los inyecta en memoria** al cargar (`core/behavior/ModelAugmenter.js`) — sin tocar los archivos del modelo — y les asocia estados de ánimo mediante un léxico multilingüe (`core/behavior/GestureLexicon.js` + `GestureHeuristic.js`).
+
+- **Automático:** el overlay y el mini-avatar del chat reaccionan al tono de voz (`speak`), a los mensajes del usuario y a los eventos del flujo (iniciativa, propuestas, planes, agentes, comandos). Cooldowns y revertido automático los controla `core/behavior/GestureEngine.js`.
+- **Manual:** el comando `/gestos` lista los gestos reales del modelo activo y cuáles están mapeados a emociones; `/gestos test <gesto|emoción>` los previsualiza en el mini-avatar (p. ej. `/gestos test angry`, `/gestos test 哭`, `/gestos test zhaiyan`).
+- **Configuración:** el bloque `gestures` de `config.json` ajusta `enabled`, `cooldownMs`, `minIntervalMs`, `durationMs`, `ambient` (gestos aleatorios de fondo) y `mappings` (mood → gesto explícito por modelo).
+
 ### Workspace del proyecto
 
 El asistente trabaja sobre un **workspace activo** — la carpeta/proyecto real del usuario, distinta de la carpeta donde corre la app:

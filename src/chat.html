@@ -601,6 +601,38 @@ const LLMProvider     = require('../core/llm/LLMProvider.js');
 const CommandRegistry = require('../core/commands/CommandRegistry.js');
 const FileResolver    = require('../core/commands/FileResolver.js');
 const AgentManager    = require('../core/agents/AgentManager.js');
+const GestureEngine   = require('../core/behavior/GestureEngine.js');
+const ModelAugmenter  = require('../core/behavior/ModelAugmenter.js');
+
+// Motor de gestos del mini-avatar del chat: reacciona a los eventos del propio
+// chat (initiative/proposal/plan/agent/commandos) y al tono de los mensajes.
+let chatGestureEngine = null;
+let chatGestureConfig = null;
+let _chatGestureCfgPromise = null;
+function getGestureConfig() {
+  if (!_chatGestureCfgPromise) {
+    _chatGestureCfgPromise = ipcRenderer.invoke('gesture-config').catch(() => null);
+  }
+  return _chatGestureCfgPromise;
+}
+async function initGestureEngine() {
+  if (chatGestureEngine) return chatGestureEngine;
+  const cfg = await getGestureConfig() || {};
+  chatGestureConfig = cfg;
+  chatGestureEngine = new GestureEngine({ config: cfg });
+  return chatGestureEngine;
+}
+
+// Detector de emoción barato para mensajes del usuario (mismo espíritu que el
+// del overlay): solo influye en el gesto del mini-avatar.
+function chatDetectEmotion(text) {
+  const t = String(text || '').toLowerCase();
+  if (/error|fallo|problema|no pude|lo siento|perdon|triste|mal/.test(t)) return 'sad';
+  if (/genial|perfecto|listo|hecho|exito|bien|super|increible|gracias/.test(t)) return 'excited';
+  if (/procesando|espera|momento|calculando|buscando|puedes/.test(t)) return 'think';
+  if (/hola|hey|buenos|quiero que/i.test(t)) return 'happy';
+  return 'default';
+}
 
 // ── Estado global ─────────────────────────────────────────────────────────────
 let pixiApp, model;
@@ -1241,6 +1273,8 @@ async function processMessage(text, files = []) {
       openSettings,
       fs, path,
       process: { cwd: () => _workspacePath || process.cwd() },
+      gestureEngine: chatGestureEngine,
+      gestureConfig: chatGestureConfig,
     };
 
     // Also pass ipcRenderer for commands that use IPC (like /undo)
@@ -1251,6 +1285,7 @@ async function processMessage(text, files = []) {
       : cmdResult.result || '(sin respuesta)';
     addMessage('assistant', asstMsg);
     pushToSession('assistant', `[comando] ${asstMsg}`);
+    if (chatGestureEngine) chatGestureEngine.onEvent(cmdResult.error ? 'command_error' : 'command_ok');
     return;
   }
 
@@ -1258,6 +1293,7 @@ async function processMessage(text, files = []) {
   const fileResult = FileResolver.buildFileContext(trimmed, _workspacePath || process.cwd());
 
   addMessage('user', trimmed || '(archivo adjunto)', files);
+  if (chatGestureEngine) chatGestureEngine.onChat('user', trimmed, chatDetectEmotion);
 
   if (trimmed) {
     const sessionMsg = fileResult.contexts.length > 0
@@ -2001,6 +2037,7 @@ async function speak(text) {
   isSpeaking = true;
   const spokenText = cleanForTTS(text);
   const scriptPath = path.join(__dirname, '..', 'tts_stream.py');
+  if (chatGestureEngine && chatGestureEngine.enabled) chatGestureEngine.setEmotion(chatDetectEmotion(spokenText));
   try {
     const pythonBin = await getPythonBin();
     if (!pythonBin) throw new Error('No se encontró un intérprete de Python — TTS no disponible');
@@ -2067,11 +2104,23 @@ async function loadModel() {
   const fileUrl = 'file:///' + _modelInfo.model3Path.replace(/\\/g, '/');
 
   try {
-    model = await PIXI.live2d.Live2DModel.from(fileUrl);
+    // Se inyectan expresiones/motions no referenciadas en el model3.json (ver
+    // core/behavior/ModelAugmenter.js) para que el mini-avatar pueda animar.
+    const augmented = ModelAugmenter.augmentModel(_modelInfo.model3Path);
+    model = await PIXI.live2d.Live2DModel.from(augmented.settings || fileUrl);
     modelNativeW = model.width;
     modelNativeH = model.height;
     modelBounds  = computeContentBounds(model) || { x: 0, y: 0, width: modelNativeW || 1, height: modelNativeH || 1 };
     pixiApp.stage.addChild(model);
+
+    const engine = await initGestureEngine();
+    engine.attach(model, {
+      model3Path: _modelInfo.model3Path,
+      gestures: augmented.gestures,
+      mappings: (chatGestureConfig || {}).mappings,
+    });
+    engine.startAmbient();
+
     _hideModelError();
     ipcRenderer.invoke('views-get').then(s => {
       if (s && s.mode) {
@@ -2105,6 +2154,7 @@ function _hideModelError() {
 }
 
 async function reloadModel() {
+  if (chatGestureEngine) chatGestureEngine.detach();
   if (pixiApp) {
     try { pixiApp.destroy(false, { children: true, texture: true, baseTexture: true }); } catch (e) { console.error('error limpiando modelo:', e); }
     pixiApp = null; model = null;
@@ -2152,9 +2202,8 @@ function applyView(view, animate = false) {
 function triggerMotion() {
   try {
     const defs = model?.internalModel?.motionManager?.definitions;
-    if (!defs) return;
-    const groups = Object.keys(defs);
-    if (groups.length) model.motion(groups[Math.floor(Math.random()*groups.length)]);
+    if (!defs || !Array.isArray(defs.Idle) || !defs.Idle.length) return;
+    model.motion('Idle', Math.floor(Math.random()*defs.Idle.length));
   } catch(_) {}
 }
 
@@ -2268,6 +2317,10 @@ ipcRenderer.on('plan-step-start', (e, { planId, stepId }) => {
   el.querySelector('.step-icon').textContent = '*';
 });
 
+ipcRenderer.on('plan-started', (e, payload) => {
+  if (chatGestureEngine) chatGestureEngine.onEvent('plan:started');
+});
+
 ipcRenderer.on('plan-step-done', (e, { planId, stepId, status }) => {
   if (planId !== activePlanId) return;
   const el = document.getElementById(`step-${stepId}`);
@@ -2291,6 +2344,7 @@ function _startSpinner(el) {
 }
 
 ipcRenderer.on('agent-progress', (e, { iteration, tool, status }) => {
+  if (chatGestureEngine) chatGestureEngine.onEvent('agent-progress', { status });
   if (_agentProgressEl) {
     _agentProgressEl.textContent = status === 'ok'
       ? `Paso ${iteration}: ${tool} completado`
@@ -2304,12 +2358,14 @@ ipcRenderer.on('agent-approval-needed', (e, { actionId, tool, description }) => 
 });
 
 ipcRenderer.on('plan-finished', (e, { planId }) => {
+  if (chatGestureEngine) chatGestureEngine.onEvent('plan:finished');
   const card = document.getElementById(`plan-${planId}`);
   if (card) { const dot = card.querySelector('.plan-dot'); if (dot) dot.style.animation = 'none'; }
 });
 
 ipcRenderer.on('initiative', (e, payload) => {
   if (!payload || typeof payload.suggestion !== 'string' || !payload.suggestion) return;
+  if (chatGestureEngine) chatGestureEngine.onEvent('initiative');
   (async () => {
     const { bubble } = addMessage('assistant', '');
     const badge = document.createElement('span');
@@ -2425,6 +2481,7 @@ function sendProposalDecision(proposal, decision, wrap, clickedBtn) {
 // confirmación llega con la verificación REAL (p. ej. git check-ignore), no
 // de oído.
 ipcRenderer.on('proposal-result', (e, { proposalId, ok, skipped, detail }) => {
+  if (chatGestureEngine) chatGestureEngine.onEvent('proposal-result', { ok });
   const wrap = _proposalActions.get(proposalId);
   if (!wrap) return;
   _proposalActions.delete(proposalId);

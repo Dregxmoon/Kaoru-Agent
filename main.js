@@ -268,6 +268,17 @@ function sendSpeak(text, emotion) {
   mainWindow.webContents.send('speak', emotion ? { text, emotion } : text);
 }
 
+// Gestos Live2D: main traduce eventos globales (iniciativa, propuestas, planes)
+// a moods y los reenvía al overlay. La ventana de chat gestiona los suyos en el
+// renderer (tiene sus propios hooks de eventos del chat) — así cada ventana
+// anima su modelo sin duplicar disparos.
+function sendOverlayGesture(mood, meta = {}) {
+  if (!mainWindow || mainWindow.isDestroyed()) return;
+  mainWindow.webContents.send('gesture', { mood, ...meta });
+}
+
+ipcMain.handle('gesture-config', () => savedConfig.gestures || null);
+
 // ── Ventana overlay ───────────────────────────────────────────────────────────
 function createWindow() {
   const mode = getModelViewMode(activeModelId);
@@ -1268,15 +1279,18 @@ app.whenReady().then(() => {
     if (chatWindow && !chatWindow.isDestroyed()) {
       chatWindow.webContents.send('plan-started', payload);
     }
+    sendOverlayGesture('think', { source: 'plan-started' });
   });
 
   Core.getEventBus().on('plan:finished', (payload) => {
     if (chatWindow && !chatWindow.isDestroyed()) {
       chatWindow.webContents.send('plan-finished', payload);
     }
+    sendOverlayGesture('happy', { source: 'plan-finished' });
   });
 
   Core.onInitiative((payload) => {
+    sendOverlayGesture('excited', { source: 'initiative' });
     const chatVisible = chatWindow && !chatWindow.isDestroyed() && chatWindow.isVisible();
     if (chatVisible) {
       chatWindow.webContents.send('initiative', payload);
@@ -1307,6 +1321,7 @@ app.whenReady().then(() => {
   // Fase B: resultado real de ejecutar una propuesta proactiva — se muestra
   // en el bubble de la propuesta (solo si esa ventana existe).
   Core.onProposalResult((payload) => {
+    sendOverlayGesture(payload.ok ? 'happy' : 'sad', { source: 'proposal-result' });
     if (chatWindow && !chatWindow.isDestroyed()) {
       chatWindow.webContents.send('proposal-result', payload);
     }

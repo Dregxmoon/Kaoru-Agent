@@ -18,6 +18,16 @@
     "events": true,
     "lsp": true
   },
+  "gestures": {
+    "enabled": true,
+    "cooldownMs": 15000,
+    "minIntervalMs": 2500,
+    "durationMs": 6000,
+    "ambient": false,
+    "ambientIntervalMs": 60000,
+    "forcedMoodFallback": "default",
+    "mappings": {}
+  },
   "mcp": {
     "servers": []
   }
