@@ -33,6 +33,29 @@ const Diff         = require('diff');
 
 const PROACTIVE_TOOLS = new Set(['git_status', 'gitignore_add', 'apply_patch']);
 
+// ── G.4: Catálogo de tools proactivas ──────────────────────────────────────
+// Cada tool declara su contrato: validate, preview, execute.
+// ProactiveExecutor despacha genéricamente — sin if/switch por tool.
+const TOOL_CATALOG = {
+  git_status: {
+    validate: () => true,
+    preview:  (action, ex) => ex._previewGitStatus(),
+    execute:  (action, ex) => ex._previewGitStatus(),
+    // git_status es solo lectura: execute devuelve preview, no detail.
+    normalizeResult: (res) => ({ ok: res.ok, detail: res.ok ? res.preview : (res.reason || 'error') }),
+  },
+  gitignore_add: {
+    validate: (action) => _validateFilename(action.params?.file),
+    preview:  (action, ex) => ex._previewGitignoreAdd(action.params?.file),
+    execute:  (action, ex, pid) => ex._execGitignoreAdd(action.params?.file, pid),
+  },
+  apply_patch: {
+    validate: (action, ex) => ex._validPatchParams(action.params),
+    preview:  (action, ex) => ex._previewPatch(action.params),
+    execute:  (action, ex, pid) => ex._execApplyPatch(action.params, pid),
+  },
+};
+
 // Nombres de archivo válidos para gitignore_add: simple, sin separadores,
 // sin path traversal, sin caracteres que puedan escaparse del argumento.
 // (.env, .env.local, secret.txt, build, node_modules...)
@@ -156,16 +179,9 @@ class ProactiveExecutor {
   async preview(action) {
     if (!this._validAction(action)) return { ok: false, reason: 'acción no permitida' };
     try {
-      if (action.tool === 'git_status') {
-        return await this._previewGitStatus();
-      }
-      if (action.tool === 'gitignore_add') {
-        return await this._previewGitignoreAdd(action.params?.file);
-      }
-      if (action.tool === 'apply_patch') {
-        return await this._previewPatch(action.params);
-      }
-      return { ok: false, reason: 'tool desconocida' };
+      const tool = TOOL_CATALOG[action.tool];
+      if (!tool) return { ok: false, reason: 'tool desconocida' };
+      return await tool.preview(action, this);
     } catch(e) {
       return { ok: false, reason: e.message };
     }
@@ -182,22 +198,12 @@ class ProactiveExecutor {
     if (this._executing) return { ok: false, reason: 'ya hay una acción en ejecución' };
     this._executing = true;
     try {
-      if (action.tool === 'git_status') {
-        const res = await this._previewGitStatus();
-        this._lastResult = { ok: res.ok, detail: res.ok ? res.preview : (res.reason || 'error') };
-        return this._lastResult;
-      }
-      if (action.tool === 'gitignore_add') {
-        const res = await this._execGitignoreAdd(action.params?.file, proposalId);
-        this._lastResult = res;
-        return res;
-      }
-      if (action.tool === 'apply_patch') {
-        const res = await this._execApplyPatch(action.params, proposalId);
-        this._lastResult = res;
-        return res;
-      }
-      return { ok: false, reason: 'tool desconocida' };
+      const tool = TOOL_CATALOG[action.tool];
+      if (!tool) return { ok: false, reason: 'tool desconocida' };
+      const raw = await tool.execute(action, this, proposalId);
+      const res = tool.normalizeResult ? tool.normalizeResult(raw) : raw;
+      this._lastResult = res;
+      return res;
     } finally {
       this._executing = false;
     }
@@ -210,8 +216,8 @@ class ProactiveExecutor {
     if (!PROACTIVE_TOOLS.has(action.tool)) return false;
     const ws = this.getWorkspace();
     if (!ws || !fs.existsSync(ws)) return false;
-    if (action.tool === 'gitignore_add' && !_validateFilename(action.params?.file)) return false;
-    if (action.tool === 'apply_patch' && !this._validPatchParams(action.params)) return false;
+    const tool = TOOL_CATALOG[action.tool];
+    if (tool && !tool.validate(action, this)) return false;
     return true;
   }
 
@@ -494,4 +500,4 @@ class ProactiveExecutor {
   }
 }
 
-module.exports = { ProactiveExecutor, PROACTIVE_TOOLS };
+module.exports = { ProactiveExecutor, PROACTIVE_TOOLS, TOOL_CATALOG };
