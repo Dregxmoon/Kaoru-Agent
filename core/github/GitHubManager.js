@@ -57,6 +57,8 @@ function _httpError(status, body) {
 class GitHubManager {
   constructor(opts = {}) {
     this._token = opts.token || null;
+    // Resolver de token inyectable (tests herméticos); por defecto memoria → llavero → env.
+    this._resolveToken = opts.resolveToken || this._defaultResolveToken;
     const f = opts.fetch || getRendererFetch() || globalThis.fetch || null;
     if (typeof f !== 'function') {
       throw new Error('GitHubManager necesita fetch (Node 18+/Electron 28+).');
@@ -73,7 +75,7 @@ class GitHubManager {
     if (opts.token !== undefined) this._token = opts.token;
   }
 
-  async _resolveToken() {
+  async _defaultResolveToken() {
     if (this._token) return this._token;
     try {
       const fromKeychain = KeychainManager.getKey(GITHUB_TOKEN_KEY);

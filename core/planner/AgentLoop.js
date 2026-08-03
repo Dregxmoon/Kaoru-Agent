@@ -16,7 +16,7 @@ const VALID_MODES = new Set(['smart', 'fast', 'task', 'conversational']);
 const LSP_TOOLS = new Set(['get_diagnostics', 'go_to_definition', 'find_references', 'get_symbols', 'hover', 'rename', 'code_actions']);
 
 // Tools Git nativas (§10) que se despachan al GitManager.
-const GIT_TOOLS = new Set(['git_status', 'git_diff', 'git_log', 'git_branch', 'git_commit', 'git_stash', 'git_merge', 'git_rebase']);
+const GIT_TOOLS = new Set(['git_status', 'git_diff', 'git_log', 'git_branch', 'git_commit', 'git_stash', 'git_merge', 'git_rebase', 'git_push']);
 
 // Tools GitHub nativas (§10) que se despachan al GitHubManager.
 const GITHUB_TOOLS = new Set([
@@ -493,6 +493,8 @@ class AgentLoop {
           return okShape(await this._git.merge(cwd, { branch: params.branch, message: params.message }));
         case 'git_rebase':
           return okShape(await this._git.rebase(cwd, { branch: params.branch }));
+        case 'git_push':
+          return okShape(await this._git.push(cwd, { remote: params.remote, branch: params.branch, force: params.force }));
         default:
           return failShape(`Tool git desconocida: ${action.tool}`);
       }

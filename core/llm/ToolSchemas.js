@@ -241,6 +241,19 @@ const TOOL_SCHEMAS = [
       required: ['branch'],
     },
   },
+  {
+    name: 'git_push',
+    description: 'Sube los commits de la rama actual al remoto (por defecto origin). Usa el token de GitHub conectado (github_token) si está. MUTADOR: requiere aprobación.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        remote: { type: 'string', description: 'Remoto (opcional, por defecto origin)' },
+        branch: { type: 'string', description: 'Rama a pushear (opcional, por defecto la actual)' },
+        force: { type: 'boolean', description: 'Push forzado (opcional, peligroso)' },
+      },
+      required: [],
+    },
+  },
   // ── GitHub nativo (§10) ─────────────────────────────────────────────────────
   {
     name: 'github_repo_info',

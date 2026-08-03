@@ -259,6 +259,19 @@ const TOOL_SCHEMAS = [
     ],
     highImpact: true,
   },
+  {
+    id: 'git.git_push',
+    name: 'git_push',
+    domain: ['git', 'code', 'github'],
+    source: 'git',
+    description: 'Sube los commits de la rama actual al remoto (origin). Usa el token de GitHub conectado si está (REQUIERE APROBACIÓN)',
+    params: [
+      { name: 'remote', type: 'string', description: 'Remoto (opcional, por defecto origin)', required: false },
+      { name: 'branch', type: 'string', description: 'Rama a pushear (opcional, por defecto la actual)', required: false },
+      { name: 'force', type: 'boolean', description: 'Push forzado (peligroso)', required: false },
+    ],
+    highImpact: true,
+  },
   // ── GitHub nativo (§10) ─────────────────────────────────────────────────────
   {
     id: 'github.github_repo_info',

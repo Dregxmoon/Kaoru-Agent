@@ -53,6 +53,7 @@ function createMockGit(overrides = {}) {
     stash: async (cwd, o) => { calls.push(['stash', cwd, o]); return { ok: true, stashes: [] }; },
     merge: async (cwd, o) => { calls.push(['merge', cwd, o]); return { merged: true }; },
     rebase: async (cwd, o) => { calls.push(['rebase', cwd, o]); return { rebased: true }; },
+    push: async (cwd, o) => { calls.push(['push', cwd, o]); return { pushed: true }; },
     ...overrides,
   };
 }
@@ -138,8 +139,7 @@ async function testGitCommitApproval() {
 
 // ── Test 3: git_status NO requiere aprobación ─────────────────────────────────
 
-async function testGitStatusNoApproval() {
-  console.log(C.bold('\n── Test 3: git_status = lectura sin aprobación ───────────────────'));
+async function testGitStatusNoApproval() {  console.log(C.bold('\n── Test 3: git_status = lectura sin aprobación ───────────────────'));
   const AP = require('../core/planner/ActionParser.js');
   assert(AP.isHighImpact('git_status', {}) === false, 'git_status no es high impact');
   assert(AP.isHighImpact('git_diff', {}) === false, 'git_diff no es high impact');
@@ -147,6 +147,7 @@ async function testGitStatusNoApproval() {
   assert(AP.isHighImpact('git_branch', {}) === false, 'git_branch no es high impact');
   assert(AP.isHighImpact('git_stash', { action: 'list' }) === false, 'stash list no es high impact');
   assert(AP.isHighImpact('git_commit', {}) === true, 'git_commit es high impact');
+  assert(AP.isHighImpact('git_push', {}) === true, 'git_push es high impact');
   assert(AP.isHighImpact('git_stash', { action: 'push' }) === true, 'stash push es high impact');
   assert(AP.isHighImpact('git_merge', {}) === true, 'git_merge es high impact');
   assert(AP.isHighImpact('git_rebase', {}) === true, 'git_rebase es high impact');
@@ -219,11 +220,11 @@ async function testRegistry() {
 
   const gitTools = reg._getGitTools();
   const githubTools = reg._getGitHubTools();
-  assert(gitTools.length === 8, '8 tools git', `git: ${gitTools.length}`);
+  assert(gitTools.length === 9, '9 tools git', `git: ${gitTools.length}`);
   assert(githubTools.length === 9, '9 tools github', `github: ${githubTools.length}`);
 
   const cat = reg.getCatalog();
-  assert(cat.bySource.git === 8 && cat.bySource.github === 9, 'getCatalog bySource');
+  assert(cat.bySource.git === 9 && cat.bySource.github === 9, 'getCatalog bySource');
 
   const gitCommit = reg.getToolById('git.git_commit');
   assert(gitCommit && gitCommit.highImpact === true, 'git_commit marcado highImpact en catálogo');
@@ -265,6 +266,29 @@ async function testToolSchemas() {
   assert(commit && commit.inputSchema.required.includes('message'), 'git_commit exige message');
 }
 
+// ── Test 10: git_push pasa por GitManager y pide aprobación ───────────────────
+
+async function testGitPushApproval() {
+  console.log(C.bold('\n── Test 10: git_push = mutador que pide aprobación ──────────────'));
+  const bridge = createTrackingBridge();
+  const git = createMockGit();
+  const { AgentLoop } = require('../core/planner/AgentLoop.js');
+  const approvals = [];
+  const stub = stubCompleteWithTools([{ tool: 'git_push', params: { branch: 'produccion' } }]);
+  try {
+    const loop = new AgentLoop({ bridge, git, maxIterations: 3 });
+    const out = await loop.run('pushear a produccion', 'Sistema', [], {
+      tools: [{ name: 'git_push', inputSchema: {} }],
+      onApprovalNeeded: async (action) => { approvals.push(action.tool); return true; },
+    });
+    assert(approvals.length === 1 && approvals[0] === 'git_push', 'pidió aprobación para git_push');
+    assert(out.toolResults[0].ok === true, 'ejecutó tras aprobar');
+    assert(git.calls.some(([tool]) => tool === 'push'), 'GitManager.push llamado');
+  } finally {
+    stub.restore();
+  }
+}
+
 // ── Main ───────────────────────────────────────────────────────────────────────
 
 async function main() {
@@ -281,6 +305,7 @@ async function main() {
   await testRegistry();
   await testResolver();
   await testToolSchemas();
+  await testGitPushApproval();
 
   console.log(C.bold('\n════════════════════════════════════════════════════════'));
   const total = passed + failed;

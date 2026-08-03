@@ -216,6 +216,35 @@ async function testParamValidation() {
   assert(threw, 'merge branch con shell metachar rechazado');
 }
 
+// ── Test 10: git_push sube commits al remoto ──────────────────────────────────
+
+async function testPush() {
+  console.log(C.bold('\n── Test 10: git_push sube commits al remoto ─────────────────────'));
+  const gm = new GitManager();
+  const remoteDir = path.join(tmpRoot, 'remote.git');
+  git(repoDir, ['init', '--bare', remoteDir]);
+  git(repoDir, ['remote', 'add', 'origin', remoteDir]);
+  writeFile(repoDir, 'push-me.txt', 'v1\n');
+  git(repoDir, ['add', 'push-me.txt']);
+  git(repoDir, ['commit', '-m', 'to push']);
+
+  const res = await gm.push(repoDir, {});
+  assert(res.pushed === true, 'push ok', JSON.stringify(res).slice(0, 200));
+  assert(res.remote === 'origin', 'remote por defecto = origin');
+  const received = git(remoteDir, ['log', 'main', '--oneline', '-1']);
+  assert(received.includes('to push'), 'el remoto recibió el commit', received);
+
+  const res2 = await gm.push(repoDir, { branch: 'main' });
+  assert(res2.pushed === true, 'push con branch explícita');
+
+  let threw = false;
+  try { await gm.push(repoDir, { branch: '--abort' }); } catch (e) { threw = /rama/.test(e.message); }
+  assert(threw, 'branch inválida rechazada');
+  threw = false;
+  try { await gm.push(repoDir, { remote: '--mirror' }); } catch (e) { threw = /remote/.test(e.message); }
+  assert(threw, 'remote inválido rechazado');
+}
+
 // ── Main ───────────────────────────────────────────────────────────────────────
 
 async function main() {
@@ -234,6 +263,7 @@ async function main() {
     await testStash();
     await testMergeConflict();
     await testParamValidation();
+    await testPush();
   } finally {
     teardown();
   }

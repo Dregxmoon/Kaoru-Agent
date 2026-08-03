@@ -49,7 +49,7 @@ function makeFetch(routes) {
 async function testNoToken() {
   console.log(C.bold('\n── Test 1: sin token → error claro ──────────────────────────────'));
   const fake = makeFetch({});
-  const gm = new GitHubManager({ fetch: fake, token: null });
+  const gm = new GitHubManager({ fetch: fake, token: null, resolveToken: async () => null });
   let err = null;
   try { await gm.repoInfo('owner/repo'); } catch (e) { err = e; }
   assert(err && /No hay token/.test(err.message), 'lanza "No hay token"', err?.message);

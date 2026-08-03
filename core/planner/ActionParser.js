@@ -115,6 +115,7 @@ function isHighImpact(tool, params) {
 
   // ── Git / GitHub nativos (§10): mutadores requieren aprobación ──────────
   if (tool === 'git_commit' || tool === 'git_merge' || tool === 'git_rebase') return true;
+  if (tool === 'git_push') return true;
   if (tool === 'git_stash') return params?.action !== 'list';
   if (tool === 'github_issue_create') return true;
   if (tool === 'github_issue_comment') return true;

@@ -34,6 +34,7 @@ function _run(cwd, args, opts = {}) {
         timeout: opts.timeout || DEFAULT_TIMEOUT,
         maxBuffer: opts.maxBuffer || 8 * 1024 * 1024,
         encoding: 'utf-8',
+        env: opts.env ? { ...process.env, ...opts.env } : process.env,
       },
       (err, stdout, stderr) => {
         if (err && typeof err.code !== 'number') {
@@ -323,6 +324,78 @@ class GitManager {
       return this._conflictResult(r, 'rebase', branch, conflictFiles);
     }
     return { isRepo: true, rebased: true, branch, output: (r.stdout || '').trim() };
+  }
+
+  // ── git_push (muta) ──────────────────────────────────────────────────────────
+  async push(cwd, opts = {}) {
+    _assertDir(cwd);
+    const remote = typeof opts.remote === 'string' && opts.remote.trim() ? opts.remote.trim() : 'origin';
+    if (!/^[A-Za-z0-9._/-]{1,200}$/.test(remote) || remote.startsWith('-')) {
+      throw new Error('git_push: remote inválido.');
+    }
+    const branch = typeof opts.branch === 'string' && opts.branch.trim() ? opts.branch.trim() : null;
+    if (branch && !_validBranch(branch)) throw new Error('git_push: rama inválida.');
+
+    const args = ['push', remote];
+    if (branch) args.push(branch);
+    if (opts.force) args.push('--force');
+
+    const token = this._resolveToken();
+    const env = token
+      ? { GIT_ASKPASS: this._writeAskpass(token), GIT_TERMINAL_PROMPT: '0' }
+      : null;
+    const r = await this._exec(cwd, args, { maxBuffer: 8 * 1024 * 1024, env });
+    if (token) this._cleanupAskpass();
+
+    if (r.code !== 0) {
+      const err = _toError(r, 'git push falló');
+      if (token && /denied|401|403|Authentication/i.test(err.message)) {
+        err.hint = 'El push fue rechazado por GitHub. Verificá que el token en el llavero (github_token) tenga scope "repo".';
+      }
+      throw err;
+    }
+    const out = (r.stdout + '\n' + r.stderr).trim();
+    const to = (out.match(/^\s*[0-9a-f]{7,40}\.\.\.[0-9a-f]{7,40}\s+(\S+)/m) || [])[1] || branch || '';
+    return {
+      isRepo: true,
+      pushed: true,
+      remote,
+      branch: to,
+      output: out.split('\n').slice(0, 8),
+    };
+  }
+
+  // Token para push HTTPS: env → llavero (github_token). Lazy require para no
+  // cargar KeychainManager en contextos donde no hace falta.
+  _resolveToken() {
+    if (process.env.GITHUB_TOKEN && process.env.GITHUB_TOKEN.trim()) return process.env.GITHUB_TOKEN.trim();
+    if (process.env.GH_TOKEN && process.env.GH_TOKEN.trim()) return process.env.GH_TOKEN.trim();
+    try {
+      const K = require('../../infrastructure/keychain/KeychainManager.js');
+      const t = K.getKey('github_token');
+      return t && t.trim() ? t.trim() : null;
+    } catch {
+      return null;
+    }
+  }
+
+  // Script askpass temporal: git ejecuta el binario con el prompt como argumento
+  // y usa la primera línea de salida. El token nunca aparece en argv de git.
+  _writeAskpass(token) {
+    const askpass = path.join(require('os').tmpdir(), `asistente-gh-askpass-${process.pid}.sh`);
+    const escaped = token.replace(/'/g, "'\\''");
+    fs.writeFileSync(
+      askpass,
+      '#!/bin/sh\nif printf "%s" "$1" | grep -qi "password"; then\n  echo \'' + escaped + '\'\nelse\n  echo "oauth2"\nfi\n',
+      { mode: 0o700 }
+    );
+    this._askpassPath = askpass;
+    return askpass;
+  }
+
+  _cleanupAskpass() {
+    try { if (this._askpassPath) fs.unlinkSync(this._askpassPath); } catch {}
+    this._askpassPath = null;
   }
 
   async _unmergedFiles(cwd) {
