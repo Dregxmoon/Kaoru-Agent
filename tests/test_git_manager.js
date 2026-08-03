@@ -228,14 +228,17 @@ async function testPush() {
   git(repoDir, ['add', 'push-me.txt']);
   git(repoDir, ['commit', '-m', 'to push']);
 
-  const res = await gm.push(repoDir, {});
+  // Primera push con branch explícita: -u fija el upstream (hermético, no
+  // depende del push.default del entorno).
+  const res = await gm.push(repoDir, { branch: 'main' });
   assert(res.pushed === true, 'push ok', JSON.stringify(res).slice(0, 200));
   assert(res.remote === 'origin', 'remote por defecto = origin');
   const received = git(remoteDir, ['log', 'main', '--oneline', '-1']);
   assert(received.includes('to push'), 'el remoto recibió el commit', received);
 
-  const res2 = await gm.push(repoDir, { branch: 'main' });
-  assert(res2.pushed === true, 'push con branch explícita');
+  // Sin branch explícita: usa el upstream que ya quedó fijado.
+  const res2 = await gm.push(repoDir, {});
+  assert(res2.pushed === true, 'push sin branch explícita (usa upstream)');
 
   let threw = false;
   try { await gm.push(repoDir, { branch: '--abort' }); } catch (e) { threw = /rama/.test(e.message); }

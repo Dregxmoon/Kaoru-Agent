@@ -336,7 +336,9 @@ class GitManager {
     const branch = typeof opts.branch === 'string' && opts.branch.trim() ? opts.branch.trim() : null;
     if (branch && !_validBranch(branch)) throw new Error('git_push: rama inválida.');
 
-    const args = ['push', remote];
+    const args = ['push'];
+    if (branch) args.push('-u'); // fija upstream: rama nueva sin remoto no falla
+    args.push(remote);
     if (branch) args.push(branch);
     if (opts.force) args.push('--force');
 
