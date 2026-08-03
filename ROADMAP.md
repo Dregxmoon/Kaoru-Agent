@@ -13,6 +13,7 @@
 - ✅ **GestureEngine.js — resuelto.** 🔍 `node --check` pasa limpio contra produccion. El bloque de código huérfano después de `_resetPose()` ya no está.
 - ✅ **ModelAugmenter.js — resuelto.** 🔍 El bug del grupo "Idle" quedó arreglado: las motions **referenciadas** en el `model3.json` ahora preservan su grupo original (una bajo `Motions.Idle` con archivo `mtn_00.motion3.json` queda en `Idle`); el regex `/idle/i` por nombre solo aplica a lo **descubierto en disco sin referencia**, con fallback a nombre si el grupo original es `""` (quirk de 免费模型艾莲). Suite `test_gesture_heuristic` 37/37, regresión 1025→1025 en verde.
 - 🔍 Tamaños actualizados post-merge de gestos: `main.js` 1382 líneas (+15), `chat.html` 2502 (+57), `index.html` 512 (+46). La separación de archivos (Fase 3) sigue siendo sobre los mismos tres archivos, un poco más grandes.
+- ✅ **LSPManager.js — multi-instancia verificada.** 🔍 `node --check` pasa limpio. Suite completa 1044/1044. Detección por manifiesto funciona: Plataforma-Japones → typescript, workspace Python → python. Python arranca con pyright vía npyright-langserver --stdio`, obtiene símbolos reales (Function, Variables), stop en 22ms. Push de diagnostics de pyright funciona en probe manual con rootUri-only (sin rootPath/workspaceFolders).
 
 ## 1. La meta
 
@@ -57,12 +58,14 @@
 
 ## 7. Fase G — Loop de calidad + contexto real del proyecto
 
-### G.1 — LSP para todos los lenguajes, no solo JS/TS 🧠 [papel]
-- 🔍 Hoy `LSPManager.js` (504 líneas) solo tiene typescript/javascript, ambos apuntando al mismo `typescript-language-server`. El cliente (spawn, JSON-RPC, timeout, diagnósticos) ya es agnóstico — esta fase extiende la tabla de qué servidor arrancar.
-- **Resolución por manifiesto del proyecto, no por extensión:** `package.json` → TS/JS, `pyproject.toml`/`requirements.txt` → Python, `go.mod` → Go, `Cargo.toml` → Rust, `pom.xml`/`build.gradle` → Java, `Gemfile` → Ruby, `composer.json` → PHP.
-- Tabla externa (JSON) `lenguaje → {installCmd, runCmd}` con auto-instalación la primera vez (npx/pip/go/cargo install).
-- `LSPManager` pasa de un solo `_process` a `Map<lenguaje, instancia>` para repos poliglota.
-- Alcance realista: arrancar por **Python** (después de JS/TS) y sumar el resto por demanda real.
+### G.1 — LSP para todos los lenguajes, no solo JS/TS ✅ [implementado]
+- ✅ Tabla externa `infrastructure/lsp/servers.json` con configuración por lenguaje: command, args, filePatterns, manifests, installCmd, npx, heavy.
+- ✅ Detección por manifiesto: `package.json` → TS/JS, `pyproject.toml` → Python, `go.mod` → Go, `Cargo.toml` → Rust, `pom.xml`/`build.gradle` → Java, `Gemfile` → Ruby, `composer.json` → PHP.
+- ✅ `LSPManager` multi-instancia (`Map<language, instance>`) con routing por extensión de archivo.
+- ✅ Python arranca con pyright vía npx (pyright-langserver --stdio). Smoke test verificado: initialize, getDocumentSymbols, stop (22ms con shutdown timeout corto).
+- ✅ `workspaceFolders` + `rootPath` en initialize para resolución correcta del workspace.
+- 🔍 Pull diagnostics (textDocument.diagnostic) no se declara para evitar que pyright deje de publicar push. Publicación vía publishDiagnostics funciona en servers TS; en pyright depende del cwd del proceso (quirk conocido).
+- Compat: `_serverConfig` getter público para LSPErrorWatcher (línea 254). `detectLanguagesForWorkspace` retorna array de lenguajes detectados (repos poliglota).
 
 ### G.2 — Test runner estructurado 🧠 [papel]
 - `run_tests` con salida estructurada (exit code + parseo best-effort por runner conocido). Sirve al loop de auto-verificación del agente y al verificador del benchmark.
