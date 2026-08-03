@@ -24,7 +24,7 @@ const CATEGORIES = {
   skill: 'IA / LLM', credenciales: 'Config',
   init: 'Desarrollo', review: 'Desarrollo', plan: 'Desarrollo',
   fix: 'Desarrollo', undo: 'Desarrollo', retry: 'Desarrollo',
-  'cambio-modelo': 'Modelo', 'modelo-vistas': 'Modelo',
+  'cambio-modelo': 'Modelo', 'modelo-vistas': 'Modelo', gestos: 'Modelo',
 };
 
 function getHelp() {
@@ -631,6 +631,83 @@ register({
       const res = await ctx.ipcRenderer.invoke('views-set', { mode: q });
       if (res.error) return `Error: ${res.error}`;
       return `Modo de vista guardado: **${LABELS[q]}**${q === 'random' ? ' — el modelo rotará entre las tres vistas.' : ' — el modelo queda fijo en esa posición.'}`;
+    } catch (e) {
+      return `Error: ${e.message}`;
+    }
+  },
+});
+
+register({
+  name: 'gestos',
+  description: 'Muestra los gestos (expresiones y animaciones) disponibles del modelo Live2D activo y permite probarlos',
+  usage: '/gestos [test <gesto|emoción> | <emoción>]',
+  handler: async (args, ctx) => {
+    if (!ctx.ipcRenderer) return 'IPC no disponible.';
+    // Require en caliente: mismo patrón que /agent y /memory (evita cargar los
+    // módulos de comportamiento al arrancar la app).
+    const ModelAugmenter   = require('../behavior/ModelAugmenter.js');
+    const GestureHeuristic = require('../behavior/GestureHeuristic.js');
+    const mappings         = (ctx.gestureConfig || {}).mappings || {};
+
+    try {
+      const info = await ctx.ipcRenderer.invoke('get-model-info');
+      if (!info || !info.model3Path) return 'No hay modelo Live2D configurado.';
+      const gestures = ModelAugmenter.listGestures(info.model3Path);
+      const total = gestures.expressions.length + gestures.motions.length;
+      if (total === 0) return `El modelo **${info.name}** no tiene expresiones ni animaciones para mostrar.`;
+
+      const first  = (args[0] || '').trim().toLowerCase();
+      const query  = args.join(' ').trim().toLowerCase();
+
+      // ── /gestos test <gesto|emoción> → preview en el mini-avatar
+      if (first === 'test') {
+        const q = args.slice(1).join(' ').trim().toLowerCase();
+        if (!q) return 'Uso: `/gestos test <gesto o emoción>`\nEjemplos: `/gestos test angry`, `/gestos test 哭`, `/gestos test zhaiyan`, `/gestos test tired`.';
+        if (!ctx.gestureEngine) return 'El motor de gestos aún no está listo — espera a que cargue el modelo en el panel.';
+        const res = await ctx.gestureEngine.play(q, { priority: 'force' });
+        if (res.ok && res.gesture) {
+          return `Gesto **${res.gesture.name}** (${res.gesture.kind || res.gesture.type}) aplicado en el mini-avatar${res.source ? ` — vía ${res.source}` : ''}.`;
+        }
+        const names = [...gestures.expressions, ...gestures.motions].map(g => g.name);
+        return `No encontré un gesto para \`${q}\`. Disponibles para probar: ${names.slice(0, 8).map(n => `\`${n}\``).join(', ')}${names.length > 8 ? '…' : ''}.`;
+      }
+
+      // ── /gestos <emoción> → qué gesto la representa
+      if (query && first !== 'test') {
+        const r = GestureHeuristic.resolveMood(query, gestures, { mappings });
+        if (r.ok && r.gesture) {
+          return [
+            `Para **${first}** el gesto más acertado en **${info.name}** es **${r.gesture.name}**`,
+            `(${r.gesture.kind || r.gesture.type}, score ${r.score}, vía ${r.source}).`,
+            '',
+            `Pruébalo con: \`/gestos test ${r.gesture.name}\``,
+          ].join(' ');
+        }
+        const names = [...gestures.expressions, ...gestures.motions].map(g => g.name);
+        return `No hay un gesto para \`${first}\` en **${info.name}**. Usa \`/gestos\` para ver los disponibles.`;
+      }
+
+      // ── /gestos → listado completo
+      const mapped = GestureHeuristic.resolveAll(gestures, { mappings });
+      const esc = s => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+      const lines = [
+        `**Gestos de ${esc(info.name)}** — ${gestures.expressions.length} expresiones, ${gestures.motions.length} animaciones:`,
+        '',
+      ];
+      const entries = Object.entries(mapped.map);
+      if (entries.length) {
+        lines.push('**Emociones → gesto:**');
+        for (const [mood, g] of entries) {
+          lines.push(`\`${mood}\` → **${esc(g.name)}** (${g.kind || g.type})`);
+        }
+        lines.push('');
+      }
+      if (mapped.unmapped.length) {
+        lines.push(`**Sin mapear** (probar con \`/gestos test\`):`);
+        lines.push(mapped.unmapped.map(esc).map(n => `\`${n}\``).join(', '));
+      }
+      lines.push('', `Prueba: \`/gestos test 哭\`, \`/gestos test angry\`, \`/gestos test sleepy\`.`);
+      return lines.join('\n');
     } catch (e) {
       return `Error: ${e.message}`;
     }

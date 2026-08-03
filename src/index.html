@@ -31,7 +31,30 @@ const path = require('path');
 const fs   = require('fs');
 const cp   = require('child_process');
 
+const GestureEngine  = require('../core/behavior/GestureEngine.js');
+const ModelAugmenter = require('../core/behavior/ModelAugmenter.js');
+
 window.PIXI = PIXI;
+
+// Motor de gestos del overlay: reacciona al tono de voz (speak → setEmotion),
+// a los eventos globales que main.js reenvía por IPC 'gesture', y opcionalmente
+// al ambient idle. La config viene del bloque `gestures` del config.json.
+let gestureEngine = null;
+let gestureConfig = null;
+let _gestureCfgPromise = null;
+function getGestureConfig() {
+  if (!_gestureCfgPromise) {
+    _gestureCfgPromise = ipcRenderer.invoke('gesture-config').catch(() => null);
+  }
+  return _gestureCfgPromise;
+}
+async function initGestureEngine() {
+  if (gestureEngine) return gestureEngine;
+  const cfg = await getGestureConfig() || {};
+  gestureConfig = cfg;
+  gestureEngine = new GestureEngine({ config: cfg });
+  return gestureEngine;
+}
 
 // P1: antes esto hacía cp.spawn('python', ...) directo — 'python' no existe
 // en la mayoría de Linux de fábrica (solo 'python3'), así que el TTS se
@@ -164,6 +187,9 @@ async function speak(text, emotionOverride = null) {
   const emo        = EMOTION_PROFILES[emotion] || EMOTION_PROFILES.default;
   const scriptPath = path.join(__dirname, '..', 'tts_stream.py');
 
+  // Gesto acorde al tono de voz que va a decir el asistente.
+  if (gestureEngine && gestureEngine.enabled) gestureEngine.setEmotion(emotion);
+
   try {
     const pythonBin = await getPythonBin();
     await new Promise((resolve, reject) => {
@@ -234,7 +260,12 @@ async function loadModel() {
   const fileUrl = 'file:///' + _modelInfo.model3Path.replace(/\\/g, '/');
 
   try {
-    model = await PIXI.live2d.Live2DModel.from(fileUrl);
+    // Se inyectan expresiones/motions que el model3.json no referencia (ver
+    // core/behavior/ModelAugmenter.js): así el modelo anima de verdad en vez
+    // de quedarse quieto. El settings es un objeto en memoria; no se escribe
+    // nada en disco.
+    const augmented = ModelAugmenter.augmentModel(_modelInfo.model3Path);
+    model = await PIXI.live2d.Live2DModel.from(augmented.settings || fileUrl);
     modelNativeW = model.width;
     modelNativeH = model.height;
     modelBounds  = computeContentBounds(model) || { x: 0, y: 0, width: modelNativeW || 1, height: modelNativeH || 1 };
@@ -242,6 +273,15 @@ async function loadModel() {
     applyView(currentView);
     setupInteraction();
     startIdle();
+
+    const engine = await initGestureEngine();
+    engine.attach(model, {
+      model3Path: _modelInfo.model3Path,
+      gestures: augmented.gestures,
+      mappings: (gestureConfig || {}).mappings,
+    });
+    engine.startAmbient();
+
     ipcRenderer.invoke('views-get').then(s => {
       if (s && s.mode) {
         viewMode = s.mode;
@@ -255,6 +295,7 @@ async function loadModel() {
 }
 
 function reloadModel() {
+  if (gestureEngine) gestureEngine.detach();
   if (pixiApp) {
     try { pixiApp.destroy(false, { children: true, texture: true, baseTexture: true }); } catch (e) { console.error('error limpiando modelo:', e); }
     pixiApp = null; model = null;
@@ -309,9 +350,8 @@ function applyView(view, animate = false) {
 function triggerMotion() {
   try {
     const defs = model?.internalModel?.motionManager?.definitions;
-    if (!defs) return;
-    const groups = Object.keys(defs);
-    if (groups.length) model.motion(groups[Math.floor(Math.random() * groups.length)]);
+    if (!defs || !Array.isArray(defs.Idle) || !defs.Idle.length) return;
+    model.motion('Idle', Math.floor(Math.random() * defs.Idle.length));
   } catch(_) {}
 }
 
@@ -444,6 +484,12 @@ ipcRenderer.on('views-changed', (e, s) => {
 ipcRenderer.on('speak', (e, payload) => {
   if (typeof payload === 'string') speak(payload);
   else speak(payload.text, payload.emotion || null);
+});
+
+// Gestos disparados desde main.js (iniciativa, propuestas, planes).
+ipcRenderer.on('gesture', (e, payload) => {
+  if (!gestureEngine || !payload || typeof payload.mood !== 'string') return;
+  gestureEngine.play(payload.mood);
 });
 
 ipcRenderer.on('set-status', () => {});

@@ -1,0 +1,16 @@
+{
+  "Version": 3,
+  "Name": "gtest",
+  "Groups": [
+    { "Target": "Parameter", "Name": "EyeBlink", "Ids": ["ParamEyeLOpen", "ParamEyeROpen"] },
+    { "Target": "Parameter", "Name": "LipSync", "Ids": [] }
+  ],
+  "FileReferences": {
+    "Moc": "gtest.moc3",
+    "Textures": ["tex/t.png"],
+    "Physics": "gtest.physics3.json",
+    "Expressions": [
+      { "Name": "Feliz", "File": "exp/1.exp3.json" }
+    ]
+  }
+}

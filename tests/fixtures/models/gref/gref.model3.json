@@ -1,0 +1,14 @@
+{
+  "Version": 3,
+  "Name": "gref",
+  "FileReferences": {
+    "Moc": "gref.moc3",
+    "Textures": ["tex/t.png"],
+    "Motions": {
+      "": [
+        { "File": "anim/idle0.motion3.json" },
+        { "File": "anim/wave.motion3.json" }
+      ]
+    }
+  }
+}
