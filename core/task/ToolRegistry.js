@@ -168,6 +168,215 @@ const TOOL_SCHEMAS = [
     ],
     highImpact: false,
   },
+  // ── Git nativo (§10) ───────────────────────────────────────────────────────
+  {
+    id: 'git.git_status',
+    name: 'git_status',
+    domain: ['git', 'code'],
+    source: 'git',
+    description: 'Estado del repo git: rama actual, ahead/behind, cambios staged/unstaged, untracked y conflictos',
+    params: [
+      { name: 'cwd', type: 'string', description: 'Directorio de trabajo (opcional)', required: false },
+    ],
+    highImpact: false,
+  },
+  {
+    id: 'git.git_diff',
+    name: 'git_diff',
+    domain: ['git', 'code'],
+    source: 'git',
+    description: 'Diff de cambios no confirmados; con staged=true muestra lo que ya fue agregado',
+    params: [
+      { name: 'file', type: 'string', description: 'Archivo específico (opcional)', required: false },
+      { name: 'staged', type: 'boolean', description: 'Diff de lo staged (opcional)', required: false },
+    ],
+    highImpact: false,
+  },
+  {
+    id: 'git.git_log',
+    name: 'git_log',
+    domain: ['git', 'code'],
+    source: 'git',
+    description: 'Historial de commits recientes (hash, autor, fecha, subject)',
+    params: [
+      { name: 'count', type: 'number', description: 'Cantidad de commits (máx 50)', default: 20, required: false },
+      { name: 'file', type: 'string', description: 'Filtrar por archivo (opcional)', required: false },
+    ],
+    highImpact: false,
+  },
+  {
+    id: 'git.git_branch',
+    name: 'git_branch',
+    domain: ['git', 'code'],
+    source: 'git',
+    description: 'Lista las ramas locales con su upstream y desfase ahead/behind',
+    params: [],
+    highImpact: false,
+  },
+  {
+    id: 'git.git_commit',
+    name: 'git_commit',
+    domain: ['git', 'code'],
+    source: 'git',
+    description: 'Hace git add -A y commit con el mensaje dado (REQUIERE APROBACIÓN)',
+    params: [
+      { name: 'message', type: 'string', description: 'Mensaje del commit', required: true },
+    ],
+    highImpact: true,
+  },
+  {
+    id: 'git.git_stash',
+    name: 'git_stash',
+    domain: ['git', 'code'],
+    source: 'git',
+    description: 'Lista stashes (list, lectura) o ejecuta push/pop/apply/drop (muta, requiere aprobación)',
+    params: [
+      { name: 'action', type: 'string', description: 'list | push | pop | apply | drop', default: 'list', required: true },
+      { name: 'message', type: 'string', description: 'Mensaje para action=push (opcional)', required: false },
+    ],
+    highImpact: true,
+  },
+  {
+    id: 'git.git_merge',
+    name: 'git_merge',
+    domain: ['git', 'code'],
+    source: 'git',
+    description: 'Fusiona una rama en la actual; detecta conflictos y los devuelve estructurados (REQUIERE APROBACIÓN)',
+    params: [
+      { name: 'branch', type: 'string', description: 'Rama a fusionar', required: true },
+      { name: 'message', type: 'string', description: 'Mensaje del merge (opcional)', required: false },
+    ],
+    highImpact: true,
+  },
+  {
+    id: 'git.git_rebase',
+    name: 'git_rebase',
+    domain: ['git', 'code'],
+    source: 'git',
+    description: 'Reaplica los commits de la rama actual sobre otra; detecta conflictos estructurados (REQUIERE APROBACIÓN)',
+    params: [
+      { name: 'branch', type: 'string', description: 'Rama base del rebase', required: true },
+    ],
+    highImpact: true,
+  },
+  // ── GitHub nativo (§10) ─────────────────────────────────────────────────────
+  {
+    id: 'github.github_repo_info',
+    name: 'github_repo_info',
+    domain: ['github', 'git', 'code'],
+    source: 'github',
+    description: 'Información de un repo de GitHub (descripción, default branch, estrellas, license)',
+    params: [
+      { name: 'repo', type: 'string', description: 'Repo en formato "owner/repo"', required: true },
+    ],
+    highImpact: false,
+  },
+  {
+    id: 'github.github_issue_list',
+    name: 'github_issue_list',
+    domain: ['github', 'git', 'code'],
+    source: 'github',
+    description: 'Lista issues de un repo filtrados por estado',
+    params: [
+      { name: 'repo', type: 'string', description: 'Repo en formato "owner/repo"', required: true },
+      { name: 'state', type: 'string', description: 'open | closed | all', default: 'open', required: false },
+      { name: 'limit', type: 'number', description: 'Máx resultados', default: 10, required: false },
+    ],
+    highImpact: false,
+  },
+  {
+    id: 'github.github_issue_create',
+    name: 'github_issue_create',
+    domain: ['github', 'git', 'code'],
+    source: 'github',
+    description: 'Crea un issue en un repo (REQUIERE APROBACIÓN)',
+    params: [
+      { name: 'repo', type: 'string', description: 'Repo en formato "owner/repo"', required: true },
+      { name: 'title', type: 'string', description: 'Título del issue', required: true },
+      { name: 'body', type: 'string', description: 'Cuerpo del issue (opcional)', required: false },
+      { name: 'labels', type: 'array', description: 'Labels (opcional)', required: false },
+    ],
+    highImpact: true,
+  },
+  {
+    id: 'github.github_issue_comment',
+    name: 'github_issue_comment',
+    domain: ['github', 'git', 'code'],
+    source: 'github',
+    description: 'Comenta en un issue (REQUIERE APROBACIÓN)',
+    params: [
+      { name: 'repo', type: 'string', description: 'Repo en formato "owner/repo"', required: true },
+      { name: 'issue_number', type: 'number', description: 'Número del issue', required: true },
+      { name: 'body', type: 'string', description: 'Cuerpo del comentario', required: true },
+    ],
+    highImpact: true,
+  },
+  {
+    id: 'github.github_issue_close',
+    name: 'github_issue_close',
+    domain: ['github', 'git', 'code'],
+    source: 'github',
+    description: 'Cierra un issue (REQUIERE APROBACIÓN)',
+    params: [
+      { name: 'repo', type: 'string', description: 'Repo en formato "owner/repo"', required: true },
+      { name: 'issue_number', type: 'number', description: 'Número del issue', required: true },
+    ],
+    highImpact: true,
+  },
+  {
+    id: 'github.github_pr_list',
+    name: 'github_pr_list',
+    domain: ['github', 'git', 'code'],
+    source: 'github',
+    description: 'Lista pull requests de un repo filtrados por estado',
+    params: [
+      { name: 'repo', type: 'string', description: 'Repo en formato "owner/repo"', required: true },
+      { name: 'state', type: 'string', description: 'open | closed | all', default: 'open', required: false },
+      { name: 'limit', type: 'number', description: 'Máx resultados', default: 10, required: false },
+    ],
+    highImpact: false,
+  },
+  {
+    id: 'github.github_pr_create',
+    name: 'github_pr_create',
+    domain: ['github', 'git', 'code'],
+    source: 'github',
+    description: 'Crea una pull request (REQUIERE APROBACIÓN)',
+    params: [
+      { name: 'repo', type: 'string', description: 'Repo en formato "owner/repo"', required: true },
+      { name: 'title', type: 'string', description: 'Título de la PR', required: true },
+      { name: 'head', type: 'string', description: 'Rama origen', required: true },
+      { name: 'base', type: 'string', description: 'Rama destino', required: true },
+      { name: 'body', type: 'string', description: 'Descripción (opcional)', required: false },
+    ],
+    highImpact: true,
+  },
+  {
+    id: 'github.github_pr_review',
+    name: 'github_pr_review',
+    domain: ['github', 'git', 'code'],
+    source: 'github',
+    description: 'Envía una review a una PR (APPROVE | REQUEST_CHANGES | COMMENT) (REQUIERE APROBACIÓN)',
+    params: [
+      { name: 'repo', type: 'string', description: 'Repo en formato "owner/repo"', required: true },
+      { name: 'pull_number', type: 'number', description: 'Número de la PR', required: true },
+      { name: 'event', type: 'string', description: 'APPROVE | REQUEST_CHANGES | COMMENT', default: 'COMMENT', required: true },
+      { name: 'body', type: 'string', description: 'Cuerpo de la review', required: true },
+    ],
+    highImpact: true,
+  },
+  {
+    id: 'github.github_actions_status',
+    name: 'github_actions_status',
+    domain: ['github', 'git', 'code'],
+    source: 'github',
+    description: 'Estado de las GitHub Actions de un repo (runs recientes, status, conclusion)',
+    params: [
+      { name: 'repo', type: 'string', description: 'Repo en formato "owner/repo"', required: true },
+      { name: 'limit', type: 'number', description: 'Máx runs', default: 10, required: false },
+    ],
+    highImpact: false,
+  },
 ];
 
 class ToolRegistry {
@@ -209,6 +418,18 @@ class ToolRegistry {
       .map(s => ({ ...s, available: lspAvailable }));
   }
 
+  _getGitTools() {
+    return TOOL_SCHEMAS
+      .filter(s => s.source === 'git')
+      .map(s => ({ ...s, available: true }));
+  }
+
+  _getGitHubTools() {
+    return TOOL_SCHEMAS
+      .filter(s => s.source === 'github')
+      .map(s => ({ ...s, available: true }));
+  }
+
   _getMCPTools() {
     if (!this._mcpManager) return [];
     try {
@@ -239,8 +460,10 @@ class ToolRegistry {
   getCatalog(domain = null) {
     const openclaw = this._getOpenClawTools();
     const lsp = this._getLSPTools();
+    const git = this._getGitTools();
+    const github = this._getGitHubTools();
     const mcp = this._getMCPTools();
-    let all = [...openclaw, ...lsp, ...mcp];
+    let all = [...openclaw, ...lsp, ...git, ...github, ...mcp];
 
     if (domain && domain.id) {
       all = all.filter(t => t.domain.includes(domain.id));
@@ -255,6 +478,8 @@ class ToolRegistry {
       bySource: {
         openclaw: openclaw.length,
         lsp: lsp.length,
+        git: git.length,
+        github: github.length,
         mcp: mcp.length,
       },
     };
@@ -265,7 +490,11 @@ class ToolRegistry {
   }
 
   getToolById(id) {
-    const all = this._getOpenClawTools().concat(this._getLSPTools()).concat(this._getMCPTools());
+    const all = this._getOpenClawTools()
+      .concat(this._getLSPTools())
+      .concat(this._getGitTools())
+      .concat(this._getGitHubTools())
+      .concat(this._getMCPTools());
     return all.find(t => t.id === id) || null;
   }
 
@@ -282,6 +511,8 @@ class ToolRegistry {
 
     const openclawTools = catalog.tools.filter(t => t.source === 'openclaw');
     const lspTools = catalog.tools.filter(t => t.source === 'lsp');
+    const gitTools = catalog.tools.filter(t => t.source === 'git');
+    const githubTools = catalog.tools.filter(t => t.source === 'github');
     const mcpTools = catalog.tools.filter(t => t.source === 'mcp');
 
     if (openclawTools.length > 0) {
@@ -307,7 +538,8 @@ class ToolRegistry {
     }
 
     if (mcpTools.length > 0) {
-      const capped = mcpTools.slice(0, maxTools - openclawTools.length - lspTools.length);
+      const usedByOthers = openclawTools.length + lspTools.length + gitTools.length + githubTools.length;
+      const capped = mcpTools.slice(0, Math.max(0, maxTools - usedByOthers));
       lines.push('## Herramientas MCP externas');
       for (const t of capped) {
         let line = `  - [${t.server}] ${t.name}`;
@@ -316,6 +548,28 @@ class ToolRegistry {
       }
       if (mcpTools.length > capped.length) {
         lines.push(`  ... y ${mcpTools.length - capped.length} herramientas más`);
+      }
+      lines.push('');
+    }
+
+    if (gitTools.length > 0) {
+      lines.push('## Herramientas Git (nativas)');
+      for (const t of gitTools) {
+        let line = `  - ${t.name}`;
+        if (t.description) line += `: ${t.description}`;
+        if (t.highImpact) line += ' (requiere aprobación)';
+        lines.push(line);
+      }
+      lines.push('');
+    }
+
+    if (githubTools.length > 0) {
+      lines.push('## Herramientas GitHub (nativas)');
+      for (const t of githubTools) {
+        let line = `  - ${t.name}`;
+        if (t.description) line += `: ${t.description}`;
+        if (t.highImpact) line += ' (requiere aprobación)';
+        lines.push(line);
       }
       lines.push('');
     }

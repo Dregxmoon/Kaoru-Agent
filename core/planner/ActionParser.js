@@ -113,6 +113,15 @@ function isHighImpact(tool, params) {
 
   if (tool === 'mcp') return true;
 
+  // ── Git / GitHub nativos (§10): mutadores requieren aprobación ──────────
+  if (tool === 'git_commit' || tool === 'git_merge' || tool === 'git_rebase') return true;
+  if (tool === 'git_stash') return params?.action !== 'list';
+  if (tool === 'github_issue_create') return true;
+  if (tool === 'github_issue_comment') return true;
+  if (tool === 'github_issue_close') return true;
+  if (tool === 'github_pr_create') return true;
+  if (tool === 'github_pr_review') return true;
+
   return false;
 }
 
@@ -412,14 +421,21 @@ const ACTION_PATTERNS = [
   },
 ];
 
+// Mensajes de bookkeeping del loop (resultado de una herramienta anterior) NO
+// deben tratarse como instrucciones del usuario: detectar intento de edición
+// sobre ellos re-dispara la misma herramienta y provoca un loop infinito.
+// (p. ej. `[Resultado de herramienta "edit"]: ... Editar archivo: x.js`).
+const TOOL_RESULT_MARKER_RE = /^\[(?:Resultado|ERROR) de herramienta /;
+
 class ActionParser {
   static parse(llmResponse, userGoal) {
     const actions = [];
     const seen    = new Set();
     const text    = llmResponse || '';
 
-    const editSource = userGoal || text;
-    const editIntent = _detectEditIntent(editSource);
+    const isToolResult = TOOL_RESULT_MARKER_RE.test(userGoal || '');
+    const editSource   = (userGoal && !isToolResult) ? userGoal : text;
+    const editIntent   = _detectEditIntent(editSource);
 
     if (editIntent) {
       const key = `edit_file:${editIntent.path}`;
@@ -435,7 +451,7 @@ class ActionParser {
     }
 
     for (const { pattern, tool, buildParams, description, validate, multi, postMatches } of ACTION_PATTERNS) {
-      const sourceText = (tool === 'create_file' && userGoal) ? userGoal : text;
+      const sourceText = (tool === 'create_file' && userGoal && !isToolResult) ? userGoal : text;
 
       let match;
       const re = new RegExp(pattern.source, pattern.flags);

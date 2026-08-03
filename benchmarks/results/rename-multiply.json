@@ -1,0 +1,23 @@
+{
+  "id": "rename-multiply",
+  "runs": [
+    {
+      "ts": "2026-08-03T18:29:46.861Z",
+      "ok": false,
+      "iterations": 3,
+      "elapsedMs": 31089,
+      "error": "llm_failure",
+      "truncated": false,
+      "verify": "calc.js: falta function multiply"
+    },
+    {
+      "ts": "2026-08-03T18:39:27.471Z",
+      "ok": false,
+      "iterations": 3,
+      "elapsedMs": 58709,
+      "error": "llm_failure",
+      "truncated": false,
+      "verify": "calc.js: falta function multiply"
+    }
+  ]
+}

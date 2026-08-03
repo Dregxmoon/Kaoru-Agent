@@ -1,22 +1,3 @@
-/**
- * Core.js — Fase 3 + Quick Fixes
- *
- * Fix QW-1: propaga graph.usingFallback al renderer vía IPC.
- * Fix QW-4: init() idempotente.
- * Fase 3 — IntentDetector: buildContext() es async, detecta intención
- *   semántica con embeddings locales e inyecta en el system prompt.
- *
- * FIX Fase 3b: sqlite-vec se carga en la misma conexión del StateGraph
- *   antes de instanciar el IntentDetector, para que la tabla virtual
- *   intent_vectors sea visible desde esa conexión.
- *
- * FIX (revisión con Claude): el truncado del system prompt a
- * MAX_SYSTEM_CHARS pasaba dentro de GroqSerializer.serialize(), pero
- * buildContext() le pegaba BehaviorModel + reglas de OpenClaw + catálogo
- * MCP DESPUÉS de ese punto — el presupuesto de tokens nunca contaba esas
- * secciones. El truncado se movió aquí, al final, sobre el prompt ya
- * completo. Ver GroqSerializer.js para el otro lado de este mismo fix.
- */
 
 const path   = require('path');
 const fs     = require('fs');
@@ -189,6 +170,10 @@ if (process.env.DEBUG) console.log('[core] graph.usingFallback:', _graph.usingFa
       },
       notifyChanged: (absPath, content) => {
         try { _lspManager?.changeDocument(absPath, content); } catch {}
+      },
+      waitForDiagnostics: async (absPath) => {
+        if (!_lspManager?.isRunning) return null;
+        try { return await _lspManager.waitForDiagnostics(absPath); } catch { return null; }
       },
     })),
   });
@@ -1301,6 +1286,8 @@ function _resolveAgentMode(userMessage, opts = {}) {
  * @param {function} [opts.onApprovalNeeded] - Callback de aprobación
  * @param {function} [opts.onProgress] - Callback de progreso
  * @param {number} [opts.maxIterations] - Máximo de iteraciones
+ * @param {boolean} [opts.evalMode] - Modo benchmark: auto-aprueba toda tool de
+ *   alto impacto y suprime la interacción con el usuario (sin onApprovalNeeded)
  * @returns {Promise<{response, iterations, toolResults, error}>}
  */
 async function runAgent(userMessage, opts = {}) {
@@ -1321,19 +1308,29 @@ async function runAgent(userMessage, opts = {}) {
     maxIterations,
     bridge: _bridge,
     mode,
+    lsp: _lspManager,
   });
+
+  const loopOpts = {
+    ...opts,
+    toolResolver: { resolveToolset },
+    skillManager: _skillManager || null,
+    mcpManager: _mcp || null,
+    skillDb: (_graph && !_graph.usingFallback && _graph._db) ? _graph._db : null,
+  };
+
+  // evalMode: benchmark headless — toda tool de alto impacto se auto-aprueba,
+  // sin callback de aprobación (el loop ya la ejecuta si no hay handler).
+  if (opts.evalMode) {
+    loopOpts.onApprovalNeeded = async () => true;
+    loopOpts.evalMode = true;
+  }
 
   const result = await loop.run(
     userMessage,
     context.systemPrompt,
     context.messages || [],
-    {
-      ...opts,
-      toolResolver: { resolveToolset },
-      skillManager: _skillManager || null,
-      mcpManager: _mcp || null,
-      skillDb: (_graph && !_graph.usingFallback && _graph._db) ? _graph._db : null,
-    }
+    loopOpts
   );
 
   _bus.emit('agent:completed', { iterations: result.iterations, error: result.error });

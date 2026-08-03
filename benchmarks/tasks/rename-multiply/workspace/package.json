@@ -1,0 +1,5 @@
+{
+  "name": "bench-rename",
+  "version": "1.0.0",
+  "main": "src/calc.js"
+}

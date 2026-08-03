@@ -140,13 +140,16 @@ class ProactiveExecutor {
    * @param {() => string[]} [opts.getOpenFiles] - archivos abiertos en el editor
    * @param {(file: string) => Promise<Array|null>} [opts.getDiagnostics] - LSP real (o stub)
    * @param {(file: string, content: string) => void} [opts.notifyChanged] - avisa al LSP del cambio
+   * @param {(file: string) => Promise<Array|null>} [opts.waitForDiagnostics] - LSP.1: espera el push fresco
+   *   de diagnósticos tras el cambio (reemplaza el sleep fijo de verifyDelayMs)
    */
-  constructor({ getWorkspace, exec = _defaultExec, getOpenFiles = () => [], getDiagnostics = null, notifyChanged = null, verifyDelayMs = 2500, syntaxCheck = _defaultSyntaxCheck } = {}) {
+  constructor({ getWorkspace, exec = _defaultExec, getOpenFiles = () => [], getDiagnostics = null, notifyChanged = null, waitForDiagnostics = null, verifyDelayMs = 2500, syntaxCheck = _defaultSyntaxCheck } = {}) {
     this._getWorkspace    = getWorkspace || (() => null);
     this._exec            = exec;
     this._getOpenFiles    = getOpenFiles || (() => []);
     this._getDiagnostics  = getDiagnostics || null;
     this._notifyChanged   = notifyChanged || null;
+    this._waitForDiagnostics = waitForDiagnostics || null;
     this._verifyDelayMs   = verifyDelayMs;
     this._syntaxCheck     = syntaxCheck;
     this._executing       = false;   // lock — una mutación a la vez
@@ -404,7 +407,14 @@ class ProactiveExecutor {
     if (this._getDiagnostics) {
       try {
         if (this._notifyChanged) this._notifyChanged(abs, applied.content);
-        await new Promise(r => setTimeout(r, this._verifyDelayMs));
+        // LSP.1: event-driven en vez de sleep fijo — esperar el push fresco de
+        // diagnósticos (waitForDiagnostics). Si no está inyectado, se mantiene
+        // el comportamiento previo (verifyDelayMs).
+        if (this._waitForDiagnostics) {
+          await this._waitForDiagnostics(abs);
+        } else {
+          await new Promise(r => setTimeout(r, this._verifyDelayMs));
+        }
         const after  = (await this._getDiagnostics(abs) || []).map(_normalizeDiagnostic);
         const target = Array.isArray(params.targetErrors) ? params.targetErrors.map(_normalizeDiagnostic) : [];
 

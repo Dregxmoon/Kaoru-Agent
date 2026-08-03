@@ -3,6 +3,8 @@
 const https = require('https');
 const http  = require('http');
 
+const { ProviderQueue } = require('./RequestQueue.js');
+
 const KEEP_ALIVE_AGENT = new https.Agent({ keepAlive: true, maxSockets: 4 });
 const KEEP_ALIVE_AGENT_HTTP = new http.Agent({ keepAlive: true, maxSockets: 4 });
 const AGENT_BY_PROTOCOL = {
@@ -117,6 +119,9 @@ let _config = {
   fallback: ['gemini'],
   providers: {},
   customProviders: [],
+  // Fase J: cola por provider (concurrency 1 = serial, cooldown por 429,
+  // presupuesto de espera por request). Desactivable con queue.enabled=false.
+  queue: { enabled: true, concurrency: 1, maxWaitMs: MAX_RETRY_WAIT_MS, priority: 0 },
 };
 
 function configure(cfg) {
@@ -124,6 +129,9 @@ function configure(cfg) {
   const llm = cfg.llm || cfg;
   if (llm.primary) _config.primary = llm.primary;
   if (llm.fallback) _config.fallback = llm.fallback;
+  if (llm.queue) {
+    _config.queue = { ..._config.queue, ...llm.queue };
+  }
   if (llm.apiKeys) {
     for (const [id, key] of Object.entries(llm.apiKeys)) {
       if (!_config.providers[id]) _config.providers[id] = {};
@@ -540,7 +548,35 @@ function _parseRetryAfter(err) {
   return secs ? Math.ceil(parseFloat(secs[1]) * 1000) : 0;
 }
 
-async function _callWithFallback(messages, systemPrompt, mode = 'fast') {
+// ── Fase J: cola de requests por provider ─────────────────────────────────────
+const _queues = new Map(); // providerId → ProviderQueue
+
+function _queueFor(providerId) {
+  let q = _queues.get(providerId);
+  if (!q) {
+    q = new ProviderQueue({ concurrency: _config.queue?.concurrency ?? 1 });
+    _queues.set(providerId, q);
+  }
+  return q;
+}
+
+function _enqueueProviderCall(providerId, run, opts = {}) {
+  const qcfg = _config.queue || {};
+  if (qcfg.enabled === false) return run();
+  return _queueFor(providerId).submit(run, {
+    priority: opts.priority ?? qcfg.priority ?? 0,
+    maxWaitMs: opts.maxWaitMs ?? qcfg.maxWaitMs ?? MAX_RETRY_WAIT_MS,
+  });
+}
+
+/** Stats de las colas por provider (para el reporte del benchmark / telemetría). */
+function getQueueStats() {
+  const out = {};
+  for (const [id, q] of _queues) out[id] = q.stats;
+  return out;
+}
+
+async function _callWithFallback(messages, systemPrompt, mode = 'fast', opts = {}) {
   const order = [_config.primary, ...(_config.fallback || [])];
   const tried = [];
   const missingKeys = [];
@@ -568,7 +604,7 @@ async function _callWithFallback(messages, systemPrompt, mode = 'fast') {
           await _sleep(waitMs);
         }
         console.log(`[llm] intentando ${providerName} (${mode})${attempt > 0 ? ` [retry ${attempt}]` : ''}...`);
-        const result = await fn(messages, systemPrompt, mode);
+        const result = await _enqueueProviderCall(providerName, () => fn(messages, systemPrompt, mode), opts);
         console.log(`[llm] respuesta de ${providerName} (${result.length} chars)`);
         return result;
       } catch(e) {
@@ -603,9 +639,9 @@ async function _callWithFallback(messages, systemPrompt, mode = 'fast') {
   );
 }
 
-async function _callWithFallbackTools(messages, systemPrompt, mode = 'smart', tools) {
+async function _callWithFallbackTools(messages, systemPrompt, mode = 'smart', tools, opts = {}) {
   if (!tools || tools.length === 0) {
-    const text = await _callWithFallback(messages, systemPrompt, mode);
+    const text = await _callWithFallback(messages, systemPrompt, mode, opts);
     return { content: text, toolCalls: null };
   }
 
@@ -633,7 +669,7 @@ async function _callWithFallbackTools(messages, systemPrompt, mode = 'smart', to
           const waitMs = ra > 0 ? ra : _backoffWithJitter(attempt - 1);
           await _sleep(waitMs);
         }
-        const result = await fn(messages, systemPrompt, mode, tools);
+        const result = await _enqueueProviderCall(providerName, () => fn(messages, systemPrompt, mode, tools), opts);
         return result;
       } catch(e) {
         lastErr = e;
@@ -647,7 +683,7 @@ async function _callWithFallbackTools(messages, systemPrompt, mode = 'smart', to
   }
 
   console.warn(`[llm] tool-calling falló en todos los providers (${tried.join(', ')})${missingKeys.length ? ` — sin key: ${missingKeys.join(', ')}` : ''}, fallback a texto`);
-  const text = await _callWithFallback(messages, systemPrompt, mode);
+  const text = await _callWithFallback(messages, systemPrompt, mode, opts);
   return { content: text, toolCalls: null };
 }
 
@@ -656,19 +692,19 @@ function defHasKey(providerId) {
 }
 
 // ── Public API ────────────────────────────────────────────────────────────────
-function complete(messages, systemPrompt) {
+function complete(messages, systemPrompt, opts) {
   _rebuildMaps();
-  return _callWithFallback(messages, systemPrompt, 'fast');
+  return _callWithFallback(messages, systemPrompt, 'fast', opts);
 }
 
-function completeTask(messages, systemPrompt) {
+function completeTask(messages, systemPrompt, opts) {
   _rebuildMaps();
-  return _callWithFallback(messages, systemPrompt, 'smart');
+  return _callWithFallback(messages, systemPrompt, 'smart', opts);
 }
 
-async function completeWithTools(messages, systemPrompt, tools = [], mode = 'smart') {
+async function completeWithTools(messages, systemPrompt, tools = [], mode = 'smart', opts) {
   _rebuildMaps();
-  return _callWithFallbackTools(messages, systemPrompt, mode, tools);
+  return _callWithFallbackTools(messages, systemPrompt, mode, tools, opts);
 }
 
 function getActiveProvider() {
@@ -730,10 +766,12 @@ module.exports = {
   addCustomProvider, removeCustomProvider, getCustomProviders,
   getToolSchemas: () => require('./ToolSchemas.js').TOOL_SCHEMAS,
   registerProvider,
+  getQueueStats,
   storeProviderApiKey, removeProviderApiKey, migrateApiKeysToKeychain,
   _setKeychainResolver,
   _debug_isRetryableError: _isRetryableError,
   _debug_backoffWithJitter: _backoffWithJitter,
+  _debug_enqueueProviderCall: _enqueueProviderCall,
   _debug_normalizeOpenAI: _normalizeOpenAIResponse,
   _debug_normalizeGemini: _normalizeGeminiResponse,
   _debug_buildOpenAITools: _buildOpenAITools,

@@ -150,6 +150,215 @@ const TOOL_SCHEMAS = [
       required: ['filePath'],
     },
   },
+  // ── Git nativo (§10) ─────────────────────────────────────────────────────
+  {
+    name: 'git_status',
+    description: 'Estado del repo git: rama actual, ahead/behind, cambios staged/unstaged, untracked y conflictos. Solo lectura.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        cwd: { type: 'string', description: 'Directorio de trabajo (opcional, por defecto el proyecto)' },
+      },
+      required: [],
+    },
+  },
+  {
+    name: 'git_diff',
+    description: 'Diff de cambios no confirmados; con staged=true muestra lo que ya fue agregado. Solo lectura.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        file: { type: 'string', description: 'Archivo específico (opcional)' },
+        staged: { type: 'boolean', description: 'Diff de lo staged (opcional)' },
+      },
+      required: [],
+    },
+  },
+  {
+    name: 'git_log',
+    description: 'Historial de commits recientes (hash, autor, fecha, subject). Solo lectura.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        count: { type: 'number', description: 'Cantidad de commits (máx 50)', default: 20 },
+        file: { type: 'string', description: 'Filtrar por archivo (opcional)' },
+      },
+      required: [],
+    },
+  },
+  {
+    name: 'git_branch',
+    description: 'Lista las ramas locales con su upstream y desfase ahead/behind. Solo lectura.',
+    inputSchema: {
+      type: 'object',
+      properties: {},
+      required: [],
+    },
+  },
+  {
+    name: 'git_commit',
+    description: 'Hace git add -A y commit con el mensaje dado. MUTADOR: requiere aprobación del usuario.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        message: { type: 'string', description: 'Mensaje del commit' },
+      },
+      required: ['message'],
+    },
+  },
+  {
+    name: 'git_stash',
+    description: 'Lista stashes (action=list, lectura) o ejecuta push/pop/apply/drop (muta, requiere aprobación).',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        action: { type: 'string', description: 'list | push | pop | apply | drop', default: 'list' },
+        message: { type: 'string', description: 'Mensaje para action=push (opcional)' },
+      },
+      required: ['action'],
+    },
+  },
+  {
+    name: 'git_merge',
+    description: 'Fusiona una rama en la actual; detecta conflictos y los devuelve estructurados. MUTADOR: requiere aprobación.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        branch: { type: 'string', description: 'Rama a fusionar' },
+        message: { type: 'string', description: 'Mensaje del merge (opcional)' },
+      },
+      required: ['branch'],
+    },
+  },
+  {
+    name: 'git_rebase',
+    description: 'Reaplica los commits de la rama actual sobre otra; detecta conflictos estructurados. MUTADOR: requiere aprobación.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        branch: { type: 'string', description: 'Rama base del rebase' },
+      },
+      required: ['branch'],
+    },
+  },
+  // ── GitHub nativo (§10) ─────────────────────────────────────────────────────
+  {
+    name: 'github_repo_info',
+    description: 'Información de un repo de GitHub (descripción, default branch, estrellas, license). Solo lectura.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        repo: { type: 'string', description: 'Repo en formato "owner/repo"' },
+      },
+      required: ['repo'],
+    },
+  },
+  {
+    name: 'github_issue_list',
+    description: 'Lista issues de un repo filtrados por estado. Solo lectura.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        repo: { type: 'string', description: 'Repo en formato "owner/repo"' },
+        state: { type: 'string', description: 'open | closed | all', default: 'open' },
+        limit: { type: 'number', description: 'Máx resultados', default: 10 },
+      },
+      required: ['repo'],
+    },
+  },
+  {
+    name: 'github_issue_create',
+    description: 'Crea un issue en un repo. MUTADOR: requiere aprobación del usuario.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        repo: { type: 'string', description: 'Repo en formato "owner/repo"' },
+        title: { type: 'string', description: 'Título del issue' },
+        body: { type: 'string', description: 'Cuerpo del issue (opcional)' },
+        labels: { type: 'array', items: { type: 'string' }, description: 'Labels (opcional)' },
+      },
+      required: ['repo', 'title'],
+    },
+  },
+  {
+    name: 'github_issue_comment',
+    description: 'Comenta en un issue. MUTADOR: requiere aprobación del usuario.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        repo: { type: 'string', description: 'Repo en formato "owner/repo"' },
+        issue_number: { type: 'number', description: 'Número del issue' },
+        body: { type: 'string', description: 'Cuerpo del comentario' },
+      },
+      required: ['repo', 'issue_number', 'body'],
+    },
+  },
+  {
+    name: 'github_issue_close',
+    description: 'Cierra un issue. MUTADOR: requiere aprobación del usuario.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        repo: { type: 'string', description: 'Repo en formato "owner/repo"' },
+        issue_number: { type: 'number', description: 'Número del issue' },
+      },
+      required: ['repo', 'issue_number'],
+    },
+  },
+  {
+    name: 'github_pr_list',
+    description: 'Lista pull requests de un repo filtrados por estado. Solo lectura.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        repo: { type: 'string', description: 'Repo en formato "owner/repo"' },
+        state: { type: 'string', description: 'open | closed | all', default: 'open' },
+        limit: { type: 'number', description: 'Máx resultados', default: 10 },
+      },
+      required: ['repo'],
+    },
+  },
+  {
+    name: 'github_pr_create',
+    description: 'Crea una pull request. MUTADOR: requiere aprobación del usuario.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        repo: { type: 'string', description: 'Repo en formato "owner/repo"' },
+        title: { type: 'string', description: 'Título de la PR' },
+        head: { type: 'string', description: 'Rama origen' },
+        base: { type: 'string', description: 'Rama destino' },
+        body: { type: 'string', description: 'Descripción (opcional)' },
+      },
+      required: ['repo', 'title', 'head', 'base'],
+    },
+  },
+  {
+    name: 'github_pr_review',
+    description: 'Envía una review a una PR (APPROVE | REQUEST_CHANGES | COMMENT). MUTADOR: requiere aprobación del usuario.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        repo: { type: 'string', description: 'Repo en formato "owner/repo"' },
+        pull_number: { type: 'number', description: 'Número de la PR' },
+        event: { type: 'string', description: 'APPROVE | REQUEST_CHANGES | COMMENT', default: 'COMMENT' },
+        body: { type: 'string', description: 'Cuerpo de la review' },
+      },
+      required: ['repo', 'pull_number', 'event', 'body'],
+    },
+  },
+  {
+    name: 'github_actions_status',
+    description: 'Estado de las GitHub Actions de un repo (runs recientes, status, conclusion). Solo lectura.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        repo: { type: 'string', description: 'Repo en formato "owner/repo"' },
+        limit: { type: 'number', description: 'Máx runs', default: 10 },
+      },
+      required: ['repo'],
+    },
+  },
 ];
 
 function getToolSchemas() {

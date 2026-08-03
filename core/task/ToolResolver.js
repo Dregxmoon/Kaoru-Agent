@@ -51,6 +51,8 @@ async function resolveToolset(context = {}) {
   // 2. Collect all candidate tools
   const openclawTools = registry._getOpenClawTools ? registry._getOpenClawTools() : [];
   const lspTools = registry._getLSPTools ? registry._getLSPTools() : [];
+  const gitTools = registry._getGitTools ? registry._getGitTools() : [];
+  const githubTools = registry._getGitHubTools ? registry._getGitHubTools() : [];
   const mcpTools = mcpManager ? _getMCPTools(mcpManager) : [];
   const allTools = [];
 
@@ -91,7 +93,7 @@ async function resolveToolset(context = {}) {
   });
 
   // 5. Build result
-  const finalTools = [...filteredOpenclaw, ...lspTools, ...mcpTools];
+  const finalTools = [...filteredOpenclaw, ...lspTools, ...gitTools, ...githubTools, ...mcpTools];
 
   // Native tool schemas (for tool-calling API)
   const allSchemas = getToolSchemas();
@@ -171,6 +173,8 @@ function _buildPromptCatalog(tools, domain, flags) {
 
   const openclawTools = tools.filter(t => t.source === 'openclaw');
   const lspTools = tools.filter(t => t.source === 'lsp');
+  const gitTools = tools.filter(t => t.source === 'git');
+  const githubTools = tools.filter(t => t.source === 'github');
   const mcpTools = tools.filter(t => t.source === 'mcp');
 
   if (openclawTools.length > 0) {
@@ -210,6 +214,28 @@ function _buildPromptCatalog(tools, domain, flags) {
     }
     lines.push('');
     lines.push('Para usar MCP, usa el formato:\n  ```action\n  ACCIÓN: mcp_call | SERVIDOR: <server> | HERRAMIENTA: <tool> | PARAMS: {...}\n  ```');
+    lines.push('');
+  }
+
+  if (gitTools.length > 0) {
+    lines.push('## Herramientas Git (nativas)');
+    for (const t of gitTools) {
+      let line = `  - ${t.name}`;
+      if (t.description) line += `: ${t.description}`;
+      if (t.highImpact) line += ' (requiere aprobación)';
+      lines.push(line);
+    }
+    lines.push('');
+  }
+
+  if (githubTools.length > 0) {
+    lines.push('## Herramientas GitHub (nativas)');
+    for (const t of githubTools) {
+      let line = `  - ${t.name}`;
+      if (t.description) line += `: ${t.description}`;
+      if (t.highImpact) line += ' (requiere aprobación)';
+      lines.push(line);
+    }
     lines.push('');
   }
 

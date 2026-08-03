@@ -1,6 +1,6 @@
 const {
   app, BrowserWindow, ipcMain, screen,
-  Tray, Menu, nativeImage, session, globalShortcut, dialog
+  Tray, Menu, nativeImage, session, globalShortcut
 } = require('electron');
 const path = require('path');
 const http = require('http');
@@ -13,21 +13,10 @@ const crypto = require('crypto');
 const Core = require('./core/Core.js');
 const KeychainManager = require('./infrastructure/keychain/KeychainManager.js');
 
-// Fija el nombre interno de la app ANTES de que se lea userData: package.json
-// ahora usa branding neutral (productName "Asistente Personal"), pero la carpeta
-// de datos (config.json, core.db) se mantiene en ~/.config/vtuber-overlay para
-// no perder la configuración y memoria existentes del usuario.
+const { createSharedState } = require('./ipc/state.js');
+
 app.setName('vtuber-overlay');
 
-// ── Manejo global de errores ──────────────────────────────────────────────────
-// Antes no había NINGÚN handler de uncaughtException/unhandledRejection — un
-// error async sin catch (p.ej. una promesa rechazada en un handler de IPC)
-// podía tirar el proceso principal entero sin dejar rastro visible, porque
-// esto corre casi siempre desde la bandeja del sistema sin consola abierta.
-// Ahora se registra en un log persistente para poder diagnosticar qué pasó,
-// pero NO se fuerza el cierre — la mayoría de estos errores son recuperables
-// y el asistente es una app "siempre presente", no queremos que un solo handler
-// roto tumbe toda la sesión.
 const CRASH_LOG_PATH = path.join(app.getPath('userData'), 'crash.log');
 
 function logCrash(label, err) {
@@ -39,31 +28,13 @@ function logCrash(label, err) {
 process.on('uncaughtException', (err) => logCrash('uncaughtException', err));
 process.on('unhandledRejection', (reason) => logCrash('unhandledRejection', reason));
 
-// ── Python executable ─────────────────────────────────────────────────────────
-// FIX: antes esto era una ruta absoluta hardcodeada a un usuario y versión de
-// Python específicos ('C:/Users/lukal/.../Python311/python.exe'). Se rompe en
-// cualquier máquina distinta a la tuya actual — incluido tu propio PC si
-// reinstalas Windows, cambias de versión de Python, o si algún día generas el
-// build portable (`npm run build-portable`) para alguien más, ya que ese exe
-// jamás va a tener esa ruta exacta. Ahora se resuelve dinámicamente:
-//   1. Variable de entorno ASISTENTE_PYTHON_BIN (override manual si hace falta)
-//   2. El launcher estándar de Windows `py -3` (viene con casi cualquier
-//      instalación oficial de Python en Windows)
-//   3. `python` / `python3` si están en el PATH
-//   4. Barrido de las carpetas de instalación típicas bajo el HOME del
-//      usuario ACTUAL (os.homedir(), no un usuario fijo), tomando la versión
-//      más alta encontrada
-// Se resuelve una sola vez al arrancar y se cachea.
+// Python executable
 function resolvePythonBin() {
   if (process.env.ASISTENTE_PYTHON_BIN && fs.existsSync(process.env.ASISTENTE_PYTHON_BIN)) {
     console.log('[python] usando override ASISTENTE_PYTHON_BIN:', process.env.ASISTENTE_PYTHON_BIN);
     return process.env.ASISTENTE_PYTHON_BIN;
   }
 
-  // Resuelve el comando a la ruta ABSOLUTA real del ejecutable (en vez de
-  // devolver 'py' o 'python' tal cual) para que los spawn(PYTHON_BIN, args)
-  // que ya existen más abajo no necesiten cambiar — siguen recibiendo un
-  // solo binario + sus args normales, sin tener que anteponer '-3' etc.
   const resolveViaCommand = (cmd, extraArgs = []) => {
     try {
       const res = spawnSync(cmd, [...extraArgs, '-c', 'import sys; print(sys.executable)'], {
@@ -77,7 +48,6 @@ function resolvePythonBin() {
     return null;
   };
 
-  // Launcher oficial de Windows — resuelve él mismo la versión instalada
   if (process.platform === 'win32') {
     const viaLauncher = resolveViaCommand('py', ['-3']);
     if (viaLauncher) { console.log('[python] resuelto vía "py -3":', viaLauncher); return viaLauncher; }
@@ -89,7 +59,6 @@ function resolvePythonBin() {
   const viaPython3 = resolveViaCommand('python3');
   if (viaPython3) { console.log('[python] resuelto vía "python3" del PATH:', viaPython3); return viaPython3; }
 
-  // Barrido de carpetas típicas de instalación en Windows, bajo el HOME real
   if (process.platform === 'win32') {
     const home = os.homedir();
     const searchDirs = [
@@ -117,26 +86,22 @@ function resolvePythonBin() {
 
 const PYTHON_BIN = resolvePythonBin();
 
-// ── Cargar .env (múltiples ubicaciones) ─────────────────────────────────────
-// Busca .env en el directorio del proyecto y en userData (si app ya está lista).
-// dotenv no sobreescribe vars ya definidas — la primera fuente gana.
 const dotenv = require('dotenv');
 const _appRoot = __dirname;
 dotenv.config({ path: path.join(_appRoot, '.env'), override: false });
-// Nota: también se cargará desde userData en app.whenReady() más abajo.
 
-// ── Fuente de keys activa — para el IPC get-key-source ──────────────────────
+// Fuente de keys activa — para el IPC get-key-source
 let _keySource = 'config.json';
-let _keySourcesByProvider = {}; // { groq: 'config.json'|'.env'|'keychain', ... }
+let _keySourcesByProvider = {};
 
-// ── Constantes ────────────────────────────────────────────────────────────────
+// Constantes
 const MARGIN  = 12;
 const WIN_W   = 380;
 const WIN_H   = 580;
 const CHAT_W  = 900;
 const CHAT_H  = 600;
 
-// ── Config persistente ────────────────────────────────────────────────────────
+// Config persistente
 const CONFIG_PATH = path.join(app.getPath('userData'), 'config.json');
 
 function loadConfig() {
@@ -154,7 +119,6 @@ function loadEffectiveConfig() {
   if (!cfg.llm.apiKeys) cfg.llm.apiKeys = {};
   if (!cfg.llm.providers) cfg.llm.providers = {};
 
-  // Merge all env vars (LLM_KEY_{PROVIDER_ID})
   for (const envKey of Object.keys(process.env)) {
     const match = envKey.match(/^LLM_KEY_(.+)$/);
     if (!match) continue;
@@ -168,7 +132,6 @@ function loadEffectiveConfig() {
     }
   }
 
-  // Merge with system keychain (highest priority)
   const builtinProviders = ['groq', 'gemini', 'openai', 'anthropic', 'xai', 'nvidia', 'huggingface', 'deepseek'];
   const keychainKeys = KeychainManager.getAllKeys(builtinProviders);
   for (const [k, v] of Object.entries(keychainKeys)) {
@@ -180,7 +143,6 @@ function loadEffectiveConfig() {
     }
   }
 
-  // For providers without explicit source, assume config.json
   for (const provider of builtinProviders) {
     if (!_keySourcesByProvider[provider]) _keySourcesByProvider[provider] = 'config.json';
   }
@@ -198,10 +160,6 @@ function saveConfig(data) {
   } catch (e) { console.log('[config] error guardando config.json:', e.message); }
 }
 
-// Fase 1 del roadmap — unificar credenciales en el KeychainManager:
-// si config.json todavía tiene keys de LLM en texto plano y el llavero está
-// disponible, las migra al llavero y elimina el texto plano del archivo.
-// Idempotente y sin pérdida: si el llavero no puede guardarlas, no toca nada.
 function migratePlaintextApiKeysToKeychain() {
   const cfg = loadConfig();
   if (!KeychainManager.isAvailable()) {
@@ -218,9 +176,9 @@ function migratePlaintextApiKeysToKeychain() {
   const migrated = [];
   let toStrip = false;
   for (const [id, key] of Object.entries(candidates)) {
-    if (!key || !key.trim()) continue;   // vacías: no se migran ni se reportan
+    if (!key || !key.trim()) continue;
     if (KeychainManager.getKey(id)) {
-      toStrip = true;                    // ya vive en el llavero → fuera del texto plano
+      toStrip = true;
     } else if (KeychainManager.setKey(id, key.trim())) {
       migrated.push(id);
       toStrip = true;
@@ -258,20 +216,14 @@ function ensureLLMConfig() {
   }
 }
 
-// ── Estado global ─────────────────────────────────────────────────────────────
-let mainWindow     = null;
-let chatWindow     = null;
-let tray           = null;
-let isClickThrough = true;
-let currentView    = 'full';
-let userHasMoved   = false;
-let chatTheme      = 'dark';
-
-const VIEW_NAMES = ['full', 'half', 'head'];
-
+// Estado global compartido
 const savedConfig    = loadConfig();
 migratePlaintextApiKeysToKeychain();
-chatTheme            = savedConfig.chatTheme ?? 'dark';
+
+const S = createSharedState({
+  chatTheme: savedConfig.chatTheme ?? 'dark',
+  activeModelId: savedConfig.activeModel || 'March 7th',
+});
 
 const maskedConfig = JSON.parse(JSON.stringify(savedConfig));
 if (maskedConfig.llm?.apiKeys) {
@@ -284,7 +236,9 @@ console.log('[asistente] config cargada:', maskedConfig);
 if (process.platform === 'linux')
   app.commandLine.appendSwitch('enable-transparent-visuals');
 
-// ── Posiciones ────────────────────────────────────────────────────────────────
+const VIEW_NAMES = ['full', 'half', 'head'];
+
+// Posiciones
 function getBottomRightBounds() {
   const { workArea } = screen.getPrimaryDisplay();
   return {
@@ -303,789 +257,29 @@ function getChatBounds() {
   };
 }
 
-// ── Click-through ─────────────────────────────────────────────────────────────
+// Click-through
 function setClickThrough(enabled) {
-  isClickThrough = enabled;
-  if (!mainWindow || mainWindow.isDestroyed()) return;
-  mainWindow.setIgnoreMouseEvents(enabled, { forward: true });
-  if (tray) tray.setContextMenu(buildTrayMenu());
+  S.isClickThrough = enabled;
+  if (!S.mainWindow || S.mainWindow.isDestroyed()) return;
+  S.mainWindow.setIgnoreMouseEvents(enabled, { forward: true });
+  if (S.tray) S.tray.setContextMenu(buildTrayMenu());
 }
 
 function sendSpeak(text, emotion) {
-  if (!mainWindow || mainWindow.isDestroyed()) return;
-  mainWindow.webContents.send('speak', emotion ? { text, emotion } : text);
+  if (!S.mainWindow || S.mainWindow.isDestroyed()) return;
+  S.mainWindow.webContents.send('speak', emotion ? { text, emotion } : text);
 }
 
-// Gestos Live2D: main traduce eventos globales (iniciativa, propuestas, planes)
-// a moods y los reenvía al overlay. La ventana de chat gestiona los suyos en el
-// renderer (tiene sus propios hooks de eventos del chat) — así cada ventana
-// anima su modelo sin duplicar disparos.
 function sendOverlayGesture(mood, meta = {}) {
-  if (!mainWindow || mainWindow.isDestroyed()) return;
-  mainWindow.webContents.send('gesture', { mood, ...meta });
+  if (!S.mainWindow || S.mainWindow.isDestroyed()) return;
+  S.mainWindow.webContents.send('gesture', { mood, ...meta });
 }
 
 ipcMain.handle('gesture-config', () => savedConfig.gestures || null);
 
-// ── Ventana overlay ───────────────────────────────────────────────────────────
-function createWindow() {
-  const mode = getModelViewMode(activeModelId);
-  currentView = mode === 'random'
-    ? VIEW_NAMES[Math.floor(Math.random() * VIEW_NAMES.length)]
-    : mode;
-
-  mainWindow = new BrowserWindow({
-    ...getBottomRightBounds(),
-    transparent: true, backgroundColor: '#00000000',
-    frame: false, alwaysOnTop: true, skipTaskbar: true,
-    resizable: false, hasShadow: false, thickFrame: false,
-    focusable: false, show: false,
-    webPreferences: { nodeIntegration: true, contextIsolation: false, webSecurity: false },
-  });
-
-  mainWindow.setAlwaysOnTop(true, 'screen-saver');
-  mainWindow.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
-  mainWindow.setMenuBarVisibility(false);
-  mainWindow.setIgnoreMouseEvents(true, { forward: true });
-  mainWindow.webContents.on('console-message', (e, level, msg) => {
-    if (msg.includes('PixiJS') || msg.includes('Live2D Cubism Core') || msg.includes('CubismFramework.') || msg.startsWith(' %c') || msg.includes('Electron Security Warning')) return;
-    console.log(`[overlay] ${msg}`);
-  });
-  mainWindow.loadFile(path.join(__dirname, 'src/index.html'));
-  mainWindow.webContents.once('did-finish-load', () => {
-    setTimeout(() => mainWindow.webContents.send('set-view', currentView), 1500);
-  });
-}
-
-// ── Ventana de chat ───────────────────────────────────────────────────────────
-function createChatWindow() {
-  if (chatWindow && !chatWindow.isDestroyed()) {
-    if (!chatWindow.isVisible()) {
-      chatWindow.show(); chatWindow.focus();
-      if (mainWindow && !mainWindow.isDestroyed()) mainWindow.hide();
-      Core.setChatOpen(true);
-      if (tray) tray.setContextMenu(buildTrayMenu());
-    } else {
-      chatWindow.focus();
-    }
-    return;
-  }
-
-  chatWindow = new BrowserWindow({
-    ...getChatBounds(),
-    frame: false, transparent: false, backgroundColor: '#0d0f14',
-    resizable: true, minWidth: 700, minHeight: 480,
-    skipTaskbar: false, alwaysOnTop: false, hasShadow: true, show: true,
-    webPreferences: {
-      nodeIntegration: true,
-      contextIsolation: false,
-      webSecurity: true,
-    },
-  });
-
-  chatWindow.setMenuBarVisibility(false);
-  chatWindow.loadFile(path.join(__dirname, 'src/chat.html'));
-  chatWindow.webContents.openDevTools({ mode: 'detach' });
-  chatWindow.webContents.on('console-message', (e, level, msg) => {
-    if (msg.includes('PixiJS') || msg.includes('Live2D Cubism Core') || msg.includes('CubismFramework.') || msg.startsWith(' %c') || msg.includes('Electron Security Warning')) return;
-    console.log(`[chat] ${msg}`);
-  });
-
-  if (mainWindow && !mainWindow.isDestroyed()) mainWindow.hide();
-
-  const sessionPromise = Core.startSession().catch(e => { console.error('[session] error:', e.message); return null; });
-  Core.setChatOpen(true);
-
-  chatWindow.webContents.once('did-finish-load', () => {
-    chatWindow.webContents.send('init-theme', chatTheme);
-
-    const usingFallback = Core.getGraph()?.usingFallback ?? false;
-    chatWindow.webContents.send('memory-status', { usingFallback });
-
-    // Mejora #6 — si sessionPromise resolvió con una sesión RETOMADA
-    // (ended_at NULL de un cierre no-limpio anterior), repobla la ventana
-    // con los mensajes recuperados en vez de arrancar en blanco.
-    sessionPromise.then(result => {
-      if (result?.resumed && result.history?.length && chatWindow && !chatWindow.isDestroyed()) {
-        console.log(`[main] enviando sesión resumida al chat: ${result.history.length} mensajes`);
-        chatWindow.webContents.send('resumed-session', { history: result.history });
-      }
-    }).catch(() => {});
-  });
-
-  chatWindow.on('closed', () => {
-    Core.closeSession().catch(e => console.error('[session] close error:', e.message));
-    Core.setChatOpen(false);
-    chatWindow = null;
-    if (mainWindow && !mainWindow.isDestroyed()) mainWindow.show();
-    if (tray) tray.setContextMenu(buildTrayMenu());
-  });
-
-  if (tray) tray.setContextMenu(buildTrayMenu());
-}
-
-function toggleChatWindow() {
-  if (!chatWindow || chatWindow.isDestroyed()) {
-    createChatWindow();
-  } else if (chatWindow.isVisible()) {
-    chatWindow.hide();
-    if (mainWindow && !mainWindow.isDestroyed()) mainWindow.show();
-    Core.setChatOpen(false);
-    if (tray) tray.setContextMenu(buildTrayMenu());
-  } else {
-    chatWindow.show(); chatWindow.focus();
-    if (mainWindow && !mainWindow.isDestroyed()) mainWindow.hide();
-    Core.setChatOpen(true);
-    if (tray) tray.setContextMenu(buildTrayMenu());
-  }
-}
-
-// ── Tray ──────────────────────────────────────────────────────────────────────
-function buildTrayMenu() {
-  const chatOpen = chatWindow && !chatWindow.isDestroyed() && chatWindow.isVisible();
-  const mode = getModelViewMode(activeModelId);
-  return Menu.buildFromTemplate([
-    { label: chatOpen ? 'Cerrar chat' : 'Abrir chat', click: toggleChatWindow },
-    { type: 'separator' },
-    { label: isClickThrough ? 'Bloquear (mover overlay)' : 'Pasar clics', click: () => setClickThrough(!isClickThrough) },
-    { type: 'separator' },
-    { label: `${mode === 'full' ? '> ' : ''}Cuerpo completo`, click: () => applyViewMode('full') },
-    { label: `${mode === 'half' ? '> ' : ''}Medio cuerpo`,    click: () => applyViewMode('half') },
-    { label: `${mode === 'head' ? '> ' : ''}Solo cabeza`,     click: () => applyViewMode('head') },
-    { label: `${mode === 'random' ? '> ' : ''}Aleatorio`,     click: () => applyViewMode('random') },
-    { type: 'separator' },
-    { label: 'Prueba de voz', submenu: [
-      { label: 'Saludo',      click: () => sendSpeak('Hola! Estoy aqui para ayudarte!') },
-      { label: 'Emocion sad', click: () => sendSpeak('Lo siento, hubo un error.', 'sad') },
-      { label: 'Excited',     click: () => sendSpeak('Perfecto, todo salio bien!', 'excited') },
-    ]},
-    { type: 'separator' },
-    { label: 'Volver a esquina', click: () => { userHasMoved = false; mainWindow.setBounds(getBottomRightBounds()); } },
-    { label: 'Mostrar / ocultar overlay', click: () => mainWindow.isVisible() ? mainWindow.hide() : mainWindow.show() },
-    { type: 'separator' },
-    { label: 'Cerrar todo', click: () => app.quit() },
-  ]);
-}
-
-function createTray() {
-  tray = new Tray(nativeImage.createEmpty());
-  tray.setToolTip('Asistente personal');
-  tray.setContextMenu(buildTrayMenu());
-}
-
-// ── IPC: overlay ──────────────────────────────────────────────────────────────
-ipcMain.on('drag-start', () => { userHasMoved = true; });
-ipcMain.on('drag-move', (e, { x, y }) => {
-  if (!mainWindow || mainWindow.isDestroyed()) return;
-  const size = mainWindow.getSize();
-  mainWindow.setPosition(Math.round(x - size[0] / 2), Math.round(y - size[1] / 2));
-});
-ipcMain.on('model-hover', (e, hovering) => {
-  if (!mainWindow || mainWindow.isDestroyed()) return;
-  mainWindow.setIgnoreMouseEvents(!hovering, { forward: true });
-});
-ipcMain.on('view-changed', (e, view) => { currentView = view; if (tray) tray.setContextMenu(buildTrayMenu()); });
-ipcMain.on('model-dblclick', () => toggleChatWindow());
-
-ipcMain.on('chat-close', () => {
-  console.log('[main] chat cerrado — saliendo del asistente');
-  app.quit();
-});
-
-ipcMain.on('chat-theme-changed', (e, theme) => { chatTheme = theme; saveConfig({ chatTheme: theme }); });
-
-// ── IPC: modelo Live2D ─────────────────────────────────────────────────────────
-const MODELS_DIR = path.join(__dirname, 'models');
-let activeModelId = savedConfig.activeModel || 'March 7th';
-
-function listModels() {
-  const models = [];
-  if (!fs.existsSync(MODELS_DIR)) return models;
-  for (const entry of fs.readdirSync(MODELS_DIR, { withFileTypes: true })) {
-    if (!entry.isDirectory()) continue;
-    const folder = path.join(MODELS_DIR, entry.name);
-    let model3 = null;
-    try {
-      model3 = fs.readdirSync(folder).find(f => f.endsWith('.model3.json')) || null;
-    } catch {}
-    if (model3) {
-      models.push({
-        id: entry.name,
-        name: entry.name,
-        model3Path: path.join(folder, model3),
-        active: entry.name === activeModelId,
-      });
-    }
-  }
-  return models;
-}
-
-function getActiveModel() {
-  const models = listModels();
-  return models.find(m => m.active) || models[0] || null;
-}
-
-function setActiveModel(id) {
-  if (!listModels().find(m => m.id === id)) return false;
-  activeModelId = id;
-  saveConfig({ activeModel: id });
-  return true;
-}
-
-function broadcastModelChanged() {
-  const info = getActiveModel();
-  if (!info) return;
-  const payload = { ...info, models: listModels() };
-  if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('model-changed', payload);
-  if (chatWindow && !chatWindow.isDestroyed()) chatWindow.webContents.send('model-changed', payload);
-  broadcastViewsChanged();
-}
-
-ipcMain.handle('models-list', () => listModels());
-
-ipcMain.handle('get-model-info', () => getActiveModel());
-
-ipcMain.handle('model-set', (e, { id } = {}) => {
-  if (!setActiveModel(id)) return { error: 'Modelo no encontrado: ' + id };
-  broadcastModelChanged();
-  return { ok: true, info: getActiveModel() };
-});
-
-ipcMain.handle('model-import', (e, { folderPath } = {}) => {
-  if (!folderPath || typeof folderPath !== 'string') return { error: 'Ruta inválida.' };
-  if (!fs.existsSync(folderPath)) return { error: 'La ruta no existe: ' + folderPath };
-
-  let model3Rel = null;
-  const walk = (dir, depth) => {
-    if (depth > 2 || model3Rel) return;
-    let entries;
-    try { entries = fs.readdirSync(dir, { withFileTypes: true }); } catch { return; }
-    for (const entry of entries) {
-      if (model3Rel) return;
-      if (entry.isDirectory()) walk(path.join(dir, entry.name), depth + 1);
-      else if (entry.name.endsWith('.model3.json')) model3Rel = path.join(dir, entry.name);
-    }
-  };
-  walk(folderPath, 0);
-  if (!model3Rel) return { error: 'No se encontró un archivo .model3.json en la carpeta.' };
-
-  const id = path.basename(folderPath);
-  const dest = path.join(MODELS_DIR, id);
-  try {
-    fs.cpSync(folderPath, dest, { recursive: true });
-  } catch (err) {
-    return { error: 'No se pudo copiar el modelo: ' + err.message };
-  }
-  if (!setActiveModel(id)) return { error: 'No se pudo activar el modelo importado.' };
-  broadcastModelChanged();
-  return { ok: true, info: getActiveModel() };
-});
-
-// ── Modo de vista del modelo (full | half | head | random) ────────────────────
-const VIEW_MODES = ['full', 'half', 'head', 'random'];
-
-function getModelViewMode(id) {
-  const saved = (savedConfig.modelViews && savedConfig.modelViews[id]) || {};
-  const m = saved.mode;
-  return VIEW_MODES.includes(m) ? m : 'random';
-}
-
-function saveModelViewMode(id, mode) {
-  const cfg = loadConfig();
-  const mv = cfg.modelViews || {};
-  mv[id] = { mode };
-  saveConfig({ modelViews: mv });
-  savedConfig.modelViews = mv;
-}
-
-function currentViewsState() {
-  return { modelId: activeModelId, mode: getModelViewMode(activeModelId), activeView: currentView };
-}
-
-function broadcastViewsChanged() {
-  const payload = currentViewsState();
-  if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('views-changed', payload);
-  if (chatWindow && !chatWindow.isDestroyed()) chatWindow.webContents.send('views-changed', payload);
-}
-
-function applyViewMode(mode, { broadcast = true } = {}) {
-  if (!VIEW_MODES.includes(mode)) return { error: `Modo inválido: ${mode}` };
-  saveModelViewMode(activeModelId, mode);
-  if (mode !== 'random') {
-    currentView = mode;
-    if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('set-view', mode);
-  }
-  if (broadcast) broadcastViewsChanged();
-  if (tray) tray.setContextMenu(buildTrayMenu());
-  return { ok: true, ...currentViewsState() };
-}
-
-ipcMain.handle('views-get', () => currentViewsState());
-
-ipcMain.handle('views-set', (e, { mode } = {}) => applyViewMode(mode));
-
-ipcMain.handle('views-reset', () => applyViewMode('random'));
-
-// FIX — antes este handler duplicaba ~30 líneas de SQL (CREATE TABLE,
-// DELETE, INSERT) que ya existían en init_vectors.js, y esa copia NO
-// tenía el fix de rowid explícito (intent_vectors.rowid = intent_catalog.id)
-// que sí tiene la v2 de init_vectors.js — es decir, esta copia inline
-// podía desincronizar las tablas igual que la versión vieja del otro
-// archivo. Ahora delega TODO a populateDatabase(), que vive en un solo
-// lugar (init_vectors.js) y ya incluye ese fix.
-ipcMain.handle('init-vectors', async () => {
-  const { populateDatabase } = require('./infrastructure/database/init_vectors.js');
-  const db = Core.getGraph()?._db;
-  if (!db) throw new Error('DB no disponible');
-
-  const result = await populateDatabase(db, { force: true });
-
-  const count = result.populated
-    ? result.inserted
-    : result.existing;
-
-  console.log(`[init-vectors] ${count} frases en ${Core.getGraph()?._dbPath ?? 'N/A'}`);
-  return `${count} frases vectorizadas`;
-});
-
-
-
-// ── IPC: memoria ──────────────────────────────────────────────────────────────
-ipcMain.on('memory-add-turn', (e, { role, content }) => {
-  Core.addTurn(role, content);
-  if (role === 'user') Core.detectInstant(content);
-});
-
-ipcMain.handle('memory-stats', () => Core.getStats());
-
-// ── IPC: decisión de propuesta proactiva (Fase A) ────────────────────────────
-// El renderer envía el voto del usuario (aceptar/descartar) sobre una
-// propuesta proactiva. Core lo reenvía al ProactiveEngine, que persiste
-// el feedback y ajusta la frecuencia futura de ese tipo.
-ipcMain.on('initiative-decision', (e, decision) => {
-  Core.handleProposalDecision(decision);
-});
-
-// ── IPC: grounding ────────────────────────────────────────────────────────────
-// FIX Fase 3: async/await porque buildContext ahora es async
-// (necesita await para IntentDetector.detect())
-ipcMain.handle('grounding-build-context', async (e, { sessionHistory, activeProvider, mode, plan }) => {
-  const ctx = await Core.buildContext(sessionHistory, activeProvider, { mode, plan });
-  console.log('[grounding-ipc] provider:', activeProvider, '| mode:', mode || 'chat', '| systemPrompt:', ctx?.systemPrompt?.length, 'chars');
-  return ctx;
-});
-
-// Genera un plan (fase 1 del sistema de dos fases). Usa Core.generatePlan()
-// internamente: construye contexto en modo 'plan', llama al LLM y parsea el plan.
-ipcMain.handle('generate-plan', async (e, { sessionHistory, userGoal }) => {
-  const taskDetector = Core.getTaskDetector?.();
-  const taskIntent = taskDetector ? taskDetector.detect(userGoal) : null;
-  const result = await Core.generatePlan(userGoal, taskIntent, sessionHistory);
-  return result;
-});
-
-// ── IPC: OS Sensor ────────────────────────────────────────────────────────────
-ipcMain.handle('os-get-context', () => {
-  return Core.getOSSensor()?.getCurrentContext() ?? null;
-});
-
-ipcMain.handle('os-get-today-history', () => {
-  return Core.getOSSensor()?.getTodayHistory() ?? [];
-});
-
-ipcMain.handle('os-get-today-summary', () => {
-  return Core.getOSSensor()?.getTodaySummary() ?? null;
-});
-
-ipcMain.handle('get-stats', () => {
-  return Core.getStats();
-});
-
-// Fase C: /olvida X — archiva nodos de memoria que matcheen el texto.
-ipcMain.handle('memory-forget', (e, { text } = {}) => Core.forgetMemory(text));
-
-ipcMain.handle('list-skills', () => Core.listSkills());
-ipcMain.handle('store-fact', (e, fact) => Core.storeFact(fact));
-
-ipcMain.on('set-provider', (e, { primary }) => {
-  if (!primary) return;
-  const LLMProvider = require('./core/llm/LLMProvider.js');
-  LLMProvider.configure({ llm: { primary } });
-  console.log('[config] provedor cambiado a:', primary);
-});
-
-// ── IPC: config y keys ────────────────────────────────────────────────────────
-ipcMain.handle('get-config', () => loadEffectiveConfig());
-
-ipcMain.handle('save-llm-keys', (e, { providers, useKeychain }) => {
-  const currentCfg = loadConfig();
-  const existingPrimary = currentCfg.llm?.primary || 'groq';
-  const existingFallback = currentCfg.llm?.fallback || ['gemini'];
-
-  const keychainActive = !!useKeychain && KeychainManager.isAvailable();
-
-  // Build new providers config from the submitted keys
-  const newProviders = { ...(currentCfg.llm?.providers || {}) };
-  for (const [id, key] of Object.entries(providers || {})) {
-    if (keychainActive) {
-      // Con llavero activo: la key SOLO vive en el llavero, nunca en texto
-      // plano en config.json.
-      if (key) KeychainManager.setKey(id, key);
-      else KeychainManager.deleteKey(id);
-      newProviders[id] = { ...(newProviders[id] || {}), apiKey: '' };
-    } else {
-      // Sin llavero: comportamiento anterior, texto plano en config.json.
-      // Se limpian las keys del llavero para que el texto plano tenga efecto
-      // (el llavero tenía prioridad máxima).
-      KeychainManager.deleteKey(id);
-      newProviders[id] = { ...(newProviders[id] || {}), apiKey: key };
-    }
-  }
-
-  const apiKeysToSave = keychainActive ? {} : (providers || {});
-
-  saveConfig({ llm: {
-    primary: existingPrimary,
-    fallback: existingFallback,
-    providers: newProviders,
-    apiKeys: apiKeysToSave,
-  } });
-
-  console.log('[config] keys LLM actualizadas', keychainActive ? '(llavero del sistema)' : '(config.json)');
-  Core.reloadLLMConfig();
-  return true;
-});
-
-ipcMain.handle('get-key-source', () => {
-  return {
-    source: _keySource,
-    byProvider: _keySourcesByProvider,
-    keychainAvailable: KeychainManager.isAvailable(),
-  };
-});
-
-// ── IPC: ruta de Python ya resuelta (ver resolvePythonBin arriba) ─────────────
-// chat.html necesita spawnear Python directo para el TTS (línea con cp.spawn)
-// y antes traía su PROPIA copia hardcodeada de la misma ruta absoluta que
-// arreglamos en main.js — mismo bug, dos lugares. Ahora lo pide por IPC en
-// vez de duplicar la lógica de resolución en el renderer.
-ipcMain.handle('get-python-bin', () => PYTHON_BIN);
-
-// ── IPC: testing proactivo ────────────────────────────────────────────────────
-ipcMain.handle('force-proactive', async (e, triggerType) => {
-  console.log('[main] force-proactive:', triggerType);
-  const msg = await Core.forceProactive(triggerType || 'long_silence');
-  return msg || null;
-});
-
-// ── IPC: Fase 3 — OpenClaw ────────────────────────────────────────────────────
-
-ipcMain.handle('openclaw-available', async () => {
-  return Core.isOpenClawAvailable();
-});
-
-ipcMain.handle('openclaw-execute-tool', async (e, { tool, params }) => {
-  console.log(`[main] openclaw-execute-tool: ${tool}`);
-  try {
-    const result = await Core.executeTool(tool, params);
-    return result;
-  } catch (err) {
-    console.error('[main] error en executeTool:', err.message);
-    return { ok: false, error: err.message, tool, result: null, elapsed: 0 };
-  }
-});
-
-ipcMain.handle('openclaw-parse-plan', (e, { llmResponse, userGoal, toolIntent }) => {
-  try {
-    const plan = Core.parsePlanFromResponse(llmResponse, userGoal, toolIntent ?? null);
-    return plan ?? null;
-  } catch (err) {
-    console.error('[main] error en parsePlanFromResponse:', err.message);
-    return null;
-  }
-});
-
-ipcMain.handle('openclaw-execute-plan', async (e, { plan }) => {
-  console.log(`[main] ejecutando plan: ${plan?.id} (${plan?.steps?.length} pasos)`);
-
-  if (!plan || !plan.steps?.length) {
-    return { ok: false, error: 'Plan inválido o sin pasos', plan };
-  }
-
-  try {
-    const executedPlan = await Core.executePlan(plan, {
-
-      onStepStart: (step) => {
-        if (chatWindow && !chatWindow.isDestroyed()) {
-          chatWindow.webContents.send('plan-step-start', {
-            planId:      plan.id,
-            stepId:      step.id,
-            description: step.description,
-            tool:        step.tool,
-          });
-        }
-      },
-
-      onStepDone: (step, result) => {
-        if (chatWindow && !chatWindow.isDestroyed()) {
-          chatWindow.webContents.send('plan-step-done', {
-            planId:      plan.id,
-            stepId:      step.id,
-            description: step.description,
-            tool:        step.tool,
-            status:      step.status,
-            result:      _serializeResult(result),
-            error:       step.error,
-          });
-        }
-      },
-
-      onApprovalNeeded: (step) => {
-        return new Promise((resolve) => {
-          if (!chatWindow || chatWindow.isDestroyed()) {
-            resolve(false);
-            return;
-          }
-
-          chatWindow.webContents.send('plan-approval-needed', {
-            planId:      plan.id,
-            stepId:      step.id,
-            description: step.description,
-            tool:        step.tool,
-            params:      step.params,
-          });
-
-          const handler = (e2, { stepId, approved }) => {
-            if (stepId === step.id) {
-              ipcMain.removeListener('plan-approval-response', handler);
-              resolve(approved);
-            }
-          };
-          ipcMain.on('plan-approval-response', handler);
-
-          setTimeout(() => {
-            ipcMain.removeListener('plan-approval-response', handler);
-            resolve(false);
-          }, 60_000);
-        });
-      },
-    });
-
-    return {
-      ok:     executedPlan.status === 'done',
-      plan:   executedPlan,
-      result: _serializeResult(executedPlan.result),
-      error:  executedPlan.error,
-    };
-
-  } catch (err) {
-    console.error('[main] error ejecutando plan:', err.message);
-    return { ok: false, error: err.message, plan };
-  }
-});
-
-// ── IPC: agent-run (loop cerrado con herramientas; el modo fast/smart lo
-//    elige Core automáticamente según la intención detectada)
-ipcMain.handle('agent-run', async (e, { text }) => {
-  console.log(`[main] agent-run: text="${text?.slice(0, 80)}"`);
-
-  if (!text || !text.trim()) {
-    return { response: null, iterations: 0, toolResults: [], error: 'texto vacío' };
-  }
-
-  try {
-    const result = await Core.runAgent(text, {
-
-      onApprovalNeeded: async (action) => {
-        return new Promise((resolve) => {
-          if (!chatWindow || chatWindow.isDestroyed()) {
-            resolve(false);
-            return;
-          }
-
-          const actionId = `agent_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
-          chatWindow.webContents.send('agent-approval-needed', {
-            actionId,
-            tool: action.tool,
-            params: action.params,
-            description: action.description || `${action.tool}: ${JSON.stringify(action.params).slice(0, 100)}`,
-          });
-
-          const handler = (e2, { id, approved }) => {
-            if (id === actionId) {
-              ipcMain.removeListener('agent-approval-response', handler);
-              resolve(approved);
-            }
-          };
-          ipcMain.on('agent-approval-response', handler);
-
-          setTimeout(() => {
-            ipcMain.removeListener('agent-approval-response', handler);
-            resolve(false);
-          }, 60_000);
-        });
-      },
-
-      onProgress: (progress) => {
-        if (chatWindow && !chatWindow.isDestroyed()) {
-          chatWindow.webContents.send('agent-progress', progress);
-        }
-      },
-    });
-
-    return {
-      response: result.response,
-      iterations: result.iterations,
-      toolResults: result.toolResults,
-      error: result.error,
-      truncated: result.truncated || false,
-    };
-  } catch (err) {
-    console.error('[main] error en agent-run:', err.message);
-    return { response: null, iterations: 0, toolResults: [], error: err.message };
-  }
-});
-
-ipcMain.handle('openclaw-plan-history', () => {
-  return Core.getPlanner()?.getHistory(20) ?? [];
-});
-
-// ── MCP ────────────────────────────────────────────────────────────────────────
-// Independiente de OpenClaw — estos handlers funcionan aunque mock-openclaw
-// no esté corriendo. La config (qué servidores hay, cuáles están enabled)
-// vive en config.json bajo `mcp.servers`, igual que las apiKeys de LLM.
-
-ipcMain.handle('pick-workspace-folder', async () => {
-  const result = await dialog.showOpenDialog(chatWindow, { properties: ['openDirectory'] });
-  if (result.canceled || !result.filePaths.length) return null;
-  return Core.setActiveWorkspace(result.filePaths[0]);
-});
-
-ipcMain.handle('get-workspace', () => {
-  try { return Core.getWorkspace(); }
-  catch (err) { console.warn('[main] error en get-workspace:', err.message); return null; }
-});
-
-ipcMain.handle('mcp-list-servers', async () => {
-  try { return await Core.mcpListServers(); }
-  catch (err) { console.error('[main] error en mcp-list-servers:', err.message); return { error: err.message }; }
-});
-
-ipcMain.handle('mcp-list-tools', () => {
-  try { return Core.mcpListAllTools(); }
-  catch (err) { console.error('[main] error en mcp-list-tools:', err.message); return { error: err.message }; }
-});
-
-ipcMain.handle('mcp-search-registry', async (e, { query }) => {
-  try { return await Core.mcpSearchRegistry(query || ''); }
-  catch (err) { console.error('[main] error en mcp-search-registry:', err.message); return { error: err.message }; }
-});
-
-// Agrega un servidor y lo persiste en config.json. `serverCfg` trae al
-// menos { name, command, args, env? }. Se conecta de inmediato para poder
-// mostrarle al usuario si funcionó o no.
-ipcMain.handle('mcp-add-server', async (e, { serverCfg }) => {
-  try {
-    const status = await Core.mcpAddServer(serverCfg);
-    const cfg = loadConfig();
-    const servers = cfg?.mcp?.servers || [];
-    const withoutDup = servers.filter(s => s.id !== status.id);
-    saveConfig({ mcp: { servers: [...withoutDup, { ...serverCfg, id: status.id, enabled: true }] } });
-    return { ok: true, status };
-  } catch (err) {
-    console.error('[main] error en mcp-add-server:', err.message);
-    return { ok: false, error: err.message };
-  }
-});
-
-ipcMain.handle('mcp-remove-server', async (e, { id }) => {
-  try {
-    await Core.mcpRemoveServer(id);
-    const cfg = loadConfig();
-    const servers = (cfg?.mcp?.servers || []).filter(s => s.id !== id);
-    saveConfig({ mcp: { servers } });
-    return { ok: true };
-  } catch (err) {
-    console.error('[main] error en mcp-remove-server:', err.message);
-    return { ok: false, error: err.message };
-  }
-});
-
-ipcMain.handle('mcp-toggle-server', async (e, { id, enabled }) => {
-  try {
-    const cfg = loadConfig();
-    const servers = cfg?.mcp?.servers || [];
-    const serverCfg = servers.find(s => s.id === id);
-    if (!serverCfg) return { ok: false, error: 'Servidor no encontrado en config' };
-
-    await Core.mcpToggleServer(id, enabled, serverCfg);
-
-    const updated = servers.map(s => s.id === id ? { ...s, enabled } : s);
-    saveConfig({ mcp: { servers: updated } });
-    return { ok: true };
-  } catch (err) {
-    console.error('[main] error en mcp-toggle-server:', err.message);
-    return { ok: false, error: err.message };
-  }
-});
-
-ipcMain.handle('telemetry-report', () => {
-  return Core.getTelemetryReport();
-});
-
-ipcMain.handle('fase3-stats', () => {
-  const stats = Core.getStats();
-  return {
-    openclaw: stats.openclaw,
-    planner:  stats.planner,
-    provider: stats.provider,
-  };
-});
-
-ipcMain.handle('get-bridge-stats', () => {
-  try {
-    const stats = Core.getStats();
-    return stats.openclaw || { error: 'no disponible' };
-  } catch (e) {
-    return { error: `Core no inicializado: ${e.message}` };
-  }
-});
-
-// Antes: cualquier string llegaba directo a exec(). Solo /undo y /fix lo
-// invocan hoy, y siempre con uno de estos 3 comandos fijos — pero el canal
-// IPC en sí no sabía eso, aceptaba cualquier cosa. Con nodeIntegration:true
-// (ver ticket de contextIsolation), cualquier XSS en el renderer puede
-// llamar a ipcRenderer.invoke('exec-command', {...}) directamente sin
-// pasar por /undo ni /fix — así que la restricción tiene que vivir acá,
-// del lado main, no confiar en que solo la UI lo invoque bien.
-const EXEC_COMMAND_ALLOWLIST = new Set([
-  'git log --oneline -1',
-  'git reset --soft HEAD~1',
-  'npx eslint . --format compact 2>&1 || true',
-]);
-
-ipcMain.handle('exec-command', async (e, { command, timeout }) => {
-  if (!EXEC_COMMAND_ALLOWLIST.has(command)) {
-    return { exitCode: 1, stdout: '', stderr: `comando no permitido: ${JSON.stringify(command)}` };
-  }
-  const util = require('util');
-  const exec = util.promisify(require('child_process').exec);
-  const safeTimeout = Math.min(timeout || 10, 60) * 1000;
-  try {
-    const { stdout, stderr } = await exec(command, { timeout: safeTimeout, maxBuffer: 1024 * 1024 });
-    return { exitCode: 0, stdout: stdout || '', stderr: stderr || '' };
-  } catch (err) {
-    return {
-      exitCode: err.code || 1,
-      stdout: err.stdout || '',
-      stderr: err.stderr || err.message || '',
-    };
-  }
-});
-
-const IPC_RESULT_LIMIT = 512 * 1024;
-
-function _serializeResult(result) {
+// Contexto compartido para los handlers
+const serializeResult = (result) => {
+  const IPC_RESULT_LIMIT = 512 * 1024;
   if (!result) return null;
   if (typeof result === 'string') return result;
   if (typeof result === 'object') {
@@ -1101,20 +295,193 @@ function _serializeResult(result) {
     }
   }
   return result;
+};
+
+const ctx = {
+  S, savedConfig, loadConfig, loadEffectiveConfig, saveConfig,
+  Core, KeychainManager, PYTHON_BIN,
+  serializeResult,
+  getBottomRightBounds,
+  setClickThrough, sendSpeak, sendOverlayGesture,
+  keySource: () => _keySource,
+  keySourcesByProvider: () => _keySourcesByProvider,
+  broadcastModelChanged: () => {},
+};
+
+// Ventana overlay
+function createWindow() {
+  const mode = ctx.getModelViewMode(S.activeModelId);
+  S.currentView = mode === 'random'
+    ? VIEW_NAMES[Math.floor(Math.random() * VIEW_NAMES.length)]
+    : mode;
+
+  S.mainWindow = new BrowserWindow({
+    ...getBottomRightBounds(),
+    transparent: true, backgroundColor: '#00000000',
+    frame: false, alwaysOnTop: true, skipTaskbar: true,
+    resizable: false, hasShadow: false, thickFrame: false,
+    focusable: false, show: false,
+    webPreferences: { nodeIntegration: true, contextIsolation: false, webSecurity: false },
+  });
+
+  S.mainWindow.setAlwaysOnTop(true, 'screen-saver');
+  S.mainWindow.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
+  S.mainWindow.setMenuBarVisibility(false);
+  S.mainWindow.setIgnoreMouseEvents(true, { forward: true });
+  S.mainWindow.webContents.on('console-message', (e, level, msg) => {
+    if (msg.includes('PixiJS') || msg.includes('Live2D Cubism Core') || msg.includes('CubismFramework.') || msg.startsWith(' %c') || msg.includes('Electron Security Warning')) return;
+    console.log(`[overlay] ${msg}`);
+  });
+  S.mainWindow.loadFile(path.join(__dirname, 'src/index.html'));
+  S.mainWindow.webContents.once('did-finish-load', () => {
+    setTimeout(() => S.mainWindow.webContents.send('set-view', S.currentView), 1500);
+  });
 }
 
-// ── Servidor HTTP local ───────────────────────────────────────────────────────
+// Ventana de chat
+function createChatWindow() {
+  if (S.chatWindow && !S.chatWindow.isDestroyed()) {
+    if (!S.chatWindow.isVisible()) {
+      S.chatWindow.show(); S.chatWindow.focus();
+      if (S.mainWindow && !S.mainWindow.isDestroyed()) S.mainWindow.hide();
+      Core.setChatOpen(true);
+      if (S.tray) S.tray.setContextMenu(buildTrayMenu());
+    } else {
+      S.chatWindow.focus();
+    }
+    return;
+  }
+
+  S.chatWindow = new BrowserWindow({
+    ...getChatBounds(),
+    frame: false, transparent: false, backgroundColor: '#0d0f14',
+    resizable: true, minWidth: 700, minHeight: 480,
+    skipTaskbar: false, alwaysOnTop: false, hasShadow: true, show: true,
+    webPreferences: {
+      nodeIntegration: true,
+      contextIsolation: false,
+      webSecurity: true,
+    },
+  });
+
+  S.chatWindow.setMenuBarVisibility(false);
+  S.chatWindow.loadFile(path.join(__dirname, 'src/chat.html'));
+  S.chatWindow.webContents.openDevTools({ mode: 'detach' });
+  S.chatWindow.webContents.on('console-message', (e, level, msg) => {
+    if (msg.includes('PixiJS') || msg.includes('Live2D Cubism Core') || msg.includes('CubismFramework.') || msg.startsWith(' %c') || msg.includes('Electron Security Warning')) return;
+    console.log(`[chat] ${msg}`);
+  });
+
+  if (S.mainWindow && !S.mainWindow.isDestroyed()) S.mainWindow.hide();
+
+  const sessionPromise = Core.startSession().catch(e => { console.error('[session] error:', e.message); return null; });
+  Core.setChatOpen(true);
+
+  S.chatWindow.webContents.once('did-finish-load', () => {
+    S.chatWindow.webContents.send('init-theme', S.chatTheme);
+
+    const usingFallback = Core.getGraph()?.usingFallback ?? false;
+    S.chatWindow.webContents.send('memory-status', { usingFallback });
+
+    sessionPromise.then(result => {
+      if (result?.resumed && result.history?.length && S.chatWindow && !S.chatWindow.isDestroyed()) {
+        console.log(`[main] enviando sesión resumida al chat: ${result.history.length} mensajes`);
+        S.chatWindow.webContents.send('resumed-session', { history: result.history });
+      }
+    }).catch(() => {});
+  });
+
+  S.chatWindow.on('closed', () => {
+    Core.closeSession().catch(e => console.error('[session] close error:', e.message));
+    Core.setChatOpen(false);
+    S.chatWindow = null;
+    if (S.mainWindow && !S.mainWindow.isDestroyed()) S.mainWindow.show();
+    if (S.tray) S.tray.setContextMenu(buildTrayMenu());
+  });
+
+  if (S.tray) S.tray.setContextMenu(buildTrayMenu());
+}
+
+function toggleChatWindow() {
+  if (!S.chatWindow || S.chatWindow.isDestroyed()) {
+    createChatWindow();
+  } else if (S.chatWindow.isVisible()) {
+    S.chatWindow.hide();
+    if (S.mainWindow && !S.mainWindow.isDestroyed()) S.mainWindow.show();
+    Core.setChatOpen(false);
+    if (S.tray) S.tray.setContextMenu(buildTrayMenu());
+  } else {
+    S.chatWindow.show(); S.chatWindow.focus();
+    if (S.mainWindow && !S.mainWindow.isDestroyed()) S.mainWindow.hide();
+    Core.setChatOpen(true);
+    if (S.tray) S.tray.setContextMenu(buildTrayMenu());
+  }
+}
+
+// Tray
+function buildTrayMenu() {
+  const chatOpen = S.chatWindow && !S.chatWindow.isDestroyed() && S.chatWindow.isVisible();
+  const mode = ctx.getModelViewMode(S.activeModelId);
+  return Menu.buildFromTemplate([
+    { label: chatOpen ? 'Cerrar chat' : 'Abrir chat', click: toggleChatWindow },
+    { type: 'separator' },
+    { label: S.isClickThrough ? 'Bloquear (mover overlay)' : 'Pasar clics', click: () => setClickThrough(!S.isClickThrough) },
+    { type: 'separator' },
+    { label: `${mode === 'full' ? '> ' : ''}Cuerpo completo`, click: () => applyViewMode('full') },
+    { label: `${mode === 'half' ? '> ' : ''}Medio cuerpo`,    click: () => applyViewMode('half') },
+    { label: `${mode === 'head' ? '> ' : ''}Solo cabeza`,     click: () => applyViewMode('head') },
+    { label: `${mode === 'random' ? '> ' : ''}Aleatorio`,     click: () => applyViewMode('random') },
+    { type: 'separator' },
+    { label: 'Prueba de voz', submenu: [
+      { label: 'Saludo',      click: () => sendSpeak('Hola! Estoy aqui para ayudarte!') },
+      { label: 'Emocion sad', click: () => sendSpeak('Lo siento, hubo un error.', 'sad') },
+      { label: 'Excited',     click: () => sendSpeak('Perfecto, todo salio bien!', 'excited') },
+    ]},
+    { type: 'separator' },
+    { label: 'Volver a esquina', click: () => { S.userHasMoved = false; S.mainWindow.setBounds(getBottomRightBounds()); } },
+    { label: 'Mostrar / ocultar overlay', click: () => S.mainWindow.isVisible() ? S.mainWindow.hide() : S.mainWindow.show() },
+    { type: 'separator' },
+    { label: 'Cerrar todo', click: () => app.quit() },
+  ]);
+}
+
+function createTray() {
+  S.tray = new Tray(nativeImage.createEmpty());
+  S.tray.setToolTip('Asistente personal');
+  S.tray.setContextMenu(buildTrayMenu());
+}
+
+// Modo de vista del modelo (delegado al handler de ventana)
+function applyViewMode(mode, { broadcast = true } = {}) {
+  const VIEW_MODES = ['full', 'half', 'head', 'random'];
+  if (!VIEW_MODES.includes(mode)) return { error: `Modo inválido: ${mode}` };
+  ctx.saveModelViewMode(S.activeModelId, mode);
+  if (mode !== 'random') {
+    S.currentView = mode;
+    if (S.mainWindow && !S.mainWindow.isDestroyed()) S.mainWindow.webContents.send('set-view', mode);
+  }
+  if (broadcast) ctx.broadcastViewsChanged();
+  if (S.tray) S.tray.setContextMenu(buildTrayMenu());
+  return { ok: true, ...ctx.currentViewsState() };
+}
+
+// Registrar handlers IPC
+ctx.buildTrayMenu = buildTrayMenu;
+ctx.toggleChatWindow = toggleChatWindow;
+ctx.applyViewMode = applyViewMode;
+
+require('./ipc/window-model-handlers.js').register(ctx);
+require('./ipc/memory-handlers.js').register(ctx);
+require('./ipc/config-handlers.js').register(ctx);
+require('./ipc/init-vectors-handlers.js').register(ctx);
+require('./ipc/openclaw-handlers.js').register(ctx);
+require('./ipc/mcp-handlers.js').register(ctx);
+require('./ipc/github-handlers.js').register(ctx);
+
+// Servidor HTTP local
 const VALID_EMOTIONS = ['happy','excited','sad','tired','gentle','default'];
 const VALID_VIEWS    = ['full','half','head','random'];
 
-// Token generado al arrancar — sin esto, cualquier página web abierta en
-// el navegador del usuario podía disparar estos endpoints en silencio con
-// un simple <img src="http://localhost:3131/workspace?path=...">, porque
-// eran GET sin auth, sin CORS y sin validar Origin. Se genera y se usa acá
-// mismo, en la misma función — a propósito, para no repetir el bug de
-// OpenClawBridge donde la key se leía de process.env en un momento
-// distinto (require-time) a cuando se generaba (runtime), dejando al
-// cliente con una key vieja/nula.
 const CONTROL_API_TOKEN = crypto.randomBytes(24).toString('hex');
 
 const HELP_TEXT = `
@@ -1133,18 +500,12 @@ const HELP_TEXT = `
 `;
 
 function _controlAuthOk(req, url) {
-  // Capa 1: token obligatorio, comparación en tiempo constante.
   const provided = url.searchParams.get('token') || '';
   const bufA = Buffer.from(provided, 'utf8');
   const bufB = Buffer.from(CONTROL_API_TOKEN, 'utf8');
   const tokenOk = bufA.length === bufB.length && crypto.timingSafeEqual(bufA, bufB);
   if (!tokenOk) return false;
 
-  // Capa 2: si la request trae Origin/Referer, tiene que ser de una fuente
-  // nuestra. curl y scripts normalmente no mandan Origin — una página web
-  // en un navegador normal, sí. Esto bloquea el vector <img src="...">
-  // aunque alguien filtrara el token (defensa en profundidad, no la
-  // barrera principal).
   const origin = req.headers['origin'] || req.headers['referer'] || '';
   if (origin && !/^(https?:\/\/)?(localhost|127\.0\.0\.1)([:/]|$)/i.test(origin)) {
     return false;
@@ -1166,7 +527,7 @@ function startControlServer() {
       const emotion = VALID_EMOTIONS.includes(rawEmo) ? rawEmo : null;
       if (!text) { res.writeHead(400); res.end('falta ?text='); return; }
       sendSpeak(text, emotion);
-      if (chatWindow && !chatWindow.isDestroyed()) chatWindow.webContents.send('chat-message', text);
+      if (S.chatWindow && !S.chatWindow.isDestroyed()) S.chatWindow.webContents.send('chat-message', text);
       res.writeHead(200); res.end(`ok: ${text}`); return;
     }
     if (url.pathname === '/view') {
@@ -1194,9 +555,6 @@ function startControlServer() {
       });
       return;
     }
-    // Debug del flujo proactivo (Fase B) — local y autenticado:
-    //   /debug/git-scan → fuerza el scan del GitWatcher (dispara el trigger real)
-    //   /debug/proposal?accept=1|0 → resuelve la última propuesta emitida
     if (url.pathname === '/debug/git-scan') {
       Core.debugGitScan().then(r => {
         res.writeHead(r.ok ? 200 : 500);
@@ -1215,7 +573,6 @@ function startControlServer() {
         : `error: ${r.error}`);
       return;
     }
-    // Fase D: fuerza el scan de errores LSP (dispara el trigger real del sensor)
     if (url.pathname === '/debug/lsp-scan') {
       Core.debugLSPScan().then(r => {
         res.writeHead(r.ok ? 200 : 500);
@@ -1225,7 +582,6 @@ function startControlServer() {
       });
       return;
     }
-    // Fase E: reporte de telemetría "¿mejor que el mes pasado?" (datos locales)
     if (url.pathname === '/telemetry/report') {
       const r = Core.getTelemetryReport();
       res.setHeader('Content-Type', 'application/json; charset=utf-8');
@@ -1246,12 +602,7 @@ function startControlServer() {
   server.on('error', (e) => { if (e.code === 'EADDRINUSE') console.log('[asistente] puerto 3131 ocupado.'); });
 }
 
-// ── Auto-init ─────────────────────────────────────────────────────────────────
-// Escanea el proyecto activo al arrancar y guarda un nodo 'Project' con su
-// contexto, para que el asistente recuerde sobre qué repo está trabajando sin que
-// el usuario tenga que pedírselo. Fire-and-forget: cualquier fallo se loguea
-// en crash.log pero nunca rompe el arranque (antes esta llamada estaba
-// huérfana — apuntaba a una función inexistente y tiraba un ReferenceError).
+// Auto-init
 async function _autoInitProject() {
   try {
     const userDataPath = app.getPath('userData');
@@ -1277,10 +628,6 @@ async function _autoInitProject() {
 
     const label = `Proyecto: ${path.basename(root)}`;
 
-    // No recrear el nodo en cada arranque: si ya existe un nodo 'Project'
-    // activo con esta etiqueta, lo actualizamos en vez de insertar otro
-    // (antes cada boot insertaba uno nuevo que el dedup de
-    // ContradictionResolver archivaba después — churn innecesario en la DB).
     const graph = Core.getGraph();
     if (graph?.isReady && graph._db) {
       const existing = graph.queryNodes({ type: 'Project', search: label, limit: 1 });
@@ -1304,11 +651,8 @@ async function _autoInitProject() {
   }
 }
 
-// ── App init ──────────────────────────────────────────────────────────────────
+// App init
 app.whenReady().then(() => {
-  // Cargar .env desde el directorio userData (además del que ya se cargó
-  // desde __dirname al inicio del módulo). Las vars de userData tienen
-  // prioridad sobre las del proyecto (override=true para esta segunda carga).
   const userDataPath = app.getPath('userData');
   dotenv.config({ path: path.join(userDataPath, '.env'), override: true });
 
@@ -1320,66 +664,64 @@ app.whenReady().then(() => {
   Core.init(app);
 
   Core.getEventBus().on('openclaw:available', (payload) => {
-    if (chatWindow && !chatWindow.isDestroyed()) {
-      chatWindow.webContents.send('openclaw-status', payload);
+    if (S.chatWindow && !S.chatWindow.isDestroyed()) {
+      S.chatWindow.webContents.send('openclaw-status', payload);
     }
   });
 
   Core.getEventBus().on('workspace:changed', (payload) => {
-    if (chatWindow && !chatWindow.isDestroyed()) {
-      chatWindow.webContents.send('workspace-changed', payload);
+    if (S.chatWindow && !S.chatWindow.isDestroyed()) {
+      S.chatWindow.webContents.send('workspace-changed', payload);
     }
   });
 
   Core.getEventBus().on('plan:started', (payload) => {
-    if (chatWindow && !chatWindow.isDestroyed()) {
-      chatWindow.webContents.send('plan-started', payload);
+    if (S.chatWindow && !S.chatWindow.isDestroyed()) {
+      S.chatWindow.webContents.send('plan-started', payload);
     }
     sendOverlayGesture('think', { source: 'plan-started' });
   });
 
   Core.getEventBus().on('plan:finished', (payload) => {
-    if (chatWindow && !chatWindow.isDestroyed()) {
-      chatWindow.webContents.send('plan-finished', payload);
+    if (S.chatWindow && !S.chatWindow.isDestroyed()) {
+      S.chatWindow.webContents.send('plan-finished', payload);
     }
     sendOverlayGesture('happy', { source: 'plan-finished' });
   });
 
   Core.onInitiative((payload) => {
     sendOverlayGesture('excited', { source: 'initiative' });
-    const chatVisible = chatWindow && !chatWindow.isDestroyed() && chatWindow.isVisible();
+    const chatVisible = S.chatWindow && !S.chatWindow.isDestroyed() && S.chatWindow.isVisible();
     if (chatVisible) {
-      chatWindow.webContents.send('initiative', payload);
+      S.chatWindow.webContents.send('initiative', payload);
       return;
     }
     if (payload.openChat) {
       createChatWindow();
       const sendWhenReady = () => {
-        if (chatWindow && !chatWindow.isDestroyed()) {
+        if (S.chatWindow && !S.chatWindow.isDestroyed()) {
           setTimeout(() => {
-            if (chatWindow && !chatWindow.isDestroyed()) {
-              chatWindow.webContents.send('initiative', payload);
+            if (S.chatWindow && !S.chatWindow.isDestroyed()) {
+              S.chatWindow.webContents.send('initiative', payload);
             }
           }, 800);
         }
       };
-      if (chatWindow && !chatWindow.isDestroyed()) {
-        chatWindow.webContents.once('did-finish-load', sendWhenReady);
+      if (S.chatWindow && !S.chatWindow.isDestroyed()) {
+        S.chatWindow.webContents.once('did-finish-load', sendWhenReady);
         setTimeout(sendWhenReady, 1000);
       }
     } else {
-      if (mainWindow && !mainWindow.isDestroyed()) {
-        mainWindow.webContents.send('speak', payload.suggestion);
+      if (S.mainWindow && !S.mainWindow.isDestroyed()) {
+        S.mainWindow.webContents.send('speak', payload.suggestion);
       }
     }
   });
 
-  // Fase B: resultado real de ejecutar una propuesta proactiva — se muestra
-  // en el bubble de la propuesta (solo si esa ventana existe).
   Core.onProposalResult((payload) => {
     sendOverlayGesture(payload.ok ? 'happy' : 'sad', { source: 'proposal-result' });
-    if (chatWindow && !chatWindow.isDestroyed()) {
-      chatWindow.webContents.send('proposal-result', payload);
+    if (S.chatWindow && !S.chatWindow.isDestroyed()) {
+      S.chatWindow.webContents.send('proposal-result', payload);
     }
   });
 
@@ -1388,30 +730,20 @@ app.whenReady().then(() => {
   startControlServer();
   createChatWindow();
 
-  // Auto-init: escanear proyecto al arrancar y guardar contexto
   _autoInitProject();
 
-  // NUEVO (multiplataforma): en Linux con GNOME (el escritorio más común,
-  // p.ej. Ubuntu de fábrica), Electron NO puede mostrar el ícono de la
-  // bandeja del sistema sin que el usuario instale la extensión "AppIndicator
-  // and KStatusNotifierItem Support" — sin eso, el tray de arriba
-  // (createTray()) queda invisible y el usuario se queda sin forma de
-  // llegar a "Cerrar todo". Este atajo es un respaldo para no dejar a
-  // nadie sin poder cerrar la app. También sirve en Windows/macOS como
-  // atajo rápido — no reemplaza al tray, solo evita que sea la ÚNICA
-  // salida en Linux/GNOME.
   const shortcutOk = globalShortcut.register('CommandOrControl+Shift+Q', () => app.quit());
   if (!shortcutOk) {
     console.warn('[asistente] no se pudo registrar el atajo global de salida (Ctrl/Cmd+Shift+Q) — probablemente ya lo usa otra app.');
   }
 
   screen.on('display-metrics-changed', () => {
-    if (!mainWindow || mainWindow.isDestroyed()) return;
-    if (!userHasMoved) mainWindow.setBounds(getBottomRightBounds());
+    if (!S.mainWindow || S.mainWindow.isDestroyed()) return;
+    if (!S.userHasMoved) S.mainWindow.setBounds(getBottomRightBounds());
   });
 });
 
-// ── Cierre limpio ─────────────────────────────────────────────────────────────
+// Cierre limpio
 function withTimeout(promise, ms) {
   return Promise.race([
     promise,
@@ -1434,6 +766,4 @@ app.on('before-quit', (event) => {
 
 app.on('window-all-closed', () => { if (process.platform !== 'darwin') app.quit(); });
 
-// NUEVO: liberar el atajo global registrado arriba — buena práctica de
-// Electron para no dejarlo "pegado" a nivel de SO si algo falla.
 app.on('will-quit', () => { globalShortcut.unregisterAll(); });

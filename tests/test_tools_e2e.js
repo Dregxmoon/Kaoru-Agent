@@ -240,10 +240,13 @@ async function testToolResolverCatalog() {
   assert(result.promptCatalog !== null, 'ToolResolver produce catalog');
   assert(result.nativeToolSchemas !== null, 'ToolResolver produce nativeToolSchemas');
 
-  // Verificar que todas las herramientas OpenClaw + LSP están en el catálogo
+  // Verificar que todas las herramientas OpenClaw + LSP + Git + GitHub están
+  // en el catálogo (Git/GitHub nativas son parte del toolset desde §10).
   const allToolNames = [
     ...registry._getOpenClawTools().map(t => t.name),
     ...registry._getLSPTools().map(t => t.name),
+    ...registry._getGitTools().map(t => t.name),
+    ...registry._getGitHubTools().map(t => t.name),
   ];
   for (const name of allToolNames) {
     assert(result.nativeToolSchemas.some(s => s.name === name), `${name}: presente en nativeToolSchemas`);

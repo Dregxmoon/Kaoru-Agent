@@ -6,7 +6,10 @@
     "filePatterns": [".ts", ".tsx"],
     "manifests": ["tsconfig.json", "package.json"],
     "installCmd": "npm install -g typescript-language-server typescript",
-    "npx": true
+    "npx": true,
+    "initializationOptions": {
+      "preferences": { "includeCompletionsForModuleExports": true }
+    }
   },
   "javascript": {
     "languageId": "javascript",
@@ -15,7 +18,10 @@
     "filePatterns": [".js", ".jsx", ".mjs"],
     "manifests": ["package.json"],
     "installCmd": "npm install -g typescript-language-server typescript",
-    "npx": true
+    "npx": true,
+    "initializationOptions": {
+      "preferences": { "includeCompletionsForModuleExports": true }
+    }
   },
   "python": {
     "languageId": "python",
@@ -24,7 +30,12 @@
     "filePatterns": [".py", ".pyw"],
     "manifests": ["pyproject.toml", "requirements.txt", "setup.py"],
     "installCmd": "pip install pyright",
-    "npx": true
+    "npx": true,
+    "initializationOptions": {
+      "python": {
+        "analysis": { "typeCheckingMode": "basic", "autoSearchPaths": true, "useLibraryCodeForTypes": true }
+      }
+    }
   },
   "go": {
     "languageId": "go",
@@ -65,6 +76,7 @@
     "filePatterns": [".java"],
     "manifests": ["pom.xml", "build.gradle", "build.gradle.kts"],
     "installCmd": "instalar eclipse.jdt.ls y configurar la ruta de jdtls",
-    "heavy": true
+    "heavy": true,
+    "initTimeoutMs": 45000
   }
 }

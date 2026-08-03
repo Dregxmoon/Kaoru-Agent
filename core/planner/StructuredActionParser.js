@@ -52,6 +52,9 @@ const ACTION_TO_TOOL = {
   // no {path, instruction}, así que 'content' habría llegado undefined.
   create_file:      'create_file',
   edit_file:        'edit_file',   // manejado especialmente en Planner._executeEditFile
+  write:            'create_file', // alias moderno (el LLM en fallback textual usa write/edit)
+  edit:             'edit_file',
+  read:             'read',
   read_file:        'read',
   delete_file:      'exec',        // mock: delete via exec del
   create_directory: 'exec',        // mkdir
@@ -161,6 +164,10 @@ function _extractBalancedJSON(content, label) {
 function _buildParams(action, fields, userGoal, projectCwd) {
   const cwd = projectCwd || process.cwd();
 
+  // Alias modernos (fallback textual del LLM usa write/edit/read)
+  const MODERN_ALIASES = { write: 'create_file', edit: 'edit_file', read: 'read_file' };
+  action = MODERN_ALIASES[action] || action;
+
   switch (action) {
     case 'create_file':
       return {
@@ -229,6 +236,7 @@ function _buildParams(action, fields, userGoal, projectCwd) {
     case 'run_script':
     case 'git_action':
     case 'install_package':
+    case 'exec':
       return {
         command: fields.COMANDO,
         cwd,
