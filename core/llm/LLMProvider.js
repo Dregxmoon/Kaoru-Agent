@@ -150,12 +150,85 @@ function configure(cfg) {
       if (!_config.providers[id].apiKey) _config.providers[id].apiKey = envVal.trim();
     }
   }
+  _applyKeychainOverlay();
 }
 
 function _getApiKey(providerId) {
   const p = _config.providers[providerId];
   if (p && p.apiKey && p.apiKey.trim()) return p.apiKey.trim();
   return null;
+}
+
+// ── Llavero del sistema ─────────────────────────────────────────────────────
+// Fase 1 del roadmap: LLMProvider resuelve las keys del KeychainManager por sí
+// mismo (máxima prioridad), así ningún caller necesita pre-fusionarlas. El
+// overlay es aditivo: si el llavero no está disponible o no tiene la key, cae
+// a lo que venga en config/env sin tocar nada.
+let _keychainStore = null;
+let _keychainDisabled = false;
+function _setKeychainResolver(resolver) {
+  _keychainDisabled = resolver === false;
+  _keychainStore = (!_keychainDisabled && resolver && typeof resolver === 'object')
+    ? resolver
+    : (!_keychainDisabled && typeof resolver === 'function' ? { getKey: resolver } : null);
+}
+
+function _keychain() {
+  if (_keychainDisabled) return null;
+  if (_keychainStore) return _keychainStore;
+  try {
+    const KeychainManager = require('../../infrastructure/keychain/KeychainManager.js');
+    return KeychainManager.isAvailable() ? KeychainManager : null;
+  } catch {
+    return null;
+  }
+}
+
+function _resolveKeychainKey(providerId) {
+  const K = _keychain();
+  if (!K || typeof K.getKey !== 'function') return null;
+  try { return K.getKey(providerId) || null; } catch { return null; }
+}
+
+function _applyKeychainOverlay() {
+  for (const [id] of _registry) {
+    const stored = _resolveKeychainKey(id);
+    if (stored && stored.trim()) {
+      if (!_config.providers[id]) _config.providers[id] = {};
+      _config.providers[id].apiKey = stored.trim();
+    }
+  }
+}
+
+function storeProviderApiKey(providerId, apiKey) {
+  const K = _keychain();
+  if (!K || !apiKey || typeof K.setKey !== 'function') return false;
+  return K.setKey(providerId, apiKey) === true;
+}
+
+function removeProviderApiKey(providerId) {
+  const K = _keychain();
+  if (!K || typeof K.deleteKey !== 'function') return false;
+  return K.deleteKey(providerId) === true;
+}
+
+function migrateApiKeysToKeychain(cfg) {
+  const K = _keychain();
+  if (!K || typeof K.getKey !== 'function' || typeof K.setKey !== 'function') {
+    return { migrated: [], keychainAvailable: false };
+  }
+  const llm = (cfg && (cfg.llm || cfg)) || {};
+  const candidates = { ...(llm.apiKeys || {}) };
+  for (const [id, p] of Object.entries(llm.providers || {})) {
+    if (p && p.apiKey && p.apiKey.trim()) candidates[id] = p.apiKey;
+  }
+  const migrated = [];
+  for (const [id, key] of Object.entries(candidates)) {
+    if (key && key.trim() && !K.getKey(id) && K.setKey(id, key.trim()) === true) {
+      migrated.push(id);
+    }
+  }
+  return { migrated, keychainAvailable: true };
 }
 
 function _getModels(providerId) {
@@ -657,6 +730,8 @@ module.exports = {
   addCustomProvider, removeCustomProvider, getCustomProviders,
   getToolSchemas: () => require('./ToolSchemas.js').TOOL_SCHEMAS,
   registerProvider,
+  storeProviderApiKey, removeProviderApiKey, migrateApiKeysToKeychain,
+  _setKeychainResolver,
   _debug_isRetryableError: _isRetryableError,
   _debug_backoffWithJitter: _backoffWithJitter,
   _debug_normalizeOpenAI: _normalizeOpenAIResponse,

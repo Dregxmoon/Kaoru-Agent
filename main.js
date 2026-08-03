@@ -198,6 +198,53 @@ function saveConfig(data) {
   } catch (e) { console.log('[config] error guardando config.json:', e.message); }
 }
 
+// Fase 1 del roadmap — unificar credenciales en el KeychainManager:
+// si config.json todavía tiene keys de LLM en texto plano y el llavero está
+// disponible, las migra al llavero y elimina el texto plano del archivo.
+// Idempotente y sin pérdida: si el llavero no puede guardarlas, no toca nada.
+function migratePlaintextApiKeysToKeychain() {
+  const cfg = loadConfig();
+  if (!KeychainManager.isAvailable()) {
+    console.log('[config] llavero del sistema no disponible — keys de LLM en config.json');
+    return;
+  }
+  const llm = cfg.llm || {};
+  const candidates = { ...(llm.apiKeys || {}) };
+  for (const [id, p] of Object.entries(llm.providers || {})) {
+    if (p && p.apiKey && p.apiKey.trim()) candidates[id] = p.apiKey;
+  }
+  if (Object.keys(candidates).length === 0) return;
+
+  const migrated = [];
+  let toStrip = false;
+  for (const [id, key] of Object.entries(candidates)) {
+    if (!key || !key.trim()) continue;   // vacías: no se migran ni se reportan
+    if (KeychainManager.getKey(id)) {
+      toStrip = true;                    // ya vive en el llavero → fuera del texto plano
+    } else if (KeychainManager.setKey(id, key.trim())) {
+      migrated.push(id);
+      toStrip = true;
+    }
+  }
+  if (!toStrip) return;
+
+  const newCfg = { ...cfg };
+  newCfg.llm = { ...(cfg.llm || {}) };
+  delete newCfg.llm.apiKeys;
+  newCfg.llm.providers = {};
+  for (const [id, p] of Object.entries(llm.providers || {})) {
+    const clean = { ...p };
+    delete clean.apiKey;
+    newCfg.llm.providers[id] = clean;
+  }
+  try {
+    fs.writeFileSync(CONFIG_PATH, JSON.stringify(newCfg, null, 2), 'utf-8');
+    console.log(`[config] keys LLM migradas al llavero y quitadas de config.json: ${migrated.join(', ')}`);
+  } catch (e) {
+    console.log('[config] error persistiendo config sin keys:', e.message);
+  }
+}
+
 function ensureLLMConfig() {
   const cfg = loadConfig();
   if (!cfg.llm) {
@@ -223,6 +270,7 @@ let chatTheme      = 'dark';
 const VIEW_NAMES = ['full', 'half', 'head'];
 
 const savedConfig    = loadConfig();
+migratePlaintextApiKeysToKeychain();
 chatTheme            = savedConfig.chatTheme ?? 'dark';
 
 const maskedConfig = JSON.parse(JSON.stringify(savedConfig));
@@ -331,8 +379,7 @@ function createChatWindow() {
     webPreferences: {
       nodeIntegration: true,
       contextIsolation: false,
-      webSecurity: false,
-      allowRunningInsecureContent: true,
+      webSecurity: true,
     },
   });
 
@@ -675,27 +722,36 @@ ipcMain.handle('save-llm-keys', (e, { providers, useKeychain }) => {
   const existingPrimary = currentCfg.llm?.primary || 'groq';
   const existingFallback = currentCfg.llm?.fallback || ['gemini'];
 
+  const keychainActive = !!useKeychain && KeychainManager.isAvailable();
+
   // Build new providers config from the submitted keys
   const newProviders = { ...(currentCfg.llm?.providers || {}) };
   for (const [id, key] of Object.entries(providers || {})) {
-    newProviders[id] = { ...(newProviders[id] || {}), apiKey: key };
+    if (keychainActive) {
+      // Con llavero activo: la key SOLO vive en el llavero, nunca en texto
+      // plano en config.json.
+      if (key) KeychainManager.setKey(id, key);
+      else KeychainManager.deleteKey(id);
+      newProviders[id] = { ...(newProviders[id] || {}), apiKey: '' };
+    } else {
+      // Sin llavero: comportamiento anterior, texto plano en config.json.
+      // Se limpian las keys del llavero para que el texto plano tenga efecto
+      // (el llavero tenía prioridad máxima).
+      KeychainManager.deleteKey(id);
+      newProviders[id] = { ...(newProviders[id] || {}), apiKey: key };
+    }
   }
+
+  const apiKeysToSave = keychainActive ? {} : (providers || {});
 
   saveConfig({ llm: {
     primary: existingPrimary,
     fallback: existingFallback,
     providers: newProviders,
-    apiKeys: providers,
+    apiKeys: apiKeysToSave,
   } });
 
-  // Keychain
-  if (useKeychain && KeychainManager.isAvailable()) {
-    for (const [id, key] of Object.entries(providers || {})) {
-      if (key) KeychainManager.setKey(id, key);
-    }
-  }
-
-  console.log('[config] keys LLM actualizadas');
+  console.log('[config] keys LLM actualizadas', keychainActive ? '(llavero del sistema)' : '(config.json)');
   Core.reloadLLMConfig();
   return true;
 });
