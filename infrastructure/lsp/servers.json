@@ -1,0 +1,70 @@
+{
+  "typescript": {
+    "languageId": "typescript",
+    "command": "npx",
+    "args": ["-y", "typescript-language-server", "--stdio"],
+    "filePatterns": [".ts", ".tsx"],
+    "manifests": ["tsconfig.json", "package.json"],
+    "installCmd": "npm install -g typescript-language-server typescript",
+    "npx": true
+  },
+  "javascript": {
+    "languageId": "javascript",
+    "command": "npx",
+    "args": ["-y", "typescript-language-server", "--stdio"],
+    "filePatterns": [".js", ".jsx", ".mjs"],
+    "manifests": ["package.json"],
+    "installCmd": "npm install -g typescript-language-server typescript",
+    "npx": true
+  },
+  "python": {
+    "languageId": "python",
+    "command": "npx",
+    "args": ["-y", "-p", "pyright", "pyright-langserver", "--stdio"],
+    "filePatterns": [".py", ".pyw"],
+    "manifests": ["pyproject.toml", "requirements.txt", "setup.py"],
+    "installCmd": "pip install pyright",
+    "npx": true
+  },
+  "go": {
+    "languageId": "go",
+    "command": "gopls",
+    "args": ["serve"],
+    "filePatterns": [".go"],
+    "manifests": ["go.mod"],
+    "installCmd": "go install golang.org/x/tools/gopls@latest"
+  },
+  "rust": {
+    "languageId": "rust",
+    "command": "rust-analyzer",
+    "args": [],
+    "filePatterns": [".rs"],
+    "manifests": ["Cargo.toml"],
+    "installCmd": "rustup component add rust-analyzer"
+  },
+  "ruby": {
+    "languageId": "ruby",
+    "command": "solargraph",
+    "args": ["stdio"],
+    "filePatterns": [".rb"],
+    "manifests": ["Gemfile"],
+    "installCmd": "gem install solargraph"
+  },
+  "php": {
+    "languageId": "php",
+    "command": "intelephense",
+    "args": ["--stdio"],
+    "filePatterns": [".php"],
+    "manifests": ["composer.json"],
+    "installCmd": "composer global require bmewburn/vscode-intelephense-client"
+  },
+  "java": {
+    "languageId": "java",
+    "command": "jdtls",
+    "args": [],
+    "filePatterns": [".java"],
+    "manifests": ["pom.xml", "build.gradle", "build.gradle.kts"],
+    "installCmd": "instalar eclipse.jdt.ls y configurar la ruta de jdtls",
+    "heavy": true
+  }
+}
