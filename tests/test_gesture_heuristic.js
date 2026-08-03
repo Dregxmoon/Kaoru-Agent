@@ -108,20 +108,23 @@ console.log(C.bold('\n── Test 7: motions referenciadas ───────
 const GREF = path.join(__dirname, 'fixtures', 'models', 'gref', 'gref.model3.json');
 const gr = ModelAugmenter.listGestures(GREF);
 const grMots = gr.motions.map(m => `${m.name}:${m.group}${m.referenced ? '*' : ''}`);
-assert(gr.motions.length === 3, 'motions referenciadas + descubierta entran al listado (3)', JSON.stringify(grMots));
+assert(gr.motions.length === 4, 'motions referenciadas + descubierta entran al listado (4)', JSON.stringify(grMots));
 const gIdle = gr.motions.find(m => m.name === 'idle0');
 assert(gIdle && gIdle.group === 'Idle' && gIdle.referenced === true,
   'motion referenciada bajo grupo "" se re-clasifica por nombre → Idle', JSON.stringify(gIdle));
+const gMtn = gr.motions.find(m => m.name === 'mtn_00');
+assert(gMtn && gMtn.group === 'Idle' && gMtn.referenced === true,
+  'motion referenciada bajo Motions.Idle preserva el grupo Idle (aunque el archivo no diga idle)', JSON.stringify(gMtn));
 const gWave = gr.motions.find(m => m.name === 'wave');
 assert(gWave && gWave.group === 'motions' && gWave.referenced === true,
-  'motion referenciada no-idle → motions', JSON.stringify(gWave));
+  'motion referenciada bajo grupo "" no-idle → motions', JSON.stringify(gWave));
 assert(gr.motions.some(m => m.name === 'extra' && m.referenced === false),
   'motion descubierta en disco también entra');
 assert(!gr.motions.some(m => m.name === 'idle0' && !m.referenced),
   'duplicado por basename (anim/sub/idle0) no entra dos veces');
 const augRef = ModelAugmenter.augmentModel(GREF);
-assert(augRef.settings.FileReferences.Motions.Idle && augRef.settings.FileReferences.Motions.Idle.length === 1,
-  'settings inyecta la motion referenciada-idle bajo grupo Idle', JSON.stringify(augRef.settings.FileReferences.Motions));
+assert(augRef.settings.FileReferences.Motions.Idle && augRef.settings.FileReferences.Motions.Idle.length === 2,
+  'settings inyecta ambas motions idle (idle0 + mtn_00) bajo grupo Idle', JSON.stringify(augRef.settings.FileReferences.Motions));
 
 // ── Resumen ──────────────────────────────────────────────────────────────────
 console.log(C.bold(`\n── GestureHeuristic: ${C.green(passed)}✓ ${failed ? C.red(failed + '✗') : ''} ──`));

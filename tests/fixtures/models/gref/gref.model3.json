@@ -8,6 +8,9 @@
       "": [
         { "File": "anim/idle0.motion3.json" },
         { "File": "anim/wave.motion3.json" }
+      ],
+      "Idle": [
+        { "File": "anim/mtn_00.motion3.json" }
       ]
     }
   }
