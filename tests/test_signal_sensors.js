@@ -75,6 +75,8 @@ function makeRepo() {
   const repo = path.join(dir, 'repo');
   fs.mkdirSync(repo);
   gitRun(repo, ['init', '-b', 'main']);
+  gitRun(repo, ['config', 'user.name', 'Test']);
+  gitRun(repo, ['config', 'user.email', 'test@example.com']);
   return { dir, repo };
 }
 
