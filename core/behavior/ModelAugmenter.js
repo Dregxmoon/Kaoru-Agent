@@ -107,11 +107,13 @@ function _discover(model3Path) {
     expressions.push({ type: 'expression', name, file: rel, referenced: false });
   }
 
-  // 3) Motions: referenciadas en el model3.json + descubiertas en disco, todas
-  // clasificadas por nombre (idle → grupo "Idle" para el auto-loop del SDK; el
-  // resto → "motions"). Antes se descartaban las referenciadas cuyo archivo
-  // existía (p. ej. 免费模型艾莲 las referenciaba bajo un grupo "") y no quedaban
-  // en el listado ni en las settings inyectadas.
+  // 3) Motions: referenciadas en el model3.json + descubiertas en disco.
+  // Las referenciadas PRESERVAN el grupo original del model3.json: un motion
+  // bajo "Motions.Idle" (aunque el archivo se llame mtn_00.motion3.json y no
+  // tenga "idle" en el nombre) debe seguir en el grupo "Idle" para el auto-loop
+  // del SDK. Solo lo descubierto en disco sin referencia se clasifica por nombre
+  // (idle → "Idle"; el resto → "motions"). Si el grupo original es una cadena
+  // vacía (quirk de 免费模型艾莲), se cae a la clasificación por nombre.
   const groups = new Map();       // group → array de { name, file, referenced }
   const seenMotionRel = new Set(); // paths relativos ya añadidos (dedupe)
   const refMotBases = new Set();   // basenames referenciados (dedupe subcarpetas)
@@ -121,21 +123,22 @@ function _discover(model3Path) {
       if (d && typeof d.File === 'string') refMotBases.add(path.basename(d.File));
     }
   }
-  const addMotion = (name, file, referenced) => {
+  const addMotion = (name, file, { referenced = false, group = null } = {}) => {
     if (seenMotionRel.has(file)) return;
     seenMotionRel.add(file);
-    const group = IDLE_MOTION_RE.test(name) ? 'Idle' : 'motions';
-    if (!groups.has(group)) groups.set(group, []);
-    groups.get(group).push({ name, file, group, referenced });
+    const g = (typeof group === 'string' && group.trim())
+      ? group
+      : (IDLE_MOTION_RE.test(name) ? 'Idle' : 'motions');
+    if (!groups.has(g)) groups.set(g, []);
+    groups.get(g).push({ name, file, group: g, referenced });
   };
-  // 3a) Referenciadas (el Name sale del nombre de archivo; se re-clasifican por
-  // nombre igual que las descubiertas para unificar grupos Idle/motions).
-  for (const defs of Object.values(refMots)) {
+  // 3a) Referenciadas: preservan la clave de grupo original del model3.json.
+  for (const [group, defs] of Object.entries(refMots)) {
     if (!Array.isArray(defs)) continue;
     for (const d of defs) {
       if (!d || typeof d.File !== 'string') continue;
       const rel = _toPosix(path.normalize(d.File).replace(/^\.\//, ''));
-      addMotion(_nameFromFile(path.basename(rel)), rel, true);
+      addMotion(_nameFromFile(path.basename(rel)), rel, { referenced: true, group });
     }
   }
   // 3b) Descubiertas en disco no referenciadas (y no duplicadas por basename,
@@ -144,7 +147,7 @@ function _discover(model3Path) {
     const rel = _toPosix(path.relative(dir, file));
     if (seenMotionRel.has(rel)) continue;
     if (refMotBases.has(path.basename(file))) continue;
-    addMotion(_nameFromFile(file), rel, false);
+    addMotion(_nameFromFile(file), rel, { referenced: false });
   }
   for (const [group, defs] of groups) {
     defs.forEach((d, index) => {

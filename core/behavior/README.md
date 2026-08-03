@@ -98,10 +98,12 @@ resuelven eso **sin escribir en disco** y conectándolo al flujo del asistente:
 - Deduplica: expresiones ya referenciadas (con su `Name` original, que es la fuente de la semántica —
   p. ej. los `1.exp3.json` de March 7th se llaman 捂脸/比耶/…) y por basename (evita duplicados en
   subcarpetas tipo `exp/1.exp3.json`).
-- Las motions — tanto las referenciadas en el `model3.json` como las descubiertas en disco — cuyo
-  nombre contiene `idle` van al grupo `Idle` (el SDK las reproduce en bucle); el resto a un grupo
-  `motions` a demanda. Las referenciadas ya no se descartan (antes 免费模型艾莲 quedaba sin motions
-  porque las referenciaba bajo un grupo `""`).
+- Las motions **referenciadas** en el `model3.json` preservan su grupo original (una bajo
+  `Motions.Idle` con archivo `mtn_00.motion3.json` sigue en `Idle` aunque el nombre no diga idle);
+  si el grupo original es una cadena vacía (quirk de 免费模型艾莲) se cae a clasificación por nombre.
+- Las motions **descubiertas en disco** (sin referencia) se clasifican por nombre: las que
+  contienen `idle` van al grupo `Idle` (el SDK las reproduce en bucle) y el resto a `motions` a
+  demanda. Las referenciadas ya no se descartan (antes 免费模型艾莲 quedaba sin motions).
 - `augmentModel(model3Path)` → `{ settings, gestures }`; `listGestures(model3Path)` → solo el listado.
 
 ### `GestureLexicon.js` — vocabulario multilingüe
