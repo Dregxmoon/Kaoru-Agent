@@ -67,8 +67,11 @@
 - 🔍 Pull diagnostics (textDocument.diagnostic) no se declara para evitar que pyright deje de publicar push. Publicación vía publishDiagnostics funciona en servers TS; en pyright depende del cwd del proceso (quirk conocido).
 - Compat: `_serverConfig` getter público para LSPErrorWatcher (línea 254). `detectLanguagesForWorkspace` retorna array de lenguajes detectados (repos poliglota).
 
-### G.2 — Test runner estructurado 🧠 [papel]
-- `run_tests` con salida estructurada (exit code + parseo best-effort por runner conocido). Sirve al loop de auto-verificación del agente y al verificador del benchmark.
+### G.2 — Test runner estructurado ✅ [implementado]
+- ✅ `tests/run_tests.sh` — produce JSON a stdout con la misma lógica que `run-all.sh`.
+- Salida: `{passed, failed, total, exitCode, suites:[{name, passed, failed, total, exitCode}]}`.
+- `--pretty` para formato indentado, sin flag para JSON compacto (más fácil de parsear).
+- Exit code 0 si todo pasa, 1 si hay fallos. Usado por CI (`.github/workflows/ci.yml`).
 
 ### G.3 — Índice de workspace (2 capas) 🧠 [papel]
 - Capa estructural (tipo de proyecto + convenciones vía los manifiestos de G.1) + capa semántica (embeddings por archivo/chunk en sqlite-vec, respetando `.gitignore`, reindexado incremental vía GitWatcher) + fallback de texto plano para lenguajes sin LSP.
