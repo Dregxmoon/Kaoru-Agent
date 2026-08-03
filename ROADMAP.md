@@ -73,11 +73,18 @@
 - `--pretty` para formato indentado, sin flag para JSON compacto (más fácil de parsear).
 - Exit code 0 si todo pasa, 1 si hay fallos. Usado por CI (`.github/workflows/ci.yml`).
 
-### G.3 — Índice de workspace (2 capas) 🧠 [papel]
-- Capa estructural (tipo de proyecto + convenciones vía los manifiestos de G.1) + capa semántica (embeddings por archivo/chunk en sqlite-vec, respetando `.gitignore`, reindexado incremental vía GitWatcher) + fallback de texto plano para lenguajes sin LSP.
+### G.3 — Índice de workspace (2 capas) ✅ [implementado - capa estructural]
+- ✅ `WorkspaceIndex` — analiza workspace vía manifiestos de G.1.
+- Detecta: lenguajes, package manager (npm/yarn/pnpm/bun/cargo/go/bundler/composer/pip), test runner (jest/vitest/mocha/ava/npm-scripts), frameworks (react/vue/svelte/next/nuxt/electron), config files.
+- Cache con TTL 5min, `invalidate()`, `getStats()`.
+- 🔍 Capa semántica (embeddings en sqlite-vec, .gitignore, reindexado incremental) pendiente.
 
-### G.4 — Generalizar ProactiveExecutor vía catálogo de herramientas 🧠 [papel]
-- Cada tool declara su contrato de proactividad junto a su schema (auto-ejecutable, cómo se verifica, cómo se revierte) — `ProactiveExecutor` deja de tener un `if` por tool.
+### G.4 — Generalizar ProactiveExecutor vía catálogo de herramientas ✅ [implementado]
+- ✅ `TOOL_CATALOG` — cada tool declara: `validate`, `preview`, `execute`, `normalizeResult`.
+- `preview()` y `execute()` despachan genéricamente vía el catálogo (sin if/switch por tool).
+- `normalizeResult` permite tools con resultado raw diferente a `detail` (ej: git_status).
+- `TOOL_CATALOG` exportado para extensión futura (agregar tools = agregar entrada al catálogo).
+- Suite 1044/1044 en verde.
 
 ## 8. Benchmark de tareas reales [spike → recurrente]
 
