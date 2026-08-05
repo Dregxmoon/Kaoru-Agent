@@ -180,7 +180,10 @@ class AgentLoop {
     // Streaming: opts.onToken(text) recibe los fragmentos del LLM en vivo
     // para pintarlos en el chat mientras se generan (patrón opencode).
     const onToken = typeof opts.onToken === 'function' ? opts.onToken : null;
+    const signal = opts.signal || null;
+    this._signal = signal;
     const llmOpts = onToken ? { onToken } : {};
+    if (signal) llmOpts.signal = signal;
 
     // ── Tool resolution (Fase 5): Skill > MCP > OpenClaw ────────────
     let tools = opts.tools || null;
@@ -253,6 +256,17 @@ class AgentLoop {
     let lastResponseText = null; // guarda último output del LLM para max_iterations
 
     for (let i = 0; i < this.maxIterations; i++) {
+      // Cancelación por el usuario (AbortController): se revisa en cada
+      // iteración para romper el bucle sin esperar al siguiente turno del LLM.
+      if (signal && signal.aborted) {
+        return {
+          response: lastResponseText || 'Generación cancelada por el usuario.',
+          iterations: i + 1,
+          toolResults,
+          cancelled: true,
+          error: 'cancelled',
+        };
+      }
       const _itStart = Date.now();
       const currentUserMsg = i === 0 ? userMessage : this._buildToolResultMessage(lastToolResult);
 
@@ -280,11 +294,29 @@ class AgentLoop {
           responseText = tcResult.content;
           toolCalls = tcResult.toolCalls;
         } catch (e) {
+          if (e?.code === 'ABORTED' || e?.name === 'AbortError') {
+            return {
+              response: 'Generación cancelada por el usuario.',
+              iterations: i + 1,
+              toolResults,
+              cancelled: true,
+              error: 'cancelled',
+            };
+          }
           console.warn('[agent-loop] tool-calling nativo falló, usando fallback texto:', e.message);
           try {
             const fallback = await llm(llmMessages, agentPrompt, llmOpts);
             responseText = typeof fallback === 'string' ? fallback : fallback?.content || '';
           } catch (e2) {
+            if (e2?.code === 'ABORTED' || e2?.name === 'AbortError') {
+              return {
+                response: 'Generación cancelada por el usuario.',
+                iterations: i + 1,
+                toolResults,
+                cancelled: true,
+                error: 'cancelled',
+              };
+            }
             return {
               response: `Error en tool-calling y fallback textual: ${e2.message}`,
               iterations: i + 1,
@@ -298,6 +330,15 @@ class AgentLoop {
           const raw = await llm(llmMessages, agentPrompt, llmOpts);
           responseText = typeof raw === 'string' ? raw : raw?.content || '';
         } catch (e) {
+          if (e?.code === 'ABORTED' || e?.name === 'AbortError') {
+            return {
+              response: 'Generación cancelada por el usuario.',
+              iterations: i + 1,
+              toolResults,
+              cancelled: true,
+              error: 'cancelled',
+            };
+          }
           return {
             response: `Error en LLM: ${e.message}`,
             iterations: i + 1,
@@ -804,6 +845,7 @@ class AgentLoop {
       const out = await nested.run(subTask, SUBAGENT_SYSTEM, [], {
         llm: this._llm,
         taskIntent: this._currentTaskIntent || null,
+        signal: this._signal,
         onProgress: null,
       });
       const toolCalls = (out.toolResults || []).map((r) => `${r.tool}:${r.ok ? 'ok' : 'err'}`);

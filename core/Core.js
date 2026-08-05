@@ -8,6 +8,7 @@ const { getStateGraph } = require('./state-graph/StateGraph.js');
 const { GroundingEngine } = require('./grounding/GroundingEngine.js');
 const { SessionManager } = require('./state-graph/SessionManager.js');
 const { StateUpdater } = require('./state-graph/StateUpdater.js');
+const { getPluginManager } = require('./plugins/PluginManager.js');
 const { OSSensor } = require('../infrastructure/sensors/OSSensor.js');
 const { LinuxOSSensor } = require('../infrastructure/sensors/LinuxOSSensor.js');
 const { GitWatcher } = require('../infrastructure/sensors/GitWatcher.js');
@@ -32,6 +33,7 @@ const KeychainManager = require('../infrastructure/keychain/KeychainManager.js')
 const TaskDetector = require('./task/TaskDetector.js');
 const { getToolRegistry } = require('./task/ToolRegistry.js');
 const { resolveToolset } = require('./task/ToolResolver.js');
+const { buildRulesSection } = require('./rules/ProjectRules.js');
 
 // FIX: presupuesto de tokens del system prompt COMPLETO — antes vivía
 // dentro de GroqSerializer.js y se aplicaba antes de pegar BehaviorModel,
@@ -92,6 +94,7 @@ let _initiativeUnsub = null;
 let _initialized = false;
 let _onInitiative = null;
 let _skillManager = null;
+let _pluginManager = null;
 
 // Migración: el archivo de memoria se llamaba march.db en versiones previas
 // (y en la carpeta de datos del usuario ~/.config/vtuber-overlay). Se renombra
@@ -231,6 +234,41 @@ function init(app) {
 
   const projectCWD = app ? app.getAppPath() : process.cwd();
   setProjectCWD(projectCWD);
+
+  // ── Plugins locales ─────────────────────────────────────────────────────────
+  // Extienden el pipeline con tools propias (registradas en ToolRegistry con
+  // id `plugin.<nombre>.<tool>` y despachadas en Planner._executePlugin) y
+  // hooks (registerHook). Nunca rompen el arranque: si un plugin falla, se
+  // loggea y se sigue. Los plugins se cargan de plugins/ en el root del repo.
+  try {
+    _pluginManager = getPluginManager();
+    _pluginManager.bind({
+      registry: _toolRegistry,
+      dispatch: async (toolId, args) => {
+        // El dispatch real lo provee el propio plugin que registró la tool;
+        // si el PluginManager no tiene dispatch de plugins con handler, se
+        // delega a la tool registrada vía su función en el contexto.
+        const plug = _pluginManager._plugins.find((p) => toolId.startsWith(`plugin.${p.id}.`));
+        if (plug?.api?.run) {
+          const name = toolId.slice(`plugin.${plug.id}.`.length);
+          return plug.api.run(name, args);
+        }
+        return { ok: false, error: `tool de plugin no encontrada: ${toolId}` };
+      },
+    });
+    _pluginManager.load().then((n) => {
+      if (n > 0) {
+        const registered = _pluginManager.registerAll({
+          db: !_graph.usingFallback && _graph._db ? _graph._db : null,
+          workspace: () => _activeWorkspace,
+          mcp: _mcp,
+        });
+        console.log(`[core] plugins registrados: ${registered.join(', ')}`);
+      }
+    });
+  } catch (e) {
+    console.warn('[core] plugin manager no disponible:', e.message);
+  }
 
   if (_osSensor) {
     _grounding.setOSSensor(_osSensor);
@@ -666,6 +704,63 @@ async function closeSession() {
 }
 
 /**
+ * Lista las sesiones pasadas (cerradas) más recientes, para el picker de
+ * sesiones de la UI. Devuelve metadatos + historial de cada una.
+ * @param {number} limit
+ */
+function listSessions(limit = 10) {
+  if (!_graph || _graph.usingFallback) return [];
+  try {
+    return _graph.getLastSessions(limit).map((s) => {
+      let history = [];
+      try {
+        history = JSON.parse(s.history_json || '[]') || [];
+      } catch {}
+      return {
+        id: s.id,
+        startedAt: s.started_at,
+        endedAt: s.ended_at,
+        summary: s.summary || null,
+        turnCount: s.turn_count || 0,
+        history,
+      };
+    });
+  } catch (e) {
+    console.warn('[core] error listando sesiones:', e.message);
+    return [];
+  }
+}
+
+/**
+ * Carga el historial de una sesión pasada por id (para el picker).
+ * @param {number} sessionId
+ */
+function loadSession(sessionId) {
+  if (!_graph || _graph.usingFallback || !sessionId) return null;
+  try {
+    const row = _graph._sessions?._db
+      ? _graph._sessions._db.prepare('SELECT * FROM sessions WHERE id = ?').get(sessionId)
+      : null;
+    if (!row) return null;
+    let history = [];
+    try {
+      history = JSON.parse(row.history_json || '[]') || [];
+    } catch {}
+    return {
+      id: row.id,
+      startedAt: row.started_at,
+      endedAt: row.ended_at,
+      summary: row.summary || null,
+      turnCount: row.turn_count || 0,
+      history,
+    };
+  } catch (e) {
+    console.warn('[core] error cargando sesión:', e.message);
+    return null;
+  }
+}
+
+/**
  * Cierre ordenado. Lo más importante acá: los servidores MCP corren como
  * procesos hijos (típicamente `npx ...`) — si la app se cierra sin
  * desconectarlos, pueden quedar huérfanos corriendo en el sistema. Se
@@ -1052,6 +1147,15 @@ async function buildContext(sessionHistory, activeProvider, options = {}) {
     if (behaviorSection) {
       result.systemPrompt = result.systemPrompt + '\n\n' + behaviorSection;
     }
+  }
+
+  // ── Reglas del proyecto (AGENTS.md) — patrón opencode ──────────────────
+  // Se leen del workspace activo con caché por mtime y se inyectan ANTES del
+  // early-return del modo agent, así llegan a todos los modos (chat, plan,
+  // execute, agent). Tienen prioridad sobre las reglas generales.
+  const rulesSection = buildRulesSection(getProjectCWD());
+  if (rulesSection) {
+    result.systemPrompt = result.systemPrompt + '\n\n' + rulesSection;
   }
 
   // ── Tool Resolution (Fase 1): siempre resolver herramientas ─────────────
@@ -1616,6 +1720,8 @@ module.exports = {
   setMaxSystemChars,
   startSession,
   closeSession,
+  listSessions,
+  loadSession,
   addTurn,
   detectInstant,
   buildContext,

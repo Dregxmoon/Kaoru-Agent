@@ -73,6 +73,9 @@ const ACTION_TO_TOOL = {
   // MCP — independiente de OpenClaw. 'mcp' es un pseudo-tool, manejado
   // especialmente en Planner._executeMCP (ver ahí), no por OpenClawBridge.
   mcp_call: 'mcp',
+
+  // Plugins — pseudo-tool manejado en Planner._executePlugin (ver ahí).
+  plugin_call: 'plugin',
 };
 
 // ── Descripción legible por acción ────────────────────────────────────────────
@@ -111,6 +114,8 @@ function _buildDescription(action, fields) {
       return `Ejecutar código: ${(f.CÓDIGO || f.CODIGO || f.CODE || '').slice(0, 60)}`;
     case 'mcp_call':
       return `MCP · ${f.SERVIDOR || f.SERVER || '?'}: ${f.HERRAMIENTA || f.TOOL || '?'}`;
+    case 'plugin_call':
+      return `Plugin · ${f.HERRAMIENTA || f.TOOL || f.NOMBRE || '?'}`;
     default:
       return action;
   }
@@ -235,6 +240,27 @@ function _buildParams(action, fields, userGoal, projectCwd) {
         }
       }
       return { server, tool: toolName, args: mcpArgs };
+    }
+
+    case 'plugin_call': {
+      const toolId = fields.HERRAMIENTA || fields.TOOL || fields.NOMBRE;
+      if (!toolId) {
+        console.warn('[structured-parser] plugin_call sin HERRAMIENTA/TOOL:', fields);
+        return null;
+      }
+      let pluginArgs = {};
+      if (fields.PARAMS) {
+        try {
+          pluginArgs = JSON.parse(fields.PARAMS);
+        } catch (e) {
+          console.warn(
+            '[structured-parser] PARAMS de plugin_call no es JSON válido, se ignora:',
+            fields.PARAMS
+          );
+          return null;
+        }
+      }
+      return { name: toolId, args: pluginArgs };
     }
 
     case 'delete_file': {

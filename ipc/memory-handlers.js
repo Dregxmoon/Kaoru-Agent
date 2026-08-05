@@ -13,6 +13,10 @@ function register(ctx) {
 
   ipcMain.handle('memory-stats', () => Core.getStats());
 
+  // IPC: sesiones pasadas (panel con picker en el chat)
+  ipcMain.handle('sessions-list', (e, { limit } = {}) => Core.listSessions(limit));
+  ipcMain.handle('session-load', (e, { id } = {}) => Core.loadSession(id));
+
   // IPC: decisión de propuesta proactiva (Fase A)
   ipcMain.on('initiative-decision', (e, decision) => {
     Core.handleProposalDecision(decision);

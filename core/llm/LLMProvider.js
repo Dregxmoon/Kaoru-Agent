@@ -274,7 +274,14 @@ function _getModels(providerId) {
 }
 
 // ── Helper HTTP ───────────────────────────────────────────────────────────────
-function post(url, headers, body, timeoutMs = 20_000) {
+function _abortError() {
+  const err = new Error('Llamada LLM cancelada por el usuario');
+  err.name = 'AbortError';
+  err.code = 'ABORTED';
+  return err;
+}
+
+function post(url, headers, body, timeoutMs = 20_000, signal = null) {
   return new Promise((resolve, reject) => {
     const parsed = new URL(url);
     const lib = parsed.protocol === 'https:' ? https : http;
@@ -308,6 +315,21 @@ function post(url, headers, body, timeoutMs = 20_000) {
       reject(new Error(`Timeout después de ${timeoutMs}ms`));
     });
     req.on('error', reject);
+    if (signal) {
+      if (signal.aborted) {
+        req.destroy();
+        reject(_abortError());
+        return;
+      }
+      signal.addEventListener(
+        'abort',
+        () => {
+          req.destroy();
+          reject(_abortError());
+        },
+        { once: true }
+      );
+    }
     req.write(payload);
     req.end();
   });
@@ -316,7 +338,10 @@ function post(url, headers, body, timeoutMs = 20_000) {
 // POST con streaming SSE (OpenAI-compatible /chat/completions con stream:true).
 // onToken(text) se invoca por cada fragmento de texto; el body acumulado se
 // resuelve como { status, body: { content, tool_calls } } al final del stream.
-function postStream(url, headers, body, onToken, timeoutMs = 20_000) {
+// signal (AbortSignal) cancela el request en curso: destruye la conexión y
+// rechaza con un error AbortError (para que el caller distinga cancelación
+// de un fallo real del provider).
+function postStream(url, headers, body, onToken, timeoutMs = 20_000, signal = null) {
   return new Promise((resolve, reject) => {
     const parsed = new URL(url);
     const lib = parsed.protocol === 'https:' ? https : http;
@@ -404,6 +429,21 @@ function postStream(url, headers, body, onToken, timeoutMs = 20_000) {
       reject(new Error(`Timeout después de ${timeoutMs}ms`));
     });
     req.on('error', reject);
+    if (signal) {
+      if (signal.aborted) {
+        req.destroy();
+        reject(_abortError());
+        return;
+      }
+      signal.addEventListener(
+        'abort',
+        () => {
+          req.destroy();
+          reject(_abortError());
+        },
+        { once: true }
+      );
+    }
     req.write(payload);
     req.end();
   });
@@ -432,8 +472,15 @@ async function callOpenAI(providerId, messages, systemPrompt, mode = 'fast', opt
   if (opts.onToken) body.stream = true;
 
   const res = opts.onToken
-    ? await postStream(`${def.baseURL}/chat/completions`, headers, body, opts.onToken, timeoutMs)
-    : await post(`${def.baseURL}/chat/completions`, headers, body, timeoutMs);
+    ? await postStream(
+        `${def.baseURL}/chat/completions`,
+        headers,
+        body,
+        opts.onToken,
+        timeoutMs,
+        opts.signal
+      )
+    : await post(`${def.baseURL}/chat/completions`, headers, body, timeoutMs, opts.signal);
   if (res.status !== 200) throw new Error(`${def.name} ${res.status}: ${JSON.stringify(res.body)}`);
   return (res.body.choices[0].message.content || '').trim();
 }
@@ -470,7 +517,8 @@ async function callGeminiProvider(providerId, messages, systemPrompt, mode = 'fa
     `${def.baseURL}/models/${model}:generateContent?key=${key}${opts.onToken ? '&alt=sse' : ''}`,
     {},
     body,
-    timeoutMs
+    timeoutMs,
+    opts.signal
   );
   if (res.status !== 200) throw new Error(`${def.name} ${res.status}: ${JSON.stringify(res.body)}`);
   // Gemini stream (alt=sse) devuelve el body como string SSE en data — si
@@ -679,12 +727,32 @@ async function callOpenAIWithTools(providerId, messages, systemPrompt, mode, too
 
   const headers = key ? { Authorization: `Bearer ${key}` } : {};
   const res = opts.onToken
-    ? await postStream(`${def.baseURL}/chat/completions`, headers, body, opts.onToken, timeoutMs)
-    : await post(`${def.baseURL}/chat/completions`, headers, body, timeoutMs);
+    ? await postStream(
+        `${def.baseURL}/chat/completions`,
+        headers,
+        body,
+        opts.onToken,
+        timeoutMs,
+        opts.signal
+      )
+    : await post(`${def.baseURL}/chat/completions`, headers, body, timeoutMs, opts.signal);
   if (res.status !== 200) throw new Error(`${def.name} ${res.status}: ${JSON.stringify(res.body)}`);
   if (opts.onToken) {
-    // postStream devolvió { content, tool_calls } ya normalizados a OpenAI
-    return _normalizeOpenAIResponse({ choices: [{ message: res.body }] });
+    // postStream devolvió { content, tool_calls } con tool_calls en formato
+    // OpenAI crudo ({ id, function: { name, arguments } }). Normalizamos a
+    // { tool, params } como el resto del pipeline.
+    const body = res.body || {};
+    const toolCalls = (body.tool_calls || [])
+      .filter((tc) => tc && tc.function)
+      .map((tc) => {
+        try {
+          return { tool: tc.function.name, params: JSON.parse(tc.function.arguments), id: tc.id };
+        } catch {
+          return null;
+        }
+      })
+      .filter(Boolean);
+    return { content: body.content || null, toolCalls: toolCalls.length > 0 ? toolCalls : null };
   }
   return _normalizeOpenAIResponse(res.body);
 }
@@ -721,7 +789,8 @@ async function callGeminiWithTools(providerId, messages, systemPrompt, mode, too
     `${def.baseURL}/models/${model}:generateContent?key=${key}${opts.onToken ? '&alt=sse' : ''}`,
     {},
     body,
-    timeoutMs
+    timeoutMs,
+    opts.signal
   );
   if (res.status !== 200) throw new Error(`${def.name} ${res.status}: ${JSON.stringify(res.body)}`);
 
@@ -753,6 +822,23 @@ function _sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+// sleep que aborta temprano si la señal de cancelación se dispara.
+function _sleepAbortable(ms, signal) {
+  return new Promise((resolve, reject) => {
+    if (!signal) return setTimeout(resolve, ms);
+    if (signal.aborted) return reject(_abortError());
+    const t = setTimeout(() => {
+      signal.removeEventListener('abort', onAbort);
+      resolve();
+    }, ms);
+    const onAbort = () => {
+      clearTimeout(t);
+      reject(_abortError());
+    };
+    signal.addEventListener('abort', onAbort, { once: true });
+  });
+}
+
 function _backoffWithJitter(attempt) {
   const base = RETRY_BASE_MS * Math.pow(2, attempt);
   const jitter = base * (0.7 + Math.random() * 0.6);
@@ -761,6 +847,7 @@ function _backoffWithJitter(attempt) {
 
 function _isRetryableError(err) {
   const msg = err?.message || '';
+  if (err?.code === 'ABORTED' || err?.name === 'AbortError') return false;
   if (/^Timeout después de/i.test(msg)) return true;
   if (/ECONNRESET|ECONNREFUSED|ETIMEDOUT|ENOTFOUND|EAI_AGAIN|socket hang up/i.test(msg))
     return true;
@@ -836,7 +923,7 @@ async function _callWithFallback(messages, systemPrompt, mode = 'fast', opts = {
           console.log(
             `[llm] reintentando ${providerName} en ${waitMs}ms (intento ${attempt + 1}/${MAX_RETRIES_PER_PROVIDER + 1})...`
           );
-          await _sleep(waitMs);
+          await _sleepAbortable(waitMs, opts.signal);
         }
         console.log(
           `[llm] intentando ${providerName} (${mode})${attempt > 0 ? ` [retry ${attempt}]` : ''}...`
@@ -850,6 +937,7 @@ async function _callWithFallback(messages, systemPrompt, mode = 'fast', opts = {
         return result;
       } catch (e) {
         lastErr = e;
+        if (e?.code === 'ABORTED' || e?.name === 'AbortError') throw e;
         const retryable = _isRetryableError(e);
         console.log(
           `[llm] ${providerName} falló${retryable ? ' (transitorio)' : ' (no reintentable)'}: ${e.message}`
@@ -911,7 +999,7 @@ async function _callWithFallbackTools(messages, systemPrompt, mode = 'smart', to
             break;
           }
           const waitMs = ra > 0 ? ra : _backoffWithJitter(attempt - 1);
-          await _sleep(waitMs);
+          await _sleepAbortable(waitMs, opts.signal);
         }
         const result = await _enqueueProviderCall(
           providerName,
@@ -921,6 +1009,7 @@ async function _callWithFallbackTools(messages, systemPrompt, mode = 'smart', to
         return result;
       } catch (e) {
         lastErr = e;
+        if (e?.code === 'ABORTED' || e?.name === 'AbortError') throw e;
         const retryable = _isRetryableError(e);
         if (!retryable || attempt === MAX_RETRIES_PER_PROVIDER) {
           tried.push(providerName);
@@ -1042,4 +1131,6 @@ module.exports = {
   _debug_normalizeGemini: _normalizeGeminiResponse,
   _debug_buildOpenAITools: _buildOpenAITools,
   _debug_buildGeminiTools: _buildGeminiTools,
+  _debug_postStream: postStream,
+  _debug_post: post,
 };

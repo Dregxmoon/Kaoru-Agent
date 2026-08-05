@@ -33,6 +33,16 @@
     <span class="header-title" style="opacity:.3;font-size:9px;margin-left:2px">$</span>
     <div class="header-spacer"></div>
     <span id="openclaw-badge" class="openclaw-badge offline" title="OpenClaw no disponible">OFFLINE</span>
+    <button id="sessions-btn" class="mcp-badge" title="Sesiones pasadas">sesiones</button>
+    <div id="sessions-modal">
+      <div id="sessions-box">
+        <div class="sessions-head">
+          <span>Sesiones pasadas</span>
+          <button id="sessions-close" title="Cerrar">×</button>
+        </div>
+        <div id="sessions-list"></div>
+      </div>
+    </div>
     <button id="mcp-btn" class="mcp-badge" title="Servidores MCP">MCP <span id="mcp-count">0</span></button>
     <button id="workspace-btn" class="mcp-badge" title="Elegir carpeta de proyecto">dir</button>
     <div id="theme-toggle" title="Cambiar tema"></div>
@@ -79,6 +89,9 @@
         </button>
         <input type="file" id="file-input" multiple>
         <textarea id="msg-input" placeholder="Escribe un mensaje..." rows="1"></textarea>
+        <button id="cancel-btn" class="input-btn" title="Detener generación" style="display:none">
+          <svg viewBox="0 0 24 24" fill="currentColor" width="12" height="12"><rect x="6" y="6" width="12" height="12" rx="1"/></svg>
+        </button>
         <button id="send-btn" title="Enviar (Enter)">
           <svg viewBox="0 0 24 24"><path d="M22 2L11 13M22 2L15 22l-4-9-9-4 20-7z"/></svg>
         </button>
@@ -182,6 +195,7 @@
 <script src="chat/core.js"></script>
 <script src="chat/messages.js"></script>
 <script src="chat/mcp.js"></script>
+<script src="chat/sessions.js"></script>
 <script src="chat/process.js"></script>
 <script src="chat/input.js"></script>
 <script src="chat/tts.js"></script>

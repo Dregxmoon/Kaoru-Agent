@@ -120,6 +120,19 @@ async function processMessage(text, files = []) {
   showThinking();
   triggerMotion();
 
+  // Botón de cancelación: visible durante la generación, envía 'agent-cancel'
+  // al main (aborta el AbortController → rompe el stream y el loop).
+  const cancelBtn = document.getElementById('cancel-btn');
+  if (cancelBtn) cancelBtn.style.display = 'inline-flex';
+  const cancelOnce = () => {
+    ipcRenderer.send('agent-cancel');
+    if (cancelBtn) {
+      cancelBtn.style.display = 'none';
+      cancelBtn.removeEventListener('click', cancelOnce);
+    }
+  };
+  if (cancelBtn) cancelBtn.addEventListener('click', cancelOnce);
+
   let response;
   let error = null;
 
@@ -163,6 +176,24 @@ async function processMessage(text, files = []) {
       offStream();
       _agentProgressEl = null;
       if (progressEl.parentNode) progressEl.parentNode.removeChild(progressEl);
+      if (cancelBtn) {
+        cancelBtn.style.display = 'none';
+        cancelBtn.removeEventListener('click', cancelOnce);
+      }
+
+      // Si el loop fue cancelado por el usuario, no tratar la respuesta
+      // parcial como un error — solo mostrar lo que ya se generó.
+      if (result.cancelled) {
+        removeThinking();
+        const partial = result.response || streamBuf.trim();
+        if (partial) {
+          pushToSession('assistant', partial);
+          bubble.classList.add('markdown');
+          bubble.innerHTML = renderMarkdown(partial);
+          messagesEl.scrollTop = messagesEl.scrollHeight;
+        }
+        return;
+      }
 
       // La respuesta final autoritativa es `result.response` (el output final
       // del LLM). El buffer de streaming solo sirve de preview en vivo y como
@@ -195,6 +226,10 @@ async function processMessage(text, files = []) {
       }
     } catch (err) {
       console.error('error en agent-run:', err.message);
+      if (cancelBtn) {
+        cancelBtn.style.display = 'none';
+        cancelBtn.removeEventListener('click', cancelOnce);
+      }
       error = err.message;
       response = null;
       // Limpiar bubble vacío creado en la línea 1119

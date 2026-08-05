@@ -576,6 +576,8 @@ class ToolRegistry {
     this._mcpManager = null;
     this._bridge = null;
     this._lspManager = null;
+    /** @type {Array<object>} Tools de plugins registradas dinámicamente */
+    this._pluginTools = [];
   }
 
   setMCPManager(mcp) {
@@ -588,6 +590,28 @@ class ToolRegistry {
 
   setLSPManager(lsp) {
     this._lspManager = lsp;
+  }
+
+  /**
+   * Registra una tool de plugin (o reemplaza una existente con el mismo id).
+   * Formato id: `plugin.<nombre-plugin>.<tool>` (namespaced, patrón MCP).
+   * @param {object} tool - { id, name, domain, source, description, params, highImpact, available }
+   */
+  registerPluginTool(tool) {
+    if (!tool || !tool.id || !tool.name) return;
+    const idx = this._pluginTools.findIndex((t) => t.id === tool.id);
+    if (idx >= 0) this._pluginTools[idx] = { ...tool, source: 'plugin' };
+    else this._pluginTools.push({ ...tool, source: 'plugin' });
+  }
+
+  /** @param {Array<object>} tools */
+  registerPluginTools(tools) {
+    for (const t of tools) this.registerPluginTool(t);
+  }
+
+  /** @returns {Array<object>} */
+  _getPluginTools() {
+    return this._pluginTools.map((t) => ({ ...t, available: t.available !== false }));
   }
 
   _getOpenClawTools() {
@@ -656,7 +680,8 @@ class ToolRegistry {
     const git = this._getGitTools();
     const github = this._getGitHubTools();
     const mcp = this._getMCPTools();
-    let all = [...openclaw, ...lsp, ...git, ...github, ...mcp];
+    const plugin = this._getPluginTools();
+    let all = [...openclaw, ...lsp, ...git, ...github, ...mcp, ...plugin];
 
     if (domain && domain.id) {
       all = all.filter((t) => t.domain.includes(domain.id));
@@ -668,12 +693,14 @@ class ToolRegistry {
       openclawAvailable: openclaw.some((t) => t.available),
       lspAvailable: lsp.some((t) => t.available),
       mcpAvailable: mcp.length > 0,
+      pluginAvailable: plugin.length > 0,
       bySource: {
         openclaw: openclaw.length,
         lsp: lsp.length,
         git: git.length,
         github: github.length,
         mcp: mcp.length,
+        plugin: plugin.length,
       },
     };
   }
@@ -687,7 +714,8 @@ class ToolRegistry {
       .concat(this._getLSPTools())
       .concat(this._getGitTools())
       .concat(this._getGitHubTools())
-      .concat(this._getMCPTools());
+      .concat(this._getMCPTools())
+      .concat(this._getPluginTools());
     return all.find((t) => t.id === id) || null;
   }
 
@@ -707,6 +735,7 @@ class ToolRegistry {
     const gitTools = catalog.tools.filter((t) => t.source === 'git');
     const githubTools = catalog.tools.filter((t) => t.source === 'github');
     const mcpTools = catalog.tools.filter((t) => t.source === 'mcp');
+    const pluginTools = catalog.tools.filter((t) => t.source === 'plugin');
 
     if (openclawTools.length > 0) {
       lines.push('## Herramientas del sistema (OpenClaw)');
@@ -732,7 +761,11 @@ class ToolRegistry {
 
     if (mcpTools.length > 0) {
       const usedByOthers =
-        openclawTools.length + lspTools.length + gitTools.length + githubTools.length;
+        openclawTools.length +
+        lspTools.length +
+        gitTools.length +
+        githubTools.length +
+        pluginTools.length;
       const capped = mcpTools.slice(0, Math.max(0, maxTools - usedByOthers));
       lines.push('## Herramientas MCP externas');
       for (const t of capped) {
@@ -760,6 +793,17 @@ class ToolRegistry {
     if (githubTools.length > 0) {
       lines.push('## Herramientas GitHub (nativas)');
       for (const t of githubTools) {
+        let line = `  - ${t.name}`;
+        if (t.description) line += `: ${t.description}`;
+        if (t.highImpact) line += ' (requiere aprobación)';
+        lines.push(line);
+      }
+      lines.push('');
+    }
+
+    if (pluginTools.length > 0) {
+      lines.push('## Herramientas de plugins');
+      for (const t of pluginTools) {
         let line = `  - ${t.name}`;
         if (t.description) line += `: ${t.description}`;
         if (t.highImpact) line += ' (requiere aprobación)';

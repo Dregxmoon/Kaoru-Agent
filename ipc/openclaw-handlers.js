@@ -108,6 +108,18 @@ function register(ctx) {
     }
   });
 
+  // Cancelación del agent-run en curso: el renderer envía 'agent-cancel' y el
+  // AbortController rompe el stream HTTP del LLM y el loop del agente.
+  let activeAbort = null;
+
+  ipcMain.on('agent-cancel', () => {
+    if (activeAbort) {
+      activeAbort.abort();
+      activeAbort = null;
+      console.log('[main] agent-run cancelado por el usuario');
+    }
+  });
+
   ipcMain.handle('agent-run', async (e, { text }) => {
     console.log(`[main] agent-run: text="${text?.slice(0, 80)}"`);
     const _t = (l) => console.log(`[agent-timing] ${Date.now() - _t0}ms ${l}`);
@@ -117,8 +129,11 @@ function register(ctx) {
       return { response: null, iterations: 0, toolResults: [], error: 'texto vacío' };
     }
 
+    const abort = new AbortController();
+    activeAbort = abort;
     try {
       const result = await Core.runAgent(text, {
+        signal: abort.signal,
         onApprovalNeeded: async (action) => {
           return new Promise((resolve) => {
             if (!S.chatWindow || S.chatWindow.isDestroyed()) {
@@ -172,10 +187,13 @@ function register(ctx) {
         toolResults: result.toolResults,
         error: result.error,
         truncated: result.truncated || false,
+        cancelled: result.cancelled || false,
       };
     } catch (err) {
       console.error('[main] error en agent-run:', err.message);
       return { response: null, iterations: 0, toolResults: [], error: err.message };
+    } finally {
+      if (activeAbort === abort) activeAbort = null;
     }
   });
 

@@ -626,7 +626,43 @@ class Planner {
     if (tool === 'edit_file' || tool === 'edit') return this._executeEditFile(params);
     if (tool === 'create_file' || tool === 'write') return this._executeCreateFile(params);
     if (tool === 'mcp') return this._executeMCP(params);
+    if (tool === 'plugin') return this._executePlugin(params);
     return this._bridge.execute(tool, params);
+  }
+
+  /**
+   * Ejecuta una tool de un plugin registrado. `params` espera `{ name, args }`
+   * o `{ tool, args }` donde name/tool es el id `plugin.<plugin>.<tool>`.
+   * El dispatch real lo provee el PluginManager enlazado en Core (bind).
+   */
+  async _executePlugin(params = {}) {
+    const { getPluginManager } = require('../plugins/PluginManager.js');
+    const mgr = getPluginManager();
+    const toolId = params.name || params.tool;
+    const args = params.args || {};
+    if (!toolId) {
+      return { ok: false, error: 'plugin_call requiere name/tool', result: null, tool: 'plugin' };
+    }
+    try {
+      if (typeof mgr._dispatch !== 'function') {
+        return {
+          ok: false,
+          error: 'PluginManager no enlazado al dispatch',
+          result: null,
+          tool: 'plugin',
+        };
+      }
+      const result = await mgr._dispatch(toolId, args);
+      return {
+        ok: result?.ok !== false,
+        result: result?.result ?? null,
+        error: result?.error || null,
+        tool: `plugin:${toolId}`,
+      };
+    } catch (e) {
+      console.warn(`[planner] error plugin ${toolId}:`, e.message);
+      return { ok: false, error: e.message, result: null, tool: `plugin:${toolId}` };
+    }
   }
 
   /**
