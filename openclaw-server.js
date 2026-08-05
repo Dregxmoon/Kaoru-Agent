@@ -7,7 +7,10 @@ const path = require('path');
 const Diff = require('diff');
 const crypto = require('crypto');
 
-const PORT = 18789;
+// G.1: puerto configurable vía OPENCLAW_PORT (para tests y despliegues
+// embebidos); default 18789 mantiene compatibilidad.
+const DEFAULT_PORT = 18789;
+const PORT = parseInt(process.env.OPENCLAW_PORT, 10) || DEFAULT_PORT;
 
 // ── Configuración desde entorno ─────────────────────────────────────────────
 
@@ -182,6 +185,56 @@ function _isOutsideAllowed(filePath) {
 
 // ── Handlers ────────────────────────────────────────────────────────────────
 
+const DEFAULT_IGNORED = new Set(['node_modules', '.git', 'dist', 'build', '.next', '.cache', '__pycache__']);
+
+function _splitIgnore(ignore) {
+  if (!ignore) return DEFAULT_IGNORED;
+  return new Set(
+    String(ignore)
+      .split(',')
+      .map(s => s.trim())
+      .filter(Boolean)
+      .concat([...DEFAULT_IGNORED])
+  );
+}
+
+function _minimatchGlob(pattern) {
+  const mm = require('minimatch').minimatch || require('minimatch');
+  return (relPath) => mm(relPath, pattern, { dot: true });
+}
+
+function _collectFiles(base, opts = {}) {
+  const { ignore, includeMatcher, maxFiles = 4000 } = opts;
+  const ignored = _splitIgnore(ignore);
+  const out = [];
+  const stack = [base];
+
+  while (stack.length > 0 && out.length < maxFiles) {
+    const dir = stack.pop();
+    let entries;
+    try {
+      entries = fs.readdirSync(dir, { withFileTypes: true });
+    } catch (e) {
+      continue;
+    }
+    for (const entry of entries) {
+      if (out.length >= maxFiles) break;
+      if (ignored.has(entry.name)) continue;
+      const abs = path.join(dir, entry.name);
+      if (entry.isDirectory()) {
+        stack.push(abs);
+      } else if (entry.isFile()) {
+        if (includeMatcher) {
+          const rel = path.relative(ALLOWED_PATH, abs).split(path.sep).join('/');
+          if (!includeMatcher(rel) && !includeMatcher(entry.name)) continue;
+        }
+        out.push(abs);
+      }
+    }
+  }
+  return out;
+}
+
 const HANDLERS = {
 
   exec(input) {
@@ -241,14 +294,43 @@ const HANDLERS = {
     if (_isOutsideAllowed(filePath)) return { error: `path outside allowed zone: ${filePath}` };
     if (!fs.existsSync(filePath)) return { error: `File not found: ${filePath}` };
 
-    const content = fs.readFileSync(filePath, 'utf-8');
-    if (!content.includes(input.old_text)) {
-      return { error: 'old_text not found in file' };
+    const oldText = input.old_text ?? input.oldString;
+    const newText = input.new_text ?? input.newString;
+    if (typeof oldText !== 'string' || oldText.length === 0) {
+      return { error: 'old_text is required and must be non-empty' };
+    }
+    if (typeof newText !== 'string') {
+      return { error: 'new_text is required' };
     }
 
-    const newContent = content.replace(input.old_text, input.new_text);
+    const content = fs.readFileSync(filePath, 'utf-8');
+
+    // Coincidencia exacta y determinista: si old_text no aparece o aparece más
+    // de una vez, fallamos sin modificar nada. Reemplazar la primera ocurrencia
+    // a ciegas es impredecible cuando el archivo tiene texto repetido.
+    let firstIndex = -1;
+    let count = 0;
+    let searchFrom = 0;
+    while (true) {
+      const idx = content.indexOf(oldText, searchFrom);
+      if (idx === -1) break;
+      if (firstIndex === -1) firstIndex = idx;
+      count += 1;
+      searchFrom = idx + oldText.length;
+    }
+
+    if (count === 0) {
+      return { error: `old_text no se encontró en ${filePath}. No se modificó nada.` };
+    }
+    if (count > 1) {
+      return {
+        error: `old_text aparece ${count} veces en ${filePath} — el reemplazo es ambiguo. No se modificó nada. Incluye más contexto alrededor para que coincida de forma única.`,
+      };
+    }
+
+    const newContent = content.slice(0, firstIndex) + newText + content.slice(firstIndex + oldText.length);
     fs.writeFileSync(filePath, newContent, 'utf-8');
-    return { result: `Edited ${filePath}` };
+    return { result: `Edited ${filePath} (1 reemplazo exacto)` };
   },
 
   apply_patch(input) {
@@ -275,6 +357,67 @@ const HANDLERS = {
 
     fs.writeFileSync(filePath, patched, 'utf-8');
     return { result: `Patch applied to ${filePath}` };
+  },
+
+  grep(input) {
+    const pattern = input.pattern;
+    if (!pattern) return { error: 'pattern required' };
+    let regex;
+    try {
+      regex = new RegExp(pattern);
+    } catch (e) {
+      return { error: `regex inválido: ${e.message}` };
+    }
+
+    const base = path.resolve(ALLOWED_PATH, input.path || '.');
+    if (_isOutsideAllowed(base)) return { error: `path outside allowed zone: ${base}` };
+    if (!fs.existsSync(base)) return { error: `Path not found: ${base}` };
+
+    const include = input.include ? _minimatchGlob(input.include) : null;
+    const ignore = input.ignore || 'node_modules,.git,dist,build,.env,package-lock.json';
+    const maxResults = Math.min((input.max_results || 50), 500);
+
+    const files = _collectFiles(base, { ignore, includeMatcher: include, maxFiles: 4000 });
+    const matches = [];
+    for (const file of files) {
+      if (matches.length >= maxResults) break;
+      let content;
+      try {
+        content = fs.readFileSync(file, 'utf-8');
+      } catch (e) {
+        continue; // binarios o ilegibles
+      }
+      let m;
+      while ((m = regex.exec(content)) !== null && matches.length < maxResults) {
+        const lineStart = content.lastIndexOf('\n', m.index) + 1;
+        const lineEnd = content.indexOf('\n', m.index);
+        const line = content.slice(lineStart, lineEnd === -1 ? undefined : lineEnd);
+        matches.push({
+          path: path.relative(ALLOWED_PATH, file),
+          line: content.slice(0, lineStart).split('\n').length,
+          text: line.length > 300 ? line.slice(0, 300) + '…' : line,
+        });
+        if (regex.lastIndex === m.index) regex.lastIndex += 1;
+        if (m[0] === '') break;
+      }
+    }
+    if (matches.length === 0) return { result: { count: 0, matches: [] } };
+    return { result: { count: matches.length, matches, truncated: matches.length >= maxResults } };
+  },
+
+  glob(input) {
+    const pattern = input.pattern;
+    if (!pattern) return { error: 'pattern required' };
+    const base = path.resolve(ALLOWED_PATH, input.path || '.');
+    if (_isOutsideAllowed(base)) return { error: `path outside allowed zone: ${base}` };
+    if (!fs.existsSync(base)) return { error: `Path not found: ${base}` };
+
+    const matcher = _minimatchGlob(pattern);
+    const files = _collectFiles(base, { ignore: 'node_modules,.git,dist,build', maxFiles: 10000 });
+    const matched = files
+      .map(f => path.relative(ALLOWED_PATH, f))
+      .filter(rel => matcher(rel));
+    return { result: { count: matched.length, files: matched.slice(0, 200) } };
   },
 
   code_execution(input) {

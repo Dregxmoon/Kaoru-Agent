@@ -78,6 +78,24 @@ const SESSION_END_MIN_SEC   = 20 * 60;                // mínimo de racha para t
 const DAILY_BUDGET           = 12;
 const PENDING_LOOKAHEAD_MS   = 45 * 60 * 1000;        // pendientes a <45 min para el recap de arranque
 
+// G.1: proactividad de alta calidad. Mensajes "relleno" que no aportan nada
+// (saludos vacíos, check-ins genéricos) se descartan en modo producción (gate
+// admitió). El gate ya validó relevancia; el mensaje debe tener sustancia.
+const LOW_VALUE_MSGS = new Set([
+  'hola', 'hey', 'hi', 'holi', 'saludos', 'buenas', 'buenas tardes', 'buenos dias',
+  'cómo estas', 'como estas', 'cómo va', 'como va', 'cómo va el proyecto', 'como va el proyecto',
+  'cómo va todo', 'como va todo', 'cómo va tu dia', 'como va tu dia', 'todo bien', 'todo bien?',
+  'que tal', 'qué tal', 'que haces', 'qué haces', 'sigues ahi', 'sigues ahí', 'estas ahi',
+  'estás ahí', 'ya atorada', 'ya atorado', 'en qué puedo ayudarte', 'en que puedo ayudarte',
+]);
+
+function _isLowValueMessage(msg) {
+  const norm = msg.toLowerCase().trim().replace(/[¿?¡!.,:;]/g, '').replace(/\s+/g, ' ').trim();
+  if (LOW_VALUE_MSGS.has(norm)) return true;
+  if (norm.length < 8) return true; // filler demasiado corto para tener sustancia
+  return false;
+}
+
 // ── Pre-filtro barato para triggers basados en actividad del OS ─────────────
 // (reemplaza las INITIATIVE_RULES de InitiativeEngine.js — mismo umbral por
 // categoría, pero aquí solo decide si vale la pena PREGUNTARLE al LLM, no
@@ -1226,9 +1244,10 @@ Nunca usas frases como "¡Claro!", "¡Por supuesto!", "¿En qué puedo ayudarte?
 Eres concisa y natural (1-3 oraciones). Cuando decides hablar, dices algo que vale la pena decir.
 
 Tu curiosidad es genuina, no protocolar — si preguntas algo es porque te interesa, no porque "debas" hacer conversación.
-No siempre tiene que ser sobre el proyecto o el código: a veces lo más genuino es notar cómo está la persona,
-hacer un comentario random, burlarte cariñosamente de algo, o simplemente decir algo que se te quedó pensando
-de una sesión anterior. Evita caer siempre en "¿cómo va el proyecto?" — revisa lo que ya dijiste antes y no lo repitas.
+Cuando decidas hablar, debe haber una razón real: un cambio que notaste en la pantalla o en el código, un error, un dato
+de memoria que vale la pena traer a colación, o el estado genuino de la persona en este momento. Un saludo vacío o un
+"¿cómo va todo?" genérico es peor que no decir nada: si lo único que se te ocurre es relleno, no digas nada.
+Evita caer siempre en "¿cómo va el proyecto?" — revisa lo que ya dijiste antes y no lo repitas.
 
 REGLA DE MEMORIA FACTUAL: todo lo que digas sobre la persona, sus fechas, gustos o proyectos debe estar
 RESPALDADO por la memoria que aparece abajo en este prompt. Nunca inventes, completes ni infieras datos
@@ -1272,6 +1291,14 @@ No expliques por qué escribes. No anuncies que eres proactiva. Solo di lo que d
 
       const trimmed = response?.trim();
       if (!trimmed || trimmed.toUpperCase() === 'NO' || trimmed.length < 5) {
+        return null;
+      }
+
+      // G.1: en modo producción el gate ya admitió la señal; filtrar el relleno
+      // genérico que degrada la experiencia (el LLM a veces "saluda" en vez de
+      // decir algo con sustancia).
+      if (productionMode && _isLowValueMessage(trimmed)) {
+        console.log('[proactive] mensaje descartado por relleno (producción):', JSON.stringify(trimmed));
         return null;
       }
 

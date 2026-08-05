@@ -356,7 +356,7 @@ const ACTION_PATTERNS = [
     validate: (m) => _isValidCommand(_cleanCommand(m[1])),
   },
   {
-    pattern: /(?:ejecuta(?:r|ndo)?|corre(?:r)?|lanza(?:r)?)\s+(?:el\s+comando\s+)?[:\-]?\s*`([^`\n]{2,120})`/i,
+    pattern: /(?:ejecuta(?:r|ndo)?|corre(?:r)?|lanza(?:r)?)\s+(?:el\s+comando\s+)?[:-]?\s*`([^`\n]{2,120})`/i,
     tool: 'exec',
     buildParams: (m) => ({ command: _cleanCommand(m[1]), cwd: PROJECT_CWD }),
     description: (m) => `Ejecutar: ${_cleanCommand(m[1])}`,
@@ -370,14 +370,14 @@ const ACTION_PATTERNS = [
     validate: (m) => _isValidCommand(_cleanCommand(m[1])),
   },
   {
-    pattern: /(?:lee(?:r)?|abrir?|mostrar?)\s+(?:el\s+)?archivo\s*[:\-]?\s*`?([^\s`\n]{2,200})`?/i,
+    pattern: /(?:lee(?:r)?|abrir?|mostrar?)\s+(?:el\s+)?archivo\s*[:-]?\s*`?([^\s`\n]{2,200})`?/i,
     tool: 'read',
     buildParams: (m) => ({ path: _cleanPath(m[1]) }),
     description: (m) => `Leer archivo: ${_cleanPath(m[1])}`,
     validate: (m) => _isValidPath(_cleanPath(m[1])),
   },
   {
-    pattern: /crea(?:r)?\s+(?:un\s+)?(?:nuevo\s+)?(?:archivo|fichero)(?:\s+llamado|\s+named)?\s*[:\-]?\s*`?([\w./\\-]+\.\w{1,10})`?/i,
+    pattern: /crea(?:r)?\s+(?:un\s+)?(?:nuevo\s+)?(?:archivo|fichero)(?:\s+llamado|\s+named)?\s*[:-]?\s*`?([\w./\\-]+\.\w{1,10})`?/i,
     tool: 'create_file',
     buildParams: (m, fullText) => {
       const filename  = _cleanPath(m[1]);
@@ -395,27 +395,27 @@ const ACTION_PATTERNS = [
     validate: (m) => _isValidPath(_cleanPath(m[1])),
   },
   {
-    pattern: /(?:ejecuta(?:r)?|corre(?:r)?)\s+(?:este\s+|el\s+)?c[oó]digo(?:\s+python)?\s*[:\-]?\s*`([^`\n]{2,2000})`/i,
+    pattern: /(?:ejecuta(?:r)?|corre(?:r)?)\s+(?:este\s+|el\s+)?c[oó]digo(?:\s+python)?\s*[:-]?\s*`([^`\n]{2,2000})`/i,
     tool: 'code_execution',
     buildParams: (m) => ({ code: m[1] }),
     description: () => `Ejecutar código Python`,
     validate: (m) => m[1] && m[1].trim().length > 0,
   },
   {
-    pattern: /aplica(?:r)?\s+(?:este\s+|el\s+)?patch\s+a\s+([\w./\\-]+\.\w{1,10})\s*[:\-]?\s*```([\s\S]{2,5000}?)```/i,
+    pattern: /aplica(?:r)?\s+(?:este\s+|el\s+)?patch\s+a\s+([\w./\\-]+\.\w{1,10})\s*[:-]?\s*```([\s\S]{2,5000}?)```/i,
     tool: 'apply_patch',
     buildParams: (m) => ({ path: _cleanPath(m[1]), patch: m[2] }),
     description: (m) => `Aplicar patch a: ${_cleanPath(m[1])}`,
     validate: (m) => _isValidPath(_cleanPath(m[1])) && m[2] && m[2].trim().length > 0,
   },
   {
-    pattern: /(?:busca(?:r|me)?\s+en\s+(?:la\s+)?(?:web|internet|google)|voy\s+a\s+buscar\s+en\s+(?:la\s+)?web)\s*[:\-]?\s*(.+?)(?:\.|$)/i,
+    pattern: /(?:busca(?:r|me)?\s+en\s+(?:la\s+)?(?:web|internet|google)|voy\s+a\s+buscar\s+en\s+(?:la\s+)?web)\s*[:-]?\s*(.+?)(?:\.|$)/i,
     tool: 'web_search',
     buildParams: (m) => ({ query: m[1].trim() }),
     description: (m) => `Buscar en la web: "${m[1].trim()}"`,
   },
   {
-    pattern: /(?:navega(?:r)?\s+a|abre?\s+en\s+(?:el\s+)?navegador|visita(?:r)?)\s*[:\-]?\s*(https?:\/\/[^\s\n]{2,300})/i,
+    pattern: /(?:navega(?:r)?\s+a|abre?\s+en\s+(?:el\s+)?navegador|visita(?:r)?)\s*[:-]?\s*(https?:\/\/[^\s\n]{2,300})/i,
     tool: 'browser',
     buildParams: (m) => ({ action: 'navigate', url: m[1].trim() }),
     description: (m) => `Navegar a: ${m[1].trim()}`,

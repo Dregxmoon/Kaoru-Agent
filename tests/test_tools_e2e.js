@@ -48,10 +48,14 @@ function testToolHandlerCoverage() {
   const serverHandlers = new Set(Object.keys(srv.HANDLERS));
   // browser y web_search se resuelven con BrowserBridge (en proceso), no HTTP
   const BROWSER_TOOLS = new Set(['browser', 'web_search']);
+  // subagent se resuelve en proceso con un AgentLoop anidado, no HTTP
+  const INPROCESS_TOOLS = new Set(['subagent']);
 
   for (const schema of schemas) {
     if (BROWSER_TOOLS.has(schema.name)) {
       assert(true, `${schema.name}: resuelto por BrowserBridge`);
+    } else if (INPROCESS_TOOLS.has(schema.name)) {
+      assert(true, `${schema.name}: resuelto en proceso (AgentLoop anidado)`);
     } else if (serverHandlers.has(schema.name)) {
       assert(true, `${schema.name}: handler en openclaw-server`);
     } else {
@@ -59,8 +63,8 @@ function testToolHandlerCoverage() {
     }
   }
 
-  assertEqual(schemas.length, 8, '8 herramientas OpenClaw en ToolRegistry');
-  assertEqual(serverHandlers.size, 6, '6 handlers en openclaw-server');
+  assertEqual(schemas.length, 11, '11 herramientas OpenClaw en ToolRegistry');
+  assertEqual(serverHandlers.size, 8, '8 handlers en openclaw-server');
 }
 
 // ── Test 2: Approval gate (isHighImpact) ─────────────────────────────────
@@ -174,13 +178,13 @@ function testBridgeToolRouting() {
   const { OpenClawBridge } = require('../core/planner/OpenClawBridge.js');
   const bridge = new OpenClawBridge();
 
-  // Verificar que browser/wb_search tienen schema builders en el bridge
+  // Verificar que las tools que van por HTTP tienen schema builders en el bridge
   const bridgeSchemas = {};
-  for (const key of ['exec', 'read', 'write', 'edit', 'apply_patch', 'code_execution']) {
+  for (const key of ['exec', 'read', 'write', 'edit', 'apply_patch', 'code_execution', 'grep', 'glob']) {
     bridgeSchemas[key] = true;
   }
 
-  // browser y web_search NO deben tener TOOL_SCHEMAS builders (van a BrowserBridge)
+  // browser, web_search y subagent NO van por HTTP (in-process).
   const srvHandlers = Object.keys(srv.HANDLERS);
   for (const handler of srvHandlers) {
     assert(bridgeSchemas[handler] === true, `${handler}: tiene builder en OpenClawBridge`);
@@ -223,7 +227,73 @@ function testServerHandlerErrors() {
   assert(editNoMatch.error && editNoMatch.error.includes('File not found'), 'edit archivo inexistente → error');
 }
 
-// ── Test 7: ToolResolver produce catalog válido para todas las tools ──────
+// ── Test 7: Edición determinista (diff search/replace) ────────────────────
+function testDeterministicEdit() {
+  console.log(C.bold('\n── Edit determinista: reemplazo exacto no ambiguo ──────'));
+
+  const handlers = srv.HANDLERS;
+  const path = require('path');
+  const fs = require('fs');
+  const tmpFile = path.join(__dirname, '..', '__edit_deterministic_test__.txt');
+  fs.writeFileSync(tmpFile, 'line one\nline two\nline one\n', 'utf-8');
+
+  // old_text aparece 2 veces → ambigüedad → error, sin modificar nada
+  const ambiguous = handlers.edit({ path: tmpFile, old_text: 'line one', new_text: 'X' });
+  assert(ambiguous.error && ambiguous.error.includes('ambiguo'), 'edit con 2 coincidencias → error "ambiguo"');
+  assert(fs.readFileSync(tmpFile, 'utf-8') === 'line one\nline two\nline one\n', 'edit ambiguo no modifica el archivo');
+
+  // old_text único → reemplazo exacto determinista
+  const ok = handlers.edit({ path: tmpFile, old_text: 'line two', new_text: 'line TWO' });
+  assert(ok.result && ok.result.includes('Edited'), 'edit único → ok');
+  assert(fs.readFileSync(tmpFile, 'utf-8') === 'line one\nline TWO\nline one\n', 'edit único reemplaza exactamente una vez');
+
+  // old_text inexistente → error claro
+  const missing = handlers.edit({ path: tmpFile, old_text: 'nope', new_text: 'X' });
+  assert(missing.error && missing.error.includes('no se encontró'), 'edit sin coincidencia → error claro');
+
+  // alias oldString/newString (schema del ToolRegistry)
+  const alias = handlers.edit({ path: tmpFile, oldString: 'line one', newString: 'L' });
+  assert(alias.error && alias.error.includes('ambiguo'), 'edit con oldString/newText → usa los alias (ambiguo aquí)');
+
+  fs.unlinkSync(tmpFile);
+}
+
+// ── Test 8: grep/glob (masa de herramientas de búsqueda) ──────────────────
+function testSearchTools() {
+  console.log(C.bold('\n── Grep/glob: búsqueda en el proyecto ───────────────────'));
+
+  const handlers = srv.HANDLERS;
+
+  // grep sin pattern → error
+  const noPat = handlers.grep({});
+  assert(noPat.error && noPat.error.includes('pattern'), 'grep sin pattern → error');
+
+  // grep con regex inválida → error claro, no crash
+  const badRe = handlers.grep({ pattern: '[' });
+  assert(badRe.error && badRe.error.includes('regex inválido'), 'grep con regex inválido → error claro');
+
+  // grep encuentra coincidencias en el propio proyecto
+  const g = handlers.grep({ pattern: 'HANDLERS', path: '.', include: 'openclaw-server.js' });
+  assert(g.result && g.result.count > 0, 'grep encuentra HANDLERS en openclaw-server.js');
+  assert(g.result.matches[0].path && g.result.matches[0].line > 0, 'grep devuelve path y línea');
+  assert(g.result.matches[0].text.includes('HANDLERS'), 'grep devuelve el texto de la línea');
+
+  // grep excluye node_modules por defecto (el walker no entra a node_modules)
+  const g2 = srv.HANDLERS.grep({ pattern: 'minimatch', path: '.', include: '**/*.js' });
+  const noNodeModules = (g2.result?.matches || []).every(m => !m.path.startsWith('node_modules/'));
+  assert(noNodeModules, 'grep ignora node_modules', JSON.stringify((g2.result?.matches || []).slice(0, 3)));
+
+  // glob lista archivos por patrón
+  const gl = handlers.glob({ pattern: 'src/**/*.js' });
+  assert(gl.result && gl.result.count > 0, 'glob encuentra archivos en src');
+  assert(gl.result.files.every(f => f.endsWith('.js')), 'glob respeta el patrón *.js');
+
+  // glob fuera del proyecto → error
+  const gl2 = handlers.glob({ pattern: '*', path: '/etc' });
+  assert(gl2.error && gl2.error.includes('outside allowed'), 'glob fuera del proyecto → error');
+}
+
+// ── Test 9: ToolResolver produce catalog válido para todas las tools ──────
 async function testToolResolverCatalog() {
   console.log(C.bold('\n── ToolResolver: catálogo completo ─────────────────────'));
 
@@ -279,6 +349,12 @@ async function main() {
 
   console.log(C.bold('\n── Errores server-side ────────────────────────────────'));
   testServerHandlerErrors();
+
+  console.log(C.bold('\n── Edit determinista ───────────────────────────────────'));
+  testDeterministicEdit();
+
+  console.log(C.bold('\n── Grep/glob ───────────────────────────────────────────'));
+  testSearchTools();
 
   console.log(C.bold('\n── Catálogo ToolResolver ──────────────────────────────'));
   await testToolResolverCatalog();

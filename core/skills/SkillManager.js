@@ -58,13 +58,13 @@ function _parseFrontmatter(raw) {
         try {
           meta.replaces_domains = JSON.parse(value.replace(/'/g, '"'));
         } catch {
-          meta.replaces_domains = value.replace(/[\[\]']/g, '').split(',').map(s => s.trim()).filter(Boolean);
+          meta.replaces_domains = value.replace(/[[\]']/g, '').split(',').map(s => s.trim()).filter(Boolean);
         }
       } else if (key === 'domains') {
         try {
           meta.domains = JSON.parse(value.replace(/'/g, '"'));
         } catch {
-          meta.domains = value.replace(/[\[\]']/g, '').split(',').map(s => s.trim()).filter(Boolean);
+          meta.domains = value.replace(/[[\]']/g, '').split(',').map(s => s.trim()).filter(Boolean);
         }
       }
     }

@@ -63,6 +63,27 @@ assert(!!(r && r.find(x => x.tool === 'create_file')), 'create_file legacy OK');
 r = parser.parse('```action\nACCIÓN: run_command\nCOMANDO: ls\n```', null);
 assert(!!(r && r.find(x => x.tool === 'exec')), 'run_command legacy OK');
 
+// ── Test 4: CONTENIDO se usa como instruction (no userGoal) ──────────────────
+console.log(C.bold('\n── Test 4: CONTENIDO → instruction en write/edit ────────────'));
+r = parser.parse('```action\nACCIÓN: write\nARCHIVO: hola.txt\nCONTENIDO: hola\n```', 'el userGoal NO debe ser el contenido');
+a = r && r.find(x => x.tool === 'create_file');
+assert(!!a, 'write con CONTENIDO → create_file');
+assert(a && a.params && a.params.instruction === 'hola', 'write: instruction = CONTENIDO ("hola"), no el userGoal', JSON.stringify(a && a.params));
+assert(a && a.params && a.params.instruction !== 'el userGoal NO debe ser el contenido', 'write: instruction NO es el userGoal');
+
+// ── Test 5: CONTENIDO multilínea se captura completo ─────────────────────────
+console.log(C.bold('\n── Test 5: CONTENIDO multilínea ────────────────────────────'));
+r = parser.parse('```action\nACCIÓN: write\nARCHIVO: docs/README.md\nCONTENIDO: # Demo\n\nProyecto demo v1.0.0.\nIncluye src/index.js.\n```', 'userGoal');
+a = r && r.find(x => x.tool === 'create_file');
+assert(!!a, 'write multilínea → create_file');
+assert(a && a.params && a.params.instruction === '# Demo\n\nProyecto demo v1.0.0.\nIncluye src/index.js.',
+  'instruction conserva el contenido completo (multilínea)', JSON.stringify(a && a.params && a.params.instruction));
+
+// CONTENIDO seguido de otro campo en la misma línea se corta ahí
+r = parser.parse('```action\nACCIÓN: edit\nARCHIVO: a.js\nCONTENIDO: nuevo | OTRO: valor\n```', 'userGoal');
+a = r && r.find(x => x.tool === 'edit_file');
+assert(a && a.params && a.params.instruction === 'nuevo', 'CONTENIDO en línea única con | se corta en el siguiente campo', JSON.stringify(a && a.params));
+
 console.log(C.bold(`\n── StructuredActionParser aliases: ${C.green(passed)}✓ ${failed ? C.red(failed + '✗') : ''} ──`));
 console.log(`Resultado: ${passed} passed ${failed} failed / ${passed + failed} total`);
 if (failed > 0) process.exitCode = 1;

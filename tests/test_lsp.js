@@ -221,6 +221,28 @@ async function testCoreIntegration() {
   }
 }
 
+// ── Test 11: Timeout del pull de diagnósticos (G.1) ──────────────────
+async function testDiagnosticPullTimeout() {
+  console.log(C.bold('\n── Timeout del pull de diagnósticos ─────────────────'));
+
+  const { _LSPInstance } = require('../core/lsp/LSPManager.js');
+  // Sin proceso real: _send es no-op, así que ninguna request recibe respuesta
+  // y el único camino de resolución es el timeout per-request.
+  const inst = new _LSPInstance({ languageId: 'python' }, 'python');
+
+  const t0 = Date.now();
+  let err = null;
+  try {
+    await inst._request('textDocument/diagnostic', { textDocument: { uri: 'file:///fake' } }, 300);
+  } catch (e) {
+    err = e;
+  }
+  const elapsed = Date.now() - t0;
+  assert(!!err && err.message.includes('timed out'), 'request sin respuesta rechaza con timeout');
+  assert(elapsed < 5000, `respeta el timeout corto per-request (~300ms, tomó ${elapsed}ms)`);
+  assertEqual(inst._pending.size, 0, 'el pending se limpia tras el timeout');
+}
+
 // ── Run ────────────────────────────────────────────────────────────────────
 
 console.log(C.bold(C.cyan('\n════════════════════════════════════════════════════════')));
@@ -251,6 +273,7 @@ async function main() {
 
   console.log(C.bold('\n── Core ──────────────────────────────────────────'));
   await testCoreIntegration();
+  await testDiagnosticPullTimeout();
 
   console.log(C.bold('\n════════════════════════════════════════════════════════'));
   const total = passed + failed + skipped;

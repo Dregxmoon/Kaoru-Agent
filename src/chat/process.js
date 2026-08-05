@@ -65,14 +65,25 @@ async function processMessage(text, files = []) {
       addMessage, processMessage,
       openSettings,
       fs, path,
-      process: { cwd: () => _workspacePath || process.cwd() },
-      gestureEngine: chatGestureEngine,
+      process: { cwd: () => _workspacePath || assistant.cwd() },
+      // NOTA (sandbox): NO se pasa chatGestureEngine por el bridge. El engine
+      // corre en la página y guarda el objeto Live2D real; pasarlo a
+      // CommandRegistry (que vive en el mundo aislado) dispara una copia
+      // profunda síncrona del modelo por contextBridge → la ventana se
+      // congela. Se expone solo un wrapper de función (los callbacks sí se
+      // proxean barato). /gesto lo usa como ctx.gestureEngine.play(mood).
+      gestureEngine: chatGestureEngine
+        ? { play: (mood, opts) => chatGestureEngine.play(mood, opts || { priority: 'force' }) }
+        : null,
       gestureConfig: chatGestureConfig,
     };
 
     // Also pass ipcRenderer for commands that use IPC (like /undo)
     cmdCtx.ipcRenderer = ipcRenderer;
-    const cmdResult = await CommandRegistry.execute(trimmed, cmdCtx);
+    // runCommand ejecuta en el mundo aislado (preload) donde fs/path son los
+    // reales de Node — los shims de la página solo tienen join/existsSync y
+    // /init, /open, /export fallarían con "readdirSync is not a function".
+    const cmdResult = await assistant.runCommand(trimmed, cmdCtx);
     const asstMsg = cmdResult.error
       ? `Error: ${cmdResult.error}`
       : cmdResult.result || '(sin respuesta)';
@@ -83,7 +94,7 @@ async function processMessage(text, files = []) {
   }
 
   // @ file references
-  const fileResult = FileResolver.buildFileContext(trimmed, _workspacePath || process.cwd());
+  const fileResult = FileResolver.buildFileContext(trimmed, _workspacePath || assistant.cwd());
 
   addMessage('user', trimmed || '(archivo adjunto)', files);
   if (chatGestureEngine) chatGestureEngine.onChat('user', trimmed, chatDetectEmotion);

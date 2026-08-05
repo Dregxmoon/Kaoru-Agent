@@ -32,12 +32,12 @@ ipcRenderer.invoke('list-skills').then(skills => {
 }).catch(() => {});
 try {
   _providerNames = LLMProvider.getAvailableProviders().filter(p => p.hasKey).map(p => p.id);
-} catch {};
+} catch {}
 
 function _getProjectFiles() {
   if (_atProjectFiles) return _atProjectFiles;
   try {
-    _atProjectFiles = FileResolver.listProjectFiles(_workspacePath || process.cwd());
+    _atProjectFiles = FileResolver.listProjectFiles(_workspacePath || assistant.cwd());
   } catch { _atProjectFiles = []; }
   return _atProjectFiles;
 }
@@ -324,7 +324,7 @@ chatPanel.addEventListener('drop', (e) => {
   const folder = files.find(f => {
     if (!f.path) return false;
     let isDir = false;
-    try { isDir = fs.statSync(f.path).isDirectory(); } catch {}
+    try { isDir = assistant.statIsDir(f.path); } catch {}
     return isDir;
   });
   if (folder) { importModelFromFolder(folder.path); return; }

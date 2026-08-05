@@ -26,13 +26,40 @@
 <script src="https://cdn.jsdelivr.net/npm/pixi-live2d-display@0.4.0/dist/cubism4.min.js"></script>
 
 <script>
-const { ipcRenderer } = require('electron');
-const path = require('path');
-const fs   = require('fs');
-const cp   = require('child_process');
+// Sandbox: la página no tiene require() ni Node. Todo llega acotado desde el
+// preload vía window.assistant (contextBridge). ipcRenderer es el wrapper con
+// la misma firma (invoke/send/on) que el original. Usamos `var` (no const)
+// porque contextBridge define window.assistant como propiedad no-configurable
+// y una `const assistant` en ámbito global lanza "Identifier 'assistant' has
+// already been declared" (HasRestrictedGlobalProperty).
+var assistant     = window.assistant;
+const ipcRenderer  = assistant;
+const fs           = { existsSync: (p) => assistant.existsSync(p) };
+const { ModelAugmenter, ttsStream } = assistant;
 
-const GestureEngine  = require('../core/behavior/GestureEngine.js');
-const ModelAugmenter = require('../core/behavior/ModelAugmenter.js');
+// Loader mínimo de módulos core propios en la página. Las clases como
+// GestureEngine DEBEN ejecutarse aquí: reciben el objeto Live2D real (creado
+// por PIXI en la página) que no puede cruzar el contextBridge, y `new` no
+// funciona sobre los proxies del bridge. El preload entrega SOLO el fuente
+// de los módulos whitelisteados (getCoreModuleSource); ModelAugmenter se
+// resuelve al proxy expuesto (llamadas a métodos, no constructor). Esto no
+// le da a la página —ni a los scripts remotos de los CDN— acceso a Node.
+const __coreLoader = (() => {
+  const cache = {};
+  const load = (name) => {
+    const key = String(name).replace(/^\.\//, '').replace(/\.js$/, '');
+    if (cache[key]) return cache[key].exports;
+    if (key === 'ModelAugmenter') return assistant.ModelAugmenter;
+    const source = assistant.getCoreModuleSource(key);
+    if (source == null) throw new Error('Módulo core no permitido en la página: ' + name);
+    const module = { exports: {} };
+    cache[key] = module;
+    new Function('require', 'module', 'exports', source)(load, module, module.exports);
+    return module.exports;
+  };
+  return load;
+})();
+const GestureEngine = __coreLoader('./GestureEngine.js');
 
 window.PIXI = PIXI;
 
@@ -185,43 +212,30 @@ async function speak(text, emotionOverride = null) {
   const spokenText = cleanForTTS(text);
   const emotion    = emotionOverride || detectEmotion(spokenText);
   const emo        = EMOTION_PROFILES[emotion] || EMOTION_PROFILES.default;
-  const scriptPath = path.join(__dirname, '..', 'tts_stream.py');
 
   // Gesto acorde al tono de voz que va a decir el asistente.
   if (gestureEngine && gestureEngine.enabled) gestureEngine.setEmotion(emotion);
 
   try {
     const pythonBin = await getPythonBin();
-    await new Promise((resolve, reject) => {
-      const chunks = [];
-      const proc = cp.spawn(pythonBin, [
-        scriptPath,
-        '--voice', TTS_VOICE,
-        '--rate',  emo.rate,
-        '--pitch', emo.pitch,
-        '--text',  spokenText,
-      ]);
-      proc.stdout.on('data', c => chunks.push(c));
-      proc.on('close', async (code) => {
-        if (code !== 0 || !chunks.length) { reject(new Error('TTS failed')); return; }
-        try {
-          const buf = Buffer.concat(chunks);
-          const ab  = buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.byteLength);
-          const ctx = getAudioCtx();
-          const audioBuf = await ctx.decodeAudioData(ab);
-          const src = ctx.createBufferSource();
-          src.buffer = audioBuf;
-          src.connect(ctx.destination);
-          src.start(0);
-          src.onended = resolve;
-        } catch(e) { reject(e); }
-      });
-      proc.on('error', reject);
+    const u8 = await ttsStream({
+      pythonBin,
+      voice: TTS_VOICE,
+      rate: emo.rate,
+      pitch: emo.pitch,
+      text: spokenText,
     });
+    const ctx = getAudioCtx();
+    const audioBuf = await ctx.decodeAudioData(u8.buffer);
+    const src = ctx.createBufferSource();
+    src.buffer = audioBuf;
+    src.connect(ctx.destination);
+    src.start(0);
+    await new Promise((resolve) => { src.onended = resolve; });
   } catch {
     const utt = new SpeechSynthesisUtterance(spokenText);
     utt.lang = 'ja-JP'; utt.pitch = 1.3; utt.rate = 1.05;
-    await new Promise(r => { utt.onend = r; speechSynthesis.speak(utt); });
+    await new Promise(r => { utt.onended = r; speechSynthesis.speak(utt); });
   }
 
   isSpeaking = false;

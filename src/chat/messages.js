@@ -102,7 +102,9 @@ async function loadLLMConfig() {
     } else {
       updateKeysBanner(null);
     }
-    if (cfg && cfg.activeWorkspace) _applyWorkspaceUI(cfg.activeWorkspace);
+    // NOTA: el workspace de la UI se aplica en la línea 92 vía 'get-workspace'
+    // (el valor activo real). No se lee cfg.activeWorkspace: quedó obsoleto
+    // desde que el workspace sigue el directorio de lanzamiento.
   } catch(e) {
     console.warn('[llm] error cargando config:', e.message);
     updateKeysBanner(null);

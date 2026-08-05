@@ -133,6 +133,15 @@ Cliente MCP propio (stdio), reconexión automática con backoff, namespacing de 
 ### Automatización de navegador
 `BrowserBridge` con Playwright headless: navegación, lectura de páginas, capturas y búsqueda web — separado del navegador personal del usuario.
 
+### Masa de herramientas
+`grep` (búsqueda regex por contenido), `glob` (patrones de archivos) y `subagent` (sub-agente anidado) se suman a la whitelist de `AgentLoop`: el asistente explora el proyecto sin volcar todo al contexto, con límites de resultados y profundidad.
+
+### Sandbox de renderers
+Ambas ventanas (overlay Live2D y chat) corren con `nodeIntegration:false` + `contextIsolation:true` y preloads acotados (`src/preload.js`, `src/chat/preload.js`) que exponen una API mínima vía `contextBridge`: los scripts remotos de PixiJS/Live2D no tienen acceso a Node, `require`, `process` ni `child_process`. `GestureEngine` (una clase ES que necesita `new` y recibe el objeto Live2D real) se ejecuta **en la página** vía un loader mínimo (`__coreLoader`) que solo resuelve fuentes whitelisteadas de `GestureLexicon`/`GestureHeuristic`/`GestureEngine`. Los comandos `/` se ejecutan en el mundo aislado con `fs`/`path` reales de Node (método `runCommand` del preload); la página nunca recibe `fs`/`path` crudos.
+
+### Contexto largo con memoria
+Al compactar la historia, `AgentLoop` persiste el resumen como episodio en el grafo semántico y al inicio de cada run inyecta el recall de episodios relevantes al objetivo actual — reconstruye contexto en tareas largas o retomadas.
+
 ### Telemetría local
 `TelemetryStore`: turnos, sesiones, silencios, tiempos de respuesta y reporte mensual con deltas — para responder "¿estamos mejor que el mes pasado?" con datos locales.
 
@@ -164,6 +173,8 @@ Cliente MCP propio (stdio), reconexión automática con backoff, namespacing de 
 │   ├── behavior/              #   Comportamiento + motor de proactividad
 │   ├── commands/              #   Registro de comandos (/comando)
 │   ├── decision/              #   Núcleo determinista de decisión proactiva
+│   ├── git/                   #   Wrapper nativo de Git (git_status, push, merge…)
+│   ├── github/                #   Cliente REST de GitHub (issues, PRs, OAuth device flow)
 │   ├── grounding/             #   Pipeline de contexto (intención, memoria, serializers)
 │   ├── identity/              #   Personalidad del asistente (identity.json)
 │   ├── llm/                   #   Abstracción de proveedores de LLM
@@ -174,12 +185,17 @@ Cliente MCP propio (stdio), reconexión automática con backoff, namespacing de 
 │   ├── state-graph/           #   Grafo de conocimiento persistente
 │   ├── task/                  #   Detección de tareas + registro de herramientas
 │   └── telemetry/             #   Telemetría local (métricas de uso)
+├── ipc/                       # Capa IPC (puente renderer ↔ núcleo)
+│   ├── state.js               #   Estado compartido del proceso principal
+│   └── *-handlers.js          #   Handlers por dominio (openclaw, mcp, github, …)
 ├── infrastructure/            # # Capa de bajo nivel
 │   ├── database/              #   Inicialización de índices vectoriales
 │   ├── event-bus/             #   Bus de eventos interno (pub/sub)
 │   ├── keychain/              #   Llavero del SO (credenciales seguras)
 │   └── sensors/               #   Sensores de señales (git, LSP, sistema, etc.)
 ├── src/                       # Interfaz (overlay Live2D + ventana de chat)
+│   ├── preload.js         #   Preload del overlay (API sandboxed vía contextBridge)
+│   └── chat/preload.js    #   Preload del chat (API sandboxed vía contextBridge)
 ├── models/                    # Modelos Live2D (solo "March 7th" se versiona; los importados por el usuario no se suben)
 ├── skills/                    # Skills del proyecto (code-review, git-workflow, testing)
 ├── tests/                     # Suite de pruebas (unitarias + integración)
@@ -311,7 +327,10 @@ El proyecto se desarrolla por fases — ver [`ROADMAP.md`](./ROADMAP.md) para la
 | [`ROADMAP.md`](./ROADMAP.md) | Visión, estrategia y hoja de ruta |
 | [`docs/arquitectura.md`](./docs/arquitectura.md) | Diagrama de arquitectura detallado |
 | [`core/`](./core/README.md) | Núcleo de inteligencia y orquestación |
+| [`core/git/`](./core/git/README.md) | Integración nativa con Git |
+| [`core/github/`](./core/github/README.md) | Cliente REST de GitHub y OAuth |
 | [`infrastructure/`](./infrastructure/README.md) | Capa de bajo nivel |
+| [`ipc/`](./ipc/README.md) | Capa IPC (renderer ↔ núcleo) |
 | [`src/`](./src/README.md) | Interfaz de usuario |
 | [`tests/`](./tests/README.md) | Estrategia de pruebas |
 
@@ -319,7 +338,7 @@ El proyecto se desarrolla por fases — ver [`ROADMAP.md`](./ROADMAP.md) para la
 
 ## 9. Pruebas y capturas
 
-La suite de pruebas es **ejecutable e independiente por archivo** (`tests/`), con cobertura de comandos, motor de proactividad, detección de intenciones, skills, integraciones LSP y seguridad de la Control API. La regresión completa se ejecuta con `npm test` (usando el Node de Electron): **939 pruebas en verde · 0 fallos**. Antes de correrla, cierra el asistente para que las suites de seguridad puedan levantar su propio servidor en `:18789`.
+La suite de pruebas es **ejecutable e independiente por archivo** (`tests/`), con cobertura de comandos, motor de proactividad, detección de intenciones, skills, integraciones LSP, Git/GitHub y seguridad de la Control API. La regresión completa se ejecuta con `npm test` (usando el Node de Electron): **1371 pruebas en verde** (incluyen regresiones del fix LSP G.1, del parser de CONTENIDO multilínea, de la compactación de contexto, del edit determinista, de las tools grep/glob/subagent y de la compactación con memoria). Antes de correrla, cierra el asistente para que las suites de seguridad puedan levantar su propio servidor en `:18789` (si la app está corriendo, `test_server_security` y `test_integration_stress` fallan por conflicto de puerto).
 
 ### Pruebas
 

@@ -24,7 +24,7 @@ const { ProposalStore }                = require('./behavior/ProposalStore.js');
 const { ProactiveExecutor }            = require('./behavior/ProactiveExecutor.js');
 const { TelemetryStore }               = require('./telemetry/TelemetryStore.js');
 const { BehaviorModel }                = require('./behavior/BehaviorModel.js');
-const { getPlanner, setProjectCWD, isHighImpact } = require('./planner/Planner.js');
+const { getPlanner, setProjectCWD, getProjectCWD, isHighImpact } = require('./planner/Planner.js');
 const { getOpenClawBridge }            = require('./planner/OpenClawBridge.js');
 const { AgentLoop }                    = require('./planner/AgentLoop.js');
 const { getMCPManager }                = require('./mcp/MCPManager.js');
@@ -320,16 +320,11 @@ if (process.env.DEBUG) console.log('[core] graph.usingFallback:', _graph.usingFa
   _loadMCPConfig();
 
   // Workspace inicial — cargar ANTES de _startOpenClaw para pasar
-  // OPENCLAW_ALLOWED_PATH con el directorio correcto.
+  // OPENCLAW_ALLOWED_PATH con el directorio correcto. El workspace SIGUE el
+  // directorio desde el que se lanza la app (o ASISTENTE_WORKSPACE si se
+  // define); el valor persistido de config.json ya no se impone al arrancar.
   const _envWorkspace = process.env.ASISTENTE_WORKSPACE;
-  let _persistedWorkspace = null;
-  if (!_envWorkspace && _configPath && fs.existsSync(_configPath)) {
-    try {
-      const cfg = JSON.parse(fs.readFileSync(_configPath, 'utf-8'));
-      if (cfg.activeWorkspace && cfg.activeWorkspace !== projectCWD) _persistedWorkspace = cfg.activeWorkspace;
-    } catch(e) { console.warn('[core] no se pudo leer config.json:', e.message); }
-  }
-  const _initialWorkspace = _envWorkspace || _persistedWorkspace || projectCWD;
+  const _initialWorkspace = _envWorkspace || projectCWD;
   _activeWorkspace = _initialWorkspace;
 
   _startOpenClaw(_initialWorkspace);
@@ -338,7 +333,7 @@ if (process.env.DEBUG) console.log('[core] graph.usingFallback:', _graph.usingFa
   if (_initialWorkspace) {
     _mcpReadyPromise.then(() => setActiveWorkspace(_initialWorkspace)).then(r => {
       if (r.ok) {
-        console.log(`[core] workspace inicial (${_envWorkspace ? 'ASISTENTE_WORKSPACE' : ( _persistedWorkspace ? 'persistido' : 'default' )}):`, r.path);
+        console.log(`[core] workspace inicial (${_envWorkspace ? 'ASISTENTE_WORKSPACE' : 'default (directorio de la app)'}):`, r.path);
         _proactive.start();
         // Fase C: ofrecer retomar lo pendiente (recordatorios) al arrancar.
         _proactive.pendingRecap().catch(e =>
@@ -556,14 +551,6 @@ async function setActiveWorkspace(newPath) {
     });
   }
 
-  if (_configPath) {
-    try {
-      const cfg = fs.existsSync(_configPath) ? JSON.parse(fs.readFileSync(_configPath, 'utf-8')) : {};
-      cfg.activeWorkspace = resolved;
-      fs.writeFileSync(_configPath, JSON.stringify(cfg, null, 2));
-    } catch(e) { console.warn('[core] no se pudo persistir workspace:', e.message); }
-  }
-
   // ── LSP: arrancar servidor para el nuevo workspace ─────────────────
   if (_lspManager) {
     (async () => {
@@ -744,7 +731,7 @@ function _startOpenClaw(workspacePath) {
   const apiKey = crypto.randomBytes(32).toString('hex');
 
   // Pasar el workspace como PATH permitido (evita "cwd outside allowed path")
-  const allowedPath = workspacePath ? path.resolve(workspacePath) : projectCWD;
+  const allowedPath = workspacePath ? path.resolve(workspacePath) : getProjectCWD();
 
   try {
     _openclawProcess = cp.fork(serverPath, [], {
@@ -1291,11 +1278,13 @@ function _resolveAgentMode(userMessage, opts = {}) {
  * @returns {Promise<{response, iterations, toolResults, error}>}
  */
 async function runAgent(userMessage, opts = {}) {
+  const _t0 = Date.now();
   const sessionHistory = _session?.getHistory() || [];
 
   const context = await buildContext(sessionHistory, null, {
     mode: 'agent',
   });
+  console.log(`[agent-timing] buildContext ${Date.now() - _t0}ms`);
 
   if (!context || !context.systemPrompt) {
     return { response: null, iterations: 0, toolResults: [], error: 'No se pudo construir contexto' };
@@ -1309,6 +1298,7 @@ async function runAgent(userMessage, opts = {}) {
     bridge: _bridge,
     mode,
     lsp: _lspManager,
+    graph: _graph && !_graph.usingFallback ? _graph : null,
   });
 
   const loopOpts = {
@@ -1334,6 +1324,7 @@ async function runAgent(userMessage, opts = {}) {
   );
 
   _bus.emit('agent:completed', { iterations: result.iterations, error: result.error });
+  console.log(`[agent-timing] loop total ${Date.now() - _t0}ms (${result.iterations} iteraciones)`);
   return result;
 }
 

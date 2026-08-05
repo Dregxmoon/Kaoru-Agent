@@ -24,11 +24,31 @@ const GITHUB_TOOLS = new Set([
   'github_issue_close', 'github_pr_list', 'github_pr_create', 'github_pr_review', 'github_actions_status',
 ]);
 
+// Tool de subagentes (§11): se despacha en proceso lanzando un AgentLoop anidado.
+const SUBAGENT_TOOLS = new Set(['subagent', 'task']);
+
+// Máxima profundidad de subagentes anidados (previene recursión infinita).
+const MAX_SUBAGENT_DEPTH = 2;
+
+const SUBAGENT_SYSTEM = `Eres un subagente especializado que recibe una sub-tarea concreta y autocontenida.
+Trabaja de forma autónoma y enfócate SOLO en la sub-tarea asignada. Usa las herramientas disponibles
+(grep, glob, read, exec, web_search, browser) para investigar o modificar archivos si hace falta.
+
+Al terminar, responde con un resumen CONCISO del resultado (máximo 200 palabras): qué hiciste, qué
+encontraste o qué cambiaste, y cualquier detalle que el agente principal deba conocer. No hagas
+preguntas ni pidas aprobación: tu única salida es el resumen final.`;
+
 // Tools que mutan archivos: tras su ejecución se pide feedback LSP al server.
 const EDIT_TOOLS = new Set(['write', 'edit', 'apply_patch', 'create_file', 'edit_file']);
 
 const MAX_ITERATIONS = 25;
 const RESULT_TRUNCATE_LIMIT = 800;
+
+// G.1: compactación de contexto. Cuando la historia de iteraciones crece, los
+// turnos viejos se condensan en un resumen determinista (no se re-envía todo
+// el historial crudo a cada turno): el objetivo + lista de acciones ejecutadas.
+const COMPACT_MIN_TURNS   = 14;   // tuplas de historial que disparan compactación
+const COMPACT_KEEP_TAIL   = 8;    // turnos recientes que se conservan íntegros
 
 const AGENT_LOOP_SYSTEM = `
 # MODO AGENTE — BUCLE DE EJECUCIÓN
@@ -42,6 +62,15 @@ Usa este formato EXACTO dentro de tu respuesta:
 
 \`\`\`action
 ACCIÓN: <nombre> | ARCHIVO/COMANDO/QUERY/URL: <valor>
+\`\`\`
+
+Para write/edit incluye el contenido completo en CONTENIDO: (puede ser multilínea).
+Ejemplo:
+\`\`\`action
+ACCIÓN: write | ARCHIVO: docs/README.md
+CONTENIDO: # Demo
+
+Todo el contenido del archivo, en varias líneas si hace falta.
 \`\`\`
 
 Ejemplos:
@@ -98,6 +127,8 @@ class AgentLoop {
     this._lsp = opts.lsp || null;
     this._git = opts.git || getGitManager();
     this._github = opts.github || getGitHubManager();
+    this._graph = opts.graph || null;
+    this._compactionPersisted = false;
     const rawMode = opts.mode || 'smart';
     if (!VALID_MODES.has(rawMode)) {
       console.warn(`[agent-loop] modo "${rawMode}" no reconocido, usando "smart"`);
@@ -117,6 +148,7 @@ class AgentLoop {
 
   async run(userMessage, systemPrompt, messages, opts = {}) {
     const taskIntent = opts.taskIntent || null;
+    this._currentTaskIntent = taskIntent;
     const domain = taskIntent?.domain || null;
     const llm = opts.llm || this._llm || this._getLLM();
     const parser = getStructuredActionParser(AP.PROJECT_CWD);
@@ -152,6 +184,20 @@ class AgentLoop {
       AGENT_LOOP_SYSTEM.trim() +
       (toolCatalog ? '\n\n' + toolCatalog : '');
 
+    // ── Memoria semántica (§12): contexto relevante de sesiones anteriores ──
+    // Se inyecta al prompt (no a la historia) para reconstruir contexto en
+    // tareas largas o retomadas sin inflar el tamaño del mensaje.
+    if (this._graph) {
+      try {
+        const memoryContext = await this._recallMemory(userMessage);
+        if (memoryContext) {
+          agentPrompt += '\n\n' + memoryContext;
+        }
+      } catch (e) {
+        console.warn(`[agent-loop] recall de memoria falló: ${e.message}`);
+      }
+    }
+
     // ── Skill injection ────────────────────────────────────────────────
     const skillManager = opts.skillManager || null;
     if (skillManager && typeof skillManager.buildInjection === 'function') {
@@ -172,14 +218,12 @@ class AgentLoop {
     let lastResponseText = null; // guarda último output del LLM para max_iterations
 
     for (let i = 0; i < this.maxIterations; i++) {
+      const _itStart = Date.now();
       const currentUserMsg = i === 0
         ? userMessage
         : this._buildToolResultMessage(lastToolResult);
 
-      const llmMessages = [...iterationHistory];
-      if (currentUserMsg) {
-        llmMessages.push({ role: 'user', content: currentUserMsg });
-      }
+      const llmMessages = this._buildLLMMessages(iterationHistory, currentUserMsg, userMessage, toolResults, i);
 
       // ── Llamada al LLM: intenta tool-calling nativo primero ────────────
       let responseText = null;
@@ -219,6 +263,7 @@ class AgentLoop {
       }
 
       const hasNativeToolCalls = toolCalls && toolCalls.length > 0;
+      if (process.env.DEBUG) console.log(`[agent-loop-timing] iter ${i}: LLM ${Date.now() - _itStart}ms, toolCalls=${hasNativeToolCalls ? toolCalls.length : 0}`);
       if (!responseText || !responseText.trim()) {
         // Tool-calling nativo devuelve content vacío cuando el modelo SOLO llama
         // una herramienta — no es un "no respondió", hay que ejecutar la llamada.
@@ -314,6 +359,8 @@ class AgentLoop {
           result = await this._executeGitHubTool(action);
         } else if (LSP_TOOLS.has(action.tool)) {
           result = await this._executeLSPTool(action);
+        } else if (SUBAGENT_TOOLS.has(action.tool)) {
+          result = await this._executeSubagent(action);
         } else {
           result = await this._bridge.execute(action.tool, action.params);
         }
@@ -324,6 +371,7 @@ class AgentLoop {
       result._action = action;
       toolResults.push(result);
       lastToolResult = result;
+      if (process.env.DEBUG) console.log(`[agent-loop-timing] iter ${i}: tool=${action.tool} ${Date.now() - _itStart}ms`);
 
       if (opts.onProgress) {
         opts.onProgress({ iteration: i + 1, tool: action.tool, params: action.params, status: result.ok ? 'ok' : 'error', result: result.ok ? result.result : null, error: result.ok ? null : result.error });
@@ -543,6 +591,68 @@ class AgentLoop {
     }
   }
 
+  /**
+   * §11: lanza un subagente autónomo (AgentLoop anidado) para resolver una
+   * sub-tarea de forma independiente. Devuelve el resumen final del subagente.
+   */
+  async _executeSubagent(action) {
+    const t0 = Date.now();
+    const params = action.params || {};
+    const task = params.task || params.description || '';
+    if (!task) {
+      return { ok: false, error: 'task (descripción) requerida', result: null, tool: action.tool, elapsed: 0 };
+    }
+
+    const depth = this._subagentDepth || 0;
+    if (depth >= MAX_SUBAGENT_DEPTH) {
+      return { ok: false, error: `profundidad máxima de subagentes alcanzada (${MAX_SUBAGENT_DEPTH})`, result: null, tool: action.tool, elapsed: 0 };
+    }
+
+    const maxIters = Math.min(params.max_iterations || 8, 15);
+    let nested;
+    try {
+      nested = new AgentLoop({
+        bridge: this._bridge,
+        llm: this._llm,
+        lsp: this._lsp,
+        git: this._git,
+        github: this._github,
+        mode: this._mode,
+        maxIterations: maxIters,
+      });
+      nested._subagentDepth = depth + 1;
+    } catch (e) {
+      return { ok: false, error: `no se pudo crear el subagente: ${e.message}`, result: null, tool: action.tool, elapsed: 0 };
+    }
+
+    const subTask = params.context
+      ? `${task}\n\nContexto adicional:\n${params.context}`
+      : task;
+
+    try {
+      const out = await nested.run(subTask, SUBAGENT_SYSTEM, [], {
+        llm: this._llm,
+        taskIntent: this._currentTaskIntent || null,
+        onProgress: null,
+      });
+      const toolCalls = (out.toolResults || []).map(r => `${r.tool}:${r.ok ? 'ok' : 'err'}`);
+      return {
+        ok: true,
+        result: {
+          response: out.response,
+          iterations: out.iterations,
+          truncated: !!out.truncated,
+          error: out.error || null,
+          toolCalls,
+        },
+        tool: action.tool,
+        elapsed: Math.round((Date.now() - t0) / 1000),
+      };
+    } catch (e) {
+      return { ok: false, error: `subagente falló: ${e.message}`, result: null, tool: action.tool, elapsed: Math.round((Date.now() - t0) / 1000) };
+    }
+  }
+
   _buildToolResultMessage(lastResult) {
     if (!lastResult) return null;
 
@@ -551,6 +661,118 @@ class AgentLoop {
       return `[Resultado de herramienta "${lastResult.tool}"]:\n${summary}`;
     }
     return `[ERROR en herramienta "${lastResult.tool}"]: ${lastResult.error || 'desconocido'}\n\nContinúa con otra estrategia o avísame si no puedes completar la tarea.`;
+  }
+
+  /**
+   * G.1: compactación de contexto. Devuelve los mensajes que verá el LLM en la
+   * iteración i:
+   *   - el objetivo original siempre está presente,
+   *   - si la historia creció, los turnos viejos se condensan en un resumen
+   *     determinista (objetivo + acciones ejecutadas hasta ahora),
+   *   - los últimos COMPACT_KEEP_TAIL turnos se conservan íntegros (para que el
+   *     LLM tenga el estado reciente real, no un resumen),
+   *   - y se anexa el mensaje de resultado de la última tool.
+   */
+  _buildLLMMessages(iterationHistory, currentUserMsg, userMessage, toolResults, iteration) {
+    const msgs = [{ role: 'user', content: userMessage }];
+
+    if (iterationHistory.length >= COMPACT_MIN_TURNS && iterationHistory.length - COMPACT_KEEP_TAIL > 0) {
+      const keep = iterationHistory.slice(-COMPACT_KEEP_TAIL);
+      const compacted = this._compactSummary(userMessage, toolResults, iterationHistory.length - COMPACT_KEEP_TAIL);
+      if (compacted) msgs.push({ role: 'user', content: compacted });
+      msgs.push(...keep);
+      // §12: persistir una vez por run el resumen de compactación en memoria
+      // vectorial para poder reconstruir contexto en sesiones futuras.
+      this._rememberCompaction(userMessage, toolResults, iterationHistory.length - COMPACT_KEEP_TAIL);
+    } else {
+      msgs.push(...iterationHistory);
+    }
+
+    if (currentUserMsg) msgs.push({ role: 'user', content: currentUserMsg });
+    return msgs;
+  }
+
+  /** Resumen determinista de lo hecho hasta ahora (para la compactación). */
+  _compactSummary(userMessage, toolResults, droppedTurns) {
+    const actions = (toolResults || []).map((t) => {
+      const ok = t.ok ? 'OK' : `FALLÓ: ${t.error || ''}`;
+      const params = t._action?.params || {};
+      const brief = Object.entries(params)
+        .map(([k, v]) => `${k}=${typeof v === 'string' ? v.slice(0, 60) : JSON.stringify(v)?.slice(0, 60)}`)
+        .join(' ');
+      return `  - ${t.tool} (${ok})${brief ? ' · ' + brief : ''}`;
+    }).join('\n') || '  (ninguna todavía)';
+
+    return [
+      `[RESUMEN DE LO HECHO HASTA AHORA — ${droppedTurns} turnos anteriores condensados para ahorrar contexto]`,
+      `Objetivo original: ${String(userMessage).slice(0, 200)}`,
+      `Acciones ejecutadas:\n${actions}`,
+      'Continúa desde este punto; no repitas acciones ya completadas.',
+    ].join('\n');
+  }
+
+  /**
+   * §12: persiste una vez por run el resumen de compactación como un nodo
+   * Episode (memoria vectorial) para reconstruir contexto en sesiones largas
+   * o retomadas. Best-effort: nunca rompe el loop si falla.
+   */
+  _rememberCompaction(userMessage, toolResults, droppedTurns) {
+    if (!this._graph || this._compactionPersisted) return;
+    try {
+      const summary = this._compactSummary(userMessage, toolResults, droppedTurns);
+      const label = `Contexto compactado: ${String(userMessage).slice(0, 80)}`;
+      const existing = this._graph._findNodesByLabel
+        ? this._graph._findNodesByLabel(label)
+        : [];
+      if (Array.isArray(existing) && existing.length > 0) {
+        this._graph.updateNode(existing[0].id, { content: summary });
+      } else {
+        this._graph.createNode({
+          type: 'Episode',
+          label,
+          content: summary,
+          importance: 0.7,
+          tags: ['context-compaction'],
+        });
+      }
+      this._compactionPersisted = true;
+    } catch (e) {
+      console.warn(`[agent-loop] persistir compactación falló: ${e.message}`);
+    }
+  }
+
+  /**
+   * §12: recall semántico de episodios de compactación previos relevantes al
+   * objetivo actual. Devuelve un bloque de texto para inyectar al prompt.
+   */
+  async _recallMemory(userMessage) {
+    if (!this._graph || !userMessage) return null;
+    try {
+      const episodes = await this._graph.queryNodesSemantic(userMessage, {
+        type: 'Episode',
+        limit: 3,
+        includeArchived: false,
+      });
+      const relevant = (episodes || []).filter((n) => {
+        let tags = [];
+        try { tags = JSON.parse(n.tags || '[]'); } catch {}
+        return tags.includes('context-compaction');
+      });
+      if (relevant.length === 0) return null;
+
+      const lines = relevant.map((n, i) => {
+        const sim = n._similarity != null ? ` (similitud ${n._similarity.toFixed(2)})` : '';
+        return `[Contexto ${i + 1} de memoria${sim}]\n${String(n.content).slice(0, 800)}`;
+      });
+      return [
+        '# CONTEXTO RELEVANTE DE MEMORIA (sesiones previas)',
+        'Usa esto si la tarea actual continúa o se relaciona con trabajo anterior:',
+        ...lines,
+      ].join('\n');
+    } catch (e) {
+      console.warn(`[agent-loop] recall de memoria falló: ${e.message}`);
+      return null;
+    }
   }
 
   _summarizeResult(result) {

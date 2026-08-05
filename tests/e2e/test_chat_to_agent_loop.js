@@ -43,7 +43,7 @@ function extractFilenameTokens(text) {
       tokens.add(t);
     }
   }
-  const pathRe = /(?:^|\s)((?:\.{0,2}\/)?[a-zA-Z0-9_\-./]+[a-zA-Z0-9_\-])(?:\s|$)/g;
+  const pathRe = /(?:^|\s)((?:\.{0,2}\/)?[a-zA-Z0-9_\-./]+[a-zA-Z0-9_-])(?:\s|$)/g;
   while ((match = pathRe.exec(text)) !== null) {
     const t = match[1].trim();
     if (t.includes('/') && t.length > 2) {

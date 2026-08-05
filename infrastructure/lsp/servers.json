@@ -43,7 +43,8 @@
     "args": ["serve"],
     "filePatterns": [".go"],
     "manifests": ["go.mod"],
-    "installCmd": "go install golang.org/x/tools/gopls@latest"
+    "installCmd": "go install golang.org/x/tools/gopls@latest",
+    "workspaceFolders": true
   },
   "rust": {
     "languageId": "rust",
@@ -77,6 +78,115 @@
     "manifests": ["pom.xml", "build.gradle", "build.gradle.kts"],
     "installCmd": "instalar eclipse.jdt.ls y configurar la ruta de jdtls",
     "heavy": true,
-    "initTimeoutMs": 45000
+    "initTimeoutMs": 45000,
+    "workspaceFolders": true
+  },
+  "c": {
+    "languageId": "c",
+    "command": "clangd",
+    "args": [],
+    "filePatterns": [".c", ".h"],
+    "manifests": ["compile_commands.json", "CMakeLists.txt", "Makefile"],
+    "installCmd": "apt install clangd (o clangd del toolchain de LLVM)",
+    "workspaceFolders": true
+  },
+  "cpp": {
+    "languageId": "cpp",
+    "command": "clangd",
+    "args": [],
+    "filePatterns": [".cpp", ".cc", ".cxx", ".hpp"],
+    "manifests": ["compile_commands.json", "CMakeLists.txt", "Makefile"],
+    "installCmd": "apt install clangd (o clangd del toolchain de LLVM)",
+    "workspaceFolders": true
+  },
+  "csharp": {
+    "languageId": "csharp",
+    "command": "csharp-ls",
+    "args": [],
+    "filePatterns": [".cs"],
+    "manifests": ["*.csproj", "*.sln"],
+    "installCmd": "dotnet tool install -g csharp-ls",
+    "workspaceFolders": true
+  },
+  "kotlin": {
+    "languageId": "kotlin",
+    "command": "kotlin-language-server",
+    "args": [],
+    "filePatterns": [".kt", ".kts"],
+    "manifests": ["build.gradle.kts", "pom.xml", "settings.gradle.kts"],
+    "installCmd": "instalar kotlin-language-server (Homebrew/scoop o build desde fuente)",
+    "workspaceFolders": true
+  },
+  "swift": {
+    "languageId": "swift",
+    "command": "sourcekit-lsp",
+    "args": [],
+    "filePatterns": [".swift"],
+    "manifests": ["Package.swift"],
+    "installCmd": "xcrun sourcekit-lsp (viene con Xcode en macOS)",
+    "workspaceFolders": true
+  },
+  "dart": {
+    "languageId": "dart",
+    "command": "dart",
+    "args": ["language-server", "--protocol=lsp"],
+    "filePatterns": [".dart"],
+    "manifests": ["pubspec.yaml"],
+    "installCmd": "instalar Dart SDK (dart language-server)",
+    "workspaceFolders": true
+  },
+  "bash": {
+    "languageId": "shellscript",
+    "command": "npx",
+    "args": ["-y", "bash-language-server", "start"],
+    "filePatterns": [".sh", ".bash", ".zsh"],
+    "manifests": [".bashrc", ".zshrc"],
+    "installCmd": "npm install -g bash-language-server",
+    "npx": true
+  },
+  "lua": {
+    "languageId": "lua",
+    "command": "npx",
+    "args": ["-y", "lua-language-server", "--stdio"],
+    "filePatterns": [".lua"],
+    "manifests": ["*.rockspec"],
+    "installCmd": "npm install -g lua-language-server",
+    "npx": true
+  },
+  "html": {
+    "languageId": "html",
+    "command": "npx",
+    "args": ["-y", "vscode-langservers-extracted", "vscode-html-language-server", "--stdio"],
+    "filePatterns": [".html", ".htm"],
+    "manifests": ["index.html"],
+    "installCmd": "npm install -g vscode-langservers-extracted",
+    "npx": true
+  },
+  "css": {
+    "languageId": "css",
+    "command": "npx",
+    "args": ["-y", "vscode-langservers-extracted", "vscode-css-language-server", "--stdio"],
+    "filePatterns": [".css", ".scss", ".less"],
+    "manifests": ["*.css"],
+    "installCmd": "npm install -g vscode-langservers-extracted",
+    "npx": true
+  },
+  "json": {
+    "languageId": "json",
+    "command": "npx",
+    "args": ["-y", "vscode-langservers-extracted", "vscode-json-language-server", "--stdio"],
+    "filePatterns": [".json", ".jsonc"],
+    "manifests": ["package.json"],
+    "installCmd": "npm install -g vscode-langservers-extracted",
+    "npx": true
+  },
+  "markdown": {
+    "languageId": "markdown",
+    "command": "npx",
+    "args": ["-y", "marksman", "server"],
+    "filePatterns": [".md", ".markdown"],
+    "manifests": ["README.md"],
+    "installCmd": "npm install -g marksman",
+    "npx": true
   }
 }

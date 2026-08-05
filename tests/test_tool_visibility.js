@@ -56,7 +56,7 @@ function testAgentModeAlwaysResolvesTools() {
 
   // Verificar que el gate de toolIntent?.detected para OpenClaw ya no existe
   // en el modo chat
-  const chatSection = src.match(/mode === 'chat'[\s\S]{0,1700}(?=\n  \/\/ Truncado inteligente)/);
+  const chatSection = src.match(/mode === 'chat'[\s\S]{0,1700}(?=\n {2}\/\/ Truncado inteligente)/);
   if (chatSection) {
     const hasIntentGate = chatSection[0].includes('toolIntent?.detected');
     const hasBridgeCheck = chatSection[0].includes("_bridge?.getStats()?.available");

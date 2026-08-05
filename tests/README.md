@@ -92,14 +92,27 @@ npm test     # = bash tests/run-all.sh
 |---|---|
 | `test_agent_loop` | Bucle agente: iteraciones, adaptación a resultados reales, límites, aprobaciones, *fail-closed*, tool-calling nativo con content vacío |
 | `test_agent_loop_mode` | Modos del loop (smart/fast/task/conversational) |
+| `test_agent_loop_lsp` | Bucle agente con herramientas LSP (feedback post-edit) |
+| `test_agent_loop_git` | Bucle agente con herramientas Git nativas |
 | `test_agent_manager` | Definiciones de agentes y system prompts |
 | `test_tool_calling` | Schemas nativos y normalización de respuestas de tool-calling |
 | `test_tool_precedence` | Resolución de toolset: Skill > MCP > OpenClaw, exclusiones por dominio |
 | `test_tool_visibility` | Visibilidad de herramientas según toolIntent |
 | `test_tools_e2e` | Puentes de herramientas y aprobación de alto impacto |
+| `test_structured_parser_aliases` | Parser estructurado: alias de acciones y mapeo a tools |
+| `test_request_queue` | Cola de requests del proveedor LLM |
 | `test_openclaw_bridge_timing` | Timing y robustez del puente OpenClaw |
 | `test_openclaw_server_auth` | Autenticación del servidor de control |
 | `test_integration_stress` | Estrés del flujo integrado |
+
+### Git y GitHub (nativos, §10)
+| Suite | Cobertura |
+|---|---|
+| `test_git_manager` | `GitManager`: status/diff/log/branch, mutadores con validación |
+| `test_agent_loop_git` | Dispatch de tools `git_*` en el bucle agente |
+| `test_github_manager` | `GitHubManager`: issues/PRs/actions con transporte inyectable |
+| `test_github_command` | Comando `/github` en el chat |
+| `test_oauth_device_flow` | Device flow OAuth (start/poll/expiración) |
 
 ### Memoria y estado
 | Suite | Cobertura |
@@ -112,11 +125,19 @@ npm test     # = bash tests/run-all.sh
 |---|---|
 | `test_intent_detection` | Detección semántica de intención + fallback a LLM |
 | `test_no_fabrication` | Anti-alucinación en la composición del contexto |
-| `test_lsp` | Cliente LSP (typescript-language-server) |
+| `test_lsp` | Cliente LSP (schemas, interfaces, integración con Core) |
+| `test_lsp_requests` | Requests JSON-RPC y transporte del LSP |
 | `test_lsp_errors` | Sensor LSP → señal → parche → verificación + rollback + blindaje de lenguaje |
 | `test_skills` / `test_skills_edge` | Sistema de skills: registro, match, inyección y casos límite |
 | `test_commands` | Comandos `/…`, contratos IPC y resolución de archivos |
 | `test_file_resolver` | Resolución segura de rutas |
+
+### Gestos y comportamiento del modelo
+| Suite | Cobertura |
+|---|---|
+| `test_gesture_lexicon` | Léxico multilingüe de estados de ánimo → gestos |
+| `test_gesture_heuristic` | Heurística de asignación de gestos a emociones |
+| `test_gesture_engine` | Cooldowns, revertido automático y colas de gestos |
 
 ### Decisión proactiva (Fase F)
 | Suite | Cobertura |
@@ -132,6 +153,7 @@ npm test     # = bash tests/run-all.sh
 | Suite | Cobertura |
 |---|---|
 | `test_server_security` | Redacción de secretos, seguridad de endpoints, bloqueo de rutas sensibles |
+| `test_keychain_integration` | Credenciales en el llavero del SO: overlay de keys, migración, borrado |
 
 ### E2E
 | Suite | Cobertura |

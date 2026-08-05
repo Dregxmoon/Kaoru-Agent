@@ -96,7 +96,7 @@ module.exports = function registerCommands(register) {
     description: 'Solicita revision de un archivo',
     usage: '/review <archivo>',
     handler: async (args, ctx) => {
-      if (!args[0]) return 'Especifica un archivo: \`/review src/main.js\`';
+      if (!args[0]) return 'Especifica un archivo: `/review src/main.js`';
       if (!ctx.fs || !ctx.path) return 'Sistema de archivos no disponible.';
       const cwd = ctx.process?.cwd?.() || process.cwd();
       const filePath = ctx.path.resolve(cwd, args[0]);
@@ -111,7 +111,7 @@ module.exports = function registerCommands(register) {
         'Para obtener una revision detallada, envia un mensaje como:',
         `\`Revisa el codigo en @${relPath} y busca bugs, problemas de seguridad y mejoras\``,
         '',
-        'O cambia al agente reviewer con \`/agent reviewer\` y luego pide la revision.',
+        'O cambia al agente reviewer con `/agent reviewer` y luego pide la revision.',
       ].join('\n');
     },
   });

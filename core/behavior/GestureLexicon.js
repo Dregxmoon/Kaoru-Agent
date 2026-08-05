@@ -181,7 +181,7 @@ function normalizeToken(s) {
     .toLowerCase()
     .normalize('NFKC')
     .trim()
-    .replace(/[\s_\-\.]+/g, ' ');
+    .replace(/[\s_\-.]+/g, ' ');
 }
 
 function tokensFor(mood) {

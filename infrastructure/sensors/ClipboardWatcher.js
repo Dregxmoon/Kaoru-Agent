@@ -22,7 +22,7 @@ const { getEventBus } = require('../../infrastructure/event-bus/EventBus.js');
 const DEFAULT_POLL_MS = 5 * 1000;
 const MAX_SNIPPET     = 200;
 
-const STACKTRACE_RE = /(\bError|Exception|Traceback|fatal:|panic:)\b|at\s+[\w.$<>\[\],?]+\s+\(.+:\d+:\d+\)/i;
+const STACKTRACE_RE = /(\bError|Exception|Traceback|fatal:|panic:)\b|at\s+[\w.$<>[\],?]+\s+\(.+:\d+:\d+\)/i;
 const URL_RE        = /^https?:\/\/|^www\./i;
 
 function _defaultReader() {

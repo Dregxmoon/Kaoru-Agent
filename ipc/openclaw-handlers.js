@@ -111,6 +111,7 @@ function register(ctx) {
 
   ipcMain.handle('agent-run', async (e, { text }) => {
     console.log(`[main] agent-run: text="${text?.slice(0, 80)}"`);
+    const _t = (l) => console.log(`[agent-timing] ${Date.now() - _t0}ms ${l}`); const _t0 = Date.now();
 
     if (!text || !text.trim()) {
       return { response: null, iterations: 0, toolResults: [], error: 'texto vacío' };

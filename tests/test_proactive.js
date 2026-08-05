@@ -120,11 +120,11 @@ async function testTryTriggerContract() {
 
   // 1b2. Chat abierto pero sin conversación reciente → NO bloquea (Fase B:
   //      las propuestas se muestran en el chat)
-  restore = stubLLM({ complete: async () => '¿todo bien?' });
+  restore = stubLLM({ complete: async () => '¿Quieres que revise lo que estabas haciendo con los tests?' });
   engine = makeEngine();
   engine.setChatOpen(true);
   res = await engine._tryTrigger({ type: 'long_silence', context: 'x' });
-  assert(res === '¿todo bien?', 'chat abierto sin conversación reciente → NO bloquea');
+  assert(res === '¿Quieres que revise lo que estabas haciendo con los tests?', 'chat abierto sin conversación reciente → NO bloquea');
   assert(typeof engine._lastAttemptByType['long_silence'] === 'number', 'chat abierto → consume cooldown (sí se consultó al LLM)');
   engine.setChatOpen(false);
   restore();
@@ -138,14 +138,14 @@ async function testTryTriggerContract() {
   restore();
 
   // 1d. LLM genera mensaje → se emite initiative:trigger y se actualiza _lastProactive
-  restore = stubLLM({ complete: async () => '¿sigues ahí?' });
+  restore = stubLLM({ complete: async () => 'Llevas un rato sin escribir: ¿quieres que haga una pausa contigo?' });
   engine = makeEngine();
   const fired = [];
   const listener = (p) => fired.push(p);
   getEventBus().on('initiative:trigger', listener);
   res = await engine._tryTrigger({ type: 'long_silence', context: 'x' });
-  assert(res === '¿sigues ahí?', 'LLM genera mensaje → devuelve el mensaje');
-  assert(fired.length === 1 && fired[0].suggestion === '¿sigues ahí?' && fired[0].reason === 'long_silence',
+  assert(res === 'Llevas un rato sin escribir: ¿quieres que haga una pausa contigo?', 'LLM genera mensaje → devuelve el mensaje');
+  assert(fired.length === 1 && fired[0].suggestion === 'Llevas un rato sin escribir: ¿quieres que haga una pausa contigo?' && fired[0].reason === 'long_silence',
     'emite initiative:trigger con { reason, suggestion }',
     JSON.stringify(fired));
   assert(engine._lastProactive > 0, '_lastProactive actualizado');

@@ -204,12 +204,12 @@ async function testTemporalTriggers() {
   // que el gate solo impone presupuesto y SLO (no chat/idle/flow). El flujo
   // observable NO cambia: el LLM sigue produciendo el mensaje.
   let llmCalls = 0;
-  let restore = stubLLM({ complete: async () => { llmCalls++; return '¿todo bien?'; } });
+  let restore = stubLLM({ complete: async () => { llmCalls++; return 'Llevas 3 horas sin hablar: ¿quieres un respiro?'; } });
   let engine = new ProactiveEngine(fakeGraph());
   engine.start();
 
   const res = await engine._tryTrigger({ type: 'long_silence', hours: 3, context: 'Llevan 3 horas sin hablar.' });
-  assert(res === '¿todo bien?', 'trigger temporal → el LLM produce igual que antes', `res=${res}`);
+  assert(res === 'Llevas 3 horas sin hablar: ¿quieres un respiro?', 'trigger temporal → el LLM produce igual que antes', `res=${res}`);
   assert(llmCalls === 1, '…el LLM fue consultado', `llmCalls=${llmCalls}`);
 
   // El gate le dio veredicto ACT self-gated y lo dejó auditable.
@@ -218,6 +218,17 @@ async function testTemporalTriggers() {
   assert(temporalEntry && temporalEntry.verdict === 'ACT', '…el audit registra el trigger temporal con veredicto ACT');
   assert(temporalEntry && temporalEntry.reason === 'GATE3_ACT_SELF_GATED', '…con reason SELF_GATED (gate que no re-valida momento)', temporalEntry?.reason);
   assert(temporalEntry && typeof temporalEntry.score === 'number', '…con score traceable (ROADMAP: cada mensaje con score)');
+  restore();
+
+  // G.1: en modo producción se filtra el relleno genérico (gate admitió, pero
+  // "¿todo bien?" no es un mensaje con sustancia → no se emite nada).
+  restore = stubLLM({ complete: async () => { llmCalls++; return '¿todo bien?'; } });
+  engine = new ProactiveEngine(fakeGraph());
+  engine.start();
+  llmCalls = 0;
+  const filler = await engine._tryTrigger({ type: 'long_silence', hours: 3, context: 'Llevan 3 horas sin hablar.' });
+  assert(filler === null, 'relleno "¿todo bien?" → null en modo producción', `filler=${filler}`);
+  assert(llmCalls === 1, '…pero el LLM sí fue consultado', `llmCalls=${llmCalls}`);
   restore();
 
   // Presupuesto agotado → el gate DROP el temporal ANTES del LLM (silencio).

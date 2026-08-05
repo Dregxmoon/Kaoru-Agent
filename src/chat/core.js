@@ -1,7 +1,15 @@
-const { ipcRenderer } = require('electron');
-const path = require('path');
-const fs   = require('fs');
-const cp   = require('child_process');
+// Sandbox: la página no tiene require() ni Node. Todo llega acotado desde el
+// preload vía window.assistant (contextBridge). ipcRenderer es el wrapper con
+// la misma firma (invoke/send/on) que el original; marked/DOMPurify ya se
+// ejecutan en el preload y devuelven HTML saneado. Usamos `var` (no const)
+// porque contextBridge define window.assistant como propiedad no-configurable
+// y una `const assistant` en ámbito global lanza "Identifier 'assistant' has
+// already been declared" (HasRestrictedGlobalProperty).
+var assistant     = window.assistant;
+const ipcRenderer  = assistant;
+const path         = { join: (...p) => assistant.pathJoin(...p) };
+const fs           = { existsSync: (p) => assistant.existsSync(p) };
+const cp           = { spawn: () => { throw new Error('child_process no disponible en el renderer sandbox'); } };
 
 // Se queda SOLO con las líneas que son un trigger reconocido, sin importar
 // dónde caiga la prosa alucinada del modelo — la versión anterior solo
@@ -25,9 +33,10 @@ function _sanitizePlanAnnouncement(response) {
 // la detección de entorno UMD (typeof exports/module), que en un renderer
 // con nodeIntegration puede hacer que la librería no llegue a exponerse como
 // variable global aunque el <script> cargue bien.
-const marked         = require('marked');
-const createDOMPurify = require('dompurify');
-const DOMPurify       = createDOMPurify(window);
+// Markdown/DOMPurify se ejecutan en el preload (renderMarkdown devuelve HTML
+// saneado). Estos shims mantienen la interfaz que usa el resto del chat.
+const marked         = { parse: (m) => assistant.renderMarkdown(m), setOptions: () => {} };
+const DOMPurify      = { sanitize: (h) => h };
 
 window.PIXI = PIXI;
 
@@ -105,12 +114,35 @@ function computeContentBounds(model) {
   } catch (_) { return null; }
 }
 
-const LLMProvider     = require('../core/llm/LLMProvider.js');
-const CommandRegistry = require('../core/commands/CommandRegistry.js');
-const FileResolver    = require('../core/commands/FileResolver.js');
-const AgentManager    = require('../core/agents/AgentManager.js');
-const GestureEngine   = require('../core/behavior/GestureEngine.js');
-const ModelAugmenter  = require('../core/behavior/ModelAugmenter.js');
+const LLMProvider     = assistant.LLMProvider;
+const CommandRegistry = assistant.CommandRegistry;
+const FileResolver    = assistant.FileResolver;
+const AgentManager    = assistant.AgentManager;
+const ModelAugmenter  = assistant.ModelAugmenter;
+
+// Loader mínimo de módulos core propios en la página. Las clases como
+// GestureEngine DEBEN ejecutarse aquí: reciben el objeto Live2D real (creado
+// por PIXI en la página) que no puede cruzar el contextBridge, y `new` no
+// funciona sobre los proxies del bridge. El preload entrega SOLO el fuente
+// de los módulos whitelisteados (getCoreModuleSource); ModelAugmenter se
+// resuelve al proxy expuesto (llamadas a métodos, no constructor). Esto no
+// le da a la página —ni a los scripts remotos de los CDN— acceso a Node.
+const __coreLoader = (() => {
+  const cache = {};
+  const load = (name) => {
+    const key = String(name).replace(/^\.\//, '').replace(/\.js$/, '');
+    if (cache[key]) return cache[key].exports;
+    if (key === 'ModelAugmenter') return assistant.ModelAugmenter;
+    const source = assistant.getCoreModuleSource(key);
+    if (source == null) throw new Error('Módulo core no permitido en la página: ' + name);
+    const module = { exports: {} };
+    cache[key] = module;
+    new Function('require', 'module', 'exports', source)(load, module, module.exports);
+    return module.exports;
+  };
+  return load;
+})();
+const GestureEngine = __coreLoader('./GestureEngine.js');
 
 // Motor de gestos del mini-avatar del chat: reacciona a los eventos del propio
 // chat (initiative/proposal/plan/agent/commandos) y al tono de los mensajes.

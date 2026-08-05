@@ -133,6 +133,27 @@ async function main() {
     console.log(`\nTarea ${task.id}: ${passed}/${RUNS} (pass@${RUNS}) · avg ${avgMs}ms · histórico ${results.runs.length} corridas`);
   }
 
+  // G.1: reporte final global — pass@RUNS por tarea + agregado.
+  console.log('\n=== Resumen del benchmark ===');
+  let totalPassed = 0;
+  let totalRuns = 0;
+  const rows = tasks.map((taskId) => {
+    const data = loadResults(taskId);
+    const last = data.runs.slice(-RUNS);
+    const ok = last.filter((x) => x.ok).length;
+    const avgMs = last.length ? Math.round(last.reduce((a, x) => a + (x.elapsedMs || 0), 0) / last.length) : 0;
+    totalPassed += ok;
+    totalRuns += last.length;
+    return { task: taskId, pass: `${ok}/${last.length}`, passK: last.length ? (ok / last.length).toFixed(2) : '-', avgMs };
+  });
+  console.log(`  ${'TAREA'.padEnd(20)} ${'PASS@' + RUNS}  ${'avg ms'.padStart(8)}`);
+  for (const r of rows) {
+    console.log(`  ${r.task.padEnd(20)} ${r.pass.padEnd(10)} ${String(r.avgMs).padStart(8)}`);
+  }
+  if (totalRuns > 0) {
+    console.log(`\n  GLOBAL pass@${RUNS}: ${totalPassed}/${totalRuns} (${(totalPassed / totalRuns).toFixed(2)})`);
+  }
+
   console.log('\n=== Benchmark finalizado ===');
 }
 

@@ -236,11 +236,11 @@ async function testSymbolsInFrontmatter() {
   const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'skills-symbols-'));
   fs.mkdirSync(path.join(tmpDir, 'symbol-skill'));
   fs.writeFileSync(path.join(tmpDir, 'symbol-skill', 'SKILL.md'), `---
-description: "Skill with @ symbol and # and \$ and % and & and * and ( and ) and ! and ?"
+description: "Skill with @ symbol and # and $ and % and & and * and ( and ) and ! and ?"
 version: "1.0.0-beta+exp.sha.5114f85"
 domains: ["code", "@special", "test#1"]
 ---
-Body with symbols: @ # \$ %`);
+Body with symbols: @ # $ %`);
 
   const sm = new (require('../core/skills/SkillManager.js').SkillManager)({
     skillsDir: tmpDir,

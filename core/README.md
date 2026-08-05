@@ -50,6 +50,8 @@ Responsable del ciclo de vida completo de la aplicación:
 | [`behavior/`](./behavior/README.md) | Modelo de comportamiento y motor de proactividad + executor |
 | [`commands/`](./commands/README.md) | Registro de comandos de chat (`/comando`) |
 | [`decision/`](./decision/README.md) | Núcleo determinista de decisión proactiva (Fase F) |
+| [`git/`](./git/README.md) | Wrapper nativo de Git (tools `git_*`, higiene del repo) |
+| [`github/`](./github/README.md) | Cliente REST de GitHub (issues, PRs, OAuth device flow) |
 | [`grounding/`](./grounding/README.md) | Pipeline de contexto: intención, memoria, serializadores |
 | [`identity/`](./identity/README.md) | Personalidad del asistente |
 | [`llm/`](./llm/README.md) | Abstracción multi-proveedor de LLM |

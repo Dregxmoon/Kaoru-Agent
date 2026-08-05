@@ -425,13 +425,182 @@ async function testNativeToolCallEmptyContent() {
   teardown();
 }
 
+// ── Test 8: compactación de contexto (G.1) ────────────────────────────────────
+
+async function testContextCompaction() {
+  console.log(C.bold('\n── Test 8: compactación de contexto ───────────────────────'));
+
+  const { AgentLoop } = require('../core/planner/AgentLoop.js');
+  const loop = new AgentLoop({ maxIterations: 25, llm: async () => 'hola', bridge: createMockBridge('/tmp') });
+
+  // Historia larga: 20 tuplas (assistant + user) → debe compactar.
+  const history = [];
+  for (let i = 0; i < 20; i++) {
+    history.push({ role: 'assistant', content: `respuesta ${i}` });
+    history.push({ role: 'user', content: `resultado de tool ${i}` });
+  }
+  const toolResults = [];
+  for (let i = 0; i < 20; i++) {
+    toolResults.push({
+      ok: i % 4 !== 0,
+      tool: i % 2 === 0 ? 'write' : 'exec',
+      error: i % 4 === 0 ? 'boom' : null,
+      _action: { params: { path: `archivo-${i}.js` } },
+    });
+  }
+
+  const msgs = loop._buildLLMMessages(history, 'mensaje de resultado actual', 'el objetivo original', toolResults, 20);
+
+  // 1. El objetivo original siempre presente al inicio.
+  assert(msgs[0].content === 'el objetivo original', 'el objetivo original va primero');
+  // 2. Hay un mensaje de resumen compacto.
+  const summary = msgs.find((m) => m.content && m.content.includes('[RESUMEN DE LO HECHO HASTA AHORA'));
+  assert(!!summary, 'hay un mensaje de resumen compacto');
+  assert(summary.content.includes('el objetivo original'), 'el resumen incluye el objetivo');
+  assert(summary.content.includes('Acciones ejecutadas'), 'el resumen lista las acciones');
+  // 3. La cola reciente se conserva íntegra.
+  const tail = msgs.slice(1).filter((m) => m.content && m.content.startsWith('respuesta 19'));
+  assert(tail.length === 1, 'el último turno se conserva íntegro');
+  // 4. Número total de mensajes acotado (NO 20 tuplas crudas).
+  assert(msgs.length < history.length, `la historia se acota (${msgs.length} < ${history.length})`);
+
+  // Historia corta → sin compactación, se reenvía igual.
+  const short = [{ role: 'assistant', content: 'a' }, { role: 'user', content: 'b' }];
+  const shortMsgs = loop._buildLLMMessages(short, 'res', 'obj', [], 2);
+  assert(shortMsgs.length === 4, 'historia corta se reenvía completa (objetivo + 2 turnos + resultado)');
+
+  // Resumen sin toolResults no explota.
+  const emptyMsgs = loop._buildLLMMessages(history, 'res', 'obj', [], 20);
+  assert(emptyMsgs.some((m) => m.content && m.content.includes('(ninguna todavía)')), 'resumen tolera toolResults vacío');
+}
+
+// ── Test 9: subagente (tool dispatch en proceso) ──────────────────────────────
+
+async function testSubagentDispatch() {
+  console.log(C.bold('\n── Test 9: subagente anidado se ejecuta y devuelve resumen ─'));
+
+  const { AgentLoop } = require('../core/planner/AgentLoop.js');
+  const LLMProvider = require('../core/llm/LLMProvider.js');
+
+  const projectCwd = teardown() || setup();
+  const AP = require('../core/planner/ActionParser.js');
+  AP.setProjectCWD(projectCwd);
+
+  // La tool-call nativa devuelve subagent; el subagente anidado usa el LLM
+  // textual (sin tools → mockLLM), y el agente principal cierra después.
+  const originalCompleteWithTools = LLMProvider.completeWithTools;
+  let tcCalls = 0;
+  LLMProvider.completeWithTools = async () => {
+    tcCalls++;
+    if (tcCalls === 1) {
+      return { content: null, toolCalls: [{ tool: 'subagent', params: { task: 'cuenta los archivos' } }] };
+    }
+    return { content: 'Tarea completada.', toolCalls: null };
+  };
+
+  try {
+    const mockLLM = createMockLLM(['Resumen del subagente: hay 3 archivos.']);
+    const loop = new AgentLoop({ maxIterations: 5, llm: mockLLM, bridge: createMockBridge(projectCwd) });
+
+    const result = await loop.run(
+      'delega la tarea a un subagente',
+      'Eres un asistente.',
+      [],
+      { tools: [{ name: 'subagent', description: 'lanzar subagente', inputSchema: { type: 'object', properties: {} } }] }
+    );
+
+    assert(tcCalls === 2, 'completeWithTools llamado 2 veces (subagent + cierre)', `llamadas: ${tcCalls}`);
+    assert(result.toolResults.length === 1, 'El subagente se ejecutó', `tools: ${result.toolResults.length}`);
+    assert(result.toolResults[0].tool === 'subagent', 'Tool ejecutada: subagent');
+    assert(result.toolResults[0].ok, 'subagent tuvo éxito', result.toolResults[0].error || '');
+    assert(result.toolResults[0].result.response.includes('3 archivos'), 'El resumen del subagente llegó al padre', result.toolResults[0].result.response.slice(0, 60));
+    assert(Array.isArray(result.toolResults[0].result.toolCalls), 'subagent reporta toolCalls internos');
+  } finally {
+    LLMProvider.completeWithTools = originalCompleteWithTools;
+  }
+
+  teardown();
+}
+
+// ── Test 10: límite de profundidad de subagentes ───────────────────────────────
+
+async function testSubagentDepthLimit() {
+  console.log(C.bold('\n── Test 10: profundidad máxima de subagentes ───────────────'));
+
+  const { AgentLoop } = require('../core/planner/AgentLoop.js');
+  const loop = new AgentLoop({ maxIterations: 3, llm: async () => 'x', bridge: createMockBridge('/tmp') });
+
+  // Simular un subagente ya a profundidad 2 → debe negarse a crear uno más.
+  loop._subagentDepth = 2;
+  const result = await loop._executeSubagent({ tool: 'subagent', params: { task: 'haz algo' } });
+  assert(!result.ok, 'a profundidad máxima el subagente falla con error claro', result.error || '');
+  assert(result.error.includes('profundidad máxima'), 'error menciona el límite de profundidad', result.error);
+
+  // Sin task → error de validación.
+  const noTask = await loop._executeSubagent({ tool: 'subagent', params: {} });
+  assert(!noTask.ok && noTask.error.includes('task'), 'subagente sin task → error de validación', noTask.error || '');
+
+  // A profundidad 0 la negativa NO aplica (crea el subagente, y el mock LLM
+  // responde directamente sin herramientas).
+  const fresh = new AgentLoop({ maxIterations: 3, llm: async () => 'ok', bridge: createMockBridge('/tmp') });
+  const ok = await fresh._executeSubagent({ tool: 'subagent', params: { task: 'resume algo' } });
+  assert(ok.ok, 'subagente a profundidad 0 se ejecuta', ok.error || '');
+  assert(ok.result.response === 'ok', 'el subagente devuelve la respuesta del LLM', ok.result.response);
+}
+
+// ── Test 11: compactación persiste y reconstruye contexto (memoria) ───────────
+
+async function testMemoryCompaction() {
+  console.log(C.bold('\n── Test 11: compactación ↔ memoria vectorial ────────────'));
+
+  const { AgentLoop } = require('../core/planner/AgentLoop.js');
+  const { StateGraph } = require('../core/state-graph/StateGraph.js');
+
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'agent-memory-'));
+  const graph = new StateGraph(path.join(dir, 'mem.db')).init();
+
+  try {
+    // Fuerza el branch de compactación: historia larga, sin tools.
+    const loop = new AgentLoop({ maxIterations: 25, llm: async () => 'hola', bridge: createMockBridge('/tmp'), graph });
+    const history = [];
+    for (let i = 0; i < 20; i++) {
+      history.push({ role: 'assistant', content: `turno ${i}` });
+      history.push({ role: 'user', content: `respuesta ${i}` });
+    }
+    loop._buildLLMMessages(history, 'res', 'tarea de memoria recurrente', [], 20);
+    assert(loop._compactionPersisted === true, 'la compactación se persistió en memoria');
+
+    // El estado del graph se volvió a leer: el nodo Episode está en disco.
+    const nodes = graph.queryNodes({ type: 'Episode', limit: 10 });
+    assert(nodes.some(n => (JSON.parse(n.tags || '[]') || []).includes('context-compaction')), 'el episodio tiene tag context-compaction');
+
+    // Un segundo loop (sin haber compactado) recupera el contexto por recall.
+    const loop2 = new AgentLoop({ maxIterations: 5, llm: async () => 'x', bridge: createMockBridge('/tmp'), graph });
+    const memory = await loop2._recallMemory('tarea de memoria recurrente');
+    assert(memory && memory.includes('CONTEXTO RELEVANTE DE MEMORIA'), 'recall encuentra el episodio persistido', String(memory).slice(0, 120));
+    assert(memory.includes('tarea de memoria recurrente'), 'recall incluye el objetivo original');
+
+    // Sin graph → recall null, sin romper.
+    const loop3 = new AgentLoop({ maxIterations: 5, llm: async () => 'x', bridge: createMockBridge('/tmp') });
+    const noMem = await loop3._recallMemory('algo');
+    assert(noMem === null, 'sin graph → recall devuelve null');
+
+    // La persistencia es best-effort: un graph con createNode roto no rompe el loop.
+    const broken = new AgentLoop({ maxIterations: 5, llm: async () => 'x', bridge: createMockBridge('/tmp'), graph: { createNode: () => { throw new Error('db caída'); } } });
+    broken._buildLLMMessages(history, 'res', 'objetivo', [], 20);
+    assert(true, 'persistencia con graph roto no lanza');
+  } finally {
+    try { graph.close(); } catch {}
+    try { fs.rmSync(dir, { recursive: true, force: true }); } catch {}
+  }
+}
+
 // ── Main ──────────────────────────────────────────────────────────────────────
 
 async function main() {
   console.log(C.bold(C.cyan('\n════════════════════════════════════════════════════════')));
   console.log(C.bold(C.cyan('  March 7th — Test Suite: AgentLoop Fase 0')));
   console.log(C.bold(C.cyan('════════════════════════════════════════════════════════')));
-
   await testTextResponse();
   await testAdaptsToRealResult();
   await testMaxIterations();
@@ -439,6 +608,10 @@ async function main() {
   await testNoApprovalCallback();
   await testBridgeExecution();
   await testNativeToolCallEmptyContent();
+  await testContextCompaction();
+  await testSubagentDispatch();
+  await testSubagentDepthLimit();
+  await testMemoryCompaction();
 
   console.log(C.bold('\n════════════════════════════════════════════════════════'));
   const total = passed + failed;

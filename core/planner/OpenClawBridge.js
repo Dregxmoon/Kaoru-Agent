@@ -37,7 +37,18 @@
 const http = require('http');
 const BrowserBridge = require('./BrowserBridge.js');
 
-const OPENCLAW_BASE   = 'http://127.0.0.1:18789';
+// G.1: puerto del servidor de control configurable (OPENCLAW_PORT). El bridge
+// lo lee en cada uso para que funcione con el server en puertos alternos
+// (tests, despliegues embebidos).
+function _openclawPort() {
+  const fromEnv = parseInt(process.env.OPENCLAW_PORT, 10);
+  return Number.isFinite(fromEnv) && fromEnv > 0 ? fromEnv : 18789;
+}
+
+function _openclawBase() {
+  return `http://127.0.0.1:${_openclawPort()}`;
+}
+
 const DEFAULT_TIMEOUT = 30_000;
 // FIX Fase 0.1: API_KEY se lee en el momento del request, no al cargar el módulo.
 // Core._startOpenClaw() (línea 205 en Core.js) setea process.env.OPENCLAW_API_KEY
@@ -73,7 +84,11 @@ const TOOL_SCHEMAS = {
 
   edit: (params) => ({
     tool: 'edit',
-    input: { path: params.path, old_text: params.old_text, new_text: params.new_text },
+    input: {
+      path: params.path,
+      old_text: params.old_text ?? params.oldString,
+      new_text: params.new_text ?? params.newString,
+    },
   }),
 
   apply_patch: (params) => ({
@@ -84,6 +99,22 @@ const TOOL_SCHEMAS = {
   code_execution: (params) => ({
     tool: 'code_execution',
     input: { code: params.code, timeout: params.timeout || 10 },
+  }),
+
+  grep: (params) => ({
+    tool: 'grep',
+    input: {
+      pattern: params.pattern,
+      path: params.path || undefined,
+      include: params.include || undefined,
+      ignore: params.ignore || undefined,
+      max_results: params.max_results || 50,
+    },
+  }),
+
+  glob: (params) => ({
+    tool: 'glob',
+    input: { pattern: params.pattern, path: params.path || undefined },
   }),
 };
 
@@ -181,7 +212,7 @@ class OpenClawBridge {
     }
 
     try {
-      const res = await getJSON(`${OPENCLAW_BASE}/health`, 3000);
+      const res = await getJSON(`${_openclawBase()}/health`, 3000);
       this._available = res.status === 200;
     } catch {
       this._available = false;
@@ -190,7 +221,7 @@ class OpenClawBridge {
     this._lastPing = now;
 
     if (!this._available) {
-      console.warn('[openclaw] no disponible en', OPENCLAW_BASE);
+      console.warn('[openclaw] no disponible en', _openclawBase());
     } else {
       console.log('[openclaw] disponible');
     }
@@ -252,7 +283,7 @@ class OpenClawBridge {
 
     let res;
     try {
-      res = await postJSON(`${OPENCLAW_BASE}/v1/tool`, body, opts.timeout || DEFAULT_TIMEOUT);
+      res = await postJSON(`${_openclawBase()}/v1/tool`, body, opts.timeout || DEFAULT_TIMEOUT);
     } catch(e) {
       this._available = false;
       return this._err(tool, `Error de red: ${e.message}`, t0);

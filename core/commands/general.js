@@ -115,7 +115,7 @@ module.exports = function registerCommands(register) {
     usage: '/olvida <texto>',
     handler: async (args, ctx) => {
       const text = args.join(' ').trim();
-      if (!text) return 'Usa \`/olvida <texto>\` — p. ej. \`/olvida cumpleanos\` para quitar esa fecha de mi memoria.';
+      if (!text) return 'Usa `/olvida <texto>` — p. ej. `/olvida cumpleanos` para quitar esa fecha de mi memoria.';
       if (!ctx.ipcRenderer) return 'IPC no disponible.';
       try {
         const res = await ctx.ipcRenderer.invoke('memory-forget', { text });

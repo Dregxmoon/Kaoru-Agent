@@ -31,6 +31,10 @@ function loadServersTable() {
 // Timeout por request JSON-RPC: si el server se cuelga (o muere sin avisar),
 // la promesa debe resolverse como fallo en vez de quedar colgada para siempre.
 const REQUEST_TIMEOUT_MS = 20_000;
+// G.1: el pull de diagnósticos usa un timeout corto — si el worker de análisis
+// del server está ocupado (pyright puede colgarse analizando ciertos archivos),
+// no queremos bloquear la tool `diagnostics` 20s; caemos a la cache push.
+const DIAGNOSTIC_PULL_TIMEOUT_MS = 5_000;
 
 // ── Instancia individual (un proceso LSP por lenguaje) ─────────────────────
 // G.1: antes LSPManager tenía UN solo _process. Ahora cada lenguaje vive en su
@@ -150,13 +154,24 @@ class _LSPInstance {
       proc.on('exit', (code) => this._handleExit(code));
 
       // Send initialize request
-      this._request('initialize', {
+      // G.1: pyright y otros servers push-based DEJAN de publicar
+      // publishDiagnostics si el initialize incluye rootPath + workspaceFolders
+      // (quirk verificado E2E). Por defecto se envía SOLO rootUri; los servers
+      // que lo necesitan (go/java, multi-root) lo declaran con
+      // `workspaceFolders: true` en servers.json.
+      const wantFolders = this._serverConfig.workspaceFolders === true;
+      const initializeParams = {
         processId: process.pid,
         rootUri: `file://${this._workspacePath}`,
-        rootPath: this._workspacePath,
-        workspaceFolders: [{ uri: `file://${this._workspacePath}`, name: path.basename(this._workspacePath) }],
-        initializationOptions: this._initializationOptions || undefined,
-        capabilities: {
+      };
+      if (wantFolders) {
+        initializeParams.rootPath = this._workspacePath;
+        initializeParams.workspaceFolders = [
+          { uri: `file://${this._workspacePath}`, name: path.basename(this._workspacePath) },
+        ];
+      }
+      initializeParams.initializationOptions = this._initializationOptions || undefined;
+      initializeParams.capabilities = {
           // LSP.0: capabilities que los servers esperan de un cliente real.
           // workspace.configuration es REQUERIDO por servers como gopls/jdtls
           // (piden settings vía workspace/configuration); sin declararlo algunos
@@ -176,8 +191,8 @@ class _LSPInstance {
             // publicar solo publishDiagnostics activa el push en todos los servers.
             publishDiagnostics: { relatedInformation: true },
           },
-        },
-      }).then((result) => {
+      };
+      this._request('initialize', initializeParams).then((result) => {
         this._capabilities = result.capabilities || {};
         // Patrón opencode: tras `initialized`, aplicar la configuración del
         // server (workspace/didChangeConfiguration) con sus initializationOptions.
@@ -379,16 +394,17 @@ class _LSPInstance {
     // Ensure document is open
     await this.openDocument(filePath);
 
-    // Request diagnostics via textDocument/diagnostic (if server supports pull diagnostics)
-    // Fall back to tracked push diagnostics
-    if (this._capabilities?.diagnosticProvider) {
-      try {
-        const result = await this._request('textDocument/diagnostic', {
-          textDocument: { uri },
-        });
-        return result?.items || [];
-      } catch (_) {}
-    }
+    // Pull first (LSP 3.17 textDocument/diagnostic). Aunque el server no lo
+    // anuncie en capabilities (pyright no declara diagnosticProvider), la
+    // mayoría lo soporta; si responde MethodNotFound, caemos a la cache push.
+    try {
+      const result = await this._request('textDocument/diagnostic', {
+        textDocument: { uri },
+      }, DIAGNOSTIC_PULL_TIMEOUT_MS);
+      if (result && Array.isArray(result.items)) {
+        return result.items;
+      }
+    } catch (_) { /* fallback a push cache */ }
 
     // Push diagnostics: track from textDocument/publishDiagnostics notifications
     return this._diagnostics.get(uri) || [];
@@ -551,13 +567,13 @@ class _LSPInstance {
 
   // ── JSON-RPC internals ───────────────────────────────────────────────
 
-  _request(method, params) {
+  _request(method, params, timeoutMs = REQUEST_TIMEOUT_MS) {
     return new Promise((resolve, reject) => {
       const id = this._requestId++;
       const timer = setTimeout(() => {
         this._pending.delete(id);
-        reject(new Error(`LSP request "${method}" timed out after ${REQUEST_TIMEOUT_MS}ms`));
-      }, REQUEST_TIMEOUT_MS);
+        reject(new Error(`LSP request "${method}" timed out after ${timeoutMs}ms`));
+      }, timeoutMs);
       this._pending.set(id, { resolve, reject, method, timer });
       this._send({ jsonrpc: '2.0', id, method, params });
     });

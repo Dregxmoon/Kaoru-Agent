@@ -101,6 +101,46 @@ const TOOL_SCHEMAS = [
       required: ['query'],
     },
   },
+  {
+    name: 'grep',
+    description: 'Busca un patrón (regex) dentro del contenido de los archivos del proyecto y devuelve las coincidencias con ruta, línea y texto',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        pattern: { type: 'string', description: 'Patrón regex o texto a buscar' },
+        path: { type: 'string', description: 'Directorio o archivo donde buscar (por defecto la raíz del proyecto)' },
+        include: { type: 'string', description: 'Glob de archivos a incluir, ej: "*.js" (opcional)' },
+        ignore: { type: 'string', description: 'Directorio o patrón a excluir, ej: "node_modules" (opcional)' },
+        max_results: { type: 'number', description: 'Máximo de coincidencias a devolver', default: 50 },
+      },
+      required: ['pattern'],
+    },
+  },
+  {
+    name: 'glob',
+    description: 'Lista archivos y directorios que coinciden con un patrón glob dentro del proyecto',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        pattern: { type: 'string', description: 'Patrón glob, ej: "src/**/*.js"' },
+        path: { type: 'string', description: 'Directorio base (por defecto la raíz del proyecto)' },
+      },
+      required: ['pattern'],
+    },
+  },
+  {
+    name: 'subagent',
+    description: 'Lanza un subagente autónomo que resuelve una sub-tarea concreta (investigar, buscar, redactar) de forma independiente y devuelve un resumen conciso. Útil para tareas largas que pueden paralelizarse o delegarse.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        task: { type: 'string', description: 'Sub-tarea concreta y autocontenida que debe resolver el subagente' },
+        context: { type: 'string', description: 'Contexto o restricciones adicionales para el subagente (opcional)' },
+        max_iterations: { type: 'number', description: 'Máximo de iteraciones del subagente', default: 8 },
+      },
+      required: ['task'],
+    },
+  },
   // ── LSP tools (Fase 7) ─────────────────────────────────────────────
   {
     name: 'get_diagnostics',

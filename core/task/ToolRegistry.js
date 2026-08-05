@@ -119,6 +119,55 @@ const TOOL_SCHEMAS = [
     ],
     highImpact: false,
   },
+  {
+    id: 'openclaw.grep',
+    name: 'grep',
+    domain: ['filesystem', 'code'],
+    source: 'openclaw',
+    description: 'Busca un patrón (regex) dentro del contenido de los archivos del proyecto',
+    params: [
+      { name: 'pattern', type: 'string', description: 'Patrón regex o texto a buscar', required: true },
+      { name: 'path', type: 'string', description: 'Directorio o archivo donde buscar', required: false },
+      { name: 'include', type: 'string', description: 'Glob de archivos a incluir, ej: "*.js"', required: false },
+      { name: 'ignore', type: 'string', description: 'Directorio/patrón a excluir', required: false },
+      { name: 'max_results', type: 'number', description: 'Máximo de coincidencias', default: 50 },
+    ],
+    examples: [
+      { cmd: 'buscar dónde se usa X en el código', desc: 'Grep en el proyecto' },
+    ],
+    highImpact: false,
+  },
+  {
+    id: 'openclaw.glob',
+    name: 'glob',
+    domain: ['filesystem', 'code'],
+    source: 'openclaw',
+    description: 'Lista archivos que coinciden con un patrón glob',
+    params: [
+      { name: 'pattern', type: 'string', description: 'Patrón glob, ej: "src/**/*.js"', required: true },
+      { name: 'path', type: 'string', description: 'Directorio base', required: false },
+    ],
+    examples: [
+      { cmd: 'listar los archivos de src', desc: 'Glob' },
+    ],
+    highImpact: false,
+  },
+  {
+    id: 'openclaw.subagent',
+    name: 'subagent',
+    domain: ['planning', 'code', 'web', 'data'],
+    source: 'openclaw',
+    description: 'Lanza un subagente autónomo que resuelve una sub-tarea de forma independiente y devuelve un resumen conciso',
+    params: [
+      { name: 'task', type: 'string', description: 'Sub-tarea concreta a resolver', required: true },
+      { name: 'context', type: 'string', description: 'Contexto adicional (opcional)', required: false },
+      { name: 'max_iterations', type: 'number', description: 'Máximo de iteraciones del subagente', default: 8 },
+    ],
+    examples: [
+      { cmd: 'investigar X y resumir', desc: 'Subagente de investigación' },
+    ],
+    highImpact: false,
+  },
   // ── LSP tools (Fase 7) ─────────────────────────────────────────────────────
   {
     id: 'lsp.get_diagnostics',

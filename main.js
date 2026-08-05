@@ -17,6 +17,29 @@ const { createSharedState } = require('./ipc/state.js');
 
 app.setName('vtuber-overlay');
 
+// G.1: endurecimiento de seguridad. Las ventanas cargan SOLO archivos locales;
+// se bloquea toda navegación a URLs remotas, window.open y webviews. Con
+// nodeIntegration:false + contextIsolation:true y preloads (src/preload.js y
+// src/chat/preload.js) que exponen SOLO una API acotada vía contextBridge, la
+// página —incluidos los scripts remotos de PixiJS/Live2D— ya no tiene acceso
+// a Node; este lockdown elimina ese vector de entrada de defensa en profundidad.
+app.on('web-contents-created', (_e, contents) => {
+  contents.on('will-navigate', (event, url) => {
+    if (!url.startsWith('file:')) {
+      event.preventDefault();
+      console.warn('[security] navegación a URL remota bloqueada:', url);
+    }
+  });
+  contents.setWindowOpenHandler(({ url }) => {
+    console.warn('[security] window.open bloqueado:', url);
+    return { action: 'deny' };
+  });
+  contents.on('will-attach-webview', (event) => {
+    event.preventDefault();
+    console.warn('[security] webview attach bloqueado');
+  });
+});
+
 const CRASH_LOG_PATH = path.join(app.getPath('userData'), 'crash.log');
 
 function logCrash(label, err) {
@@ -321,7 +344,15 @@ function createWindow() {
     frame: false, alwaysOnTop: true, skipTaskbar: true,
     resizable: false, hasShadow: false, thickFrame: false,
     focusable: false, show: false,
-    webPreferences: { nodeIntegration: true, contextIsolation: false, webSecurity: false },
+    webPreferences: {
+      preload: path.join(__dirname, 'src/preload.js'),
+      nodeIntegration: false,
+      contextIsolation: true,  // sandbox: la página (y los CDN) no ven Node
+      webSecurity: false,      // intencional: Live2D/pixi.js cargan recursos por CDN
+      sandbox: false,          // el preload necesita Node para los módulos core
+      webviewTag: false,
+      allowRunningInsecureContent: false,
+    },
   });
 
   S.mainWindow.setAlwaysOnTop(true, 'screen-saver');
@@ -358,9 +389,13 @@ function createChatWindow() {
     resizable: true, minWidth: 700, minHeight: 480,
     skipTaskbar: false, alwaysOnTop: false, hasShadow: true, show: true,
     webPreferences: {
-      nodeIntegration: true,
-      contextIsolation: false,
+      preload: path.join(__dirname, 'src/chat/preload.js'),
+      nodeIntegration: false,
+      contextIsolation: true,  // sandbox: la página (y los CDN) no ven Node
       webSecurity: true,
+      sandbox: false,          // el preload necesita Node para los módulos core
+      webviewTag: false,
+      allowRunningInsecureContent: false,
     },
   });
 
@@ -605,14 +640,9 @@ function startControlServer() {
 // Auto-init
 async function _autoInitProject() {
   try {
-    const userDataPath = app.getPath('userData');
-    let workspace = process.env.ASISTENTE_WORKSPACE;
-    if (!workspace && fs.existsSync(path.join(userDataPath, 'config.json'))) {
-      try {
-        const cfg = JSON.parse(fs.readFileSync(path.join(userDataPath, 'config.json'), 'utf-8'));
-        if (cfg.activeWorkspace) workspace = cfg.activeWorkspace;
-      } catch (_) { /* config inválida, seguir con default */ }
-    }
+    // El workspace sigue el directorio de la app (o ASISTENTE_WORKSPACE);
+    // ya no se impone el activeWorkspace persistido de config.json.
+    const workspace = process.env.ASISTENTE_WORKSPACE;
     const root = workspace || app.getAppPath() || process.cwd();
     if (!root || !fs.existsSync(root)) return;
 

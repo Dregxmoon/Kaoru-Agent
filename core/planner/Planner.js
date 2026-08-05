@@ -382,9 +382,18 @@ class Planner {
     };
   }
 
+  /**
+   * Plan multi-paso. Cada cfg admite `id` opcional (id estable para referenciar
+   * en `dependsOn` de otros pasos); sin `id`, se genera uno interno.
+   *
+   *   planner.planMultiStep('objetivo', [
+   *     { id: 'leer', tool: 'read', params: { path: 'a.js' }, description: 'leer a' },
+   *     { id: 'editar', tool: 'edit', params: { path: 'a.js', instruction: '...' }, description: 'editar a', dependsOn: ['leer'] },
+   *   ]);
+   */
   planMultiStep(goal, stepsConfig) {
     const steps = stepsConfig.map(cfg => ({
-      id:               stepId(),
+      id:               cfg.id || stepId(),
       tool:             cfg.tool,
       params:           cfg.params,
       description:      cfg.description || `${cfg.tool}`,
@@ -454,70 +463,107 @@ class Planner {
     const signal = this._abort.signal;
     const stepResults = {};
 
-    for (const step of plan.steps) {
+    // G.1: subagentes paralelos. Los pasos sin dependencias pendientes se
+    // agrupan en oleadas y se ejecutan en paralelo (Promise.all); el orden
+    // topológico se respeta porque un paso solo entra a una oleada cuando
+    // TODAS sus dependsOn ya terminaron. Si antes el plan era secuencial puro.
+    const remaining = new Set(plan.steps.map(s => s.id));
+    let failedStep = null;
+
+    while (remaining.size > 0) {
       if (signal.aborted) {
-        step.status = 'skipped';
-        step.error  = 'Plan cancelado';
-        opts.onStepDone?.(step, null);
-        continue;
-      }
-
-      const blocked = (step.dependsOn || []).find(id => {
-        const dep = plan.steps.find(s => s.id === id);
-        return dep && dep.status !== 'done';
-      });
-      if (blocked) {
-        step.status = 'skipped';
-        step.error  = `Dependencia ${blocked} no completada`;
-        opts.onStepDone?.(step, null);
-        continue;
-      }
-
-      const resolvedParams = this._resolveParams(step.params, stepResults);
-
-      if (step.requiresApproval) {
-        const approved = typeof opts.onApprovalNeeded === 'function'
-          ? await opts.onApprovalNeeded(step)
-          : false;
-        if (!approved) {
-          step.status = 'skipped';
-          step.error  = 'Cancelado por el usuario';
-          opts.onStepDone?.(step, null);
-          continue;
+        for (const s of plan.steps) {
+          if (!remaining.has(s.id)) continue;
+          s.status = 'skipped';
+          s.error  = 'Plan cancelado';
+          opts.onStepDone?.(s, null);
         }
+        break;
       }
 
-      step.status = 'running';
-      opts.onStepStart?.(step);
+      const ready = plan.steps.filter(s =>
+        remaining.has(s.id) &&
+        (s.dependsOn || []).every(depId => !remaining.has(depId))
+      );
 
-      console.log(`[planner] ejecutando paso: ${step.description}`);
-
-      let res;
-      try {
-        res = await this._executeStep(step.tool, resolvedParams);
-      } catch (e) {
-        res = { ok: false, error: e.message, result: null, tool: step.tool, elapsed: 0 };
+      if (ready.length === 0) {
+        // Ciclo de dependencias o dependencia fallida: no hay nada ejecutable.
+        for (const s of plan.steps) {
+          if (!remaining.has(s.id)) continue;
+          s.status = 'skipped';
+          s.error  = 'Dependencia no disponible';
+          opts.onStepDone?.(s, null);
+        }
+        break;
       }
 
-      if (!res.ok) {
-        step.status = 'failed';
-        step.error  = res.error;
-        step.result = res.result || null;
-        opts.onStepDone?.(step, null);
+      const wave = await Promise.all(ready.map(async (step) => {
+        const resolvedParams = this._resolveParams(step.params, stepResults);
 
-        plan.status   = 'failed';
-        plan.error    = `"${step.description}" falló: ${res.error}`;
-        plan.finished = Date.now();
-        this._activePlan = null;
-        this._archivePlan(plan);
-        this._dequeueNext(opts);
-        return plan;
+        if (step.requiresApproval) {
+          const approved = typeof opts.onApprovalNeeded === 'function'
+            ? await opts.onApprovalNeeded(step)
+            : false;
+          if (!approved) {
+            step.status = 'skipped';
+            step.error  = 'Cancelado por el usuario';
+            opts.onStepDone?.(step, null);
+            return { step, res: null, skipped: true };
+          }
+        }
+
+        step.status = 'running';
+        opts.onStepStart?.(step);
+        console.log(`[planner] ejecutando paso: ${step.description}`);
+
+        let res;
+        try {
+          res = await this._executeStep(step.tool, resolvedParams);
+        } catch (e) {
+          res = { ok: false, error: e.message, result: null, tool: step.tool, elapsed: 0 };
+        }
+        return { step, res, skipped: false };
+      }));
+
+      for (const { step, res, skipped } of wave) {
+        remaining.delete(step.id);
+        if (skipped) continue;
+
+        if (!res.ok) {
+          step.status = 'failed';
+          step.error  = res.error;
+          step.result = res.result || null;
+          opts.onStepDone?.(step, null);
+          failedStep = step;
+          break;
+        }
+
+        step.status = 'done';
+        step.result = res.result;
+        stepResults[step.id] = res.result;
+        opts.onStepDone?.(step, res.result);
       }
 
-      step.status  = 'done';
-      step.result  = res.result;
-      stepResults[step.id] = res.result;
-      opts.onStepDone?.(step, res.result);
+      if (failedStep) {
+        // Cancelar lo que quede pendiente (depende de un paso que falló).
+        for (const s of plan.steps) {
+          if (!remaining.has(s.id)) continue;
+          s.status = 'skipped';
+          s.error  = 'Plan falló en otro paso';
+          opts.onStepDone?.(s, null);
+        }
+        break;
+      }
+    }
+
+    if (failedStep) {
+      plan.status   = 'failed';
+      plan.error    = `"${failedStep.description}" falló: ${failedStep.error}`;
+      plan.finished = Date.now();
+      this._activePlan = null;
+      this._archivePlan(plan);
+      this._dequeueNext(opts);
+      return plan;
     }
 
     const anyFailed = plan.steps.some(s => s.status === 'failed');

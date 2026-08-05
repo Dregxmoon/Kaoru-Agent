@@ -172,13 +172,15 @@ function _buildParams(action, fields, userGoal, projectCwd) {
     case 'create_file':
       return {
         path:        fields.ARCHIVO,
-        instruction: userGoal || `Crear el archivo ${fields.ARCHIVO}`,
+        // G.1: el LLM puede incluir el contenido en CONTENIDO: — si viene,
+        // se usa como instruction (en vez de repetir el userGoal como texto).
+        instruction: fields.CONTENIDO || userGoal || `Crear el archivo ${fields.ARCHIVO}`,
       };
 
     case 'edit_file':
       return {
         path:        fields.ARCHIVO,
-        instruction: userGoal || `Editar el archivo ${fields.ARCHIVO}`,
+        instruction: fields.CONTENIDO || userGoal || `Editar el archivo ${fields.ARCHIVO}`,
       };
 
     case 'read_file':
@@ -366,7 +368,21 @@ class StructuredActionParser {
     // Extraer el resto de campos clave:valor separados por "|" o por newlines
     const normalized = workingContent.replace(/\|/g, '\n');
 
-    for (const line of normalized.split('\n')) {
+    // G.1: CONTENIDO puede ser multilínea (markdown/código). Se extrae ANTES del
+    // loop genérico: el valor empieza tras "CONTENIDO:" y continúa por las líneas
+    // siguientes, salvo que una línea parezca otro campo "CLAVE: valor". Sin esto,
+    // el contenido se truncaba a la primera línea (o se repetía el userGoal).
+    let fieldsText = normalized;
+    const contMatch = fieldsText.match(/(^|\n)[ \t]*CONTENIDO:[ \t]*([\s\S]*)$/i);
+    if (contMatch) {
+      let value = contMatch[2];
+      const nextField = value.match(/(^|\n)[ \t]*[A-ZÀ-ÚÑ_][A-ZÀ-ÚÑ_0-9]{1,}:[ \t]/);
+      if (nextField) value = value.slice(0, nextField.index);
+      fields['CONTENIDO'] = value.trim();
+      fieldsText = fieldsText.slice(0, contMatch.index + contMatch[1].length);
+    }
+
+    for (const line of fieldsText.split('\n')) {
       const colonIdx = line.indexOf(':');
       if (colonIdx === -1) continue;
 
