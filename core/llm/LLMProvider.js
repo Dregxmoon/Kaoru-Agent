@@ -477,13 +477,15 @@ async function callGeminiProvider(providerId, messages, systemPrompt, mode = 'fa
   // llegó como JSON normal, extraemos directo; si es SSE, parseamos fragmentos.
   if (opts.onToken && typeof res.body === 'string') {
     const full = _parseGeminiSSE(res.body, opts.onToken);
-    return full.trim();
+    return full.text.trim();
   }
   return (res.body.candidates[0]?.content?.parts?.[0]?.text || '').trim();
 }
 
 function _parseGeminiSSE(raw, onToken) {
   let out = '';
+  /** @type {Array<{ tool: string, params: object }>} */
+  const toolCalls = [];
   for (const line of raw.split('\n')) {
     const t = line.trim();
     if (!t.startsWith('data:')) continue;
@@ -495,15 +497,25 @@ function _parseGeminiSSE(raw, onToken) {
     } catch {
       continue;
     }
-    const text = json.candidates?.[0]?.content?.parts?.[0]?.text;
-    if (text) {
-      out += text;
-      try {
-        onToken && onToken(text);
-      } catch (_) {}
+    const parts = json.candidates?.[0]?.content?.parts;
+    if (!Array.isArray(parts)) continue;
+    for (const part of parts) {
+      const text = part.text;
+      if (text) {
+        out += text;
+        try {
+          onToken && onToken(text);
+        } catch (_) {}
+      }
+      if (part.functionCall) {
+        toolCalls.push({
+          tool: part.functionCall.name,
+          params: part.functionCall.args || {},
+        });
+      }
     }
   }
-  return out;
+  return { text: out, toolCalls };
 }
 
 // ── Generic Anthropic caller ──────────────────────────────────────────────────
@@ -677,7 +689,7 @@ async function callOpenAIWithTools(providerId, messages, systemPrompt, mode, too
   return _normalizeOpenAIResponse(res.body);
 }
 
-async function callGeminiWithTools(providerId, messages, systemPrompt, mode, tools) {
+async function callGeminiWithTools(providerId, messages, systemPrompt, mode, tools, opts = {}) {
   const def = _registry.get(providerId);
   if (!def) throw new Error(`Provider desconocido: ${providerId}`);
   const key = _getApiKey(providerId);
@@ -699,16 +711,27 @@ async function callGeminiWithTools(providerId, messages, systemPrompt, mode, too
     tools: _buildGeminiTools(tools),
     generationConfig: { maxOutputTokens: maxTokens, temperature: 0.85 },
   };
+  if (opts.onToken) body.stream = true;
 
-  console.log(`[llm] ${providerId} tool-calling model: ${model} (${mode}, ${tools.length} tools)`);
+  console.log(
+    `[llm] ${providerId} tool-calling model: ${model} (${mode}, ${tools.length} tools)${opts.onToken ? ' [stream]' : ''}`
+  );
 
   const res = await post(
-    `${def.baseURL}/models/${model}:generateContent?key=${key}`,
+    `${def.baseURL}/models/${model}:generateContent?key=${key}${opts.onToken ? '&alt=sse' : ''}`,
     {},
     body,
     timeoutMs
   );
   if (res.status !== 200) throw new Error(`${def.name} ${res.status}: ${JSON.stringify(res.body)}`);
+
+  if (opts.onToken && typeof res.body === 'string') {
+    const sse = _parseGeminiSSE(res.body, opts.onToken);
+    return {
+      content: sse.text.trim() || null,
+      toolCalls: sse.toolCalls.length > 0 ? sse.toolCalls : null,
+    };
+  }
   return _normalizeGeminiResponse(res.body);
 }
 
