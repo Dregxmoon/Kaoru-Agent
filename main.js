@@ -1,11 +1,18 @@
 const {
-  app, BrowserWindow, ipcMain, screen,
-  Tray, Menu, nativeImage, session, globalShortcut
+  app,
+  BrowserWindow,
+  ipcMain,
+  screen,
+  Tray,
+  Menu,
+  nativeImage,
+  session,
+  globalShortcut,
 } = require('electron');
 const path = require('path');
 const http = require('http');
-const fs   = require('fs');
-const os   = require('os');
+const fs = require('fs');
+const os = require('os');
 const { URL } = require('url');
 const { spawnSync } = require('child_process');
 const crypto = require('crypto');
@@ -45,7 +52,11 @@ const CRASH_LOG_PATH = path.join(app.getPath('userData'), 'crash.log');
 function logCrash(label, err) {
   const line = `[${new Date().toISOString()}] ${label}: ${err?.stack || err}\n`;
   console.error(line);
-  try { fs.appendFileSync(CRASH_LOG_PATH, line); } catch (_) { /* best-effort */ }
+  try {
+    fs.appendFileSync(CRASH_LOG_PATH, line);
+  } catch (_) {
+    /* best-effort */
+  }
 }
 
 process.on('uncaughtException', (err) => logCrash('uncaughtException', err));
@@ -61,26 +72,39 @@ function resolvePythonBin() {
   const resolveViaCommand = (cmd, extraArgs = []) => {
     try {
       const res = spawnSync(cmd, [...extraArgs, '-c', 'import sys; print(sys.executable)'], {
-        timeout: 4000, windowsHide: true, encoding: 'utf-8',
+        timeout: 4000,
+        windowsHide: true,
+        encoding: 'utf-8',
       });
       if (res.status === 0) {
         const out = (res.stdout || '').trim().split(/\r?\n/).pop().trim();
         if (out && fs.existsSync(out)) return out;
       }
-    } catch (_) { /* comando no existe */ }
+    } catch (_) {
+      /* comando no existe */
+    }
     return null;
   };
 
   if (process.platform === 'win32') {
     const viaLauncher = resolveViaCommand('py', ['-3']);
-    if (viaLauncher) { console.log('[python] resuelto vía "py -3":', viaLauncher); return viaLauncher; }
+    if (viaLauncher) {
+      console.log('[python] resuelto vía "py -3":', viaLauncher);
+      return viaLauncher;
+    }
   }
 
   const viaPython = resolveViaCommand('python');
-  if (viaPython) { console.log('[python] resuelto vía "python" del PATH:', viaPython); return viaPython; }
+  if (viaPython) {
+    console.log('[python] resuelto vía "python" del PATH:', viaPython);
+    return viaPython;
+  }
 
   const viaPython3 = resolveViaCommand('python3');
-  if (viaPython3) { console.log('[python] resuelto vía "python3" del PATH:', viaPython3); return viaPython3; }
+  if (viaPython3) {
+    console.log('[python] resuelto vía "python3" del PATH:', viaPython3);
+    return viaPython3;
+  }
 
   if (process.platform === 'win32') {
     const home = os.homedir();
@@ -91,7 +115,11 @@ function resolvePythonBin() {
     ];
     for (const dir of searchDirs) {
       try {
-        const entries = fs.readdirSync(dir).filter(n => /^Python3\d\d?$/i.test(n)).sort().reverse();
+        const entries = fs
+          .readdirSync(dir)
+          .filter((n) => /^Python3\d\d?$/i.test(n))
+          .sort()
+          .reverse();
         for (const entry of entries) {
           const candidate = path.join(dir, entry, 'python.exe');
           if (fs.existsSync(candidate)) {
@@ -99,11 +127,15 @@ function resolvePythonBin() {
             return candidate;
           }
         }
-      } catch (_) { /* carpeta no existe, seguir */ }
+      } catch (_) {
+        /* carpeta no existe, seguir */
+      }
     }
   }
 
-  console.warn('[python] no se encontró ningún intérprete de Python. La voz y el STT local no van a funcionar hasta que instales Python o definas ASISTENTE_PYTHON_BIN.');
+  console.warn(
+    '[python] no se encontró ningún intérprete de Python. La voz y el STT local no van a funcionar hasta que instales Python o definas ASISTENTE_PYTHON_BIN.'
+  );
   return null;
 }
 
@@ -118,20 +150,21 @@ let _keySource = 'config.json';
 let _keySourcesByProvider = {};
 
 // Constantes
-const MARGIN  = 12;
-const WIN_W   = 380;
-const WIN_H   = 580;
-const CHAT_W  = 900;
-const CHAT_H  = 600;
+const MARGIN = 12;
+const WIN_W = 380;
+const WIN_H = 580;
+const CHAT_W = 900;
+const CHAT_H = 600;
 
 // Config persistente
 const CONFIG_PATH = path.join(app.getPath('userData'), 'config.json');
 
 function loadConfig() {
   try {
-    if (fs.existsSync(CONFIG_PATH))
-      return JSON.parse(fs.readFileSync(CONFIG_PATH, 'utf-8'));
-  } catch (e) { console.log('[config] error leyendo config.json:', e.message); }
+    if (fs.existsSync(CONFIG_PATH)) return JSON.parse(fs.readFileSync(CONFIG_PATH, 'utf-8'));
+  } catch (e) {
+    console.log('[config] error leyendo config.json:', e.message);
+  }
   return {};
 }
 
@@ -155,7 +188,16 @@ function loadEffectiveConfig() {
     }
   }
 
-  const builtinProviders = ['groq', 'gemini', 'openai', 'anthropic', 'xai', 'nvidia', 'huggingface', 'deepseek'];
+  const builtinProviders = [
+    'groq',
+    'gemini',
+    'openai',
+    'anthropic',
+    'xai',
+    'nvidia',
+    'huggingface',
+    'deepseek',
+  ];
   const keychainKeys = KeychainManager.getAllKeys(builtinProviders);
   for (const [k, v] of Object.entries(keychainKeys)) {
     if (v) {
@@ -180,7 +222,9 @@ function saveConfig(data) {
   try {
     const merged = { ...loadConfig(), ...data };
     fs.writeFileSync(CONFIG_PATH, JSON.stringify(merged, null, 2), 'utf-8');
-  } catch (e) { console.log('[config] error guardando config.json:', e.message); }
+  } catch (e) {
+    console.log('[config] error guardando config.json:', e.message);
+  }
 }
 
 function migratePlaintextApiKeysToKeychain() {
@@ -220,7 +264,9 @@ function migratePlaintextApiKeysToKeychain() {
   }
   try {
     fs.writeFileSync(CONFIG_PATH, JSON.stringify(newCfg, null, 2), 'utf-8');
-    console.log(`[config] keys LLM migradas al llavero y quitadas de config.json: ${migrated.join(', ')}`);
+    console.log(
+      `[config] keys LLM migradas al llavero y quitadas de config.json: ${migrated.join(', ')}`
+    );
   } catch (e) {
     console.log('[config] error persistiendo config sin keys:', e.message);
   }
@@ -229,18 +275,20 @@ function migratePlaintextApiKeysToKeychain() {
 function ensureLLMConfig() {
   const cfg = loadConfig();
   if (!cfg.llm) {
-    saveConfig({ llm: {
-      primary: 'groq',
-      fallback: ['gemini'],
-      apiKeys: {},
-      providers: {},
-    } });
+    saveConfig({
+      llm: {
+        primary: 'groq',
+        fallback: ['gemini'],
+        apiKeys: {},
+        providers: {},
+      },
+    });
     console.log('[config] bloque llm inicializado');
   }
 }
 
 // Estado global compartido
-const savedConfig    = loadConfig();
+const savedConfig = loadConfig();
 migratePlaintextApiKeysToKeychain();
 
 const S = createSharedState({
@@ -256,8 +304,7 @@ if (maskedConfig.llm?.apiKeys) {
 }
 console.log('[asistente] config cargada:', maskedConfig);
 
-if (process.platform === 'linux')
-  app.commandLine.appendSwitch('enable-transparent-visuals');
+if (process.platform === 'linux') app.commandLine.appendSwitch('enable-transparent-visuals');
 
 const VIEW_NAMES = ['full', 'half', 'head'];
 
@@ -265,18 +312,20 @@ const VIEW_NAMES = ['full', 'half', 'head'];
 function getBottomRightBounds() {
   const { workArea } = screen.getPrimaryDisplay();
   return {
-    x: Math.round(workArea.x + workArea.width  - WIN_W - MARGIN),
+    x: Math.round(workArea.x + workArea.width - WIN_W - MARGIN),
     y: Math.round(workArea.y + workArea.height - WIN_H - MARGIN),
-    width: WIN_W, height: WIN_H,
+    width: WIN_W,
+    height: WIN_H,
   };
 }
 
 function getChatBounds() {
   const { workArea } = screen.getPrimaryDisplay();
   return {
-    x: Math.round(workArea.x + (workArea.width  - CHAT_W) / 2),
+    x: Math.round(workArea.x + (workArea.width - CHAT_W) / 2),
     y: Math.round(workArea.y + (workArea.height - CHAT_H) / 2),
-    width: CHAT_W, height: CHAT_H,
+    width: CHAT_W,
+    height: CHAT_H,
   };
 }
 
@@ -310,7 +359,11 @@ const serializeResult = (result) => {
       const str = JSON.stringify(result);
       if (str.length > IPC_RESULT_LIMIT) {
         console.warn(`[main] resultado muy grande (${str.length} chars), truncando para IPC`);
-        return { _truncated: true, preview: str.slice(0, IPC_RESULT_LIMIT), totalLength: str.length };
+        return {
+          _truncated: true,
+          preview: str.slice(0, IPC_RESULT_LIMIT),
+          totalLength: str.length,
+        };
       }
       return result;
     } catch {
@@ -321,11 +374,19 @@ const serializeResult = (result) => {
 };
 
 const ctx = {
-  S, savedConfig, loadConfig, loadEffectiveConfig, saveConfig,
-  Core, KeychainManager, PYTHON_BIN,
+  S,
+  savedConfig,
+  loadConfig,
+  loadEffectiveConfig,
+  saveConfig,
+  Core,
+  KeychainManager,
+  PYTHON_BIN,
   serializeResult,
   getBottomRightBounds,
-  setClickThrough, sendSpeak, sendOverlayGesture,
+  setClickThrough,
+  sendSpeak,
+  sendOverlayGesture,
   keySource: () => _keySource,
   keySourcesByProvider: () => _keySourcesByProvider,
   broadcastModelChanged: () => {},
@@ -334,22 +395,27 @@ const ctx = {
 // Ventana overlay
 function createWindow() {
   const mode = ctx.getModelViewMode(S.activeModelId);
-  S.currentView = mode === 'random'
-    ? VIEW_NAMES[Math.floor(Math.random() * VIEW_NAMES.length)]
-    : mode;
+  S.currentView =
+    mode === 'random' ? VIEW_NAMES[Math.floor(Math.random() * VIEW_NAMES.length)] : mode;
 
   S.mainWindow = new BrowserWindow({
     ...getBottomRightBounds(),
-    transparent: true, backgroundColor: '#00000000',
-    frame: false, alwaysOnTop: true, skipTaskbar: true,
-    resizable: false, hasShadow: false, thickFrame: false,
-    focusable: false, show: false,
+    transparent: true,
+    backgroundColor: '#00000000',
+    frame: false,
+    alwaysOnTop: true,
+    skipTaskbar: true,
+    resizable: false,
+    hasShadow: false,
+    thickFrame: false,
+    focusable: false,
+    show: false,
     webPreferences: {
       preload: path.join(__dirname, 'src/preload.js'),
       nodeIntegration: false,
-      contextIsolation: true,  // sandbox: la página (y los CDN) no ven Node
-      webSecurity: false,      // intencional: Live2D/pixi.js cargan recursos por CDN
-      sandbox: false,          // el preload necesita Node para los módulos core
+      contextIsolation: true, // sandbox: la página (y los CDN) no ven Node
+      webSecurity: false, // intencional: Live2D/pixi.js cargan recursos por CDN
+      sandbox: false, // el preload necesita Node para los módulos core
       webviewTag: false,
       allowRunningInsecureContent: false,
     },
@@ -360,7 +426,14 @@ function createWindow() {
   S.mainWindow.setMenuBarVisibility(false);
   S.mainWindow.setIgnoreMouseEvents(true, { forward: true });
   S.mainWindow.webContents.on('console-message', (e, level, msg) => {
-    if (msg.includes('PixiJS') || msg.includes('Live2D Cubism Core') || msg.includes('CubismFramework.') || msg.startsWith(' %c') || msg.includes('Electron Security Warning')) return;
+    if (
+      msg.includes('PixiJS') ||
+      msg.includes('Live2D Cubism Core') ||
+      msg.includes('CubismFramework.') ||
+      msg.startsWith(' %c') ||
+      msg.includes('Electron Security Warning')
+    )
+      return;
     console.log(`[overlay] ${msg}`);
   });
   S.mainWindow.loadFile(path.join(__dirname, 'src/index.html'));
@@ -373,7 +446,8 @@ function createWindow() {
 function createChatWindow() {
   if (S.chatWindow && !S.chatWindow.isDestroyed()) {
     if (!S.chatWindow.isVisible()) {
-      S.chatWindow.show(); S.chatWindow.focus();
+      S.chatWindow.show();
+      S.chatWindow.focus();
       if (S.mainWindow && !S.mainWindow.isDestroyed()) S.mainWindow.hide();
       Core.setChatOpen(true);
       if (S.tray) S.tray.setContextMenu(buildTrayMenu());
@@ -385,15 +459,22 @@ function createChatWindow() {
 
   S.chatWindow = new BrowserWindow({
     ...getChatBounds(),
-    frame: false, transparent: false, backgroundColor: '#0d0f14',
-    resizable: true, minWidth: 700, minHeight: 480,
-    skipTaskbar: false, alwaysOnTop: false, hasShadow: true, show: true,
+    frame: false,
+    transparent: false,
+    backgroundColor: '#0d0f14',
+    resizable: true,
+    minWidth: 700,
+    minHeight: 480,
+    skipTaskbar: false,
+    alwaysOnTop: false,
+    hasShadow: true,
+    show: true,
     webPreferences: {
       preload: path.join(__dirname, 'src/chat/preload.js'),
       nodeIntegration: false,
-      contextIsolation: true,  // sandbox: la página (y los CDN) no ven Node
+      contextIsolation: true, // sandbox: la página (y los CDN) no ven Node
       webSecurity: true,
-      sandbox: false,          // el preload necesita Node para los módulos core
+      sandbox: false, // el preload necesita Node para los módulos core
       webviewTag: false,
       allowRunningInsecureContent: false,
     },
@@ -403,13 +484,23 @@ function createChatWindow() {
   S.chatWindow.loadFile(path.join(__dirname, 'src/chat.html'));
   S.chatWindow.webContents.openDevTools({ mode: 'detach' });
   S.chatWindow.webContents.on('console-message', (e, level, msg) => {
-    if (msg.includes('PixiJS') || msg.includes('Live2D Cubism Core') || msg.includes('CubismFramework.') || msg.startsWith(' %c') || msg.includes('Electron Security Warning')) return;
+    if (
+      msg.includes('PixiJS') ||
+      msg.includes('Live2D Cubism Core') ||
+      msg.includes('CubismFramework.') ||
+      msg.startsWith(' %c') ||
+      msg.includes('Electron Security Warning')
+    )
+      return;
     console.log(`[chat] ${msg}`);
   });
 
   if (S.mainWindow && !S.mainWindow.isDestroyed()) S.mainWindow.hide();
 
-  const sessionPromise = Core.startSession().catch(e => { console.error('[session] error:', e.message); return null; });
+  const sessionPromise = Core.startSession().catch((e) => {
+    console.error('[session] error:', e.message);
+    return null;
+  });
   Core.setChatOpen(true);
 
   S.chatWindow.webContents.once('did-finish-load', () => {
@@ -418,16 +509,23 @@ function createChatWindow() {
     const usingFallback = Core.getGraph()?.usingFallback ?? false;
     S.chatWindow.webContents.send('memory-status', { usingFallback });
 
-    sessionPromise.then(result => {
-      if (result?.resumed && result.history?.length && S.chatWindow && !S.chatWindow.isDestroyed()) {
-        console.log(`[main] enviando sesión resumida al chat: ${result.history.length} mensajes`);
-        S.chatWindow.webContents.send('resumed-session', { history: result.history });
-      }
-    }).catch(() => {});
+    sessionPromise
+      .then((result) => {
+        if (
+          result?.resumed &&
+          result.history?.length &&
+          S.chatWindow &&
+          !S.chatWindow.isDestroyed()
+        ) {
+          console.log(`[main] enviando sesión resumida al chat: ${result.history.length} mensajes`);
+          S.chatWindow.webContents.send('resumed-session', { history: result.history });
+        }
+      })
+      .catch(() => {});
   });
 
   S.chatWindow.on('closed', () => {
-    Core.closeSession().catch(e => console.error('[session] close error:', e.message));
+    Core.closeSession().catch((e) => console.error('[session] close error:', e.message));
     Core.setChatOpen(false);
     S.chatWindow = null;
     if (S.mainWindow && !S.mainWindow.isDestroyed()) S.mainWindow.show();
@@ -446,7 +544,8 @@ function toggleChatWindow() {
     Core.setChatOpen(false);
     if (S.tray) S.tray.setContextMenu(buildTrayMenu());
   } else {
-    S.chatWindow.show(); S.chatWindow.focus();
+    S.chatWindow.show();
+    S.chatWindow.focus();
     if (S.mainWindow && !S.mainWindow.isDestroyed()) S.mainWindow.hide();
     Core.setChatOpen(true);
     if (S.tray) S.tray.setContextMenu(buildTrayMenu());
@@ -460,21 +559,36 @@ function buildTrayMenu() {
   return Menu.buildFromTemplate([
     { label: chatOpen ? 'Cerrar chat' : 'Abrir chat', click: toggleChatWindow },
     { type: 'separator' },
-    { label: S.isClickThrough ? 'Bloquear (mover overlay)' : 'Pasar clics', click: () => setClickThrough(!S.isClickThrough) },
+    {
+      label: S.isClickThrough ? 'Bloquear (mover overlay)' : 'Pasar clics',
+      click: () => setClickThrough(!S.isClickThrough),
+    },
     { type: 'separator' },
     { label: `${mode === 'full' ? '> ' : ''}Cuerpo completo`, click: () => applyViewMode('full') },
-    { label: `${mode === 'half' ? '> ' : ''}Medio cuerpo`,    click: () => applyViewMode('half') },
-    { label: `${mode === 'head' ? '> ' : ''}Solo cabeza`,     click: () => applyViewMode('head') },
-    { label: `${mode === 'random' ? '> ' : ''}Aleatorio`,     click: () => applyViewMode('random') },
+    { label: `${mode === 'half' ? '> ' : ''}Medio cuerpo`, click: () => applyViewMode('half') },
+    { label: `${mode === 'head' ? '> ' : ''}Solo cabeza`, click: () => applyViewMode('head') },
+    { label: `${mode === 'random' ? '> ' : ''}Aleatorio`, click: () => applyViewMode('random') },
     { type: 'separator' },
-    { label: 'Prueba de voz', submenu: [
-      { label: 'Saludo',      click: () => sendSpeak('Hola! Estoy aqui para ayudarte!') },
-      { label: 'Emocion sad', click: () => sendSpeak('Lo siento, hubo un error.', 'sad') },
-      { label: 'Excited',     click: () => sendSpeak('Perfecto, todo salio bien!', 'excited') },
-    ]},
+    {
+      label: 'Prueba de voz',
+      submenu: [
+        { label: 'Saludo', click: () => sendSpeak('Hola! Estoy aqui para ayudarte!') },
+        { label: 'Emocion sad', click: () => sendSpeak('Lo siento, hubo un error.', 'sad') },
+        { label: 'Excited', click: () => sendSpeak('Perfecto, todo salio bien!', 'excited') },
+      ],
+    },
     { type: 'separator' },
-    { label: 'Volver a esquina', click: () => { S.userHasMoved = false; S.mainWindow.setBounds(getBottomRightBounds()); } },
-    { label: 'Mostrar / ocultar overlay', click: () => S.mainWindow.isVisible() ? S.mainWindow.hide() : S.mainWindow.show() },
+    {
+      label: 'Volver a esquina',
+      click: () => {
+        S.userHasMoved = false;
+        S.mainWindow.setBounds(getBottomRightBounds());
+      },
+    },
+    {
+      label: 'Mostrar / ocultar overlay',
+      click: () => (S.mainWindow.isVisible() ? S.mainWindow.hide() : S.mainWindow.show()),
+    },
     { type: 'separator' },
     { label: 'Cerrar todo', click: () => app.quit() },
   ]);
@@ -493,7 +607,8 @@ function applyViewMode(mode, { broadcast = true } = {}) {
   ctx.saveModelViewMode(S.activeModelId, mode);
   if (mode !== 'random') {
     S.currentView = mode;
-    if (S.mainWindow && !S.mainWindow.isDestroyed()) S.mainWindow.webContents.send('set-view', mode);
+    if (S.mainWindow && !S.mainWindow.isDestroyed())
+      S.mainWindow.webContents.send('set-view', mode);
   }
   if (broadcast) ctx.broadcastViewsChanged();
   if (S.tray) S.tray.setContextMenu(buildTrayMenu());
@@ -514,8 +629,8 @@ require('./ipc/mcp-handlers.js').register(ctx);
 require('./ipc/github-handlers.js').register(ctx);
 
 // Servidor HTTP local
-const VALID_EMOTIONS = ['happy','excited','sad','tired','gentle','default'];
-const VALID_VIEWS    = ['full','half','head','random'];
+const VALID_EMOTIONS = ['happy', 'excited', 'sad', 'tired', 'gentle', 'default'];
+const VALID_VIEWS = ['full', 'half', 'head', 'random'];
 
 const CONTROL_API_TOKEN = crypto.randomBytes(24).toString('hex');
 
@@ -554,21 +669,37 @@ function startControlServer() {
     const url = new URL(req.url, 'http://localhost:3131');
     res.setHeader('Content-Type', 'text/plain; charset=utf-8');
     if (url.pathname !== '/help' && !_controlAuthOk(req, url)) {
-      res.writeHead(401); res.end('unauthorized — falta o es inválido ?token='); return;
+      res.writeHead(401);
+      res.end('unauthorized — falta o es inválido ?token=');
+      return;
     }
     if (url.pathname === '/speak') {
       const text = url.searchParams.get('text') || '';
       const rawEmo = (url.searchParams.get('emotion') || '').toLowerCase();
       const emotion = VALID_EMOTIONS.includes(rawEmo) ? rawEmo : null;
-      if (!text) { res.writeHead(400); res.end('falta ?text='); return; }
+      if (!text) {
+        res.writeHead(400);
+        res.end('falta ?text=');
+        return;
+      }
       sendSpeak(text, emotion);
-      if (S.chatWindow && !S.chatWindow.isDestroyed()) S.chatWindow.webContents.send('chat-message', text);
-      res.writeHead(200); res.end(`ok: ${text}`); return;
+      if (S.chatWindow && !S.chatWindow.isDestroyed())
+        S.chatWindow.webContents.send('chat-message', text);
+      res.writeHead(200);
+      res.end(`ok: ${text}`);
+      return;
     }
     if (url.pathname === '/view') {
       const v = (url.searchParams.get('v') || '').toLowerCase();
-      if (!VALID_VIEWS.includes(v)) { res.writeHead(400); res.end(`validos: ${VALID_VIEWS.join(', ')}`); return; }
-      applyViewMode(v); res.writeHead(200); res.end(`ok: ${v}`); return;
+      if (!VALID_VIEWS.includes(v)) {
+        res.writeHead(400);
+        res.end(`validos: ${VALID_VIEWS.join(', ')}`);
+        return;
+      }
+      applyViewMode(v);
+      res.writeHead(200);
+      res.end(`ok: ${v}`);
+      return;
     }
     if (url.pathname === '/chat') {
       const action = (url.searchParams.get('action') || '').toLowerCase();
@@ -577,44 +708,69 @@ function startControlServer() {
         console.log('[asistente] Control API: cerrando asistente');
         app.quit();
       } else toggleChatWindow();
-      res.writeHead(200); res.end(`ok: chat ${action || 'toggled'}`); return;
+      res.writeHead(200);
+      res.end(`ok: chat ${action || 'toggled'}`);
+      return;
     }
     if (url.pathname === '/workspace') {
       const p = url.searchParams.get('path');
-      if (!p) { res.writeHead(400); res.end('falta ?path='); return; }
-      Core.setActiveWorkspace(p).then(result => {
-        res.writeHead(result.ok ? 200 : 400);
-        res.end(result.ok ? `ok: workspace -> ${result.path}` : `error: ${result.error}`);
-      }).catch(err => {
-        res.writeHead(500); res.end(`error: ${err.message}`);
-      });
+      if (!p) {
+        res.writeHead(400);
+        res.end('falta ?path=');
+        return;
+      }
+      Core.setActiveWorkspace(p)
+        .then((result) => {
+          res.writeHead(result.ok ? 200 : 400);
+          res.end(result.ok ? `ok: workspace -> ${result.path}` : `error: ${result.error}`);
+        })
+        .catch((err) => {
+          res.writeHead(500);
+          res.end(`error: ${err.message}`);
+        });
       return;
     }
     if (url.pathname === '/debug/git-scan') {
-      Core.debugGitScan().then(r => {
-        res.writeHead(r.ok ? 200 : 500);
-        res.end(r.ok ? `ok: scan git realizado\n${JSON.stringify(r.stats, null, 2)}` : `error: ${r.error}`);
-      }).catch(err => {
-        res.writeHead(500); res.end(`error: ${err.message}`);
-      });
+      Core.debugGitScan()
+        .then((r) => {
+          res.writeHead(r.ok ? 200 : 500);
+          res.end(
+            r.ok
+              ? `ok: scan git realizado\n${JSON.stringify(r.stats, null, 2)}`
+              : `error: ${r.error}`
+          );
+        })
+        .catch((err) => {
+          res.writeHead(500);
+          res.end(`error: ${err.message}`);
+        });
       return;
     }
     if (url.pathname === '/debug/proposal') {
       const accept = url.searchParams.get('accept') === '1';
       const r = Core.debugResolveLastProposal(accept);
       res.writeHead(r.ok ? 200 : 400);
-      res.end(r.ok
-        ? `ok: propuesta ${accept ? 'aceptada' : 'rechazada'} (${r.proposal.type})`
-        : `error: ${r.error}`);
+      res.end(
+        r.ok
+          ? `ok: propuesta ${accept ? 'aceptada' : 'rechazada'} (${r.proposal.type})`
+          : `error: ${r.error}`
+      );
       return;
     }
     if (url.pathname === '/debug/lsp-scan') {
-      Core.debugLSPScan().then(r => {
-        res.writeHead(r.ok ? 200 : 500);
-        res.end(r.ok ? `ok: scan LSP realizado\n${JSON.stringify(r.stats, null, 2)}` : `error: ${r.error}`);
-      }).catch(err => {
-        res.writeHead(500); res.end(`error: ${err.message}`);
-      });
+      Core.debugLSPScan()
+        .then((r) => {
+          res.writeHead(r.ok ? 200 : 500);
+          res.end(
+            r.ok
+              ? `ok: scan LSP realizado\n${JSON.stringify(r.stats, null, 2)}`
+              : `error: ${r.error}`
+          );
+        })
+        .catch((err) => {
+          res.writeHead(500);
+          res.end(`error: ${err.message}`);
+        });
       return;
     }
     if (url.pathname === '/telemetry/report') {
@@ -631,10 +787,15 @@ function startControlServer() {
       res.end(JSON.stringify(s, null, 2));
       return;
     }
-    res.writeHead(200); res.end(HELP_TEXT);
+    res.writeHead(200);
+    res.end(HELP_TEXT);
   });
-  server.listen(3131, '127.0.0.1', () => console.log('[asistente] API lista → http://localhost:3131/help'));
-  server.on('error', (e) => { if (e.code === 'EADDRINUSE') console.log('[asistente] puerto 3131 ocupado.'); });
+  server.listen(3131, '127.0.0.1', () =>
+    console.log('[asistente] API lista → http://localhost:3131/help')
+  );
+  server.on('error', (e) => {
+    if (e.code === 'EADDRINUSE') console.log('[asistente] puerto 3131 ocupado.');
+  });
 }
 
 // Auto-init
@@ -651,9 +812,11 @@ async function _autoInitProject() {
     if (fs.existsSync(pkgPath)) {
       try {
         const pkg = JSON.parse(fs.readFileSync(pkgPath, 'utf-8'));
-        if (pkg.name)        summary += `\nNombre: ${pkg.name}`;
+        if (pkg.name) summary += `\nNombre: ${pkg.name}`;
         if (pkg.description) summary += `\nDescripción: ${pkg.description}`;
-      } catch (_) { /* no es un proyecto npm, ignorar */ }
+      } catch (_) {
+        /* no es un proyecto npm, ignorar */
+      }
     }
 
     const label = `Proyecto: ${path.basename(root)}`;
@@ -665,7 +828,9 @@ async function _autoInitProject() {
         try {
           graph.updateNode(existing[0].id, { content: summary, importance: 0.9 });
           return;
-        } catch (_) { /* si falla la actualización, cae a crear de nuevo */ }
+        } catch (_) {
+          /* si falla la actualización, cae a crear de nuevo */
+        }
       }
     }
 
@@ -689,7 +854,9 @@ app.whenReady().then(() => {
   ensureLLMConfig();
 
   const keychainAvail = KeychainManager.isAvailable();
-  console.log(`[config] fuente de keys: ${_keySource} | llavero del SO: ${keychainAvail ? 'disponible' : 'no disponible'}`);
+  console.log(
+    `[config] fuente de keys: ${_keySource} | llavero del SO: ${keychainAvail ? 'disponible' : 'no disponible'}`
+  );
 
   Core.init(app);
 
@@ -764,7 +931,9 @@ app.whenReady().then(() => {
 
   const shortcutOk = globalShortcut.register('CommandOrControl+Shift+Q', () => app.quit());
   if (!shortcutOk) {
-    console.warn('[asistente] no se pudo registrar el atajo global de salida (Ctrl/Cmd+Shift+Q) — probablemente ya lo usa otra app.');
+    console.warn(
+      '[asistente] no se pudo registrar el atajo global de salida (Ctrl/Cmd+Shift+Q) — probablemente ya lo usa otra app.'
+    );
   }
 
   screen.on('display-metrics-changed', () => {
@@ -775,10 +944,7 @@ app.whenReady().then(() => {
 
 // Cierre limpio
 function withTimeout(promise, ms) {
-  return Promise.race([
-    promise,
-    new Promise(resolve => setTimeout(resolve, ms)),
-  ]);
+  return Promise.race([promise, new Promise((resolve) => setTimeout(resolve, ms))]);
 }
 
 let _quitting = false;
@@ -788,12 +954,19 @@ app.on('before-quit', (event) => {
   event.preventDefault();
   _quitting = true;
   (async () => {
-    try { await withTimeout(Core.shutdown(), 8000); }
-    catch (e) { console.error('[main] shutdown con errores:', e && e.message ? e.message : e); }
+    try {
+      await withTimeout(Core.shutdown(), 8000);
+    } catch (e) {
+      console.error('[main] shutdown con errores:', e && e.message ? e.message : e);
+    }
     app.quit();
   })();
 });
 
-app.on('window-all-closed', () => { if (process.platform !== 'darwin') app.quit(); });
+app.on('window-all-closed', () => {
+  if (process.platform !== 'darwin') app.quit();
+});
 
-app.on('will-quit', () => { globalShortcut.unregisterAll(); });
+app.on('will-quit', () => {
+  globalShortcut.unregisterAll();
+});

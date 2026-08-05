@@ -1,12 +1,12 @@
 'use strict';
 
 const C = {
-  green:  (s) => `\x1b[32m${s}\x1b[0m`,
-  red:    (s) => `\x1b[31m${s}\x1b[0m`,
+  green: (s) => `\x1b[32m${s}\x1b[0m`,
+  red: (s) => `\x1b[31m${s}\x1b[0m`,
   yellow: (s) => `\x1b[33m${s}\x1b[0m`,
-  cyan:   (s) => `\x1b[36m${s}\x1b[0m`,
-  bold:   (s) => `\x1b[1m${s}\x1b[0m`,
-  dim:    (s) => `\x1b[2m${s}\x1b[0m`,
+  cyan: (s) => `\x1b[36m${s}\x1b[0m`,
+  bold: (s) => `\x1b[1m${s}\x1b[0m`,
+  dim: (s) => `\x1b[2m${s}\x1b[0m`,
 };
 
 let passed = 0;
@@ -34,7 +34,12 @@ function assertEqual(a, b, label) {
 const mockBridge = {
   execute: async (tool, params) => {
     if (tool === 'exec' && params.command === 'ls') {
-      return { ok: true, result: { stdout: 'src\npackage.json\nREADME.md', stderr: '', exitCode: 0 }, tool, elapsed: 5 };
+      return {
+        ok: true,
+        result: { stdout: 'src\npackage.json\nREADME.md', stderr: '', exitCode: 0 },
+        tool,
+        elapsed: 5,
+      };
     }
     return { ok: false, error: `tool not mocked: ${tool}`, tool, elapsed: 0 };
   },
@@ -84,7 +89,9 @@ function setupMock() {
       toolCalls: null,
     };
   };
-  return () => { LLMProvider.completeWithTools = orig; };
+  return () => {
+    LLMProvider.completeWithTools = orig;
+  };
 }
 
 // ── Tests ─────────────────────────────────────────────────────────────────
@@ -123,12 +130,7 @@ async function testCompleteWithToolsReceivesMode() {
     maxIterations: 5,
   });
 
-  await loop.run(
-    'ejecuta un ls',
-    'Eres un asistente.',
-    [],
-    { tools: mockToolSchemas }
-  );
+  await loop.run('ejecuta un ls', 'Eres un asistente.', [], { tools: mockToolSchemas });
 
   assert(callCount >= 1, 'Se hizo al menos 1 llamada al LLM');
   assertEqual(capturedMode, 'fast', 'completeWithTools recibió mode="fast"');
@@ -147,12 +149,7 @@ async function testTaskModeUsesSmart() {
     maxIterations: 5,
   });
 
-  await loop.run(
-    'ejecuta un ls',
-    'Eres un asistente.',
-    [],
-    { tools: mockToolSchemas }
-  );
+  await loop.run('ejecuta un ls', 'Eres un asistente.', [], { tools: mockToolSchemas });
 
   assertEqual(capturedMode, 'smart', 'completeWithTools recibió mode="smart"');
   restore();
@@ -171,15 +168,10 @@ async function testOnProgressCallback() {
     maxIterations: 5,
   });
 
-  await loop.run(
-    'ejecuta un ls',
-    'Eres un asistente.',
-    [],
-    {
-      tools: mockToolSchemas,
-      onProgress: (ev) => progressEvents.push(ev),
-    }
-  );
+  await loop.run('ejecuta un ls', 'Eres un asistente.', [], {
+    tools: mockToolSchemas,
+    onProgress: (ev) => progressEvents.push(ev),
+  });
 
   assert(progressEvents.length > 0, 'onProgress fue llamado al menos una vez');
   if (progressEvents.length > 0) {
@@ -204,12 +196,7 @@ async function testOnProgressNotCalledWhenMissing() {
   });
 
   try {
-    await loop.run(
-      'ejecuta un ls',
-      'Eres un asistente.',
-      [],
-      { tools: mockToolSchemas }
-    );
+    await loop.run('ejecuta un ls', 'Eres un asistente.', [], { tools: mockToolSchemas });
     assert(true, 'AgentLoop.run() sin onProgress no lanza error');
   } catch (e) {
     assert(false, 'AgentLoop.run() sin onProgress no debería lanzar error', e.message);
@@ -267,25 +254,25 @@ function testMODELSHasKeyForTranslatedModes() {
     const fastModel = models['fast'];
     const smartModel = models['smart'];
 
-    assert(fastModel !== undefined,
-      `MODELS.${provider}.fast está definido (${fastModel})`);
-    assert(smartModel !== undefined,
-      `MODELS.${provider}.smart está definido (${smartModel})`);
+    assert(fastModel !== undefined, `MODELS.${provider}.fast está definido (${fastModel})`);
+    assert(smartModel !== undefined, `MODELS.${provider}.smart está definido (${smartModel})`);
 
     // También verificamos que el modelo string no es "undefined" como string
-    assert(fastModel !== 'undefined',
-      `MODELS.${provider}.fast no es el string "undefined"`);
-    assert(smartModel !== 'undefined',
-      `MODELS.${provider}.smart no es el string "undefined"`);
+    assert(fastModel !== 'undefined', `MODELS.${provider}.fast no es el string "undefined"`);
+    assert(smartModel !== 'undefined', `MODELS.${provider}.smart no es el string "undefined"`);
   }
 
   // Verificación final: MODELS.groq['task'] daría undefined (sin traducción)
   // y MODELS.groq['conversational'] también — eso es exactamente el bug
   if (MODELS.groq) {
-    assert(MODELS.groq['task'] === undefined,
-      'MODELS.groq["task"] es undefined (confirma que el bug existe sin traducción)');
-    assert(MODELS.groq['conversational'] === undefined,
-      'MODELS.groq["conversational"] es undefined (confirma que el bug existe sin traducción)');
+    assert(
+      MODELS.groq['task'] === undefined,
+      'MODELS.groq["task"] es undefined (confirma que el bug existe sin traducción)'
+    );
+    assert(
+      MODELS.groq['conversational'] === undefined,
+      'MODELS.groq["conversational"] es undefined (confirma que el bug existe sin traducción)'
+    );
   }
 }
 
@@ -313,9 +300,13 @@ testMODELSHasKeyForTranslatedModes();
   const color = failed === 0 ? C.green : C.red;
   const skipNote = skipped > 0 ? `  ${C.yellow(`${skipped} skipped`)}` : '';
   if (failed === 0) {
-    console.log(`  ${color('Resultado')}: ${color(`${passed} passed`)}  ${C.dim(`0 failed`)}${skipNote}  / ${total} total`);
+    console.log(
+      `  ${color('Resultado')}: ${color(`${passed} passed`)}  ${C.dim(`0 failed`)}${skipNote}  / ${total} total`
+    );
   } else {
-    console.log(`  Resultado: ${C.green(`${passed} passed`)}  ${C.red(`${failed} failed`)}${skipNote}  / ${total} total`);
+    console.log(
+      `  Resultado: ${C.green(`${passed} passed`)}  ${C.red(`${failed} failed`)}${skipNote}  / ${total} total`
+    );
   }
   console.log(C.bold('════════════════════════════════════════════════════════'));
 

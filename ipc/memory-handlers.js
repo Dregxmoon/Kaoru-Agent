@@ -19,11 +19,22 @@ function register(ctx) {
   });
 
   // IPC: grounding
-  ipcMain.handle('grounding-build-context', async (e, { sessionHistory, activeProvider, mode, plan }) => {
-    const ctxRes = await Core.buildContext(sessionHistory, activeProvider, { mode, plan });
-    console.log('[grounding-ipc] provider:', activeProvider, '| mode:', mode || 'chat', '| systemPrompt:', ctxRes?.systemPrompt?.length, 'chars');
-    return ctxRes;
-  });
+  ipcMain.handle(
+    'grounding-build-context',
+    async (e, { sessionHistory, activeProvider, mode, plan }) => {
+      const ctxRes = await Core.buildContext(sessionHistory, activeProvider, { mode, plan });
+      console.log(
+        '[grounding-ipc] provider:',
+        activeProvider,
+        '| mode:',
+        mode || 'chat',
+        '| systemPrompt:',
+        ctxRes?.systemPrompt?.length,
+        'chars'
+      );
+      return ctxRes;
+    }
+  );
 
   ipcMain.handle('generate-plan', async (e, { sessionHistory, userGoal }) => {
     const taskDetector = Core.getTaskDetector?.();

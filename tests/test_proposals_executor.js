@@ -24,17 +24,17 @@
  */
 
 const { execFile } = require('child_process');
-const path        = require('path');
-const fs          = require('fs');
-const os          = require('os');
+const path = require('path');
+const fs = require('fs');
+const os = require('os');
 
 const C = {
-  green:  (s) => `\x1b[32m${s}\x1b[0m`,
-  red:    (s) => `\x1b[31m${s}\x1b[0m`,
+  green: (s) => `\x1b[32m${s}\x1b[0m`,
+  red: (s) => `\x1b[31m${s}\x1b[0m`,
   yellow: (s) => `\x1b[33m${s}\x1b[0m`,
-  cyan:   (s) => `\x1b[36m${s}\x1b[0m`,
-  bold:   (s) => `\x1b[1m${s}\x1b[0m`,
-  dim:    (s) => `\x1b[2m${s}\x1b[0m`,
+  cyan: (s) => `\x1b[36m${s}\x1b[0m`,
+  bold: (s) => `\x1b[1m${s}\x1b[0m`,
+  dim: (s) => `\x1b[2m${s}\x1b[0m`,
 };
 
 let passed = 0;
@@ -52,16 +52,16 @@ function assert(condition, label, detail = '') {
 }
 
 const { ProactiveExecutor } = require('../core/behavior/ProactiveExecutor.js');
-const { ProactiveEngine }   = require('../core/behavior/ProactiveEngine.js');
-const { ProposalStore }     = require('../core/behavior/ProposalStore.js');
-const { getEventBus }       = require('../infrastructure/event-bus/EventBus.js');
+const { ProactiveEngine } = require('../core/behavior/ProactiveEngine.js');
+const { ProposalStore } = require('../core/behavior/ProposalStore.js');
+const { getEventBus } = require('../infrastructure/event-bus/EventBus.js');
 
 const tmpRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'executor-'));
 
 function git(args, cwd) {
   return new Promise((resolve) => {
     execFile('git', args, { cwd }, (err, stdout, stderr) => {
-      resolve({ code: err ? (err.code || 1) : 0, stdout: stdout || '', stderr: stderr || '' });
+      resolve({ code: err ? err.code || 1 : 0, stdout: stdout || '', stderr: stderr || '' });
     });
   });
 }
@@ -84,8 +84,15 @@ function makeExecutor(workspace, opts = {}) {
 
 function waitForEvent(bus, event, timeout = 3000) {
   return new Promise((resolve, reject) => {
-    const t = setTimeout(() => { bus.off(event, onEv); reject(new Error(`timeout esperando "${event}"`)); }, timeout);
-    const onEv = (payload) => { clearTimeout(t); bus.off(event, onEv); resolve(payload); };
+    const t = setTimeout(() => {
+      bus.off(event, onEv);
+      reject(new Error(`timeout esperando "${event}"`));
+    }, timeout);
+    const onEv = (payload) => {
+      clearTimeout(t);
+      bus.off(event, onEv);
+      resolve(payload);
+    };
     bus.on(event, onEv);
   });
 }
@@ -100,7 +107,10 @@ async function testPreviewReadOnly() {
 
   const gs = await exec.preview({ tool: 'git_status', params: {} });
   assert(gs.ok, 'preview git_status → ok');
-  assert(typeof gs.preview === 'string' && gs.preview.startsWith('git status'), 'preview git_status describe el estado');
+  assert(
+    typeof gs.preview === 'string' && gs.preview.startsWith('git status'),
+    'preview git_status describe el estado'
+  );
   assert(gs.diff === null, 'git_status no lleva diff (es lectura)');
 
   const gs2 = await exec.preview({ tool: 'git_status', params: { file: 'X' } });
@@ -111,9 +121,15 @@ async function testPreviewReadOnly() {
   assert(gi.preview.includes('.env'), 'preview anuncia el archivo exacto');
   assert(gi.diff && gi.diff.includes('+.env'), 'diff muestra la línea que se añadirá');
 
-  assert(!fs.existsSync(path.join(ws, '.gitignore')), 'tras preview NO se creó .gitignore (solo lectura)');
+  assert(
+    !fs.existsSync(path.join(ws, '.gitignore')),
+    'tras preview NO se creó .gitignore (solo lectura)'
+  );
   const after = await git(['status', '--porcelain'], ws);
-  assert(after.code === 0 && !after.stdout.includes('.gitignore'), 'git no registra ningún cambio tras preview');
+  assert(
+    after.code === 0 && !after.stdout.includes('.gitignore'),
+    'git no registra ningún cambio tras preview'
+  );
 }
 
 // ── Test 2: ejecución real con verificación ───────────────────────────────────
@@ -124,7 +140,10 @@ async function testExecuteVerified() {
   const ws = await makeRepo('t2');
   const exec = makeExecutor(ws);
 
-  const res = await exec.execute({ tool: 'gitignore_add', params: { file: '.env' } }, { proposalId: 't2-p1' });
+  const res = await exec.execute(
+    { tool: 'gitignore_add', params: { file: '.env' } },
+    { proposalId: 't2-p1' }
+  );
   assert(res.ok, 'execute gitignore_add → ok');
   assert(res.detail.includes('check-ignore'), 'detail menciona la verificación REAL');
 
@@ -135,23 +154,41 @@ async function testExecuteVerified() {
   assert(check.code === 0, 'git check-ignore confirma (fuera de oído)');
 
   // 2a. Idempotencia: misma proposalId → skipped, no re-escribe
-  const again = await exec.execute({ tool: 'gitignore_add', params: { file: '.env' } }, { proposalId: 't2-p1' });
+  const again = await exec.execute(
+    { tool: 'gitignore_add', params: { file: '.env' } },
+    { proposalId: 't2-p1' }
+  );
   assert(again.ok && again.skipped, 'misma proposalId → skipped (idempotente)');
 
   // 2b. Archivo ya ignorado (proposalId nueva) → skipped vía check-ignore
-  const dup = await exec.execute({ tool: 'gitignore_add', params: { file: '.env' } }, { proposalId: 't2-p2' });
-  assert(dup.ok && dup.skipped && dup.detail.includes('ignorado'), 'archivo ya ignorado → skipped con detalle');
+  const dup = await exec.execute(
+    { tool: 'gitignore_add', params: { file: '.env' } },
+    { proposalId: 't2-p2' }
+  );
+  assert(
+    dup.ok && dup.skipped && dup.detail.includes('ignorado'),
+    'archivo ya ignorado → skipped con detalle'
+  );
 
   // 2c. Un segundo archivo se APPENDEA (no duplica ni pisa)
-  const add2 = await exec.execute({ tool: 'gitignore_add', params: { file: 'build' } }, { proposalId: 't2-p3' });
+  const add2 = await exec.execute(
+    { tool: 'gitignore_add', params: { file: 'build' } },
+    { proposalId: 't2-p3' }
+  );
   assert(add2.ok, 'segundo archivo → ok');
   const gi2 = fs.readFileSync(path.join(ws, '.gitignore'), 'utf-8');
-  assert(gi2.split('\n').filter(l => l.trim() === '.env').length === 1, '.env sigue apareciendo UNA sola vez');
+  assert(
+    gi2.split('\n').filter((l) => l.trim() === '.env').length === 1,
+    '.env sigue apareciendo UNA sola vez'
+  );
   assert(gi2.includes('build'), 'build añadido');
 
   // 2d. git_status "ejecutado" es solo lectura
   const st = await exec.execute({ tool: 'git_status', params: {} }, { proposalId: 't2-p4' });
-  assert(st.ok && st.detail && st.detail.includes('git status'), 'execute git_status → lectura del estado');
+  assert(
+    st.ok && st.detail && st.detail.includes('git status'),
+    'execute git_status → lectura del estado'
+  );
 }
 
 // ── Test 3: params peligrosos rechazados ──────────────────────────────────────
@@ -163,19 +200,22 @@ async function testDangerousParams() {
   const exec = makeExecutor(ws);
 
   const bad = [
-    ['../.env',           'path traversal'],
+    ['../.env', 'path traversal'],
     ['secret.txt\nrm -rf ~', 'salto de línea / inyección de comandos'],
-    ['../../etc/passwd',  'traversal profundo'],
-    ['.env local',        'espacios'],
-    ['',                  'vacío'],
-    [null,                'null'],
-    ['.env\x00x',         'byte nulo'],
+    ['../../etc/passwd', 'traversal profundo'],
+    ['.env local', 'espacios'],
+    ['', 'vacío'],
+    [null, 'null'],
+    ['.env\x00x', 'byte nulo'],
   ];
 
   for (const [file, label] of bad) {
     const p = await exec.preview({ tool: 'gitignore_add', params: { file } });
     assert(!p.ok, `preview rechaza: ${label}`);
-    const e = await exec.execute({ tool: 'gitignore_add', params: { file } }, { proposalId: 't3-x' });
+    const e = await exec.execute(
+      { tool: 'gitignore_add', params: { file } },
+      { proposalId: 't3-x' }
+    );
     assert(!e.ok, `execute rechaza: ${label}`);
   }
 
@@ -193,7 +233,10 @@ async function testInvalidWorkspace() {
   console.log(C.bold('\nTest 4: workspace inexistente o no-repo → rechazado'));
 
   const missing = makeExecutor(path.join(tmpRoot, 'no-existe-xyz'));
-  const m = await missing.execute({ tool: 'gitignore_add', params: { file: '.env' } }, { proposalId: 't4-1' });
+  const m = await missing.execute(
+    { tool: 'gitignore_add', params: { file: '.env' } },
+    { proposalId: 't4-1' }
+  );
   assert(!m.ok, 'workspace inexistente → rechazado');
   const mp = await missing.preview({ tool: 'git_status', params: {} });
   assert(!mp.ok, 'preview en workspace inexistente → rechazado');
@@ -203,12 +246,18 @@ async function testInvalidWorkspace() {
   const exec = makeExecutor(plain);
   const p = await exec.preview({ tool: 'git_status', params: {} });
   assert(!p.ok && p.reason.includes('no es un repositorio'), 'dir normal → no es repositorio git');
-  const e = await exec.execute({ tool: 'gitignore_add', params: { file: '.env' } }, { proposalId: 't4-2' });
+  const e = await exec.execute(
+    { tool: 'gitignore_add', params: { file: '.env' } },
+    { proposalId: 't4-2' }
+  );
   assert(!e.ok, 'execute en no-repo → rechazado');
   assert(!fs.existsSync(path.join(plain, '.gitignore')), 'no se escribió nada en un no-repo');
 
   const noWs = new ProactiveExecutor({ getWorkspace: () => null });
-  const n = await noWs.execute({ tool: 'gitignore_add', params: { file: '.env' } }, { proposalId: 't4-3' });
+  const n = await noWs.execute(
+    { tool: 'gitignore_add', params: { file: '.env' } },
+    { proposalId: 't4-3' }
+  );
   assert(!n.ok, 'sin workspace (null) → rechazado');
 }
 
@@ -224,22 +273,44 @@ async function testCwdAndLock() {
 
   await execA.execute({ tool: 'gitignore_add', params: { file: '.env' } }, { proposalId: 't5-p1' });
   assert(fs.existsSync(path.join(wsA, '.gitignore')), 'el .gitignore cayó en el workspace A');
-  assert(!fs.existsSync(path.join(wsB, '.gitignore')), 'el workspace B NO fue tocado (cwd no heredado)');
+  assert(
+    !fs.existsSync(path.join(wsB, '.gitignore')),
+    'el workspace B NO fue tocado (cwd no heredado)'
+  );
 
   const giA = fs.readFileSync(path.join(wsA, '.gitignore'), 'utf-8');
   assert(!giA.includes('build'), 'workspace A no tiene líneas de B');
-  await execB.execute({ tool: 'gitignore_add', params: { file: 'build' } }, { proposalId: 't5-p2' });
-  assert(fs.readFileSync(path.join(wsB, '.gitignore'), 'utf-8').includes('build'), 'B tiene solo su línea');
+  await execB.execute(
+    { tool: 'gitignore_add', params: { file: 'build' } },
+    { proposalId: 't5-p2' }
+  );
+  assert(
+    fs.readFileSync(path.join(wsB, '.gitignore'), 'utf-8').includes('build'),
+    'B tiene solo su línea'
+  );
 
   // Lock: exec lento → segunda execute rechazada mientras corre
   let release;
-  const gate = new Promise(r => { release = r; });
-  const slowExec = (args, opts, cb) => { gate.then(() => cb(null, { code: 0, stdout: 'true' })); };
+  const gate = new Promise((r) => {
+    release = r;
+  });
+  const slowExec = (args, opts, cb) => {
+    gate.then(() => cb(null, { code: 0, stdout: 'true' }));
+  };
   const lockExec = makeExecutor(wsA, { exec: slowExec });
-  const first = lockExec.execute({ tool: 'gitignore_add', params: { file: 'lockfile' } }, { proposalId: 't5-lock' });
-  await new Promise(r => setTimeout(r, 30));
-  const second = await lockExec.execute({ tool: 'gitignore_add', params: { file: 'otro' } }, { proposalId: 't5-lock2' });
-  assert(!second.ok && second.reason.includes('en ejecución'), 'segunda mutación rechazada por el lock');
+  const first = lockExec.execute(
+    { tool: 'gitignore_add', params: { file: 'lockfile' } },
+    { proposalId: 't5-lock' }
+  );
+  await new Promise((r) => setTimeout(r, 30));
+  const second = await lockExec.execute(
+    { tool: 'gitignore_add', params: { file: 'otro' } },
+    { proposalId: 't5-lock2' }
+  );
+  assert(
+    !second.ok && second.reason.includes('en ejecución'),
+    'segunda mutación rechazada por el lock'
+  );
   release();
   await first;
   assert(lockExec.isDone('t5-lock'), 'la primera terminó y quedó registrada como done');
@@ -254,22 +325,45 @@ async function testEngineIntegration() {
   const ws = await makeRepo('t6');
   const store = new ProposalStore({ filePath: path.join(tmpRoot, 'store-6.json') });
   store.reset();
-  const engine = new ProactiveEngine({ _ready: true }, {
-    store: store,
-    executor: makeExecutor(ws),
-  });
+  const engine = new ProactiveEngine(
+    { _ready: true },
+    {
+      store: store,
+      executor: makeExecutor(ws),
+    }
+  );
 
   // 6a. La propuesta de git_redflag lleva action + diff REAL (no genérico)
-  const proposal = await engine._buildProposal({ type: 'git_redflag', kind: 'env_unignored', file: '.env' });
-  assert(proposal && proposal.action?.tool === 'gitignore_add', 'propuesta con acción gitignore_add');
-  assert(proposal.action.params.file === '.env', 'params resueltos desde el trigger (determinista)');
-  assert(proposal.diff && proposal.diff.includes('+.env'), 'propuesta con diff real (solo lectura)');
+  const proposal = await engine._buildProposal({
+    type: 'git_redflag',
+    kind: 'env_unignored',
+    file: '.env',
+  });
+  assert(
+    proposal && proposal.action?.tool === 'gitignore_add',
+    'propuesta con acción gitignore_add'
+  );
+  assert(
+    proposal.action.params.file === '.env',
+    'params resueltos desde el trigger (determinista)'
+  );
+  assert(
+    proposal.diff && proposal.diff.includes('+.env'),
+    'propuesta con diff real (solo lectura)'
+  );
   assert(proposal.requiresConsent === 'confirm', 'requiere consentimiento');
-  assert(engine._pendingActions.has(proposal.id), 'acción pendiente registrada (proposalId → action)');
+  assert(
+    engine._pendingActions.has(proposal.id),
+    'acción pendiente registrada (proposalId → action)'
+  );
 
   // 6b. Aceptar vía bus (camino real) → ejecuta y emite la verificación REAL
   const executed = waitForEvent(bus, 'proposal:executed');
-  bus.emit('initiative:decision', { proposalId: proposal.id, type: proposal.type, decision: 'accepted' });
+  bus.emit('initiative:decision', {
+    proposalId: proposal.id,
+    type: proposal.type,
+    decision: 'accepted',
+  });
   const result = await executed;
   assert(result.ok && !result.skipped, 'proposal:executed → ok con verificación real');
   assert(result.detail.includes('check-ignore'), 'detail trae la confirmación de git check-ignore');
@@ -279,13 +373,23 @@ async function testEngineIntegration() {
   assert(store._data.byType.git_redflag?.accepted === 1, 'aceptar también registra feedback');
 
   // 6c. Rejected → solo feedback, sin ejecución
-  const proposal2 = await engine._buildProposal({ type: 'git_redflag', kind: 'uncommitted', file: '.env' });
+  const proposal2 = await engine._buildProposal({
+    type: 'git_redflag',
+    kind: 'uncommitted',
+    file: '.env',
+  });
   assert(engine._pendingActions.has(proposal2.id), 'segunda propuesta pendiente');
   let fired = false;
-  const l = () => { fired = true; };
+  const l = () => {
+    fired = true;
+  };
   bus.on('proposal:executed', l);
-  bus.emit('initiative:decision', { proposalId: proposal2.id, type: proposal2.type, decision: 'rejected' });
-  await new Promise(r => setTimeout(r, 80));
+  bus.emit('initiative:decision', {
+    proposalId: proposal2.id,
+    type: proposal2.type,
+    decision: 'rejected',
+  });
+  await new Promise((r) => setTimeout(r, 80));
   bus.off('proposal:executed', l);
   assert(!fired, 'rejected → NO ejecuta ni emite proposal:executed');
   assert(!engine._pendingActions.has(proposal2.id), 'rejected → acción pendiente descartada');
@@ -293,20 +397,35 @@ async function testEngineIntegration() {
   assert(engine.getCooldownFor('git_redflag').factor === 1.5, 'factor de cooldown tras el rechazo');
 
   // 6d. Sin executor → la propuesta sigue llevando acción declarada pero no ejecuta
-  const noExec = new ProactiveEngine({ _ready: true }, { store: new ProposalStore({ filePath: path.join(tmpRoot, 'store-6b.json') }) });
-  const p3 = await noExec._buildProposal({ type: 'git_redflag', kind: 'env_unignored', file: '.env' });
+  const noExec = new ProactiveEngine(
+    { _ready: true },
+    { store: new ProposalStore({ filePath: path.join(tmpRoot, 'store-6b.json') }) }
+  );
+  const p3 = await noExec._buildProposal({
+    type: 'git_redflag',
+    kind: 'env_unignored',
+    file: '.env',
+  });
   assert(p3 && p3.action, 'sin executor la propuesta aún declara su acción');
   assert(p3.diff === null, 'sin executor no hay diff real');
-  assert(noExec._pendingActions.has(p3.id), 'sin executor igual se registra pendiente (no hará nada)');
+  assert(
+    noExec._pendingActions.has(p3.id),
+    'sin executor igual se registra pendiente (no hará nada)'
+  );
   let fired3 = false;
-  const l3 = () => { fired3 = true; };
+  const l3 = () => {
+    fired3 = true;
+  };
   bus.on('proposal:executed', l3);
   noExec.handleDecision({ proposalId: p3.id, type: p3.type, decision: 'accepted' });
-  await new Promise(r => setTimeout(r, 80));
+  await new Promise((r) => setTimeout(r, 80));
   bus.off('proposal:executed', l3);
   assert(!fired3, 'sin executor → aceptar no ejecuta (solo feedback)');
   const gi = fs.readFileSync(path.join(ws, '.gitignore'), 'utf-8');
-  assert(gi.split('\n').filter(l => l.trim() === '.env').length === 1, 'sin executor no duplicó el .gitignore');
+  assert(
+    gi.split('\n').filter((l) => l.trim() === '.env').length === 1,
+    'sin executor no duplicó el .gitignore'
+  );
 
   engine.stop();
   noExec.stop();
@@ -315,7 +434,13 @@ async function testEngineIntegration() {
 // ── Runner ────────────────────────────────────────────────────────────────────
 
 (async () => {
-  console.log(C.cyan(C.bold('Fase B — ejecución de propuestas proactivas (whitelist, verificación real, idempotencia)')));
+  console.log(
+    C.cyan(
+      C.bold(
+        'Fase B — ejecución de propuestas proactivas (whitelist, verificación real, idempotencia)'
+      )
+    )
+  );
 
   await testPreviewReadOnly();
   await testExecuteVerified();
@@ -327,7 +452,7 @@ async function testEngineIntegration() {
   console.log('');
   console.log(C.bold(`Resultado: ${C.green(passed + ' ✓')} / ${C.red(failed + ' ✗')}`));
   process.exit(failed ? 1 : 0);
-})().catch(e => {
+})().catch((e) => {
   console.error(C.red('Fallo en la ejecución de la suite:'), e);
   process.exit(1);
 });

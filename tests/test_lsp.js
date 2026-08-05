@@ -1,12 +1,12 @@
 'use strict';
 
 const C = {
-  green:  (s) => `\x1b[32m${s}\x1b[0m`,
-  red:    (s) => `\x1b[31m${s}\x1b[0m`,
+  green: (s) => `\x1b[32m${s}\x1b[0m`,
+  red: (s) => `\x1b[31m${s}\x1b[0m`,
   yellow: (s) => `\x1b[33m${s}\x1b[0m`,
-  cyan:   (s) => `\x1b[36m${s}\x1b[0m`,
-  bold:   (s) => `\x1b[1m${s}\x1b[0m`,
-  dim:    (s) => `\x1b[2m${s}\x1b[0m`,
+  cyan: (s) => `\x1b[36m${s}\x1b[0m`,
+  bold: (s) => `\x1b[1m${s}\x1b[0m`,
+  dim: (s) => `\x1b[2m${s}\x1b[0m`,
 };
 
 let passed = 0;
@@ -55,7 +55,7 @@ function testLSPToolSchemas() {
   const lspTools = registry._getLSPTools();
   assertEqual(lspTools.length, 4, '4 tools LSP registradas');
 
-  const names = lspTools.map(t => t.name).sort();
+  const names = lspTools.map((t) => t.name).sort();
   assertEqual(names[0], 'find_references', 'tool LSP: find_references');
   assertEqual(names[1], 'get_diagnostics', 'tool LSP: get_diagnostics');
   assertEqual(names[2], 'get_symbols', 'tool LSP: get_symbols');
@@ -77,7 +77,7 @@ function testLSPNativeSchemas() {
 
   const lspNames = ['get_diagnostics', 'go_to_definition', 'find_references', 'get_symbols'];
   for (const name of lspNames) {
-    const schema = schemas.find(s => s.name === name);
+    const schema = schemas.find((s) => s.name === name);
     assert(schema !== undefined, `${name}: schema definido en ToolSchemas.js`);
     assert(schema.inputSchema !== undefined, `${name}: tiene inputSchema`);
     assert(Array.isArray(schema.inputSchema.required), `${name}: tiene required fields`);
@@ -106,7 +106,7 @@ async function testLSPInToolResolver() {
   assert(result.promptCatalog.includes('get_symbols'), 'catálogo incluye get_symbols');
   assert(result.promptCatalog.includes('Herramientas LSP'), 'catálogo tiene sección LSP');
 
-  const lspSchemas = result.nativeToolSchemas.filter(s =>
+  const lspSchemas = result.nativeToolSchemas.filter((s) =>
     ['get_diagnostics', 'go_to_definition', 'find_references', 'get_symbols'].includes(s.name)
   );
   assertEqual(lspSchemas.length, 4, '4 LSP tools en nativeToolSchemas');
@@ -143,9 +143,18 @@ function testLSPIsHighImpact() {
   const AP = require('../core/planner/ActionParser.js');
 
   // LSP tools son de solo lectura → low impact
-  assert(!AP.isHighImpact('get_diagnostics', { filePath: 'test.ts' }), 'get_diagnostics → low impact');
-  assert(!AP.isHighImpact('go_to_definition', { filePath: 'test.ts', line: 0, character: 0 }), 'go_to_definition → low impact');
-  assert(!AP.isHighImpact('find_references', { filePath: 'test.ts', line: 0, character: 0 }), 'find_references → low impact');
+  assert(
+    !AP.isHighImpact('get_diagnostics', { filePath: 'test.ts' }),
+    'get_diagnostics → low impact'
+  );
+  assert(
+    !AP.isHighImpact('go_to_definition', { filePath: 'test.ts', line: 0, character: 0 }),
+    'go_to_definition → low impact'
+  );
+  assert(
+    !AP.isHighImpact('find_references', { filePath: 'test.ts', line: 0, character: 0 }),
+    'find_references → low impact'
+  );
   assert(!AP.isHighImpact('get_symbols', { filePath: 'test.ts' }), 'get_symbols → low impact');
 }
 
@@ -280,12 +289,19 @@ async function main() {
   const color = failed === 0 ? C.green : C.red;
   const skipNote = skipped > 0 ? `  ${C.yellow(`${skipped} skipped`)}` : '';
   if (failed === 0) {
-    console.log(`  ${color('Resultado')}: ${color(`${passed} passed`)}  ${C.dim(`0 failed`)}${skipNote}  / ${total} total`);
+    console.log(
+      `  ${color('Resultado')}: ${color(`${passed} passed`)}  ${C.dim(`0 failed`)}${skipNote}  / ${total} total`
+    );
   } else {
-    console.log(`  Resultado: ${C.green(`${passed} passed`)}  ${C.red(`${failed} failed`)}${skipNote}  / ${total} total`);
+    console.log(
+      `  Resultado: ${C.green(`${passed} passed`)}  ${C.red(`${failed} failed`)}${skipNote}  / ${total} total`
+    );
   }
   console.log(C.bold('════════════════════════════════════════════════════════'));
   if (failed > 0) process.exit(1);
 }
 
-main().catch(e => { console.error(e); process.exit(1); });
+main().catch((e) => {
+  console.error(e);
+  process.exit(1);
+});

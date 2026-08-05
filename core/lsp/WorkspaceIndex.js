@@ -32,8 +32,20 @@ class WorkspaceIndex {
     const cached = this._cache.get(abs);
     if (cached && Date.now() - cached.at < 5 * 60 * 1000) return cached.info;
 
-    const has = (f) => { try { return fs.existsSync(path.join(abs, f)); } catch { return false; } };
-    const readJSON = (f) => { try { return JSON.parse(fs.readFileSync(path.join(abs, f), 'utf-8')); } catch { return null; } };
+    const has = (f) => {
+      try {
+        return fs.existsSync(path.join(abs, f));
+      } catch {
+        return false;
+      }
+    };
+    const readJSON = (f) => {
+      try {
+        return JSON.parse(fs.readFileSync(path.join(abs, f), 'utf-8'));
+      } catch {
+        return null;
+      }
+    };
 
     // ── Lenguajes (usa LSPManager.detectLanguagesForWorkspace) ──────────
     const languages = LSPManager.detectLanguagesForWorkspace(abs);
@@ -77,7 +89,9 @@ class WorkspaceIndex {
         conventions.strict = tsconfig.compilerOptions.strict ?? null;
         conventions.target = tsconfig.compilerOptions.target ?? null;
         conventions.moduleResolution = tsconfig.compilerOptions.moduleResolution ?? null;
-        conventions.paths = tsconfig.compilerOptions.paths ? Object.keys(tsconfig.compilerOptions.paths) : [];
+        conventions.paths = tsconfig.compilerOptions.paths
+          ? Object.keys(tsconfig.compilerOptions.paths)
+          : [];
       }
     }
 
@@ -85,7 +99,8 @@ class WorkspaceIndex {
     if (has('pyproject.toml')) {
       const pyproject = readJSON('pyproject.toml');
       if (pyproject?.tool?.pyright) conventions.pyright = Object.keys(pyproject.tool.pyright);
-      if (pyproject?.project?.python_requires) conventions.pythonVersion = pyproject.project.python_requires;
+      if (pyproject?.project?.python_requires)
+        conventions.pythonVersion = pyproject.project.python_requires;
     }
 
     // Frameworks
@@ -102,9 +117,18 @@ class WorkspaceIndex {
     // ── Archivos de configuración relevantes ────────────────────────────
     const configFiles = [];
     for (const f of [
-      'tsconfig.json', 'jsconfig.json', 'pyproject.toml', '.eslintrc.js',
-      '.eslintrc.json', 'prettier.config.js', '.prettierrc', 'biome.json',
-      '.editorconfig', '.gitignore', 'docker-compose.yml', 'Dockerfile',
+      'tsconfig.json',
+      'jsconfig.json',
+      'pyproject.toml',
+      '.eslintrc.js',
+      '.eslintrc.json',
+      'prettier.config.js',
+      '.prettierrc',
+      'biome.json',
+      '.editorconfig',
+      '.gitignore',
+      'docker-compose.yml',
+      'Dockerfile',
     ]) {
       if (has(f)) configFiles.push(f);
     }

@@ -42,7 +42,9 @@ async function resolveToolset(context = {}) {
   if (!skills && skillManager && db) {
     try {
       skills = await skillManager.match(userMessage, db);
-    } catch { skills = null; }
+    } catch {
+      skills = null;
+    }
   }
   if (!skills) skills = [];
 
@@ -64,7 +66,12 @@ async function resolveToolset(context = {}) {
 
   // Skills exclude ONLY if replaces_domains is explicitly set
   for (const skill of skills) {
-    if (!skill.replaces_domains || !Array.isArray(skill.replaces_domains) || skill.replaces_domains.length === 0) continue;
+    if (
+      !skill.replaces_domains ||
+      !Array.isArray(skill.replaces_domains) ||
+      skill.replaces_domains.length === 0
+    )
+      continue;
     for (const d of skill.replaces_domains) {
       excludedDomains.add(d);
     }
@@ -85,9 +92,9 @@ async function resolveToolset(context = {}) {
   }
 
   // 4. Build filtered OpenClaw tools
-  const filteredOpenclaw = openclawTools.filter(t => {
+  const filteredOpenclaw = openclawTools.filter((t) => {
     const tDomains = t.domain || [];
-    const hasExcluded = tDomains.some(d => excludedDomains.has(d));
+    const hasExcluded = tDomains.some((d) => excludedDomains.has(d));
     if (hasExcluded) result.excluded.push({ source: 'openclaw', tool: t.name, domain: t.domain });
     return !hasExcluded;
   });
@@ -98,8 +105,8 @@ async function resolveToolset(context = {}) {
   // Native tool schemas (for tool-calling API)
   const allSchemas = getToolSchemas();
   if (finalTools.length > 0) {
-    result.nativeToolSchemas = allSchemas.filter(s =>
-      finalTools.some(ft => ft.name === s.name)
+    result.nativeToolSchemas = allSchemas.filter((s) =>
+      finalTools.some((ft) => ft.name === s.name)
     );
   }
 
@@ -119,7 +126,7 @@ function _getMCPTools(mcpManager) {
   try {
     if (typeof mcpManager.listAllTools !== 'function') return [];
     const raw = mcpManager.listAllTools();
-    return raw.map(t => ({
+    return raw.map((t) => ({
       id: `mcp.${t.server}.${t.tool}`,
       name: t.tool,
       domain: _getMCPDomains(t.server),
@@ -136,7 +143,9 @@ function _getMCPTools(mcpManager) {
         : [],
       available: true,
     }));
-  } catch { return []; }
+  } catch {
+    return [];
+  }
 }
 
 function _indexToolsByDomain(tools) {
@@ -171,11 +180,11 @@ function _buildPromptCatalog(tools, domain, flags) {
   }
   lines.push('');
 
-  const openclawTools = tools.filter(t => t.source === 'openclaw');
-  const lspTools = tools.filter(t => t.source === 'lsp');
-  const gitTools = tools.filter(t => t.source === 'git');
-  const githubTools = tools.filter(t => t.source === 'github');
-  const mcpTools = tools.filter(t => t.source === 'mcp');
+  const openclawTools = tools.filter((t) => t.source === 'openclaw');
+  const lspTools = tools.filter((t) => t.source === 'lsp');
+  const gitTools = tools.filter((t) => t.source === 'git');
+  const githubTools = tools.filter((t) => t.source === 'github');
+  const mcpTools = tools.filter((t) => t.source === 'mcp');
 
   if (openclawTools.length > 0) {
     lines.push('## Herramientas del sistema');
@@ -213,7 +222,9 @@ function _buildPromptCatalog(tools, domain, flags) {
       }
     }
     lines.push('');
-    lines.push('Para usar MCP, usa el formato:\n  ```action\n  ACCIÓN: mcp_call | SERVIDOR: <server> | HERRAMIENTA: <tool> | PARAMS: {...}\n  ```');
+    lines.push(
+      'Para usar MCP, usa el formato:\n  ```action\n  ACCIÓN: mcp_call | SERVIDOR: <server> | HERRAMIENTA: <tool> | PARAMS: {...}\n  ```'
+    );
     lines.push('');
   }
 

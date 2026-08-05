@@ -5,11 +5,15 @@
 // porque contextBridge define window.assistant como propiedad no-configurable
 // y una `const assistant` en ámbito global lanza "Identifier 'assistant' has
 // already been declared" (HasRestrictedGlobalProperty).
-var assistant     = window.assistant;
-const ipcRenderer  = assistant;
-const path         = { join: (...p) => assistant.pathJoin(...p) };
-const fs           = { existsSync: (p) => assistant.existsSync(p) };
-const cp           = { spawn: () => { throw new Error('child_process no disponible en el renderer sandbox'); } };
+var assistant = window.assistant;
+const ipcRenderer = assistant;
+const path = { join: (...p) => assistant.pathJoin(...p) };
+const fs = { existsSync: (p) => assistant.existsSync(p) };
+const cp = {
+  spawn: () => {
+    throw new Error('child_process no disponible en el renderer sandbox');
+  },
+};
 
 // Se queda SOLO con las líneas que son un trigger reconocido, sin importar
 // dónde caiga la prosa alucinada del modelo — la versión anterior solo
@@ -17,9 +21,10 @@ const cp           = { spawn: () => { throw new Error('child_process no disponib
 // intercalado ENTRE dos líneas "Ejecutar:" se colaba igual.
 function _sanitizePlanAnnouncement(response) {
   const triggerRe = /^(Ejecutar:|Voy a leer|Voy a escribir)/i;
-  const triggerLines = response.split('\n')
-    .map(l => l.trim())
-    .filter(l => triggerRe.test(l));
+  const triggerLines = response
+    .split('\n')
+    .map((l) => l.trim())
+    .filter((l) => triggerRe.test(l));
   if (!triggerLines.length) return response;
   return triggerLines.join('\n');
 }
@@ -35,8 +40,8 @@ function _sanitizePlanAnnouncement(response) {
 // variable global aunque el <script> cargue bien.
 // Markdown/DOMPurify se ejecutan en el preload (renderMarkdown devuelve HTML
 // saneado). Estos shims mantienen la interfaz que usa el resto del chat.
-const marked         = { parse: (m) => assistant.renderMarkdown(m), setOptions: () => {} };
-const DOMPurify      = { sanitize: (h) => h };
+const marked = { parse: (m) => assistant.renderMarkdown(m), setOptions: () => {} };
+const DOMPurify = { sanitize: (h) => h };
 
 window.PIXI = PIXI;
 
@@ -46,48 +51,62 @@ window.PIXI = PIXI;
 // portable, ver resolvePythonBin en main.js) y se cachea.
 let _pythonBinPromise = null;
 function getPythonBin() {
-  if (!_pythonBinPromise) _pythonBinPromise = ipcRenderer.invoke('get-python-bin').catch(() => null);
+  if (!_pythonBinPromise)
+    _pythonBinPromise = ipcRenderer.invoke('get-python-bin').catch(() => null);
   return _pythonBinPromise;
 }
-const TTS_VOICE  = 'ja-JP-NanamiNeural';
+const TTS_VOICE = 'ja-JP-NanamiNeural';
 
 // Auto-fit por contenido real del modelo (bounds del mesh, no del canvas).
 // Concepto "piso": el borde inferior de la ventana es el corte del cuerpo.
 //   full: f=1.0 → los pies tocan el piso. half: f=0.5 → cintura en el piso.
 //   head: f=0.25 → cuello en el piso. crop=true escala por altura (recorta lados).
 const VIEW = {
-  full: { f: 1.00, tw: 0.98, crop: false },
-  half: { f: 0.50, tw: 1.00, crop: true  },
-  head: { f: 0.25, tw: 1.00, crop: true  },
+  full: { f: 1.0, tw: 0.98, crop: false },
+  half: { f: 0.5, tw: 1.0, crop: true },
+  head: { f: 0.25, tw: 1.0, crop: true },
 };
-const VIEW_LABELS = { full: 'Cuerpo completo', half: 'Medio cuerpo', head: 'Solo cabeza', random: 'Aleatorio' };
+const VIEW_LABELS = {
+  full: 'Cuerpo completo',
+  half: 'Medio cuerpo',
+  head: 'Solo cabeza',
+  random: 'Aleatorio',
+};
 const VIEW_PERSONALITY = {
-  weights:  { full: 50, half: 30, head: 20 },
-  duration: { full:{min:30,max:80}, half:{min:18,max:45}, head:{min:10,max:25} },
+  weights: { full: 50, half: 30, head: 20 },
+  duration: { full: { min: 30, max: 80 }, half: { min: 18, max: 45 }, head: { min: 10, max: 25 } },
 };
 
 function computeContentBounds(model) {
   try {
-    const im = model.internalModel, core = im && im.coreModel;
+    const im = model.internalModel,
+      core = im && im.coreModel;
     if (!core || typeof core.getDrawableCount !== 'function') return null;
-    const cw = model.width, ch = model.height;
+    const cw = model.width,
+      ch = model.height;
     if (!cw || !ch) return null;
     const cnt = core.getDrawableCount();
-    let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+    let minX = Infinity,
+      minY = Infinity,
+      maxX = -Infinity,
+      maxY = -Infinity;
     for (let i = 0; i < cnt; i++) {
       const pos = core.getDrawableVertexPositions(i);
       const c = core.getDrawableVertexCount(i);
       if (!pos || !c) continue;
       for (let j = 0; j < c; j++) {
-        const x = pos[j * 2], y = pos[j * 2 + 1];
-        if (x < minX) minX = x; if (x > maxX) maxX = x;
-        if (y < minY) minY = y; if (y > maxY) maxY = y;
+        const x = pos[j * 2],
+          y = pos[j * 2 + 1];
+        if (x < minX) minX = x;
+        if (x > maxX) maxX = x;
+        if (y < minY) minY = y;
+        if (y > maxY) maxY = y;
       }
     }
     if (minX === Infinity) return null;
     const B = {
       x: (minX + 0.5) * cw,
-      y: ch * (0.5 - maxY * cw / ch),
+      y: ch * (0.5 - (maxY * cw) / ch),
       width: (maxX - minX) * cw,
       height: (maxY - minY) * cw,
     };
@@ -95,14 +114,15 @@ function computeContentBounds(model) {
     // (half/head) se centran en él para que la cara no quede cortada.
     B.headCx = null;
     const bound = B.y + B.height * 0.35;
-    let hMinX = Infinity, hMaxX = -Infinity;
+    let hMinX = Infinity,
+      hMaxX = -Infinity;
     for (let i = 0; i < cnt; i++) {
       const pos = core.getDrawableVertexPositions(i);
       const c = core.getDrawableVertexCount(i);
       if (!pos || !c) continue;
       for (let j = 0; j < c; j++) {
         const px = (pos[j * 2] + 0.5) * cw;
-        const py = ch * (0.5 - pos[j * 2 + 1] * cw / ch);
+        const py = ch * (0.5 - (pos[j * 2 + 1] * cw) / ch);
         if (py <= bound) {
           if (px < hMinX) hMinX = px;
           if (px > hMaxX) hMaxX = px;
@@ -111,14 +131,16 @@ function computeContentBounds(model) {
     }
     if (hMinX <= hMaxX) B.headCx = (hMinX + hMaxX) / 2;
     return B;
-  } catch (_) { return null; }
+  } catch (_) {
+    return null;
+  }
 }
 
-const LLMProvider     = assistant.LLMProvider;
+const LLMProvider = assistant.LLMProvider;
 const CommandRegistry = assistant.CommandRegistry;
-const FileResolver    = assistant.FileResolver;
-const AgentManager    = assistant.AgentManager;
-const ModelAugmenter  = assistant.ModelAugmenter;
+const FileResolver = assistant.FileResolver;
+const AgentManager = assistant.AgentManager;
+const ModelAugmenter = assistant.ModelAugmenter;
 
 // Loader mínimo de módulos core propios en la página. Las clases como
 // GestureEngine DEBEN ejecutarse aquí: reciben el objeto Live2D real (creado
@@ -157,7 +179,7 @@ function getGestureConfig() {
 }
 async function initGestureEngine() {
   if (chatGestureEngine) return chatGestureEngine;
-  const cfg = await getGestureConfig() || {};
+  const cfg = (await getGestureConfig()) || {};
   chatGestureConfig = cfg;
   chatGestureEngine = new GestureEngine({ config: cfg });
   return chatGestureEngine;
@@ -176,33 +198,43 @@ function chatDetectEmotion(text) {
 
 // Estado global
 let pixiApp, model;
-let modelBounds  = null;
+let modelBounds = null;
 let modelNativeW = 0;
 let modelNativeH = 0;
-let viewMode     = 'random';
-let currentView  = 'head';
-let isSpeaking   = false;
-let audioCtx     = null;
+let viewMode = 'random';
+let currentView = 'head';
+let isSpeaking = false;
+let audioCtx = null;
 let pendingFiles = [];
-let _modelInfo   = null;
-let _modelNames  = [];
+let _modelInfo = null;
+let _modelNames = [];
 let _motionTimer = null;
 let _workspacePath = null;
 let _atProjectFiles = null;
 
-ipcRenderer.invoke('get-model-info').then(info => { if (info && info.model3Path) _modelInfo = info; }).catch(e => console.error('[chat] no se pudo obtener info del modelo:', e && e.message || e));
-ipcRenderer.invoke('models-list').then(models => { _modelNames = (models || []).map(m => m.name); }).catch(e => console.error('[chat] no se pudo listar modelos:', e && e.message || e));
+ipcRenderer
+  .invoke('get-model-info')
+  .then((info) => {
+    if (info && info.model3Path) _modelInfo = info;
+  })
+  .catch((e) => console.error('[chat] no se pudo obtener info del modelo:', (e && e.message) || e));
+ipcRenderer
+  .invoke('models-list')
+  .then((models) => {
+    _modelNames = (models || []).map((m) => m.name);
+  })
+  .catch((e) => console.error('[chat] no se pudo listar modelos:', (e && e.message) || e));
 
 // Fase 3
 let openclawAvailable = false;
-let activePlanId      = null;
+let activePlanId = null;
 
 // Plan pendiente de aprobación (fase 1 del sistema de dos fases)
-let pendingPlan        = null;  // plan extraído
-let pendingLlmResponse = null;  // respuesta LLM original con el plan
-let pendingPlanMsgDiv  = null;  // div del mensaje donde se renderizó el plan
+let pendingPlan = null; // plan extraído
+let pendingLlmResponse = null; // respuesta LLM original con el plan
+let pendingPlanMsgDiv = null; // div del mensaje donde se renderizó el plan
 
-const sessionHistory      = [];
+const sessionHistory = [];
 const MAX_SESSION_HISTORY = 20;
 
 function pushToSession(role, content) {
@@ -224,9 +256,18 @@ function loadMermaid() {
   // no un "just works" silencioso.
   s.src = 'https://cdn.jsdelivr.net/npm/mermaid@11.4.1/dist/mermaid.min.js';
   s.onload = () => {
-    mermaid.initialize({ startOnLoad: false, theme: 'base', themeVariables: { background: 'transparent', primaryColor: '#10b981', primaryTextColor: '#e2e8f0', lineColor: '#4a5568' } });
+    mermaid.initialize({
+      startOnLoad: false,
+      theme: 'base',
+      themeVariables: {
+        background: 'transparent',
+        primaryColor: '#10b981',
+        primaryTextColor: '#e2e8f0',
+        lineColor: '#4a5568',
+      },
+    });
     mermaidReady = true;
-    document.querySelectorAll('.mermaid').forEach(el => _renderMermaid(el));
+    document.querySelectorAll('.mermaid').forEach((el) => _renderMermaid(el));
   };
   document.head.appendChild(s);
 }
@@ -236,7 +277,10 @@ async function _renderMermaid(el) {
   if (!mermaidReady || el.dataset.rendered) return;
   el.dataset.rendered = '1';
   try {
-    const { svg } = await mermaid.render(`m-${Date.now()}-${Math.random().toString(36).slice(2,7)}`, el.textContent);
+    const { svg } = await mermaid.render(
+      `m-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+      el.textContent
+    );
     const wrapper = document.createElement('div');
     wrapper.className = 'mermaid-wrapper';
     wrapper.innerHTML = svg;
@@ -247,7 +291,10 @@ async function _renderMermaid(el) {
 function renderMarkdown(text) {
   try {
     let rawHtml = marked.parse(text || '');
-    rawHtml = rawHtml.replace(/<pre><code class="language-mermaid">([\s\S]*?)<\/code><\/pre>/g, '<div class="mermaid">$1</div>');
+    rawHtml = rawHtml.replace(
+      /<pre><code class="language-mermaid">([\s\S]*?)<\/code><\/pre>/g,
+      '<div class="mermaid">$1</div>'
+    );
     return DOMPurify.sanitize(rawHtml);
   } catch (e) {
     console.warn('error renderizando markdown, cae a texto plano:', e.message);
@@ -257,12 +304,14 @@ function renderMarkdown(text) {
 
 function escapeHtml(text) {
   return (text || '')
-    .replace(/&/g,'&amp;').replace(/</g,'&lt;')
-    .replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
 }
 
 // Tema
-const html        = document.documentElement;
+const html = document.documentElement;
 const themeToggle = document.getElementById('theme-toggle');
 
 function setTheme(t) {
@@ -274,5 +323,5 @@ themeToggle.addEventListener('click', () =>
 );
 
 function now() {
-  return new Date().toLocaleTimeString('es-MX', { hour:'2-digit', minute:'2-digit' });
+  return new Date().toLocaleTimeString('es-MX', { hour: '2-digit', minute: '2-digit' });
 }

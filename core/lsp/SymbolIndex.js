@@ -17,27 +17,47 @@
  */
 
 const SYMBOL_KINDS = {
-  1: 'File', 2: 'Module', 3: 'Namespace', 4: 'Package', 5: 'Class',
-  6: 'Method', 7: 'Property', 8: 'Field', 9: 'Constructor', 10: 'Enum',
-  11: 'Interface', 12: 'Function', 13: 'Variable', 14: 'Constant',
-  15: 'String', 16: 'Number', 17: 'Boolean', 18: 'Array',
-  19: 'Object', 20: 'Key', 21: 'Null', 22: 'EnumMember',
-  23: 'Struct', 24: 'Event', 25: 'Operator', 26: 'TypeParameter',
+  1: 'File',
+  2: 'Module',
+  3: 'Namespace',
+  4: 'Package',
+  5: 'Class',
+  6: 'Method',
+  7: 'Property',
+  8: 'Field',
+  9: 'Constructor',
+  10: 'Enum',
+  11: 'Interface',
+  12: 'Function',
+  13: 'Variable',
+  14: 'Constant',
+  15: 'String',
+  16: 'Number',
+  17: 'Boolean',
+  18: 'Array',
+  19: 'Object',
+  20: 'Key',
+  21: 'Null',
+  22: 'EnumMember',
+  23: 'Struct',
+  24: 'Event',
+  25: 'Operator',
+  26: 'TypeParameter',
 };
 
 class SymbolIndex {
   constructor({ lsp, cacheTtlMs = 60 * 1000 } = {}) {
-    this._lsp          = lsp || null;
-    this._cacheTtlMs   = cacheTtlMs;
-    this._cache        = new Map(); // absPath → { at, symbols }
-    this._stats        = { lookups: 0, hits: 0, errors: 0, indexed: 0 };
+    this._lsp = lsp || null;
+    this._cacheTtlMs = cacheTtlMs;
+    this._cache = new Map(); // absPath → { at, symbols }
+    this._stats = { lookups: 0, hits: 0, errors: 0, indexed: 0 };
   }
 
   /** Símbolos (aplanados) de un archivo, con cache. */
   async getSymbolsFor(filePath) {
     this._stats.lookups += 1;
     const absPath = require('path').resolve(filePath);
-    const cached  = this._cache.get(absPath);
+    const cached = this._cache.get(absPath);
     if (cached && Date.now() - cached.at < this._cacheTtlMs) {
       this._stats.hits += 1;
       return cached.symbols;
@@ -47,7 +67,7 @@ class SymbolIndex {
     let raw;
     try {
       raw = await this._lsp.getDocumentSymbols(absPath);
-    } catch(e) {
+    } catch (e) {
       this._stats.errors += 1;
       return [];
     }
@@ -57,10 +77,10 @@ class SymbolIndex {
     const walk = (syms) => {
       for (const s of syms || []) {
         flat.push({
-          name:      s.name,
-          kindName:  SYMBOL_KINDS[s.kind] || (s.kindName || `Kind_${s.kind}`),
-          detail:    s.detail || '',
-          line:      s.selectionRange?.start?.line ?? s.range?.start?.line ?? 0,
+          name: s.name,
+          kindName: SYMBOL_KINDS[s.kind] || s.kindName || `Kind_${s.kind}`,
+          detail: s.detail || '',
+          line: s.selectionRange?.start?.line ?? s.range?.start?.line ?? 0,
         });
         if (Array.isArray(s.children) && s.children.length) walk(s.children);
       }

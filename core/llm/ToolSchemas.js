@@ -3,12 +3,16 @@
 const TOOL_SCHEMAS = [
   {
     name: 'exec',
-    description: 'Ejecuta cualquier comando en la terminal del sistema. Se usa para git, npm, pip, shell, etc.',
+    description:
+      'Ejecuta cualquier comando en la terminal del sistema. Se usa para git, npm, pip, shell, etc.',
     inputSchema: {
       type: 'object',
       properties: {
         command: { type: 'string', description: 'Comando completo a ejecutar' },
-        cwd: { type: 'string', description: 'Directorio de trabajo (opcional, por defecto el proyecto)' },
+        cwd: {
+          type: 'string',
+          description: 'Directorio de trabajo (opcional, por defecto el proyecto)',
+        },
         timeout: { type: 'number', description: 'Timeout de ejecución en segundos', default: 15 },
       },
       required: ['command'],
@@ -28,7 +32,8 @@ const TOOL_SCHEMAS = [
   },
   {
     name: 'write',
-    description: 'Escribe o sobrescribe el contenido de un archivo. Si el directorio no existe, se crea.',
+    description:
+      'Escribe o sobrescribe el contenido de un archivo. Si el directorio no existe, se crea.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -41,7 +46,8 @@ const TOOL_SCHEMAS = [
   },
   {
     name: 'edit',
-    description: 'Modifica partes específicas de un archivo reemplazando texto exacto. No crea archivos nuevos.',
+    description:
+      'Modifica partes específicas de un archivo reemplazando texto exacto. No crea archivos nuevos.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -78,11 +84,17 @@ const TOOL_SCHEMAS = [
   },
   {
     name: 'browser',
-    description: 'Navega a una URL y obtiene el contenido de la página. Usa el navegador headless del asistente.',
+    description:
+      'Navega a una URL y obtiene el contenido de la página. Usa el navegador headless del asistente.',
     inputSchema: {
       type: 'object',
       properties: {
-        action: { type: 'string', description: 'Acción a realizar', enum: ['navigate', 'click', 'get_text', 'screenshot'], default: 'navigate' },
+        action: {
+          type: 'string',
+          description: 'Acción a realizar',
+          enum: ['navigate', 'click', 'get_text', 'screenshot'],
+          default: 'navigate',
+        },
         url: { type: 'string', description: 'URL a navegar (obligatorio para action=navigate)' },
         selector: { type: 'string', description: 'Selector CSS (para action=click o get_text)' },
       },
@@ -91,7 +103,8 @@ const TOOL_SCHEMAS = [
   },
   {
     name: 'web_search',
-    description: 'Busca información en internet usando Google, devuelve título + URL + snippet de los resultados',
+    description:
+      'Busca información en internet usando Google, devuelve título + URL + snippet de los resultados',
     inputSchema: {
       type: 'object',
       properties: {
@@ -103,22 +116,37 @@ const TOOL_SCHEMAS = [
   },
   {
     name: 'grep',
-    description: 'Busca un patrón (regex) dentro del contenido de los archivos del proyecto y devuelve las coincidencias con ruta, línea y texto',
+    description:
+      'Busca un patrón (regex) dentro del contenido de los archivos del proyecto y devuelve las coincidencias con ruta, línea y texto',
     inputSchema: {
       type: 'object',
       properties: {
         pattern: { type: 'string', description: 'Patrón regex o texto a buscar' },
-        path: { type: 'string', description: 'Directorio o archivo donde buscar (por defecto la raíz del proyecto)' },
-        include: { type: 'string', description: 'Glob de archivos a incluir, ej: "*.js" (opcional)' },
-        ignore: { type: 'string', description: 'Directorio o patrón a excluir, ej: "node_modules" (opcional)' },
-        max_results: { type: 'number', description: 'Máximo de coincidencias a devolver', default: 50 },
+        path: {
+          type: 'string',
+          description: 'Directorio o archivo donde buscar (por defecto la raíz del proyecto)',
+        },
+        include: {
+          type: 'string',
+          description: 'Glob de archivos a incluir, ej: "*.js" (opcional)',
+        },
+        ignore: {
+          type: 'string',
+          description: 'Directorio o patrón a excluir, ej: "node_modules" (opcional)',
+        },
+        max_results: {
+          type: 'number',
+          description: 'Máximo de coincidencias a devolver',
+          default: 50,
+        },
       },
       required: ['pattern'],
     },
   },
   {
     name: 'glob',
-    description: 'Lista archivos y directorios que coinciden con un patrón glob dentro del proyecto',
+    description:
+      'Lista archivos y directorios que coinciden con un patrón glob dentro del proyecto',
     inputSchema: {
       type: 'object',
       properties: {
@@ -130,13 +158,24 @@ const TOOL_SCHEMAS = [
   },
   {
     name: 'subagent',
-    description: 'Lanza un subagente autónomo que resuelve una sub-tarea concreta (investigar, buscar, redactar) de forma independiente y devuelve un resumen conciso. Útil para tareas largas que pueden paralelizarse o delegarse.',
+    description:
+      'Lanza un subagente autónomo que resuelve una sub-tarea concreta (investigar, buscar, redactar) de forma independiente y devuelve un resumen conciso. Útil para tareas largas que pueden paralelizarse o delegarse.',
     inputSchema: {
       type: 'object',
       properties: {
-        task: { type: 'string', description: 'Sub-tarea concreta y autocontenida que debe resolver el subagente' },
-        context: { type: 'string', description: 'Contexto o restricciones adicionales para el subagente (opcional)' },
-        max_iterations: { type: 'number', description: 'Máximo de iteraciones del subagente', default: 8 },
+        task: {
+          type: 'string',
+          description: 'Sub-tarea concreta y autocontenida que debe resolver el subagente',
+        },
+        context: {
+          type: 'string',
+          description: 'Contexto o restricciones adicionales para el subagente (opcional)',
+        },
+        max_iterations: {
+          type: 'number',
+          description: 'Máximo de iteraciones del subagente',
+          default: 8,
+        },
       },
       required: ['task'],
     },
@@ -144,7 +183,8 @@ const TOOL_SCHEMAS = [
   // ── LSP tools (Fase 7) ─────────────────────────────────────────────
   {
     name: 'get_diagnostics',
-    description: 'Obtiene diagnósticos (errores, advertencias) de un archivo a través del servidor LSP de TypeScript',
+    description:
+      'Obtiene diagnósticos (errores, advertencias) de un archivo a través del servidor LSP de TypeScript',
     inputSchema: {
       type: 'object',
       properties: {
@@ -168,7 +208,8 @@ const TOOL_SCHEMAS = [
   },
   {
     name: 'find_references',
-    description: 'Encuentra todas las referencias a un símbolo en el proyecto a través del servidor LSP',
+    description:
+      'Encuentra todas las referencias a un símbolo en el proyecto a través del servidor LSP',
     inputSchema: {
       type: 'object',
       properties: {
@@ -181,7 +222,8 @@ const TOOL_SCHEMAS = [
   },
   {
     name: 'get_symbols',
-    description: 'Obtiene la lista de símbolos (funciones, clases, variables) de un archivo a través del servidor LSP',
+    description:
+      'Obtiene la lista de símbolos (funciones, clases, variables) de un archivo a través del servidor LSP',
     inputSchema: {
       type: 'object',
       properties: {
@@ -193,18 +235,23 @@ const TOOL_SCHEMAS = [
   // ── Git nativo (§10) ─────────────────────────────────────────────────────
   {
     name: 'git_status',
-    description: 'Estado del repo git: rama actual, ahead/behind, cambios staged/unstaged, untracked y conflictos. Solo lectura.',
+    description:
+      'Estado del repo git: rama actual, ahead/behind, cambios staged/unstaged, untracked y conflictos. Solo lectura.',
     inputSchema: {
       type: 'object',
       properties: {
-        cwd: { type: 'string', description: 'Directorio de trabajo (opcional, por defecto el proyecto)' },
+        cwd: {
+          type: 'string',
+          description: 'Directorio de trabajo (opcional, por defecto el proyecto)',
+        },
       },
       required: [],
     },
   },
   {
     name: 'git_diff',
-    description: 'Diff de cambios no confirmados; con staged=true muestra lo que ya fue agregado. Solo lectura.',
+    description:
+      'Diff de cambios no confirmados; con staged=true muestra lo que ya fue agregado. Solo lectura.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -237,7 +284,8 @@ const TOOL_SCHEMAS = [
   },
   {
     name: 'git_commit',
-    description: 'Hace git add -A y commit con el mensaje dado. MUTADOR: requiere aprobación del usuario.',
+    description:
+      'Hace git add -A y commit con el mensaje dado. MUTADOR: requiere aprobación del usuario.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -248,11 +296,16 @@ const TOOL_SCHEMAS = [
   },
   {
     name: 'git_stash',
-    description: 'Lista stashes (action=list, lectura) o ejecuta push/pop/apply/drop (muta, requiere aprobación).',
+    description:
+      'Lista stashes (action=list, lectura) o ejecuta push/pop/apply/drop (muta, requiere aprobación).',
     inputSchema: {
       type: 'object',
       properties: {
-        action: { type: 'string', description: 'list | push | pop | apply | drop', default: 'list' },
+        action: {
+          type: 'string',
+          description: 'list | push | pop | apply | drop',
+          default: 'list',
+        },
         message: { type: 'string', description: 'Mensaje para action=push (opcional)' },
       },
       required: ['action'],
@@ -260,7 +313,8 @@ const TOOL_SCHEMAS = [
   },
   {
     name: 'git_merge',
-    description: 'Fusiona una rama en la actual; detecta conflictos y los devuelve estructurados. MUTADOR: requiere aprobación.',
+    description:
+      'Fusiona una rama en la actual; detecta conflictos y los devuelve estructurados. MUTADOR: requiere aprobación.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -272,7 +326,8 @@ const TOOL_SCHEMAS = [
   },
   {
     name: 'git_rebase',
-    description: 'Reaplica los commits de la rama actual sobre otra; detecta conflictos estructurados. MUTADOR: requiere aprobación.',
+    description:
+      'Reaplica los commits de la rama actual sobre otra; detecta conflictos estructurados. MUTADOR: requiere aprobación.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -283,7 +338,8 @@ const TOOL_SCHEMAS = [
   },
   {
     name: 'git_push',
-    description: 'Sube los commits de la rama actual al remoto (por defecto origin). Usa el token de GitHub conectado (github_token) si está. MUTADOR: requiere aprobación.',
+    description:
+      'Sube los commits de la rama actual al remoto (por defecto origin). Usa el token de GitHub conectado (github_token) si está. MUTADOR: requiere aprobación.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -297,7 +353,8 @@ const TOOL_SCHEMAS = [
   // ── GitHub nativo (§10) ─────────────────────────────────────────────────────
   {
     name: 'github_repo_info',
-    description: 'Información de un repo de GitHub (descripción, default branch, estrellas, license). Solo lectura.',
+    description:
+      'Información de un repo de GitHub (descripción, default branch, estrellas, license). Solo lectura.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -388,13 +445,18 @@ const TOOL_SCHEMAS = [
   },
   {
     name: 'github_pr_review',
-    description: 'Envía una review a una PR (APPROVE | REQUEST_CHANGES | COMMENT). MUTADOR: requiere aprobación del usuario.',
+    description:
+      'Envía una review a una PR (APPROVE | REQUEST_CHANGES | COMMENT). MUTADOR: requiere aprobación del usuario.',
     inputSchema: {
       type: 'object',
       properties: {
         repo: { type: 'string', description: 'Repo en formato "owner/repo"' },
         pull_number: { type: 'number', description: 'Número de la PR' },
-        event: { type: 'string', description: 'APPROVE | REQUEST_CHANGES | COMMENT', default: 'COMMENT' },
+        event: {
+          type: 'string',
+          description: 'APPROVE | REQUEST_CHANGES | COMMENT',
+          default: 'COMMENT',
+        },
         body: { type: 'string', description: 'Cuerpo de la review' },
       },
       required: ['repo', 'pull_number', 'event', 'body'],
@@ -402,7 +464,8 @@ const TOOL_SCHEMAS = [
   },
   {
     name: 'github_actions_status',
-    description: 'Estado de las GitHub Actions de un repo (runs recientes, status, conclusion). Solo lectura.',
+    description:
+      'Estado de las GitHub Actions de un repo (runs recientes, status, conclusion). Solo lectura.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -415,7 +478,7 @@ const TOOL_SCHEMAS = [
 ];
 
 function getToolSchemas() {
-  return TOOL_SCHEMAS.map(s => ({ ...s }));
+  return TOOL_SCHEMAS.map((s) => ({ ...s }));
 }
 
 module.exports = { TOOL_SCHEMAS, getToolSchemas };

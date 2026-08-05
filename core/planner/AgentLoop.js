@@ -13,15 +13,40 @@ const { getGitHubManager } = require('../github/GitHubManager.js');
 const VALID_MODES = new Set(['smart', 'fast', 'task', 'conversational']);
 
 // Tools LSP que se despachan al LSPManager (no al puente OpenClaw).
-const LSP_TOOLS = new Set(['get_diagnostics', 'go_to_definition', 'find_references', 'get_symbols', 'hover', 'rename', 'code_actions']);
+const LSP_TOOLS = new Set([
+  'get_diagnostics',
+  'go_to_definition',
+  'find_references',
+  'get_symbols',
+  'hover',
+  'rename',
+  'code_actions',
+]);
 
 // Tools Git nativas (§10) que se despachan al GitManager.
-const GIT_TOOLS = new Set(['git_status', 'git_diff', 'git_log', 'git_branch', 'git_commit', 'git_stash', 'git_merge', 'git_rebase', 'git_push']);
+const GIT_TOOLS = new Set([
+  'git_status',
+  'git_diff',
+  'git_log',
+  'git_branch',
+  'git_commit',
+  'git_stash',
+  'git_merge',
+  'git_rebase',
+  'git_push',
+]);
 
 // Tools GitHub nativas (§10) que se despachan al GitHubManager.
 const GITHUB_TOOLS = new Set([
-  'github_repo_info', 'github_issue_list', 'github_issue_create', 'github_issue_comment',
-  'github_issue_close', 'github_pr_list', 'github_pr_create', 'github_pr_review', 'github_actions_status',
+  'github_repo_info',
+  'github_issue_list',
+  'github_issue_create',
+  'github_issue_comment',
+  'github_issue_close',
+  'github_pr_list',
+  'github_pr_create',
+  'github_pr_review',
+  'github_actions_status',
 ]);
 
 // Tool de subagentes (§11): se despacha en proceso lanzando un AgentLoop anidado.
@@ -47,8 +72,8 @@ const RESULT_TRUNCATE_LIMIT = 800;
 // G.1: compactación de contexto. Cuando la historia de iteraciones crece, los
 // turnos viejos se condensan en un resumen determinista (no se re-envía todo
 // el historial crudo a cada turno): el objetivo + lista de acciones ejecutadas.
-const COMPACT_MIN_TURNS   = 14;   // tuplas de historial que disparan compactación
-const COMPACT_KEEP_TAIL   = 8;    // turnos recientes que se conservan íntegros
+const COMPACT_MIN_TURNS = 14; // tuplas de historial que disparan compactación
+const COMPACT_KEEP_TAIL = 8; // turnos recientes que se conservan íntegros
 
 const AGENT_LOOP_SYSTEM = `
 # MODO AGENTE — BUCLE DE EJECUCIÓN
@@ -176,15 +201,21 @@ class AgentLoop {
         if (resolved.nativeToolSchemas) tools = resolved.nativeToolSchemas;
         if (resolved.promptCatalog) toolCatalog = resolved.promptCatalog;
         if (resolved.excluded.length > 0) {
-          console.log(`[agent-loop] precedencia: ${resolved.precedence}, herramientas excluidas: ${resolved.excluded.map(e => `${e.source}/${e.tool}`).join(', ')}`);
+          console.log(
+            `[agent-loop] precedencia: ${resolved.precedence}, herramientas excluidas: ${resolved.excluded.map((e) => `${e.source}/${e.tool}`).join(', ')}`
+          );
         }
-        console.log(`[agent-loop] precedencia de herramientas: ${resolved.precedence}${resolved.matchedSkills.length > 0 ? ` (skills: ${resolved.matchedSkills.map(s => s.name).join(', ')})` : ''}`);
+        console.log(
+          `[agent-loop] precedencia de herramientas: ${resolved.precedence}${resolved.matchedSkills.length > 0 ? ` (skills: ${resolved.matchedSkills.map((s) => s.name).join(', ')})` : ''}`
+        );
       } catch (e) {
         console.warn(`[agent-loop] error en resolución de herramientas: ${e.message}`);
       }
     }
 
-    let agentPrompt = systemPrompt.replace(/\n+$/, '') + '\n\n' +
+    let agentPrompt =
+      systemPrompt.replace(/\n+$/, '') +
+      '\n\n' +
       AGENT_LOOP_SYSTEM.trim() +
       (toolCatalog ? '\n\n' + toolCatalog : '');
 
@@ -223,11 +254,15 @@ class AgentLoop {
 
     for (let i = 0; i < this.maxIterations; i++) {
       const _itStart = Date.now();
-      const currentUserMsg = i === 0
-        ? userMessage
-        : this._buildToolResultMessage(lastToolResult);
+      const currentUserMsg = i === 0 ? userMessage : this._buildToolResultMessage(lastToolResult);
 
-      const llmMessages = this._buildLLMMessages(iterationHistory, currentUserMsg, userMessage, toolResults, i);
+      const llmMessages = this._buildLLMMessages(
+        iterationHistory,
+        currentUserMsg,
+        userMessage,
+        toolResults,
+        i
+      );
 
       // ── Llamada al LLM: intenta tool-calling nativo primero ────────────
       let responseText = null;
@@ -235,14 +270,20 @@ class AgentLoop {
 
       if (tools && llm === this._getLLM()) {
         try {
-          const tcResult = await LLMProvider.completeWithTools(llmMessages, agentPrompt, tools, this._mode, llmOpts);
+          const tcResult = await LLMProvider.completeWithTools(
+            llmMessages,
+            agentPrompt,
+            tools,
+            this._mode,
+            llmOpts
+          );
           responseText = tcResult.content;
           toolCalls = tcResult.toolCalls;
         } catch (e) {
           console.warn('[agent-loop] tool-calling nativo falló, usando fallback texto:', e.message);
           try {
             const fallback = await llm(llmMessages, agentPrompt, llmOpts);
-            responseText = typeof fallback === 'string' ? fallback : (fallback?.content || '');
+            responseText = typeof fallback === 'string' ? fallback : fallback?.content || '';
           } catch (e2) {
             return {
               response: `Error en tool-calling y fallback textual: ${e2.message}`,
@@ -255,7 +296,7 @@ class AgentLoop {
       } else {
         try {
           const raw = await llm(llmMessages, agentPrompt, llmOpts);
-          responseText = typeof raw === 'string' ? raw : (raw?.content || '');
+          responseText = typeof raw === 'string' ? raw : raw?.content || '';
         } catch (e) {
           return {
             response: `Error en LLM: ${e.message}`,
@@ -267,7 +308,10 @@ class AgentLoop {
       }
 
       const hasNativeToolCalls = toolCalls && toolCalls.length > 0;
-      if (process.env.DEBUG) console.log(`[agent-loop-timing] iter ${i}: LLM ${Date.now() - _itStart}ms, toolCalls=${hasNativeToolCalls ? toolCalls.length : 0}`);
+      if (process.env.DEBUG)
+        console.log(
+          `[agent-loop-timing] iter ${i}: LLM ${Date.now() - _itStart}ms, toolCalls=${hasNativeToolCalls ? toolCalls.length : 0}`
+        );
       if (!responseText || !responseText.trim()) {
         // Tool-calling nativo devuelve content vacío cuando el modelo SOLO llama
         // una herramienta — no es un "no respondió", hay que ejecutar la llamada.
@@ -287,7 +331,7 @@ class AgentLoop {
       // ── Extraer acciones ───────────────────────────────────────────
       let actions = [];
       if (toolCalls && toolCalls.length > 0) {
-        actions = toolCalls.map(tc => ({
+        actions = toolCalls.map((tc) => ({
           tool: tc.tool,
           params: tc.params,
           description: `${tc.tool}: ${JSON.stringify(tc.params).slice(0, 100)}`,
@@ -339,7 +383,10 @@ class AgentLoop {
         if (!approved) {
           iterationHistory.push(
             { role: 'assistant', content: responseText },
-            { role: 'user', content: `[Herramienta "${action.tool}" cancelada por el usuario — continúa sin ella o busca otra estrategia]` }
+            {
+              role: 'user',
+              content: `[Herramienta "${action.tool}" cancelada por el usuario — continúa sin ella o busca otra estrategia]`,
+            }
           );
           lastToolResult = { ok: false, error: 'cancelada_por_usuario', tool: action.tool };
           continue;
@@ -347,7 +394,10 @@ class AgentLoop {
       } else if (requiresApproval && !opts.onApprovalNeeded) {
         iterationHistory.push(
           { role: 'assistant', content: responseText },
-          { role: 'user', content: `[Herramienta "${action.tool}" requiere aprobación pero no hay handler — BLOQUEADA. Continúa sin ella o informa que no puedes ejecutarla.]` }
+          {
+            role: 'user',
+            content: `[Herramienta "${action.tool}" requiere aprobación pero no hay handler — BLOQUEADA. Continúa sin ella o informa que no puedes ejecutarla.]`,
+          }
         );
         lastToolResult = { ok: false, error: 'sin_handler_aprobacion', tool: action.tool };
         continue;
@@ -375,10 +425,20 @@ class AgentLoop {
       result._action = action;
       toolResults.push(result);
       lastToolResult = result;
-      if (process.env.DEBUG) console.log(`[agent-loop-timing] iter ${i}: tool=${action.tool} ${Date.now() - _itStart}ms`);
+      if (process.env.DEBUG)
+        console.log(
+          `[agent-loop-timing] iter ${i}: tool=${action.tool} ${Date.now() - _itStart}ms`
+        );
 
       if (opts.onProgress) {
-        opts.onProgress({ iteration: i + 1, tool: action.tool, params: action.params, status: result.ok ? 'ok' : 'error', result: result.ok ? result.result : null, error: result.ok ? null : result.error });
+        opts.onProgress({
+          iteration: i + 1,
+          tool: action.tool,
+          params: action.params,
+          status: result.ok ? 'ok' : 'error',
+          result: result.ok ? result.result : null,
+          error: result.ok ? null : result.error,
+        });
       }
 
       // ── LSP.1: feedback de diagnósticos tras editar (patrón opencode) ──
@@ -397,17 +457,21 @@ class AgentLoop {
       if (result.ok) {
         resultSummary = this._summarizeResult(result, action);
         if (lspFeedback && lspFeedback.diagnostics && lspFeedback.diagnostics.length > 0) {
-          resultSummary += '\n\n' + this._formatDiagnostics(lspFeedback.filePath, lspFeedback.diagnostics);
+          resultSummary +=
+            '\n\n' + this._formatDiagnostics(lspFeedback.filePath, lspFeedback.diagnostics);
         }
       } else {
         resultSummary = `[ERROR en ${action.tool}]: ${result.error || 'desconocido'}`;
       }
 
-      console.log(`[agent-loop] iteración ${i + 1}: ${action.tool} → ${result.ok ? 'OK' : 'FALLÓ'}`);
+      console.log(
+        `[agent-loop] iteración ${i + 1}: ${action.tool} → ${result.ok ? 'OK' : 'FALLÓ'}`
+      );
       iterationHistory.push({ role: 'user', content: resultSummary });
     }
 
-    const finalResponse = 'He alcanzado el límite de iteraciones sin completar la tarea. ' +
+    const finalResponse =
+      'He alcanzado el límite de iteraciones sin completar la tarea. ' +
       'Puedes pedirme que continúe o reformular la instrucción.';
 
     return {
@@ -428,7 +492,8 @@ class AgentLoop {
     const params = action.params || {};
     const filePath = params.path || params.filePath;
     if (!filePath || !this._lsp || !this._lsp.isRunning) return null;
-    if (typeof this._lsp.supportsFile !== 'function' || !this._lsp.supportsFile(filePath)) return null;
+    if (typeof this._lsp.supportsFile !== 'function' || !this._lsp.supportsFile(filePath))
+      return null;
     try {
       const abs = path.resolve(filePath);
       if (!fs.existsSync(abs)) return null;
@@ -472,9 +537,22 @@ class AgentLoop {
     const t0 = Date.now();
     const params = action.params || {};
     const raw = params.raw || {};
-    const filePath = params.filePath || params.path || params.ARCHIVO || raw.ARCHIVO || raw.filePath;
-    const okShape = (result) => ({ ok: true, result, error: null, tool: action.tool, elapsed: Date.now() - t0 });
-    const failShape = (error) => ({ ok: false, result: null, error, tool: action.tool, elapsed: Date.now() - t0 });
+    const filePath =
+      params.filePath || params.path || params.ARCHIVO || raw.ARCHIVO || raw.filePath;
+    const okShape = (result) => ({
+      ok: true,
+      result,
+      error: null,
+      tool: action.tool,
+      elapsed: Date.now() - t0,
+    });
+    const failShape = (error) => ({
+      ok: false,
+      result: null,
+      error,
+      tool: action.tool,
+      elapsed: Date.now() - t0,
+    });
 
     if (!this._lsp) {
       return failShape('LSP no disponible — el LSPManager no está inicializado.');
@@ -486,10 +564,13 @@ class AgentLoop {
       return failShape(`Falta el archivo (filePath) para la tool ${action.tool}.`);
     }
     if (!this._lsp.supportsFile(filePath)) {
-      const langs = this._lsp.activeLanguages && this._lsp.activeLanguages.length
-        ? this._lsp.activeLanguages.join(', ')
-        : 'ninguno';
-      return failShape(`El archivo ${filePath} no está soportado por el LSP activo. Servidores activos: ${langs}.`);
+      const langs =
+        this._lsp.activeLanguages && this._lsp.activeLanguages.length
+          ? this._lsp.activeLanguages.join(', ')
+          : 'ninguno';
+      return failShape(
+        `El archivo ${filePath} no está soportado por el LSP activo. Servidores activos: ${langs}.`
+      );
     }
 
     try {
@@ -505,9 +586,13 @@ class AgentLoop {
         case 'hover':
           return okShape(await this._lsp.hover(filePath, params.line, params.character));
         case 'rename':
-          return okShape(await this._lsp.rename(filePath, params.line, params.character, params.newName));
+          return okShape(
+            await this._lsp.rename(filePath, params.line, params.character, params.newName)
+          );
         case 'code_actions':
-          return okShape(await this._lsp.codeActions(filePath, params.line, params.character, params.context));
+          return okShape(
+            await this._lsp.codeActions(filePath, params.line, params.character, params.context)
+          );
         default:
           return failShape(`Tool LSP desconocida: ${action.tool}`);
       }
@@ -521,8 +606,20 @@ class AgentLoop {
     const params = action.params || {};
     // Default de cwd: parámetro explícito → workspace de la app → raíz del proceso.
     const cwd = params.cwd || params.CWD || process.env.ASISTENTE_WORKSPACE || AP.PROJECT_CWD;
-    const okShape = (result) => ({ ok: true, result, error: null, tool: action.tool, elapsed: Date.now() - t0 });
-    const failShape = (error) => ({ ok: false, result: null, error, tool: action.tool, elapsed: Date.now() - t0 });
+    const okShape = (result) => ({
+      ok: true,
+      result,
+      error: null,
+      tool: action.tool,
+      elapsed: Date.now() - t0,
+    });
+    const failShape = (error) => ({
+      ok: false,
+      result: null,
+      error,
+      tool: action.tool,
+      elapsed: Date.now() - t0,
+    });
 
     if (!this._git) {
       return failShape('Git no disponible — el GitManager no está inicializado.');
@@ -540,13 +637,23 @@ class AgentLoop {
         case 'git_commit':
           return okShape(await this._git.commit(cwd, { message: params.message }));
         case 'git_stash':
-          return okShape(await this._git.stash(cwd, { action: params.action, message: params.message }));
+          return okShape(
+            await this._git.stash(cwd, { action: params.action, message: params.message })
+          );
         case 'git_merge':
-          return okShape(await this._git.merge(cwd, { branch: params.branch, message: params.message }));
+          return okShape(
+            await this._git.merge(cwd, { branch: params.branch, message: params.message })
+          );
         case 'git_rebase':
           return okShape(await this._git.rebase(cwd, { branch: params.branch }));
         case 'git_push':
-          return okShape(await this._git.push(cwd, { remote: params.remote, branch: params.branch, force: params.force }));
+          return okShape(
+            await this._git.push(cwd, {
+              remote: params.remote,
+              branch: params.branch,
+              force: params.force,
+            })
+          );
         default:
           return failShape(`Tool git desconocida: ${action.tool}`);
       }
@@ -558,33 +665,77 @@ class AgentLoop {
   async _executeGitHubTool(action) {
     const t0 = Date.now();
     const params = action.params || {};
-    const okShape = (result) => ({ ok: true, result, error: null, tool: action.tool, elapsed: Date.now() - t0 });
-    const failShape = (error) => ({ ok: false, result: null, error, tool: action.tool, elapsed: Date.now() - t0 });
+    const okShape = (result) => ({
+      ok: true,
+      result,
+      error: null,
+      tool: action.tool,
+      elapsed: Date.now() - t0,
+    });
+    const failShape = (error) => ({
+      ok: false,
+      result: null,
+      error,
+      tool: action.tool,
+      elapsed: Date.now() - t0,
+    });
 
     if (!this._github) {
       return failShape('GitHub no disponible — el GitHubManager no está inicializado.');
     }
     if (!(await this._github.hasToken)) {
-      return failShape('No hay token de GitHub configurado. Guardalo con KeychainManager.setKey("github_token", "<PAT>").');
+      return failShape(
+        'No hay token de GitHub configurado. Guardalo con KeychainManager.setKey("github_token", "<PAT>").'
+      );
     }
     try {
       switch (action.tool) {
         case 'github_repo_info':
           return okShape(await this._github.repoInfo(params.repo));
         case 'github_issue_list':
-          return okShape(await this._github.issueList(params.repo, { state: params.state, limit: params.limit }));
+          return okShape(
+            await this._github.issueList(params.repo, { state: params.state, limit: params.limit })
+          );
         case 'github_issue_create':
-          return okShape(await this._github.issueCreate(params.repo, { title: params.title, body: params.body, labels: params.labels }));
+          return okShape(
+            await this._github.issueCreate(params.repo, {
+              title: params.title,
+              body: params.body,
+              labels: params.labels,
+            })
+          );
         case 'github_issue_comment':
-          return okShape(await this._github.issueComment(params.repo, { issue_number: params.issue_number, body: params.body }));
+          return okShape(
+            await this._github.issueComment(params.repo, {
+              issue_number: params.issue_number,
+              body: params.body,
+            })
+          );
         case 'github_issue_close':
-          return okShape(await this._github.issueClose(params.repo, { issue_number: params.issue_number }));
+          return okShape(
+            await this._github.issueClose(params.repo, { issue_number: params.issue_number })
+          );
         case 'github_pr_list':
-          return okShape(await this._github.prList(params.repo, { state: params.state, limit: params.limit }));
+          return okShape(
+            await this._github.prList(params.repo, { state: params.state, limit: params.limit })
+          );
         case 'github_pr_create':
-          return okShape(await this._github.prCreate(params.repo, { title: params.title, head: params.head, base: params.base, body: params.body }));
+          return okShape(
+            await this._github.prCreate(params.repo, {
+              title: params.title,
+              head: params.head,
+              base: params.base,
+              body: params.body,
+            })
+          );
         case 'github_pr_review':
-          return okShape(await this._github.prReview(params.repo, { pull_number: params.pull_number, event: params.event, body: params.body }));
+          return okShape(
+            await this._github.prReview(params.repo, {
+              pull_number: params.pull_number,
+              event: params.event,
+              body: params.body,
+            })
+          );
         case 'github_actions_status':
           return okShape(await this._github.actionsStatus(params.repo, { limit: params.limit }));
         default:
@@ -604,12 +755,24 @@ class AgentLoop {
     const params = action.params || {};
     const task = params.task || params.description || '';
     if (!task) {
-      return { ok: false, error: 'task (descripción) requerida', result: null, tool: action.tool, elapsed: 0 };
+      return {
+        ok: false,
+        error: 'task (descripción) requerida',
+        result: null,
+        tool: action.tool,
+        elapsed: 0,
+      };
     }
 
     const depth = this._subagentDepth || 0;
     if (depth >= MAX_SUBAGENT_DEPTH) {
-      return { ok: false, error: `profundidad máxima de subagentes alcanzada (${MAX_SUBAGENT_DEPTH})`, result: null, tool: action.tool, elapsed: 0 };
+      return {
+        ok: false,
+        error: `profundidad máxima de subagentes alcanzada (${MAX_SUBAGENT_DEPTH})`,
+        result: null,
+        tool: action.tool,
+        elapsed: 0,
+      };
     }
 
     const maxIters = Math.min(params.max_iterations || 8, 15);
@@ -626,12 +789,16 @@ class AgentLoop {
       });
       nested._subagentDepth = depth + 1;
     } catch (e) {
-      return { ok: false, error: `no se pudo crear el subagente: ${e.message}`, result: null, tool: action.tool, elapsed: 0 };
+      return {
+        ok: false,
+        error: `no se pudo crear el subagente: ${e.message}`,
+        result: null,
+        tool: action.tool,
+        elapsed: 0,
+      };
     }
 
-    const subTask = params.context
-      ? `${task}\n\nContexto adicional:\n${params.context}`
-      : task;
+    const subTask = params.context ? `${task}\n\nContexto adicional:\n${params.context}` : task;
 
     try {
       const out = await nested.run(subTask, SUBAGENT_SYSTEM, [], {
@@ -639,7 +806,7 @@ class AgentLoop {
         taskIntent: this._currentTaskIntent || null,
         onProgress: null,
       });
-      const toolCalls = (out.toolResults || []).map(r => `${r.tool}:${r.ok ? 'ok' : 'err'}`);
+      const toolCalls = (out.toolResults || []).map((r) => `${r.tool}:${r.ok ? 'ok' : 'err'}`);
       return {
         ok: true,
         result: {
@@ -653,7 +820,13 @@ class AgentLoop {
         elapsed: Math.round((Date.now() - t0) / 1000),
       };
     } catch (e) {
-      return { ok: false, error: `subagente falló: ${e.message}`, result: null, tool: action.tool, elapsed: Math.round((Date.now() - t0) / 1000) };
+      return {
+        ok: false,
+        error: `subagente falló: ${e.message}`,
+        result: null,
+        tool: action.tool,
+        elapsed: Math.round((Date.now() - t0) / 1000),
+      };
     }
   }
 
@@ -680,14 +853,25 @@ class AgentLoop {
   _buildLLMMessages(iterationHistory, currentUserMsg, userMessage, toolResults, iteration) {
     const msgs = [{ role: 'user', content: userMessage }];
 
-    if (iterationHistory.length >= COMPACT_MIN_TURNS && iterationHistory.length - COMPACT_KEEP_TAIL > 0) {
+    if (
+      iterationHistory.length >= COMPACT_MIN_TURNS &&
+      iterationHistory.length - COMPACT_KEEP_TAIL > 0
+    ) {
       const keep = iterationHistory.slice(-COMPACT_KEEP_TAIL);
-      const compacted = this._compactSummary(userMessage, toolResults, iterationHistory.length - COMPACT_KEEP_TAIL);
+      const compacted = this._compactSummary(
+        userMessage,
+        toolResults,
+        iterationHistory.length - COMPACT_KEEP_TAIL
+      );
       if (compacted) msgs.push({ role: 'user', content: compacted });
       msgs.push(...keep);
       // §12: persistir una vez por run el resumen de compactación en memoria
       // vectorial para poder reconstruir contexto en sesiones futuras.
-      this._rememberCompaction(userMessage, toolResults, iterationHistory.length - COMPACT_KEEP_TAIL);
+      this._rememberCompaction(
+        userMessage,
+        toolResults,
+        iterationHistory.length - COMPACT_KEEP_TAIL
+      );
     } else {
       msgs.push(...iterationHistory);
     }
@@ -698,14 +882,20 @@ class AgentLoop {
 
   /** Resumen determinista de lo hecho hasta ahora (para la compactación). */
   _compactSummary(userMessage, toolResults, droppedTurns) {
-    const actions = (toolResults || []).map((t) => {
-      const ok = t.ok ? 'OK' : `FALLÓ: ${t.error || ''}`;
-      const params = t._action?.params || {};
-      const brief = Object.entries(params)
-        .map(([k, v]) => `${k}=${typeof v === 'string' ? v.slice(0, 60) : JSON.stringify(v)?.slice(0, 60)}`)
-        .join(' ');
-      return `  - ${t.tool} (${ok})${brief ? ' · ' + brief : ''}`;
-    }).join('\n') || '  (ninguna todavía)';
+    const actions =
+      (toolResults || [])
+        .map((t) => {
+          const ok = t.ok ? 'OK' : `FALLÓ: ${t.error || ''}`;
+          const params = t._action?.params || {};
+          const brief = Object.entries(params)
+            .map(
+              ([k, v]) =>
+                `${k}=${typeof v === 'string' ? v.slice(0, 60) : JSON.stringify(v)?.slice(0, 60)}`
+            )
+            .join(' ');
+          return `  - ${t.tool} (${ok})${brief ? ' · ' + brief : ''}`;
+        })
+        .join('\n') || '  (ninguna todavía)';
 
     return [
       `[RESUMEN DE LO HECHO HASTA AHORA — ${droppedTurns} turnos anteriores condensados para ahorrar contexto]`,
@@ -725,9 +915,7 @@ class AgentLoop {
     try {
       const summary = this._compactSummary(userMessage, toolResults, droppedTurns);
       const label = `Contexto compactado: ${String(userMessage).slice(0, 80)}`;
-      const existing = this._graph._findNodesByLabel
-        ? this._graph._findNodesByLabel(label)
-        : [];
+      const existing = this._graph._findNodesByLabel ? this._graph._findNodesByLabel(label) : [];
       if (Array.isArray(existing) && existing.length > 0) {
         this._graph.updateNode(existing[0].id, { content: summary });
       } else {
@@ -759,7 +947,9 @@ class AgentLoop {
       });
       const relevant = (episodes || []).filter((n) => {
         let tags = [];
-        try { tags = JSON.parse(n.tags || '[]'); } catch {}
+        try {
+          tags = JSON.parse(n.tags || '[]');
+        } catch {}
         return tags.includes('context-compaction');
       });
       if (relevant.length === 0) return null;
@@ -785,7 +975,10 @@ class AgentLoop {
 
     if (typeof raw === 'string') {
       if (raw.length <= RESULT_TRUNCATE_LIMIT) return raw;
-      return raw.slice(0, RESULT_TRUNCATE_LIMIT) + `\n\n[... resultado truncado: ${raw.length} caracteres totales]`;
+      return (
+        raw.slice(0, RESULT_TRUNCATE_LIMIT) +
+        `\n\n[... resultado truncado: ${raw.length} caracteres totales]`
+      );
     }
 
     if (typeof raw === 'object') {
@@ -794,10 +987,18 @@ class AgentLoop {
         const stderr = (raw.stderr || '').trim();
         let summary = '';
         if (stdout) {
-          summary += stdout.length <= RESULT_TRUNCATE_LIMIT ? stdout : stdout.slice(0, RESULT_TRUNCATE_LIMIT) + `\n[... stdout truncado: ${stdout.length} chars]`;
+          summary +=
+            stdout.length <= RESULT_TRUNCATE_LIMIT
+              ? stdout
+              : stdout.slice(0, RESULT_TRUNCATE_LIMIT) +
+                `\n[... stdout truncado: ${stdout.length} chars]`;
         }
         if (stderr) {
-          summary += (summary ? '\n' : '') + (stderr.length <= (RESULT_TRUNCATE_LIMIT / 2) ? stderr : stderr.slice(0, (RESULT_TRUNCATE_LIMIT / 2)) + `\n[... stderr truncado]`);
+          summary +=
+            (summary ? '\n' : '') +
+            (stderr.length <= RESULT_TRUNCATE_LIMIT / 2
+              ? stderr
+              : stderr.slice(0, RESULT_TRUNCATE_LIMIT / 2) + `\n[... stderr truncado]`);
         }
         if (raw.exitCode !== undefined && raw.exitCode !== 0) {
           summary += `\n[exit code: ${raw.exitCode}]`;
@@ -805,7 +1006,9 @@ class AgentLoop {
         return summary || `[Comando ejecutado, sin salida]`;
       }
       const str = JSON.stringify(raw, null, 2);
-      return str.length <= RESULT_TRUNCATE_LIMIT ? str : str.slice(0, RESULT_TRUNCATE_LIMIT) + `\n[... truncado: ${str.length} chars]`;
+      return str.length <= RESULT_TRUNCATE_LIMIT
+        ? str
+        : str.slice(0, RESULT_TRUNCATE_LIMIT) + `\n[... truncado: ${str.length} chars]`;
     }
 
     return String(raw).slice(0, RESULT_TRUNCATE_LIMIT);

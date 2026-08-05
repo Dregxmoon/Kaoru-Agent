@@ -1,12 +1,12 @@
 'use strict';
 
 const C = {
-  green:  (s) => `\x1b[32m${s}\x1b[0m`,
-  red:    (s) => `\x1b[31m${s}\x1b[0m`,
+  green: (s) => `\x1b[32m${s}\x1b[0m`,
+  red: (s) => `\x1b[31m${s}\x1b[0m`,
   yellow: (s) => `\x1b[33m${s}\x1b[0m`,
-  cyan:   (s) => `\x1b[36m${s}\x1b[0m`,
-  bold:   (s) => `\x1b[1m${s}\x1b[0m`,
-  dim:    (s) => `\x1b[2m${s}\x1b[0m`,
+  cyan: (s) => `\x1b[36m${s}\x1b[0m`,
+  bold: (s) => `\x1b[1m${s}\x1b[0m`,
+  dim: (s) => `\x1b[2m${s}\x1b[0m`,
 };
 
 let passed = 0;
@@ -37,11 +37,14 @@ function testAgentModeAlwaysResolvesTools() {
 
   // La línea que retorna en modo agent debe tener nativeToolSchemas desde
   // resolvedTools, no null hardcoded
-  const agentReturnMatch = src.match(/mode.*agent[\s\S]{0,500}return \{[\s\S]{0,200}nativeToolSchemas/);
+  const agentReturnMatch = src.match(
+    /mode.*agent[\s\S]{0,500}return \{[\s\S]{0,200}nativeToolSchemas/
+  );
   if (agentReturnMatch) {
     const hasResolvedTools = agentReturnMatch[0].includes('resolvedTools?.nativeToolSchemas');
     const hasNull = agentReturnMatch[0].includes('nativeToolSchemas: null');
-    assert(hasResolvedTools && !hasNull,
+    assert(
+      hasResolvedTools && !hasNull,
       'modo agent retorna nativeToolSchemas desde resolvedTools (no null)',
       `Match: ${agentReturnMatch[0].slice(0, 150)}...`
     );
@@ -59,9 +62,12 @@ function testAgentModeAlwaysResolvesTools() {
   const chatSection = src.match(/mode === 'chat'[\s\S]{0,1700}(?=\n {2}\/\/ Truncado inteligente)/);
   if (chatSection) {
     const hasIntentGate = chatSection[0].includes('toolIntent?.detected');
-    const hasBridgeCheck = chatSection[0].includes("_bridge?.getStats()?.available");
-    assert(!hasIntentGate, 'modo chat ya no gatilla OpenClaw en toolIntent?.detected',
-      hasIntentGate ? 'Todavía contiene toolIntent?.detected' : '');
+    const hasBridgeCheck = chatSection[0].includes('_bridge?.getStats()?.available');
+    assert(
+      !hasIntentGate,
+      'modo chat ya no gatilla OpenClaw en toolIntent?.detected',
+      hasIntentGate ? 'Todavía contiene toolIntent?.detected' : ''
+    );
     assert(hasBridgeCheck, 'modo chat sigue verificando disponibilidad de OpenClaw');
   } else {
     assert(false, 'No se encontró sección de modo chat');
@@ -102,19 +108,14 @@ function testSerializerDoesNotGateTools() {
     toolIntent: null,
   });
 
-  assert(withIntent.systemPrompt.length > 0,
-    'Con toolIntent: systemPrompt no vacío');
-  assert(withoutIntent.systemPrompt.length > 0,
-    'Sin toolIntent: systemPrompt no vacío');
-  assert(withIntent.messages.length === 1,
-    'Con toolIntent: 1 mensaje en el array');
-  assert(withoutIntent.messages.length === 1,
-    'Sin toolIntent: 1 mensaje en el array');
+  assert(withIntent.systemPrompt.length > 0, 'Con toolIntent: systemPrompt no vacío');
+  assert(withoutIntent.systemPrompt.length > 0, 'Sin toolIntent: systemPrompt no vacío');
+  assert(withIntent.messages.length === 1, 'Con toolIntent: 1 mensaje en el array');
+  assert(withoutIntent.messages.length === 1, 'Sin toolIntent: 1 mensaje en el array');
 
   // Verificar que el serializer nunca devuelve nativeToolSchemas
   // (eso es responsabilidad de Core.buildContext/AgentLoop)
-  assert(withIntent.nativeToolSchemas === undefined,
-    'GroqSerializer no inyecta nativeToolSchemas');
+  assert(withIntent.nativeToolSchemas === undefined, 'GroqSerializer no inyecta nativeToolSchemas');
 }
 
 // ── Test 3: Los tres niveles producen prompts v├ílidos con herramientas ──────
@@ -125,11 +126,7 @@ function testAllLevelsProduceValidPrompts() {
   const serializer = new GroqSerializer();
 
   const levels = ['high', 'medium', 'none'];
-  const messages = [
-    'ejecuta un ls -la',
-    'podrías listar los archivos',
-    'hola cómo estás',
-  ];
+  const messages = ['ejecuta un ls -la', 'podrías listar los archivos', 'hola cómo estás'];
 
   for (let i = 0; i < levels.length; i++) {
     const level = levels[i];
@@ -142,22 +139,21 @@ function testAllLevelsProduceValidPrompts() {
       persistentMemory: null,
       sessionHistory: [],
       currentMessage: { role: 'user', content: msg },
-      toolIntent: isDetected ? {
-        detected: true,
-        action: 'run_command',
-        tool: 'exec',
-        confidence: level === 'high' ? 0.85 : 0.70,
-        level,
-        description: 'test',
-      } : null,
+      toolIntent: isDetected
+        ? {
+            detected: true,
+            action: 'run_command',
+            tool: 'exec',
+            confidence: level === 'high' ? 0.85 : 0.7,
+            level,
+            description: 'test',
+          }
+        : null,
     });
 
-    assert(result.systemPrompt.length > 0,
-      `Nivel "${level}": systemPrompt no vacío`);
-    assert(result.messages.length === 1,
-      `Nivel "${level}": exactamente 1 mensaje`);
-    assert(typeof result.systemPrompt === 'string',
-      `Nivel "${level}": systemPrompt es string`);
+    assert(result.systemPrompt.length > 0, `Nivel "${level}": systemPrompt no vacío`);
+    assert(result.messages.length === 1, `Nivel "${level}": exactamente 1 mensaje`);
+    assert(typeof result.systemPrompt === 'string', `Nivel "${level}": systemPrompt es string`);
   }
 }
 
@@ -176,9 +172,13 @@ const total = passed + failed + skipped;
 const color = failed === 0 ? C.green : C.red;
 const skipNote = skipped > 0 ? `  ${C.yellow(`${skipped} skipped`)}` : '';
 if (failed === 0) {
-  console.log(`  ${color('Resultado')}: ${color(`${passed} passed`)}  ${C.dim(`0 failed`)}${skipNote}  / ${total} total`);
+  console.log(
+    `  ${color('Resultado')}: ${color(`${passed} passed`)}  ${C.dim(`0 failed`)}${skipNote}  / ${total} total`
+  );
 } else {
-  console.log(`  Resultado: ${C.green(`${passed} passed`)}  ${C.red(`${failed} failed`)}${skipNote}  / ${total} total`);
+  console.log(
+    `  Resultado: ${C.green(`${passed} passed`)}  ${C.red(`${failed} failed`)}${skipNote}  / ${total} total`
+  );
 }
 console.log(C.bold('════════════════════════════════════════════════════════'));
 

@@ -103,8 +103,10 @@ function get(name) {
 
 function getAll() {
   if (!_active) _init();
-  return [...agents.values()].map(a => ({
-    name: a.name, label: a.label, description: a.description,
+  return [...agents.values()].map((a) => ({
+    name: a.name,
+    label: a.label,
+    description: a.description,
   }));
 }
 

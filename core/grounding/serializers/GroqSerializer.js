@@ -38,7 +38,7 @@
 
 'use strict';
 
-const fs   = require('fs');
+const fs = require('fs');
 const path = require('path');
 
 // Presupuesto de caracteres para el historial de sesión en el contexto del
@@ -105,7 +105,7 @@ const IDENTITY_PATH = path.join(__dirname, '../../identity/identity.json');
 /** @type {string | null} */
 let _serializedIdentity = null; // cache de la sección ya formateada
 /** @type {Identity | null} */
-let _identityRawCache   = null;
+let _identityRawCache = null;
 
 function _getIdentity() {
   if (_identityRawCache) return _identityRawCache;
@@ -155,7 +155,8 @@ Si NO se menciona ninguna carpeta especial, usa una ruta relativa normal (se res
 // ── Formato de tool intent por level ─────────────────────────────────────────
 const TOOL_INSTRUCTIONS = {
   // El LLM DEBE usar el formato estructurado
-  high: (/** @type {{ action: string, confidence: number, tool?: string }} */ intent) => `
+  high: (/** @type {{ action: string, confidence: number, tool?: string }} */ intent) =>
+    `
 ## INTENCIÓN DE HERRAMIENTA DETECTADA (alta confianza: ${(intent.confidence * 100).toFixed(0)}%)
 
 El usuario quiere ejecutar una acción en el sistema: **${intent.action}**
@@ -176,7 +177,8 @@ seguro de si el usuario quiere ejecutar algo de verdad, pregunta.
 `.trim(),
 
   // El LLM DEBERÍA usar el formato estructurado si confirma la intención
-  medium: (/** @type {{ action: string, confidence: number, tool?: string }} */ intent) => `
+  medium: (/** @type {{ action: string, confidence: number, tool?: string }} */ intent) =>
+    `
 ## POSIBLE INTENCIÓN DE HERRAMIENTA (confianza media: ${(intent.confidence * 100).toFixed(0)}%)
 
 Es posible que el usuario quiera ejecutar: **${intent.action}**
@@ -204,25 +206,25 @@ function _buildFormatExample(action) {
   /** @type {Record<string, string>} */
   const examples = {
     // Acciones con path de archivo
-    create_file:      '```action\nACCIÓN: create_file | ARCHIVO: nombre-del-archivo.ext\n```',
-    edit_file:        '```action\nACCIÓN: edit_file | ARCHIVO: ruta/al/archivo.ext\n```',
-    read_file:        '```action\nACCIÓN: read_file | ARCHIVO: ruta/al/archivo.ext\n```',
-    delete_file:      '```action\nACCIÓN: delete_file | ARCHIVO: ruta/al/archivo.ext\n```',
+    create_file: '```action\nACCIÓN: create_file | ARCHIVO: nombre-del-archivo.ext\n```',
+    edit_file: '```action\nACCIÓN: edit_file | ARCHIVO: ruta/al/archivo.ext\n```',
+    read_file: '```action\nACCIÓN: read_file | ARCHIVO: ruta/al/archivo.ext\n```',
+    delete_file: '```action\nACCIÓN: delete_file | ARCHIVO: ruta/al/archivo.ext\n```',
     create_directory: '```action\nACCIÓN: create_directory | RUTA: nombre-carpeta\n```',
-    list_directory:   '```action\nACCIÓN: list_directory | RUTA: . (o la ruta específica)\n```',
+    list_directory: '```action\nACCIÓN: list_directory | RUTA: . (o la ruta específica)\n```',
 
     // Acciones con comando
-    run_command:      '```action\nACCIÓN: run_command | COMANDO: el-comando-aquí\n```',
-    run_script:       '```action\nACCIÓN: run_script | COMANDO: python script.py\n```',
-    git_action:       '```action\nACCIÓN: git_action | COMANDO: git commit -m "mensaje"\n```',
-    install_package:  '```action\nACCIÓN: install_package | COMANDO: npm install paquete\n```',
+    run_command: '```action\nACCIÓN: run_command | COMANDO: el-comando-aquí\n```',
+    run_script: '```action\nACCIÓN: run_script | COMANDO: python script.py\n```',
+    git_action: '```action\nACCIÓN: git_action | COMANDO: git commit -m "mensaje"\n```',
+    install_package: '```action\nACCIÓN: install_package | COMANDO: npm install paquete\n```',
 
     // Acciones con query
-    web_search:       '```action\nACCIÓN: web_search | QUERY: lo que se busca\n```',
+    web_search: '```action\nACCIÓN: web_search | QUERY: lo que se busca\n```',
     navigate_browser: '```action\nACCIÓN: navigate_browser | URL: https://ejemplo.com\n```',
 
     // Fallback genérico
-    default:          '```action\nACCIÓN: <acción>\n```',
+    default: '```action\nACCIÓN: <acción>\n```',
   };
 
   return examples[action] ?? examples.default;
@@ -238,8 +240,11 @@ function _buildFormatExample(action) {
 /** @param {Identity} identity */
 function _buildIdentitySection(identity) {
   const lines = ['# Identidad'];
-  if (identity.name) lines.push(`Te llamas ${identity.name}.`);  lines.push(identity.core || 'Soy tu asistente personal.');
-  lines.push('Cuando te pregunten quién eres, respóndelo con tus propias palabras, en tu voz habitual (breve y con carácter), no recites esta definición literalmente.');
+  if (identity.name) lines.push(`Te llamas ${identity.name}.`);
+  lines.push(identity.core || 'Soy tu asistente personal.');
+  lines.push(
+    'Cuando te pregunten quién eres, respóndelo con tus propias palabras, en tu voz habitual (breve y con carácter), no recites esta definición literalmente.'
+  );
 
   lines.push('', '## Capacidades reales');
   lines.push(
@@ -251,35 +256,39 @@ function _buildIdentitySection(identity) {
     '- Detectar errores de código (LSP) y proponer arreglos.',
     '- Recordar conversaciones pasadas (memoria persistente).',
     '- Conectar herramientas externas (servidores MCP).',
-    '- Hablar por voz y expresar emociones con el avatar.',
+    '- Hablar por voz y expresar emociones con el avatar.'
   );
   lines.push(
     'NUNCA digas que no puedes hacer algo que en realidad sí puedes (leer archivos, ejecutar comandos, git, buscar en internet). ' +
-    'Si no estás segura de poder hacer algo, ofrece intentarlo. ' +
-    'Nunca te describas como "una herramienta" ni uses disclaimers genéricos de asistente de IA; eres una asistente con voz y criterio propios. ' +
-    'No inventes expansiones de siglas: si no estás segura de qué significa una sigla (MCP, LSP, etc.), escribe solo la sigla. ' +
-    'Al listar debilidades, menciona solo limitaciones reales y concretas de tu entorno (no ideas vagas e inventadas como "no entiendo la concurrencia").'
+      'Si no estás segura de poder hacer algo, ofrece intentarlo. ' +
+      'Nunca te describas como "una herramienta" ni uses disclaimers genéricos de asistente de IA; eres una asistente con voz y criterio propios. ' +
+      'No inventes expansiones de siglas: si no estás segura de qué significa una sigla (MCP, LSP, etc.), escribe solo la sigla. ' +
+      'Al listar debilidades, menciona solo limitaciones reales y concretas de tu entorno (no ideas vagas e inventadas como "no entiendo la concurrencia").'
   );
 
   const char = identity.character;
   if (char) {
     if (char.summary) lines.push('', '## Personalidad', char.summary);
     if (char.traits?.length) {
-      lines.push('', '### Rasgos', ...char.traits.map(t => `- ${t}`));
+      lines.push('', '### Rasgos', ...char.traits.map((t) => `- ${t}`));
     }
     if (char.dislikes?.length) {
-      lines.push('', '### Lo que me disgusta', ...char.dislikes.map(d => `- ${d}`));
+      lines.push('', '### Lo que me disgusta', ...char.dislikes.map((d) => `- ${d}`));
     }
   }
 
   const voice = identity.voice;
   if (voice) {
     lines.push('', '## Cómo hablo');
-    if (voice.style)     lines.push(voice.style);
-    if (voice.rhythm)    lines.push(voice.rhythm);
+    if (voice.style) lines.push(voice.style);
+    if (voice.rhythm) lines.push(voice.rhythm);
     if (voice.formality) lines.push(voice.formality);
     if (voice.forbidden_phrases?.length) {
-      lines.push('', '### Nunca digo cosas como', voice.forbidden_phrases.map(p => `"${p}"`).join(', '));
+      lines.push(
+        '',
+        '### Nunca digo cosas como',
+        voice.forbidden_phrases.map((p) => `"${p}"`).join(', ')
+      );
     }
   }
 
@@ -302,7 +311,9 @@ function _buildIdentitySection(identity) {
 
   const ctx = identity.context_awareness;
   if (ctx) {
-    const bits = [ctx.time, ctx.session, ctx.system].filter((/** @type {string | undefined} */ b) => b);
+    const bits = [ctx.time, ctx.session, ctx.system].filter(
+      (/** @type {string | undefined} */ b) => b
+    );
     if (bits.length) lines.push('', '## Conciencia de contexto', .../** @type {string[]} */ (bits));
   }
 
@@ -313,7 +324,9 @@ function _buildIdentitySection(identity) {
   }
 
   lines.push('', '## Formato de respuesta');
-  lines.push('Puedes usar **Markdown** para dar formato a tus mensajes: negrita, cursiva, listas, tablas, bloques de código, etc.');
+  lines.push(
+    'Puedes usar **Markdown** para dar formato a tus mensajes: negrita, cursiva, listas, tablas, bloques de código, etc.'
+  );
   lines.push('Si necesitas mostrar un diagrama, usa bloques de código mermaid:');
   lines.push('```mermaid');
   lines.push('graph TD;');
@@ -335,7 +348,7 @@ function _buildOSSection(osContext) {
   if (osContext.friendlyName) {
     let appLine = `El usuario está usando **${osContext.friendlyName}**`;
     if (osContext.elapsedFormatted) appLine += ` (hace ${osContext.elapsedFormatted})`;
-    if (osContext.title)            appLine += ` — ventana: "${osContext.title}"`;
+    if (osContext.title) appLine += ` — ventana: "${osContext.title}"`;
     lines.push(appLine + '.');
   }
 
@@ -351,7 +364,10 @@ function _buildOSSection(osContext) {
     lines.push('', '### Actividad de hoy', osContext.todaySummary);
   }
 
-  lines.push('', 'NOTA: Esta información del contexto del sistema ES la respuesta a preguntas como "¿qué tengo abierto?" o "¿qué estás viendo?". No necesitas usar herramientas (MCP, OpenClaw, etc.) para averiguarlo — los datos ya están aquí.');
+  lines.push(
+    '',
+    'NOTA: Esta información del contexto del sistema ES la respuesta a preguntas como "¿qué tengo abierto?" o "¿qué estás viendo?". No necesitas usar herramientas (MCP, OpenClaw, etc.) para averiguarlo — los datos ya están aquí.'
+  );
 
   return lines.join('\n');
 }
@@ -382,16 +398,16 @@ function _buildMemorySection(persistentMemory) {
   const episodes = persistentMemory.episodes;
   if (episodes && episodes.length > 0) {
     // Filtrar episodios sin resumen: solo los que tienen contenido útil
-    const withContent = episodes.filter(ep => {
+    const withContent = episodes.filter((ep) => {
       const c = (ep.content || '').trim();
-      return c.length > 15 && !c.endsWith('null"') && !c.endsWith('null') && !/^\[.+\]\s*null/.test(c);
+      return (
+        c.length > 15 && !c.endsWith('null"') && !c.endsWith('null') && !/^\[.+\]\s*null/.test(c)
+      );
     });
     if (withContent.length > 0) {
       parts.push('', '## Episodios recientes relevantes');
       for (const ep of withContent.slice(0, 3)) {
-        const when = ep.created_at
-          ? new Date(ep.created_at).toLocaleDateString('es-MX')
-          : 'antes';
+        const when = ep.created_at ? new Date(ep.created_at).toLocaleDateString('es-MX') : 'antes';
         const preview = (ep.content || '').slice(0, 200);
         parts.push(`- [${when}] ${preview}`);
       }
@@ -446,12 +462,12 @@ class GroqSerializer {
    */
   serialize(contextPackage) {
     const {
-      identity        = null,
-      osContext       = null,
+      identity = null,
+      osContext = null,
       persistentMemory = null,
-      sessionHistory  = [],
-      currentMessage  = null,
-      toolIntent      = null,   // ← nuevo en Fase 3
+      sessionHistory = [],
+      currentMessage = null,
+      toolIntent = null, // ← nuevo en Fase 3
     } = contextPackage;
 
     // Construir secciones del system prompt
@@ -461,7 +477,7 @@ class GroqSerializer {
       _getSerializedIdentity(),
       _buildOSSection(osContext),
       _buildMemorySection(persistentMemory),
-      _buildToolIntentSection(toolIntent),   // ← inyección Fase 3
+      _buildToolIntentSection(toolIntent), // ← inyección Fase 3
     ].filter(Boolean);
 
     // NOTA: el truncado a MAX_SYSTEM_CHARS ya NO pasa aquí — se movió a
@@ -497,7 +513,10 @@ class GroqSerializer {
 
     if (overflow.length > 0) {
       const summaryText = overflow
-        .map(t => `${t.role === 'user' ? 'Usuario' : 'Asistente'}: ${String(t.content || '').replace(/\s+/g, ' ')}`)
+        .map(
+          (t) =>
+            `${t.role === 'user' ? 'Usuario' : 'Asistente'}: ${String(t.content || '').replace(/\s+/g, ' ')}`
+        )
         .join('\n');
       const cap = MAX_HISTORY_CHARS;
       messages.push({
@@ -516,7 +535,7 @@ class GroqSerializer {
     // Mensaje actual del usuario
     if (currentMessage?.content) {
       messages.push({
-        role:    currentMessage.role || 'user',
+        role: currentMessage.role || 'user',
         content: String(currentMessage.content),
       });
     }

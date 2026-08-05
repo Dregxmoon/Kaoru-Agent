@@ -89,17 +89,13 @@ async function loadDeps() {
   try {
     Database = require('better-sqlite3');
   } catch {
-    throw new Error(
-      'better-sqlite3 no encontrado. Instálalo con:\n  npm install better-sqlite3'
-    );
+    throw new Error('better-sqlite3 no encontrado. Instálalo con:\n  npm install better-sqlite3');
   }
 
   try {
     sqliteVec = require('sqlite-vec');
   } catch {
-    throw new Error(
-      'sqlite-vec no encontrado. Instálalo con:\n  npm install sqlite-vec'
-    );
+    throw new Error('sqlite-vec no encontrado. Instálalo con:\n  npm install sqlite-vec');
   }
 
   await loadPipeline();
@@ -114,24 +110,30 @@ async function loadPipeline() {
     pipeline = transformers.pipeline;
   } catch (e) {
     throw new Error(
-      '@xenova/transformers no encontrado o falló al cargar. Instálalo con:\n  npm install @xenova/transformers\n  (' + e.message + ')'
+      '@xenova/transformers no encontrado o falló al cargar. Instálalo con:\n  npm install @xenova/transformers\n  (' +
+        e.message +
+        ')'
     );
   }
   if (typeof pipeline !== 'function') {
-    throw new Error('@xenova/transformers se cargó pero "pipeline" no es una función. Revisa la versión instalada del paquete.');
+    throw new Error(
+      '@xenova/transformers se cargó pero "pipeline" no es una función. Revisa la versión instalada del paquete.'
+    );
   }
   return pipeline;
 }
 
 // ── Rutas ─────────────────────────────────────────────────────────────────────
 const path = require('path');
-const fs   = require('fs');
+const fs = require('fs');
 
-const DB_PATH = process.argv.find(a => a.startsWith('--db='))?.slice(5)
-  ?? path.join(__dirname, '../../data/core.db');
+const DB_PATH =
+  process.argv.find((a) => a.startsWith('--db='))?.slice(5) ??
+  path.join(__dirname, '../../data/core.db');
 
-const CUSTOM_CATALOG_PATH = process.argv.find(a => a.startsWith('--custom='))?.slice('--custom='.length)
-  ?? path.join(__dirname, 'intents.custom.json');
+const CUSTOM_CATALOG_PATH =
+  process.argv.find((a) => a.startsWith('--custom='))?.slice('--custom='.length) ??
+  path.join(__dirname, 'intents.custom.json');
 
 // ── Catálogo incorporado de intenciones ───────────────────────────────────────
 //
@@ -475,16 +477,20 @@ const BUILTIN_INTENT_CATALOG = [
 function _loadCustomCatalog(customPath = CUSTOM_CATALOG_PATH) {
   try {
     if (!fs.existsSync(customPath)) return [];
-    const raw    = fs.readFileSync(customPath, 'utf-8');
+    const raw = fs.readFileSync(customPath, 'utf-8');
     const parsed = JSON.parse(raw);
     if (!Array.isArray(parsed)) {
       console.warn(`[init-vectors] ${customPath} no es un array — se ignora.`);
       return [];
     }
-    console.log(`[init-vectors] catálogo personalizado cargado: ${customPath} (${parsed.length} entradas)`);
+    console.log(
+      `[init-vectors] catálogo personalizado cargado: ${customPath} (${parsed.length} entradas)`
+    );
     return parsed;
   } catch (e) {
-    console.warn(`[init-vectors] error leyendo catálogo personalizado (${customPath}): ${e.message}`);
+    console.warn(
+      `[init-vectors] error leyendo catálogo personalizado (${customPath}): ${e.message}`
+    );
     return [];
   }
 }
@@ -516,19 +522,19 @@ function _mergeCatalogs(base, extra) {
       if (intent.description) existing.description = intent.description;
     } else {
       byAction.set(intent.action, {
-        action:      intent.action,
-        tool:        intent.tool ?? null,
+        action: intent.action,
+        tool: intent.tool ?? null,
         description: intent.description || intent.action,
-        phrases:     [...intent.phrases],
+        phrases: [...intent.phrases],
       });
     }
   }
   for (const intent of byAction.values()) {
     const seen = new Set();
     intent.phrases = intent.phrases
-      .map(p => (p || '').trim())
-      .filter(p => p.length > 0)
-      .filter(p => {
+      .map((p) => (p || '').trim())
+      .filter((p) => p.length > 0)
+      .filter((p) => {
         const key = p.toLowerCase();
         if (seen.has(key)) return false;
         seen.add(key);
@@ -566,7 +572,9 @@ async function getEmbedder() {
   _embedder = await pipeline('feature-extraction', 'Xenova/all-MiniLM-L6-v2', {
     progress_callback: (info) => {
       if (info.status === 'downloading') {
-        process.stdout.write(`\r[init-vectors] Descargando modelo: ${Math.round(info.progress ?? 0)}%`);
+        process.stdout.write(
+          `\r[init-vectors] Descargando modelo: ${Math.round(info.progress ?? 0)}%`
+        );
       }
       if (info.status === 'done') {
         process.stdout.write('\n');
@@ -611,13 +619,16 @@ async function embed(text) {
         return await IntentDetector.embedText(text);
       }
     } catch (e) {
-      console.warn('[init-vectors] no se pudo reusar el embedder de IntentDetector.js, usando pipeline propio:', e.message);
+      console.warn(
+        '[init-vectors] no se pudo reusar el embedder de IntentDetector.js, usando pipeline propio:',
+        e.message
+      );
     }
     _useSharedEmbedder = false;
   }
 
   const embedder = await getEmbedder();
-  const output   = await embedder(text, { pooling: 'mean', normalize: true });
+  const output = await embedder(text, { pooling: 'mean', normalize: true });
   return output.data;
 }
 
@@ -726,15 +737,15 @@ async function populateCatalog(db, catalog = INTENT_CATALOG) {
 
   for (const intent of catalog) {
     const allPhrases = [intent.description, ...intent.phrases]
-      .map(p => (p || '').trim())
+      .map((p) => (p || '').trim())
       .filter(Boolean);
 
     for (const phrase of allPhrases) {
       process.stdout.write(`\r[init-vectors] Vectorizando: "${phrase.slice(0, 50)}..."    `);
 
       const info = insertMeta.run({
-        action:      intent.action,
-        tool:        intent.tool ?? null,
+        action: intent.action,
+        tool: intent.tool ?? null,
         description: intent.description,
         phrase,
       });
@@ -754,7 +765,9 @@ async function populateCatalog(db, catalog = INTENT_CATALOG) {
   }
 
   process.stdout.write('\n');
-  console.log(`[init-vectors] ${totalPhrases} frases vectorizadas (${totalSkipped} ya existían) para ${catalog.length} intenciones.`);
+  console.log(
+    `[init-vectors] ${totalPhrases} frases vectorizadas (${totalSkipped} ya existían) para ${catalog.length} intenciones.`
+  );
   return { inserted: totalPhrases, skipped: totalSkipped, actions: catalog.length };
 }
 
@@ -779,7 +792,9 @@ async function populateDatabase(db, { catalog = INTENT_CATALOG, force = false } 
 
   if (hasData(db) && !force) {
     const count = db.prepare('SELECT COUNT(*) as n FROM intent_catalog').get().n;
-    console.log(`[init-vectors] Ya existen ${count} frases en el catálogo. Usa force:true para repoblar.`);
+    console.log(
+      `[init-vectors] Ya existen ${count} frases en el catálogo. Usa force:true para repoblar.`
+    );
     return { populated: false, existing: count };
   }
 
@@ -814,13 +829,17 @@ async function addPhrase(db, action, phrase, opts = {}) {
     .prepare('SELECT description, tool FROM intent_catalog WHERE action = ? LIMIT 1')
     .get(action);
 
-  const tool        = opts.tool !== undefined ? opts.tool : (existingForAction?.tool ?? null);
-  const description  = opts.description || existingForAction?.description || action;
+  const tool = opts.tool !== undefined ? opts.tool : (existingForAction?.tool ?? null);
+  const description = opts.description || existingForAction?.description || action;
 
-  const info = db.prepare(`
+  const info = db
+    .prepare(
+      `
     INSERT OR IGNORE INTO intent_catalog (action, tool, description, phrase)
     VALUES (?, ?, ?, ?)
-  `).run(action, tool, description, clean);
+  `
+    )
+    .run(action, tool, description, clean);
 
   if (info.changes === 0) {
     console.log(`[init-vectors] la frase ya existía para "${action}" — no se agregó de nuevo.`);
@@ -828,8 +847,10 @@ async function addPhrase(db, action, phrase, opts = {}) {
   }
 
   const vector = await embed(clean);
-  db.prepare(`INSERT INTO intent_vectors (rowid, embedding) VALUES (?, ?)`)
-    .run(BigInt(info.lastInsertRowid), float32ToBuffer(vector));
+  db.prepare(`INSERT INTO intent_vectors (rowid, embedding) VALUES (?, ?)`).run(
+    BigInt(info.lastInsertRowid),
+    float32ToBuffer(vector)
+  );
 
   console.log(`[init-vectors] + frase agregada a "${action}": "${clean}"`);
   return { added: true };
@@ -853,7 +874,7 @@ function verifyIntegrity(db) {
   if (!ok) {
     console.warn(
       `[init-vectors] ⚠ DESINCRONIZADO: intent_catalog tiene ${catalogCount} filas, ` +
-      `intent_vectors tiene ${vectorsCount}. Corre con --force para repoblar desde cero.`
+        `intent_vectors tiene ${vectorsCount}. Corre con --force para repoblar desde cero.`
     );
   } else {
     console.log(`[init-vectors] ✓ Integridad OK (${catalogCount} filas en ambas tablas).`);
@@ -866,12 +887,16 @@ function verifyIntegrity(db) {
  * notar a simple vista qué intenciones están sub-representadas.
  */
 function getStats(db) {
-  const rows = db.prepare(`
+  const rows = db
+    .prepare(
+      `
     SELECT action, tool, COUNT(*) AS phrases
     FROM intent_catalog
     GROUP BY action, tool
     ORDER BY action
-  `).all();
+  `
+    )
+    .all();
   const total = rows.reduce((sum, r) => sum + r.phrases, 0);
   return { totalPhrases: total, totalActions: rows.length, byAction: rows };
 }
@@ -884,16 +909,20 @@ function getStats(db) {
  */
 async function testDetect(db, query, topK = 5) {
   const vector = await embed(query);
-  const buf     = float32ToBuffer(vector);
+  const buf = float32ToBuffer(vector);
 
-  const rows = db.prepare(`
+  const rows = db
+    .prepare(
+      `
     SELECT ic.action, ic.tool, ic.phrase, iv.distance
     FROM intent_vectors iv
     JOIN intent_catalog ic ON ic.id = iv.rowid
     WHERE iv.embedding MATCH ?
       AND k = ?
     ORDER BY iv.distance
-  `).all(buf, topK);
+  `
+    )
+    .all(buf, topK);
 
   return rows;
 }
@@ -901,11 +930,11 @@ async function testDetect(db, query, topK = 5) {
 // ── Entry point (CLI) ──────────────────────────────────────────────────────────
 
 async function main() {
-  const force    = process.argv.includes('--force');
+  const force = process.argv.includes('--force');
   const doVerify = process.argv.includes('--verify');
-  const doStats  = process.argv.includes('--stats');
-  const testArg  = process.argv.find(a => a.startsWith('--test='));
-  const addArg   = process.argv.find(a => a.startsWith('--add-phrase='));
+  const doStats = process.argv.includes('--stats');
+  const testArg = process.argv.find((a) => a.startsWith('--test='));
+  const addArg = process.argv.find((a) => a.startsWith('--add-phrase='));
 
   console.log('[init-vectors] Iniciando...');
   console.log(`[init-vectors] Base de datos: ${DB_PATH}`);
@@ -921,19 +950,25 @@ async function main() {
 
   if (doStats) {
     const stats = getStats(db);
-    console.log(`\n[init-vectors] === Cobertura (${stats.totalActions} acciones, ${stats.totalPhrases} frases) ===`);
+    console.log(
+      `\n[init-vectors] === Cobertura (${stats.totalActions} acciones, ${stats.totalPhrases} frases) ===`
+    );
     for (const row of stats.byAction) {
-      console.log(`  ${row.action.padEnd(20)} tool=${String(row.tool).padEnd(16)} ${row.phrases} frases`);
+      console.log(
+        `  ${row.action.padEnd(20)} tool=${String(row.tool).padEnd(16)} ${row.phrases} frases`
+      );
     }
   }
 
   if (testArg) {
-    const query   = testArg.slice('--test='.length);
+    const query = testArg.slice('--test='.length);
     const results = await testDetect(db, query);
     console.log(`\n[init-vectors] === Resultados para "${query}" ===`);
     results.forEach((r, i) => {
       const sim = Math.max(0, 1 - (r.distance * r.distance) / 2);
-      console.log(`  ${i + 1}. [${r.action}] "${r.phrase}"  (distancia: ${r.distance.toFixed(4)}, sim: ${sim.toFixed(4)})`);
+      console.log(
+        `  ${i + 1}. [${r.action}] "${r.phrase}"  (distancia: ${r.distance.toFixed(4)}, sim: ${sim.toFixed(4)})`
+      );
     });
   }
 

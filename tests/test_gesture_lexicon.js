@@ -1,12 +1,12 @@
 'use strict';
 
 const C = {
-  green:  (s) => `\x1b[32m${s}\x1b[0m`,
-  red:    (s) => `\x1b[31m${s}\x1b[0m`,
+  green: (s) => `\x1b[32m${s}\x1b[0m`,
+  red: (s) => `\x1b[31m${s}\x1b[0m`,
   yellow: (s) => `\x1b[33m${s}\x1b[0m`,
-  cyan:   (s) => `\x1b[36m${s}\x1b[0m`,
-  bold:   (s) => `\x1b[1m${s}\x1b[0m`,
-  dim:    (s) => `\x1b[2m${s}\x1b[0m`,
+  cyan: (s) => `\x1b[36m${s}\x1b[0m`,
+  bold: (s) => `\x1b[1m${s}\x1b[0m`,
+  dim: (s) => `\x1b[2m${s}\x1b[0m`,
 };
 
 let passed = 0;
@@ -27,16 +27,39 @@ const Lexicon = require('../core/behavior/GestureLexicon.js');
 
 // ── Test 1: moods canónicos ─────────────────────────────────────────────────
 console.log(C.bold('\n── Test 1: moods canónicos ──────────────────────────────'));
-for (const m of ['happy', 'excited', 'sad', 'tired', 'gentle', 'default', 'angry', 'surprised', 'shy', 'think']) {
+for (const m of [
+  'happy',
+  'excited',
+  'sad',
+  'tired',
+  'gentle',
+  'default',
+  'angry',
+  'surprised',
+  'shy',
+  'think',
+]) {
   assert(Lexicon.MOODS.includes(m), `MOODS incluye ${m}`);
 }
-assert(Lexicon.MOODS.includes('wave') && Lexicon.MOODS.includes('dance') && Lexicon.MOODS.includes('wink'),
-  'MOODS incluye acciones (wave/dance/wink)');
+assert(
+  Lexicon.MOODS.includes('wave') &&
+    Lexicon.MOODS.includes('dance') &&
+    Lexicon.MOODS.includes('wink'),
+  'MOODS incluye acciones (wave/dance/wink)'
+);
 
 // ── Test 2: normalización ────────────────────────────────────────────────────
 console.log(C.bold('\n── Test 2: normalización ──────────────────────────────────'));
-assert(Lexicon.normalizeToken('  Angry!  ') === 'angry!', 'normalizeToken: minúsculas + trim', Lexicon.normalizeToken('  Angry!  '));
-assert(Lexicon.normalizeToken('Leek_Spin-Animation') === 'leek spin animation', 'normalizeToken: separadores', Lexicon.normalizeToken('Leek_Spin-Animation'));
+assert(
+  Lexicon.normalizeToken('  Angry!  ') === 'angry!',
+  'normalizeToken: minúsculas + trim',
+  Lexicon.normalizeToken('  Angry!  ')
+);
+assert(
+  Lexicon.normalizeToken('Leek_Spin-Animation') === 'leek spin animation',
+  'normalizeToken: separadores',
+  Lexicon.normalizeToken('Leek_Spin-Animation')
+);
 assert(Lexicon.normalizeToken(' 哭 ') === '哭', 'normalizeToken: conserva CJK');
 
 // ── Test 3: tokens por mood (multilingüe) ────────────────────────────────────
@@ -54,7 +77,11 @@ console.log(C.bold('\n── Test 4: índice inverso ─────────
 const cryMoods = Lexicon.moodOfToken('哭');
 assert(cryMoods.includes('cry'), 'moodOfToken(哭) → incluye cry', JSON.stringify(cryMoods));
 const felizMoods = Lexicon.moodOfToken('feliz');
-assert(felizMoods.includes('happy'), 'moodOfToken(feliz) → incluye happy', JSON.stringify(felizMoods));
+assert(
+  felizMoods.includes('happy'),
+  'moodOfToken(feliz) → incluye happy',
+  JSON.stringify(felizMoods)
+);
 
 // ── Test 5: ruido ────────────────────────────────────────────────────────────
 console.log(C.bold('\n── Test 5: ruido ───────────────────────────────────────────'));

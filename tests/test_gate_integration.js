@@ -14,16 +14,16 @@
  */
 
 const { ProactiveEngine } = require('../core/behavior/ProactiveEngine.js');
-const LLMProvider         = require('../core/llm/LLMProvider.js');
-const { getEventBus }     = require('../infrastructure/event-bus/EventBus.js');
-const { normalize }       = require('../core/decision/SignalNormalizer.js');
+const LLMProvider = require('../core/llm/LLMProvider.js');
+const { getEventBus } = require('../infrastructure/event-bus/EventBus.js');
+const { normalize } = require('../core/decision/SignalNormalizer.js');
 
 const C = {
   green: (s) => `\x1b[32m${s}\x1b[0m`,
-  red:   (s) => `\x1b[31m${s}\x1b[0m`,
-  cyan:  (s) => `\x1b[36m${s}\x1b[0m`,
-  bold:  (s) => `\x1b[1m${s}\x1b[0m`,
-  dim:   (s) => `\x1b[2m${s}\x1b[0m`,
+  red: (s) => `\x1b[31m${s}\x1b[0m`,
+  cyan: (s) => `\x1b[36m${s}\x1b[0m`,
+  bold: (s) => `\x1b[1m${s}\x1b[0m`,
+  dim: (s) => `\x1b[2m${s}\x1b[0m`,
 };
 
 let passed = 0;
@@ -46,7 +46,7 @@ function fakeGraph() {
 function fakeSensor(ctx) {
   return {
     getCurrentContext: () => ctx || { category: null, elapsed: 0, idleSecs: 0 },
-    getTodaySummary:   () => '',
+    getTodaySummary: () => '',
   };
 }
 
@@ -69,19 +69,31 @@ async function testGateBeforeLLM() {
   // 1a. Señal de baja relevancia (uncommitted con pocos archivos) → DROP
   //     determinista. El LLM NO se consulta.
   let llmCalls = 0;
-  let restore = stubLLM({ complete: async () => { llmCalls++; return '¿qué tal?'; } });
+  let restore = stubLLM({
+    complete: async () => {
+      llmCalls++;
+      return '¿qué tal?';
+    },
+  });
   let engine = new ProactiveEngine(fakeGraph());
   engine.setOSSensor(fakeSensor());
   engine.start();
 
-  const res = await engine._tryTrigger({ type: 'git_redflag', kind: 'uncommitted', count: 2, context: 'Hay 2 archivos sin commitear.' });
+  const res = await engine._tryTrigger({
+    type: 'git_redflag',
+    kind: 'uncommitted',
+    count: 2,
+    context: 'Hay 2 archivos sin commitear.',
+  });
   assert(res && res.blocked, 'señal de baja relevancia → { blocked }');
   assert(llmCalls === 0, '…sin consultar al LLM', `llmCalls=${llmCalls}`);
   assert(res.gate && res.gate.verdict === 'DROP', 'verdict del gate = DROP', res.gate?.verdict);
   restore();
 
   // 1b. Señal crítica (.env expuesto) + buen momento → ACT → el LLM PRODUCE.
-  restore = stubLLM({ complete: async () => 'Ojo: tienes un .env sin ignorar y parece contener secretos.' });
+  restore = stubLLM({
+    complete: async () => 'Ojo: tienes un .env sin ignorar y parece contener secretos.',
+  });
   engine = new ProactiveEngine(fakeGraph());
   engine.setOSSensor(fakeSensor());
   engine.start();
@@ -91,12 +103,18 @@ async function testGateBeforeLLM() {
   getEventBus().on('initiative:trigger', listener);
 
   const msg = await engine._tryTrigger({
-    type: 'git_redflag', kind: 'env_unignored', file: '.env',
+    type: 'git_redflag',
+    kind: 'env_unignored',
+    file: '.env',
     context: 'El archivo .env existe y no está en .gitignore.',
   });
   getEventBus().off('initiative:trigger', listener);
 
-  assert(msg === 'Ojo: tienes un .env sin ignorar y parece contener secretos.', 'señal crítica → el LLM produce', `msg=${msg}`);
+  assert(
+    msg === 'Ojo: tienes un .env sin ignorar y parece contener secretos.',
+    'señal crítica → el LLM produce',
+    `msg=${msg}`
+  );
   assert(fired.length === 1, 'se emitió initiative:trigger');
   assert(fired[0].reason === 'git_redflag', 'payload.reason = git_redflag');
   restore();
@@ -106,7 +124,11 @@ async function testGateBeforeLLM() {
   assert(stats.total >= 1, 'audit registra la decisión', `total=${stats.total}`);
   assert(stats.byVerdict.ACT >= 1, '…incluye el ACT', `ACT=${stats.byVerdict.ACT}`);
   const actEntry = engine._audit.getEntries({ verdict: 'ACT' }).pop();
-  assert(actEntry.sensor === 'git:redflag' && Math.abs(actEntry.score - 0.735) < 1e-9, '…con score traceable', JSON.stringify({ s: actEntry.sensor, score: actEntry.score }));
+  assert(
+    actEntry.sensor === 'git:redflag' && Math.abs(actEntry.score - 0.735) < 1e-9,
+    '…con score traceable',
+    JSON.stringify({ s: actEntry.sensor, score: actEntry.score })
+  );
 }
 
 // ── Test 2: shadow mode ──────────────────────────────────────────────────────
@@ -115,14 +137,21 @@ async function testShadowMode() {
   console.log(C.bold('\nTest 2: shadow mode — correr sin molestar'));
 
   let llmCalls = 0;
-  const restore = stubLLM({ complete: async () => { llmCalls++; return 'mensaje'; } });
+  const restore = stubLLM({
+    complete: async () => {
+      llmCalls++;
+      return 'mensaje';
+    },
+  });
   const engine = new ProactiveEngine(fakeGraph(), { shadowMode: true });
   engine.setOSSensor(fakeSensor());
   engine.start();
 
   // .env expuesto es crítica: en modo normal sería ACT; en shadow NUNCA se envía.
   const res = await engine._tryTrigger({
-    type: 'git_redflag', kind: 'env_unignored', file: '.env',
+    type: 'git_redflag',
+    kind: 'env_unignored',
+    file: '.env',
     context: 'El archivo .env existe y no está en .gitignore.',
   });
 
@@ -142,7 +171,12 @@ async function testQueueDefer() {
   console.log(C.bold('\nTest 3: diferidos QUEUE se reintentan al volver de una pausa'));
 
   let llmCalls = 0;
-  const restore = stubLLM({ complete: async () => { llmCalls++; return '¿vas a commitear?'; } });
+  const restore = stubLLM({
+    complete: async () => {
+      llmCalls++;
+      return '¿vas a commitear?';
+    },
+  });
 
   // Chat abierto → la señal (media relevancia) va a QUEUE, no se consulta LLM.
   const engine = new ProactiveEngine(fakeGraph());
@@ -151,12 +185,18 @@ async function testQueueDefer() {
   engine.setChatOpen(true);
 
   const res = await engine._tryTrigger({
-    type: 'git_redflag', kind: 'merge_conflict', count: 3,
+    type: 'git_redflag',
+    kind: 'merge_conflict',
+    count: 3,
     context: 'Hay 3 archivos con conflicto de merge sin resolver.',
   });
 
   assert(res && res.blocked, 'chat abierto + señal media → { blocked }');
-  assert(res.gate && res.gate.verdict === 'QUEUE', '…el gate la difiere (QUEUE)', res.gate?.verdict);
+  assert(
+    res.gate && res.gate.verdict === 'QUEUE',
+    '…el gate la difiere (QUEUE)',
+    res.gate?.verdict
+  );
   assert(llmCalls === 0, '…sin consultar al LLM', `llmCalls=${llmCalls}`);
   assert(engine._queue.size() === 1, '…y queda en la cola', `size=${engine._queue.size()}`);
 
@@ -181,13 +221,21 @@ async function testReceptivity() {
   assert(engine._receptivity === 0, 'receptividad inicial = 0');
 
   engine.handleDecision({ proposalId: 'p1', type: 'git_redflag', decision: 'accepted' });
-  assert(engine._receptivity > 0, 'aceptar → receptividad sube', `rec=${engine._receptivity.toFixed(3)}`);
+  assert(
+    engine._receptivity > 0,
+    'aceptar → receptividad sube',
+    `rec=${engine._receptivity.toFixed(3)}`
+  );
 
   const recAfter = engine._receptivity;
   for (let i = 0; i < 5; i++) {
     engine.handleDecision({ proposalId: `p${i}`, type: 'git_redflag', decision: 'rejected' });
   }
-  assert(engine._receptivity < recAfter, 'rechazos seguidos → receptividad baja', `rec=${engine._receptivity.toFixed(3)}`);
+  assert(
+    engine._receptivity < recAfter,
+    'rechazos seguidos → receptividad baja',
+    `rec=${engine._receptivity.toFixed(3)}`
+  );
 
   const stats = engine._audit.getStats();
   assert((stats.byVerdict.ACT ?? 0) === 0, 'los outcomes van al audit (no al byVerdict)');
@@ -204,42 +252,89 @@ async function testTemporalTriggers() {
   // que el gate solo impone presupuesto y SLO (no chat/idle/flow). El flujo
   // observable NO cambia: el LLM sigue produciendo el mensaje.
   let llmCalls = 0;
-  let restore = stubLLM({ complete: async () => { llmCalls++; return 'Llevas 3 horas sin hablar: ¿quieres un respiro?'; } });
+  let restore = stubLLM({
+    complete: async () => {
+      llmCalls++;
+      return 'Llevas 3 horas sin hablar: ¿quieres un respiro?';
+    },
+  });
   let engine = new ProactiveEngine(fakeGraph());
   engine.start();
 
-  const res = await engine._tryTrigger({ type: 'long_silence', hours: 3, context: 'Llevan 3 horas sin hablar.' });
-  assert(res === 'Llevas 3 horas sin hablar: ¿quieres un respiro?', 'trigger temporal → el LLM produce igual que antes', `res=${res}`);
+  const res = await engine._tryTrigger({
+    type: 'long_silence',
+    hours: 3,
+    context: 'Llevan 3 horas sin hablar.',
+  });
+  assert(
+    res === 'Llevas 3 horas sin hablar: ¿quieres un respiro?',
+    'trigger temporal → el LLM produce igual que antes',
+    `res=${res}`
+  );
   assert(llmCalls === 1, '…el LLM fue consultado', `llmCalls=${llmCalls}`);
 
   // El gate le dio veredicto ACT self-gated y lo dejó auditable.
   const audit = engine._audit.getEntries({ limit: 5 });
-  const temporalEntry = audit.find(e => e.type === 'long_silence');
-  assert(temporalEntry && temporalEntry.verdict === 'ACT', '…el audit registra el trigger temporal con veredicto ACT');
-  assert(temporalEntry && temporalEntry.reason === 'GATE3_ACT_SELF_GATED', '…con reason SELF_GATED (gate que no re-valida momento)', temporalEntry?.reason);
-  assert(temporalEntry && typeof temporalEntry.score === 'number', '…con score traceable (ROADMAP: cada mensaje con score)');
+  const temporalEntry = audit.find((e) => e.type === 'long_silence');
+  assert(
+    temporalEntry && temporalEntry.verdict === 'ACT',
+    '…el audit registra el trigger temporal con veredicto ACT'
+  );
+  assert(
+    temporalEntry && temporalEntry.reason === 'GATE3_ACT_SELF_GATED',
+    '…con reason SELF_GATED (gate que no re-valida momento)',
+    temporalEntry?.reason
+  );
+  assert(
+    temporalEntry && typeof temporalEntry.score === 'number',
+    '…con score traceable (ROADMAP: cada mensaje con score)'
+  );
   restore();
 
   // G.1: en modo producción se filtra el relleno genérico (gate admitió, pero
   // "¿todo bien?" no es un mensaje con sustancia → no se emite nada).
-  restore = stubLLM({ complete: async () => { llmCalls++; return '¿todo bien?'; } });
+  restore = stubLLM({
+    complete: async () => {
+      llmCalls++;
+      return '¿todo bien?';
+    },
+  });
   engine = new ProactiveEngine(fakeGraph());
   engine.start();
   llmCalls = 0;
-  const filler = await engine._tryTrigger({ type: 'long_silence', hours: 3, context: 'Llevan 3 horas sin hablar.' });
+  const filler = await engine._tryTrigger({
+    type: 'long_silence',
+    hours: 3,
+    context: 'Llevan 3 horas sin hablar.',
+  });
   assert(filler === null, 'relleno "¿todo bien?" → null en modo producción', `filler=${filler}`);
   assert(llmCalls === 1, '…pero el LLM sí fue consultado', `llmCalls=${llmCalls}`);
   restore();
 
   // Presupuesto agotado → el gate DROP el temporal ANTES del LLM (silencio).
   llmCalls = 0;
-  restore = stubLLM({ complete: async () => { llmCalls++; return '¿todo bien?'; } });
-  engine = new ProactiveEngine(fakeGraph(), { store: { dailyCount: () => 99, getStats: () => ({ byType: {} }) } });
+  restore = stubLLM({
+    complete: async () => {
+      llmCalls++;
+      return '¿todo bien?';
+    },
+  });
+  engine = new ProactiveEngine(fakeGraph(), {
+    store: { dailyCount: () => 99, getStats: () => ({ byType: {} }) },
+  });
   engine.start();
 
-  const blocked = await engine._tryTrigger({ type: 'return_from_break', minutes: 20, context: 'Volvieron de una pausa.' });
+  const blocked = await engine._tryTrigger({
+    type: 'return_from_break',
+    minutes: 20,
+    context: 'Volvieron de una pausa.',
+  });
   assert(blocked && blocked.blocked, 'con presupuesto agotado → { blocked }');
-  assert(blocked.gate && blocked.gate.verdict === 'DROP', '…verdict = DROP (GATE2_DROP_BUDGET_EXHAUSTED)', blocked.gate?.verdict);
+  assert(
+    blocked.gate && blocked.gate.verdict === 'DROP',
+    '…verdict = DROP (GATE2_DROP_BUDGET_EXHAUSTED)',
+    blocked.gate?.verdict
+  );
   assert(llmCalls === 0, '…sin consultar al LLM', `llmCalls=${llmCalls}`);
   restore();
 }

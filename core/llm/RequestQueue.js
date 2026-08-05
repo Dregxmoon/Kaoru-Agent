@@ -15,10 +15,12 @@
 //   por defecto 30s → si el cooldown es más largo, el request se rechaza con
 //   el error de rate-limit y el caller hace fallback a otro provider).
 
-function _sleep(ms) { return new Promise((r) => setTimeout(r, ms)); }
+function _sleep(ms) {
+  return new Promise((r) => setTimeout(r, ms));
+}
 
 const RETRY_INTERVAL_RE = /(?:try again|retry) in (\d+(?:\.\d+)?)m(\d+(?:\.\d+)?)?s/i;
-const RETRY_SECONDS_RE  = /(?:try again|retry) in (\d+(?:\.\d+)?)s/i;
+const RETRY_SECONDS_RE = /(?:try again|retry) in (\d+(?:\.\d+)?)s/i;
 
 /** Parsea "Please try again in 3m20.5s" / "in 12s" (patrón Groq/OpenAI). */
 function parseRetryAfterMs(message = '') {
@@ -31,16 +33,20 @@ function parseRetryAfterMs(message = '') {
 class ProviderQueue {
   constructor(opts = {}) {
     this._concurrency = Math.max(1, opts.concurrency ?? 1);
-    this._queue = [];          // { id, priority, run, resolve, reject, maxWaitMs, enqueuedAt }
+    this._queue = []; // { id, priority, run, resolve, reject, maxWaitMs, enqueuedAt }
     this._active = 0;
-    this._cooldownUntil = 0;   // timestamp: nadie corre hasta que pase
+    this._cooldownUntil = 0; // timestamp: nadie corre hasta que pase
     this._lastRateLimitError = null;
     this._drainTimer = null;
     this._seq = 0;
     this._disabled = false;
     this._stats = {
-      total: 0, completed: 0, failed: 0,
-      rateLimited: 0, totalWaitMs: 0, execMs: 0,
+      total: 0,
+      completed: 0,
+      failed: 0,
+      rateLimited: 0,
+      totalWaitMs: 0,
+      execMs: 0,
     };
   }
 
@@ -64,7 +70,15 @@ class ProviderQueue {
 
   submit(run, { priority = 0, maxWaitMs = 30000 } = {}) {
     return new Promise((resolve, reject) => {
-      this._queue.push({ id: ++this._seq, priority, run, resolve, reject, maxWaitMs, enqueuedAt: Date.now() });
+      this._queue.push({
+        id: ++this._seq,
+        priority,
+        run,
+        resolve,
+        reject,
+        maxWaitMs,
+        enqueuedAt: Date.now(),
+      });
       this._reorder();
       this._drain();
     });

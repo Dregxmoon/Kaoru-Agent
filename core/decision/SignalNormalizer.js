@@ -28,33 +28,152 @@ const clamp = (v, lo = 0, hi = 1) => Math.max(lo, Math.min(hi, v));
 // `severity` se puede ajustar después según el payload (count, pct, focused...).
 const PROFILES = {
   git_redflag: {
-    env_unignored:   { severity: 0.9, actionability: 0.9, salience: 0.2, costOfIgnore: 1.0, urgencia: 0.85, confianza: 0.95 },
-    merge_conflict:  { severity: 0.8, actionability: 0.8, salience: 0.3, costOfIgnore: 0.7, urgencia: 0.75, confianza: 0.95 },
-    uncommitted:     { severity: 0.4, actionability: 0.6, salience: 0.2, costOfIgnore: 0.2, urgencia: 0.35, confianza: 0.9  },
-    unpushed_commits:{ severity: 0.5, actionability: 0.6, salience: 0.2, costOfIgnore: 0.3, urgencia: 0.45, confianza: 0.9  },
-    default:         { severity: 0.5, actionability: 0.5, salience: 0.2, costOfIgnore: 0.3, urgencia: 0.5,  confianza: 0.9  },
+    env_unignored: {
+      severity: 0.9,
+      actionability: 0.9,
+      salience: 0.2,
+      costOfIgnore: 1.0,
+      urgencia: 0.85,
+      confianza: 0.95,
+    },
+    merge_conflict: {
+      severity: 0.8,
+      actionability: 0.8,
+      salience: 0.3,
+      costOfIgnore: 0.7,
+      urgencia: 0.75,
+      confianza: 0.95,
+    },
+    uncommitted: {
+      severity: 0.4,
+      actionability: 0.6,
+      salience: 0.2,
+      costOfIgnore: 0.2,
+      urgencia: 0.35,
+      confianza: 0.9,
+    },
+    unpushed_commits: {
+      severity: 0.5,
+      actionability: 0.6,
+      salience: 0.2,
+      costOfIgnore: 0.3,
+      urgencia: 0.45,
+      confianza: 0.9,
+    },
+    default: {
+      severity: 0.5,
+      actionability: 0.5,
+      salience: 0.2,
+      costOfIgnore: 0.3,
+      urgencia: 0.5,
+      confianza: 0.9,
+    },
   },
   system_warning: {
-    battery_critical:{ severity: 0.85, actionability: 0.4, salience: 0.5, costOfIgnore: 0.9, urgencia: 0.8,  confianza: 0.95 },
-    battery_low:     { severity: 0.5,  actionability: 0.3, salience: 0.4, costOfIgnore: 0.4, urgencia: 0.45, confianza: 0.95 },
-    disk:            { severity: 0.6,  actionability: 0.4, salience: 0.3, costOfIgnore: 0.5, urgencia: 0.55, confianza: 0.9  },
-    memory:          { severity: 0.55, actionability: 0.3, salience: 0.3, costOfIgnore: 0.5, urgencia: 0.5,  confianza: 0.9  },
-    cpu:             { severity: 0.4,  actionability: 0.2, salience: 0.3, costOfIgnore: 0.3, urgencia: 0.35, confianza: 0.9  },
-    default:         { severity: 0.5,  actionability: 0.3, salience: 0.3, costOfIgnore: 0.4, urgencia: 0.5,  confianza: 0.9  },
+    battery_critical: {
+      severity: 0.85,
+      actionability: 0.4,
+      salience: 0.5,
+      costOfIgnore: 0.9,
+      urgencia: 0.8,
+      confianza: 0.95,
+    },
+    battery_low: {
+      severity: 0.5,
+      actionability: 0.3,
+      salience: 0.4,
+      costOfIgnore: 0.4,
+      urgencia: 0.45,
+      confianza: 0.95,
+    },
+    disk: {
+      severity: 0.6,
+      actionability: 0.4,
+      salience: 0.3,
+      costOfIgnore: 0.5,
+      urgencia: 0.55,
+      confianza: 0.9,
+    },
+    memory: {
+      severity: 0.55,
+      actionability: 0.3,
+      salience: 0.3,
+      costOfIgnore: 0.5,
+      urgencia: 0.5,
+      confianza: 0.9,
+    },
+    cpu: {
+      severity: 0.4,
+      actionability: 0.2,
+      salience: 0.3,
+      costOfIgnore: 0.3,
+      urgencia: 0.35,
+      confianza: 0.9,
+    },
+    default: {
+      severity: 0.5,
+      actionability: 0.3,
+      salience: 0.3,
+      costOfIgnore: 0.4,
+      urgencia: 0.5,
+      confianza: 0.9,
+    },
   },
   lsp_error: {
-    default:         { severity: 0.6, actionability: 0.7, salience: 0.5, costOfIgnore: 0.4, urgencia: 0.6,  confianza: 0.9 },
+    default: {
+      severity: 0.6,
+      actionability: 0.7,
+      salience: 0.5,
+      costOfIgnore: 0.4,
+      urgencia: 0.6,
+      confianza: 0.9,
+    },
   },
   error_title: {
-    default:         { severity: 0.5, actionability: 0.2, salience: 0.8, costOfIgnore: 0.4, urgencia: 0.5,  confianza: 0.6 },
+    default: {
+      severity: 0.5,
+      actionability: 0.2,
+      salience: 0.8,
+      costOfIgnore: 0.4,
+      urgencia: 0.5,
+      confianza: 0.6,
+    },
   },
   clipboard_context: {
-    stacktrace:      { severity: 0.5, actionability: 0.6, salience: 0.6, costOfIgnore: 0.4, urgencia: 0.5,  confianza: 0.7 },
-    url:             { severity: 0.2, actionability: 0.4, salience: 0.5, costOfIgnore: 0.1, urgencia: 0.2,  confianza: 0.6 },
-    default:         { severity: 0.3, actionability: 0.4, salience: 0.5, costOfIgnore: 0.2, urgencia: 0.3,  confianza: 0.6 },
+    stacktrace: {
+      severity: 0.5,
+      actionability: 0.6,
+      salience: 0.6,
+      costOfIgnore: 0.4,
+      urgencia: 0.5,
+      confianza: 0.7,
+    },
+    url: {
+      severity: 0.2,
+      actionability: 0.4,
+      salience: 0.5,
+      costOfIgnore: 0.1,
+      urgencia: 0.2,
+      confianza: 0.6,
+    },
+    default: {
+      severity: 0.3,
+      actionability: 0.4,
+      salience: 0.5,
+      costOfIgnore: 0.2,
+      urgencia: 0.3,
+      confianza: 0.6,
+    },
   },
   upcoming_event: {
-    default:         { severity: 0.3, actionability: 0.1, salience: 0.4, costOfIgnore: 0.2, urgencia: 0.4,  confianza: 0.8 },
+    default: {
+      severity: 0.3,
+      actionability: 0.1,
+      salience: 0.4,
+      costOfIgnore: 0.2,
+      urgencia: 0.4,
+      confianza: 0.8,
+    },
   },
 };
 
@@ -63,34 +182,118 @@ const PROFILES = {
 // momento. El gate los marca `selfGated`: solo impone presupuesto y SLO, no
 // chat/idle/flow. Igual generan score + audit (ROADMAP: cada mensaje con score).
 const TEMPORAL_PROFILES = {
-  long_silence:        { severity: 0.45, actionability: 0.35, salience: 0.4,  costOfIgnore: 0.3,  urgencia: 0.4,  confianza: 0.8 },
-  special_date:        { severity: 0.4,  actionability: 0.3,  salience: 0.8,  costOfIgnore: 0.3,  urgencia: 0.5,  confianza: 0.9 },
-  late_night:          { severity: 0.35, actionability: 0.3,  salience: 0.5,  costOfIgnore: 0.2,  urgencia: 0.4,  confianza: 0.8 },
-  return_from_break:   { severity: 0.4,  actionability: 0.45, salience: 0.6,  costOfIgnore: 0.3,  urgencia: 0.5,  confianza: 0.9 },
-  sustained_focus:     { severity: 0.4,  actionability: 0.5,  salience: 0.6,  costOfIgnore: 0.3,  urgencia: 0.5,  confianza: 0.9 },
-  context_switch_thrash:{ severity: 0.4, actionability: 0.6,  salience: 0.5,  costOfIgnore: 0.3,  urgencia: 0.5,  confianza: 0.9 },
-  session_end:         { severity: 0.35, actionability: 0.4,  salience: 0.5,  costOfIgnore: 0.2,  urgencia: 0.4,  confianza: 0.8 },
-  pending_recap:       { severity: 0.35, actionability: 0.4,  salience: 0.4,  costOfIgnore: 0.2,  urgencia: 0.4,  confianza: 0.8 },
-  followup:            { severity: 0.45, actionability: 0.5,  salience: 0.6,  costOfIgnore: 0.3,  urgencia: 0.5,  confianza: 0.9 },
-  session_start:       { severity: 0.3,  actionability: 0.3,  salience: 0.4,  costOfIgnore: 0.2,  urgencia: 0.35, confianza: 0.8 },
+  long_silence: {
+    severity: 0.45,
+    actionability: 0.35,
+    salience: 0.4,
+    costOfIgnore: 0.3,
+    urgencia: 0.4,
+    confianza: 0.8,
+  },
+  special_date: {
+    severity: 0.4,
+    actionability: 0.3,
+    salience: 0.8,
+    costOfIgnore: 0.3,
+    urgencia: 0.5,
+    confianza: 0.9,
+  },
+  late_night: {
+    severity: 0.35,
+    actionability: 0.3,
+    salience: 0.5,
+    costOfIgnore: 0.2,
+    urgencia: 0.4,
+    confianza: 0.8,
+  },
+  return_from_break: {
+    severity: 0.4,
+    actionability: 0.45,
+    salience: 0.6,
+    costOfIgnore: 0.3,
+    urgencia: 0.5,
+    confianza: 0.9,
+  },
+  sustained_focus: {
+    severity: 0.4,
+    actionability: 0.5,
+    salience: 0.6,
+    costOfIgnore: 0.3,
+    urgencia: 0.5,
+    confianza: 0.9,
+  },
+  context_switch_thrash: {
+    severity: 0.4,
+    actionability: 0.6,
+    salience: 0.5,
+    costOfIgnore: 0.3,
+    urgencia: 0.5,
+    confianza: 0.9,
+  },
+  session_end: {
+    severity: 0.35,
+    actionability: 0.4,
+    salience: 0.5,
+    costOfIgnore: 0.2,
+    urgencia: 0.4,
+    confianza: 0.8,
+  },
+  pending_recap: {
+    severity: 0.35,
+    actionability: 0.4,
+    salience: 0.4,
+    costOfIgnore: 0.2,
+    urgencia: 0.4,
+    confianza: 0.8,
+  },
+  followup: {
+    severity: 0.45,
+    actionability: 0.5,
+    salience: 0.6,
+    costOfIgnore: 0.3,
+    urgencia: 0.5,
+    confianza: 0.9,
+  },
+  session_start: {
+    severity: 0.3,
+    actionability: 0.3,
+    salience: 0.4,
+    costOfIgnore: 0.2,
+    urgencia: 0.35,
+    confianza: 0.8,
+  },
 };
 
 // Eventos de telemetría/contexto que NUNCA son una señal proactiva (no hay
 // nada que puntuar: son el estado del sistema, no algo que merezca hablar).
 const CONTEXT_EVENTS = new Set([
-  'os:idle-changed', 'os:app-changed', 'os:app-tick', 'os:history-updated',
-  'os:windows-updated', 'workspace:changed', 'session:started', 'session:closed',
-  'memory:turn-added', 'memory-status', 'behavior:evaluated',
-  'git:branch-changed', 'plan:started', 'plan:generated', 'plan:step-start',
-  'plan:step-done', 'plan:finished', 'agent:completed', 'openclaw:available',
+  'os:idle-changed',
+  'os:app-changed',
+  'os:app-tick',
+  'os:history-updated',
+  'os:windows-updated',
+  'workspace:changed',
+  'session:started',
+  'session:closed',
+  'memory:turn-added',
+  'memory-status',
+  'behavior:evaluated',
+  'git:branch-changed',
+  'plan:started',
+  'plan:generated',
+  'plan:step-start',
+  'plan:step-done',
+  'plan:finished',
+  'agent:completed',
+  'openclaw:available',
 ]);
 
 const TYPE_BY_EVENT = {
-  'git:redflag':        'git_redflag',
-  'system:warning':     'system_warning',
-  'lsp:error':          'lsp_error',
-  'os:error-title':     'error_title',
-  'clipboard:copied':   'clipboard_context',
+  'git:redflag': 'git_redflag',
+  'system:warning': 'system_warning',
+  'lsp:error': 'lsp_error',
+  'os:error-title': 'error_title',
+  'clipboard:copied': 'clipboard_context',
   'memory:upcoming-event': 'upcoming_event',
 };
 
@@ -101,12 +304,12 @@ const CRITICAL = {
 };
 
 // Inverso: tipo de trigger → evento del bus (para reutilizar normalize()).
-const EVENT_BY_TYPE = Object.fromEntries(
-  Object.entries(TYPE_BY_EVENT).map(([e, t]) => [t, e])
-);
+const EVENT_BY_TYPE = Object.fromEntries(Object.entries(TYPE_BY_EVENT).map(([e, t]) => [t, e]));
 
 function _sanitizeType(name) {
-  return String(name).replace(/[^a-z0-9_]+/gi, '_').replace(/^_+|_+$/g, '');
+  return String(name)
+    .replace(/[^a-z0-9_]+/gi, '_')
+    .replace(/^_+|_+$/g, '');
 }
 
 /**
@@ -134,22 +337,37 @@ function _deriveGenericProfile(payload = {}) {
   if (!hasData) return null;
 
   const text = [
-    payload.message, payload.title, payload.error, payload.context,
-    payload.snippet, payload.detail, payload.reason,
-  ].filter(Boolean).join(' ').toLowerCase();
+    payload.message,
+    payload.title,
+    payload.error,
+    payload.context,
+    payload.snippet,
+    payload.detail,
+    payload.reason,
+  ]
+    .filter(Boolean)
+    .join(' ')
+    .toLowerCase();
 
-  const isCritical = /secret|password|credential|\.env|token|api[_-]?key|vuln|crack|breach|exposed/.test(text);
-  const isError    = /error|fail|crash|fatal|panic|exception|denied|refused|timeout/.test(text);
-  const actionable = !!(payload.file || payload.code || payload.patch || payload.path || payload.command);
-  const count      = typeof payload.count === 'number' ? payload.count : 0;
+  const isCritical =
+    /secret|password|credential|\.env|token|api[_-]?key|vuln|crack|breach|exposed/.test(text);
+  const isError = /error|fail|crash|fatal|panic|exception|denied|refused|timeout/.test(text);
+  const actionable = !!(
+    payload.file ||
+    payload.code ||
+    payload.patch ||
+    payload.path ||
+    payload.command
+  );
+  const count = typeof payload.count === 'number' ? payload.count : 0;
 
   return {
-    severity:     isCritical ? 0.9 : isError ? 0.65 : 0.45,
+    severity: isCritical ? 0.9 : isError ? 0.65 : 0.45,
     actionability: actionable ? 0.7 : count > 0 ? 0.5 : 0.35,
-    salience:     payload.focused ? 1 : (payload.title || payload.window) ? 0.6 : 0.3,
+    salience: payload.focused ? 1 : payload.title || payload.window ? 0.6 : 0.3,
     costOfIgnore: isCritical ? 0.9 : 0.35,
-    urgencia:     isCritical ? 0.8 : isError ? 0.6 : 0.4,
-    confianza:    0.7,
+    urgencia: isCritical ? 0.8 : isError ? 0.6 : 0.4,
+    confianza: 0.7,
     isCritical,
   };
 }
@@ -162,22 +380,22 @@ function _buildCandidate(tipo, kind, base, payload, { sensor, selfGated } = {}, 
   const now = opts.now ?? Date.now();
   const p = { ...base };
   const signal = {
-    severity:     clamp(p.severity),
+    severity: clamp(p.severity),
     actionability: clamp(p.actionability),
-    salience:     clamp(p.salience),
+    salience: clamp(p.salience),
     costOfIgnore: clamp(p.costOfIgnore),
   };
   return {
     tipo,
     kind,
     isCritical: !!p.isCritical || !!CRITICAL[tipo]?.[kind],
-    urgencia:     clamp(p.urgencia),
-    confianza:    clamp(p.confianza),
+    urgencia: clamp(p.urgencia),
+    confianza: clamp(p.confianza),
     accionabilidad: clamp(p.actionability),
-    saliencia:    signal.salience,
+    saliencia: signal.salience,
     signal,
-    selfGated:    !!selfGated,
-    source:       { sensor, at: now },
+    selfGated: !!selfGated,
+    source: { sensor, at: now },
     payload,
   };
 }
@@ -200,7 +418,9 @@ function candidateFromTrigger(trigger = {}, opts = {}) {
   const base = TEMPORAL_PROFILES[trigger.type];
   if (base) {
     return _buildCandidate(
-      _sanitizeType(trigger.type), trigger.kind || 'default', base,
+      _sanitizeType(trigger.type),
+      trigger.kind || 'default',
+      base,
       { ...trigger },
       { sensor: `trigger:${trigger.type}`, selfGated: true },
       opts
@@ -225,9 +445,9 @@ function normalize(event, payload = {}, opts = {}) {
   if (!event || !payload || typeof payload !== 'object') return null;
   if (CONTEXT_EVENTS.has(event)) return null;
 
-  const kind  = payload.kind || 'default';
+  const kind = payload.kind || 'default';
   let tipo = TYPE_BY_EVENT[event];
-  let base = tipo ? (PROFILES[tipo]?.[kind] || PROFILES[tipo]?.default) : null;
+  let base = tipo ? PROFILES[tipo]?.[kind] || PROFILES[tipo]?.default : null;
 
   // Gap 1: evento sin perfil → derivar uno genérico en lugar de descartarlo.
   if (!base) {
@@ -262,11 +482,15 @@ function normalize(event, payload = {}, opts = {}) {
   }
 
   if (tipo === 'lsp_error') {
-    const count   = payload.count ?? payload.errors?.length ?? 0;
+    const count = payload.count ?? payload.errors?.length ?? 0;
     const focused = !!payload.focused;
     // Muchos errores → más severo; archivo enfocado → saliencia y accionabilidad altas.
     if (count > 1) p.severity = clamp(p.severity + Math.min(count, 5) * 0.05);
-    if (focused) { p.salience = 1; p.actionability = 0.85; p.urgencia = clamp(p.urgencia + 0.15); }
+    if (focused) {
+      p.salience = 1;
+      p.actionability = 0.85;
+      p.urgencia = clamp(p.urgencia + 0.15);
+    }
     // Errores de severidad 1 en el LSP se detectan con alta confianza; pero si el
     // archivo NO está enfocado, la señal es menos segura como "algo que molesta".
     if (!focused) p.confianza = clamp(p.confianza - 0.15);
@@ -277,8 +501,13 @@ function normalize(event, payload = {}, opts = {}) {
     p.salience = 0.9;
     // categoría del TitleWatcher (si viene) afina urgencia.
     const cat = payload.category;
-    if (cat === 'crash' || cat === 'fatal') { p.severity = 0.8; p.urgencia = 0.75; }
-    else if (cat === 'build') { p.severity = 0.6; p.urgencia = 0.6; }
+    if (cat === 'crash' || cat === 'fatal') {
+      p.severity = 0.8;
+      p.urgencia = 0.75;
+    } else if (cat === 'build') {
+      p.severity = 0.6;
+      p.urgencia = 0.6;
+    }
   }
 
   if (tipo === 'clipboard_context' && payload.kind === 'stacktrace') {
@@ -288,7 +517,7 @@ function normalize(event, payload = {}, opts = {}) {
   if (tipo === 'upcoming_event' && typeof payload.when === 'number') {
     // Urgencia temporal: más cerca del momento → más urgente.
     const mins = (payload.when - now) / 60000;
-    if (mins <= 10)      p.urgencia = 0.8;
+    if (mins <= 10) p.urgencia = 0.8;
     else if (mins <= 60) p.urgencia = 0.6;
     else if (mins <= 180) p.urgencia = 0.4;
   }

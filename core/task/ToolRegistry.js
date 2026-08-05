@@ -25,9 +25,7 @@ const TOOL_SCHEMAS = [
     domain: ['filesystem', 'code', 'data'],
     source: 'openclaw',
     description: 'Lee el contenido de uno o varios archivos',
-    params: [
-      { name: 'path', type: 'string', description: 'Ruta del archivo', required: true },
-    ],
+    params: [{ name: 'path', type: 'string', description: 'Ruta del archivo', required: true }],
     examples: [
       { cmd: 'README.md', desc: 'Leer README' },
       { cmd: 'src/index.js', desc: 'Leer archivo fuente' },
@@ -58,12 +56,15 @@ const TOOL_SCHEMAS = [
     description: 'Modifica partes específicas de un archivo (reemplazo exacto de texto)',
     params: [
       { name: 'path', type: 'string', description: 'Ruta del archivo', required: true },
-      { name: 'oldString', type: 'string', description: 'Texto exacto a reemplazar', required: true },
+      {
+        name: 'oldString',
+        type: 'string',
+        description: 'Texto exacto a reemplazar',
+        required: true,
+      },
       { name: 'newString', type: 'string', description: 'Texto nuevo', required: true },
     ],
-    examples: [
-      { cmd: 'cambiar función X por Y', desc: 'Renombrar función' },
-    ],
+    examples: [{ cmd: 'cambiar función X por Y', desc: 'Renombrar función' }],
     highImpact: true,
   },
   {
@@ -96,12 +97,15 @@ const TOOL_SCHEMAS = [
     source: 'openclaw',
     description: 'Navega a una URL y obtiene el contenido de la página',
     params: [
-      { name: 'action', type: 'string', description: 'Acción (navigate, click, read)', default: 'navigate' },
+      {
+        name: 'action',
+        type: 'string',
+        description: 'Acción (navigate, click, read)',
+        default: 'navigate',
+      },
       { name: 'url', type: 'string', description: 'URL a navegar', required: true },
     ],
-    examples: [
-      { cmd: 'navegar a github.com', desc: 'Abrir página web' },
-    ],
+    examples: [{ cmd: 'navegar a github.com', desc: 'Abrir página web' }],
     highImpact: true,
   },
   {
@@ -114,9 +118,7 @@ const TOOL_SCHEMAS = [
       { name: 'query', type: 'string', description: 'Término de búsqueda', required: true },
       { name: 'max_results', type: 'number', description: 'Máximo de resultados', default: 5 },
     ],
-    examples: [
-      { cmd: 'buscar "API de node fs"', desc: 'Buscar en Google' },
-    ],
+    examples: [{ cmd: 'buscar "API de node fs"', desc: 'Buscar en Google' }],
     highImpact: false,
   },
   {
@@ -126,15 +128,33 @@ const TOOL_SCHEMAS = [
     source: 'openclaw',
     description: 'Busca un patrón (regex) dentro del contenido de los archivos del proyecto',
     params: [
-      { name: 'pattern', type: 'string', description: 'Patrón regex o texto a buscar', required: true },
-      { name: 'path', type: 'string', description: 'Directorio o archivo donde buscar', required: false },
-      { name: 'include', type: 'string', description: 'Glob de archivos a incluir, ej: "*.js"', required: false },
-      { name: 'ignore', type: 'string', description: 'Directorio/patrón a excluir', required: false },
+      {
+        name: 'pattern',
+        type: 'string',
+        description: 'Patrón regex o texto a buscar',
+        required: true,
+      },
+      {
+        name: 'path',
+        type: 'string',
+        description: 'Directorio o archivo donde buscar',
+        required: false,
+      },
+      {
+        name: 'include',
+        type: 'string',
+        description: 'Glob de archivos a incluir, ej: "*.js"',
+        required: false,
+      },
+      {
+        name: 'ignore',
+        type: 'string',
+        description: 'Directorio/patrón a excluir',
+        required: false,
+      },
       { name: 'max_results', type: 'number', description: 'Máximo de coincidencias', default: 50 },
     ],
-    examples: [
-      { cmd: 'buscar dónde se usa X en el código', desc: 'Grep en el proyecto' },
-    ],
+    examples: [{ cmd: 'buscar dónde se usa X en el código', desc: 'Grep en el proyecto' }],
     highImpact: false,
   },
   {
@@ -144,12 +164,15 @@ const TOOL_SCHEMAS = [
     source: 'openclaw',
     description: 'Lista archivos que coinciden con un patrón glob',
     params: [
-      { name: 'pattern', type: 'string', description: 'Patrón glob, ej: "src/**/*.js"', required: true },
+      {
+        name: 'pattern',
+        type: 'string',
+        description: 'Patrón glob, ej: "src/**/*.js"',
+        required: true,
+      },
       { name: 'path', type: 'string', description: 'Directorio base', required: false },
     ],
-    examples: [
-      { cmd: 'listar los archivos de src', desc: 'Glob' },
-    ],
+    examples: [{ cmd: 'listar los archivos de src', desc: 'Glob' }],
     highImpact: false,
   },
   {
@@ -157,15 +180,29 @@ const TOOL_SCHEMAS = [
     name: 'subagent',
     domain: ['planning', 'code', 'web', 'data'],
     source: 'openclaw',
-    description: 'Lanza un subagente autónomo que resuelve una sub-tarea de forma independiente y devuelve un resumen conciso',
+    description:
+      'Lanza un subagente autónomo que resuelve una sub-tarea de forma independiente y devuelve un resumen conciso',
     params: [
-      { name: 'task', type: 'string', description: 'Sub-tarea concreta a resolver', required: true },
-      { name: 'context', type: 'string', description: 'Contexto adicional (opcional)', required: false },
-      { name: 'max_iterations', type: 'number', description: 'Máximo de iteraciones del subagente', default: 8 },
+      {
+        name: 'task',
+        type: 'string',
+        description: 'Sub-tarea concreta a resolver',
+        required: true,
+      },
+      {
+        name: 'context',
+        type: 'string',
+        description: 'Contexto adicional (opcional)',
+        required: false,
+      },
+      {
+        name: 'max_iterations',
+        type: 'number',
+        description: 'Máximo de iteraciones del subagente',
+        default: 8,
+      },
     ],
-    examples: [
-      { cmd: 'investigar X y resumir', desc: 'Subagente de investigación' },
-    ],
+    examples: [{ cmd: 'investigar X y resumir', desc: 'Subagente de investigación' }],
     highImpact: false,
   },
   // ── LSP tools (Fase 7) ─────────────────────────────────────────────────────
@@ -174,9 +211,15 @@ const TOOL_SCHEMAS = [
     name: 'get_diagnostics',
     domain: ['code', 'lsp'],
     source: 'lsp',
-    description: 'Obtiene diagnósticos (errores, advertencias) de un archivo a través del servidor LSP',
+    description:
+      'Obtiene diagnósticos (errores, advertencias) de un archivo a través del servidor LSP',
     params: [
-      { name: 'filePath', type: 'string', description: 'Ruta del archivo a diagnosticar', required: true },
+      {
+        name: 'filePath',
+        type: 'string',
+        description: 'Ruta del archivo a diagnosticar',
+        required: true,
+      },
     ],
     highImpact: false,
   },
@@ -212,9 +255,7 @@ const TOOL_SCHEMAS = [
     domain: ['code', 'lsp'],
     source: 'lsp',
     description: 'Obtiene la lista de símbolos (funciones, clases, variables) de un archivo',
-    params: [
-      { name: 'filePath', type: 'string', description: 'Ruta del archivo', required: true },
-    ],
+    params: [{ name: 'filePath', type: 'string', description: 'Ruta del archivo', required: true }],
     highImpact: false,
   },
   // ── Git nativo (§10) ───────────────────────────────────────────────────────
@@ -223,9 +264,15 @@ const TOOL_SCHEMAS = [
     name: 'git_status',
     domain: ['git', 'code'],
     source: 'git',
-    description: 'Estado del repo git: rama actual, ahead/behind, cambios staged/unstaged, untracked y conflictos',
+    description:
+      'Estado del repo git: rama actual, ahead/behind, cambios staged/unstaged, untracked y conflictos',
     params: [
-      { name: 'cwd', type: 'string', description: 'Directorio de trabajo (opcional)', required: false },
+      {
+        name: 'cwd',
+        type: 'string',
+        description: 'Directorio de trabajo (opcional)',
+        required: false,
+      },
     ],
     highImpact: false,
   },
@@ -236,8 +283,18 @@ const TOOL_SCHEMAS = [
     source: 'git',
     description: 'Diff de cambios no confirmados; con staged=true muestra lo que ya fue agregado',
     params: [
-      { name: 'file', type: 'string', description: 'Archivo específico (opcional)', required: false },
-      { name: 'staged', type: 'boolean', description: 'Diff de lo staged (opcional)', required: false },
+      {
+        name: 'file',
+        type: 'string',
+        description: 'Archivo específico (opcional)',
+        required: false,
+      },
+      {
+        name: 'staged',
+        type: 'boolean',
+        description: 'Diff de lo staged (opcional)',
+        required: false,
+      },
     ],
     highImpact: false,
   },
@@ -248,8 +305,19 @@ const TOOL_SCHEMAS = [
     source: 'git',
     description: 'Historial de commits recientes (hash, autor, fecha, subject)',
     params: [
-      { name: 'count', type: 'number', description: 'Cantidad de commits (máx 50)', default: 20, required: false },
-      { name: 'file', type: 'string', description: 'Filtrar por archivo (opcional)', required: false },
+      {
+        name: 'count',
+        type: 'number',
+        description: 'Cantidad de commits (máx 50)',
+        default: 20,
+        required: false,
+      },
+      {
+        name: 'file',
+        type: 'string',
+        description: 'Filtrar por archivo (opcional)',
+        required: false,
+      },
     ],
     highImpact: false,
   },
@@ -278,10 +346,22 @@ const TOOL_SCHEMAS = [
     name: 'git_stash',
     domain: ['git', 'code'],
     source: 'git',
-    description: 'Lista stashes (list, lectura) o ejecuta push/pop/apply/drop (muta, requiere aprobación)',
+    description:
+      'Lista stashes (list, lectura) o ejecuta push/pop/apply/drop (muta, requiere aprobación)',
     params: [
-      { name: 'action', type: 'string', description: 'list | push | pop | apply | drop', default: 'list', required: true },
-      { name: 'message', type: 'string', description: 'Mensaje para action=push (opcional)', required: false },
+      {
+        name: 'action',
+        type: 'string',
+        description: 'list | push | pop | apply | drop',
+        default: 'list',
+        required: true,
+      },
+      {
+        name: 'message',
+        type: 'string',
+        description: 'Mensaje para action=push (opcional)',
+        required: false,
+      },
     ],
     highImpact: true,
   },
@@ -290,10 +370,16 @@ const TOOL_SCHEMAS = [
     name: 'git_merge',
     domain: ['git', 'code'],
     source: 'git',
-    description: 'Fusiona una rama en la actual; detecta conflictos y los devuelve estructurados (REQUIERE APROBACIÓN)',
+    description:
+      'Fusiona una rama en la actual; detecta conflictos y los devuelve estructurados (REQUIERE APROBACIÓN)',
     params: [
       { name: 'branch', type: 'string', description: 'Rama a fusionar', required: true },
-      { name: 'message', type: 'string', description: 'Mensaje del merge (opcional)', required: false },
+      {
+        name: 'message',
+        type: 'string',
+        description: 'Mensaje del merge (opcional)',
+        required: false,
+      },
     ],
     highImpact: true,
   },
@@ -302,7 +388,8 @@ const TOOL_SCHEMAS = [
     name: 'git_rebase',
     domain: ['git', 'code'],
     source: 'git',
-    description: 'Reaplica los commits de la rama actual sobre otra; detecta conflictos estructurados (REQUIERE APROBACIÓN)',
+    description:
+      'Reaplica los commits de la rama actual sobre otra; detecta conflictos estructurados (REQUIERE APROBACIÓN)',
     params: [
       { name: 'branch', type: 'string', description: 'Rama base del rebase', required: true },
     ],
@@ -313,10 +400,21 @@ const TOOL_SCHEMAS = [
     name: 'git_push',
     domain: ['git', 'code', 'github'],
     source: 'git',
-    description: 'Sube los commits de la rama actual al remoto (origin). Usa el token de GitHub conectado si está (REQUIERE APROBACIÓN)',
+    description:
+      'Sube los commits de la rama actual al remoto (origin). Usa el token de GitHub conectado si está (REQUIERE APROBACIÓN)',
     params: [
-      { name: 'remote', type: 'string', description: 'Remoto (opcional, por defecto origin)', required: false },
-      { name: 'branch', type: 'string', description: 'Rama a pushear (opcional, por defecto la actual)', required: false },
+      {
+        name: 'remote',
+        type: 'string',
+        description: 'Remoto (opcional, por defecto origin)',
+        required: false,
+      },
+      {
+        name: 'branch',
+        type: 'string',
+        description: 'Rama a pushear (opcional, por defecto la actual)',
+        required: false,
+      },
       { name: 'force', type: 'boolean', description: 'Push forzado (peligroso)', required: false },
     ],
     highImpact: true,
@@ -327,7 +425,8 @@ const TOOL_SCHEMAS = [
     name: 'github_repo_info',
     domain: ['github', 'git', 'code'],
     source: 'github',
-    description: 'Información de un repo de GitHub (descripción, default branch, estrellas, license)',
+    description:
+      'Información de un repo de GitHub (descripción, default branch, estrellas, license)',
     params: [
       { name: 'repo', type: 'string', description: 'Repo en formato "owner/repo"', required: true },
     ],
@@ -341,8 +440,20 @@ const TOOL_SCHEMAS = [
     description: 'Lista issues de un repo filtrados por estado',
     params: [
       { name: 'repo', type: 'string', description: 'Repo en formato "owner/repo"', required: true },
-      { name: 'state', type: 'string', description: 'open | closed | all', default: 'open', required: false },
-      { name: 'limit', type: 'number', description: 'Máx resultados', default: 10, required: false },
+      {
+        name: 'state',
+        type: 'string',
+        description: 'open | closed | all',
+        default: 'open',
+        required: false,
+      },
+      {
+        name: 'limit',
+        type: 'number',
+        description: 'Máx resultados',
+        default: 10,
+        required: false,
+      },
     ],
     highImpact: false,
   },
@@ -393,8 +504,20 @@ const TOOL_SCHEMAS = [
     description: 'Lista pull requests de un repo filtrados por estado',
     params: [
       { name: 'repo', type: 'string', description: 'Repo en formato "owner/repo"', required: true },
-      { name: 'state', type: 'string', description: 'open | closed | all', default: 'open', required: false },
-      { name: 'limit', type: 'number', description: 'Máx resultados', default: 10, required: false },
+      {
+        name: 'state',
+        type: 'string',
+        description: 'open | closed | all',
+        default: 'open',
+        required: false,
+      },
+      {
+        name: 'limit',
+        type: 'number',
+        description: 'Máx resultados',
+        default: 10,
+        required: false,
+      },
     ],
     highImpact: false,
   },
@@ -418,11 +541,18 @@ const TOOL_SCHEMAS = [
     name: 'github_pr_review',
     domain: ['github', 'git', 'code'],
     source: 'github',
-    description: 'Envía una review a una PR (APPROVE | REQUEST_CHANGES | COMMENT) (REQUIERE APROBACIÓN)',
+    description:
+      'Envía una review a una PR (APPROVE | REQUEST_CHANGES | COMMENT) (REQUIERE APROBACIÓN)',
     params: [
       { name: 'repo', type: 'string', description: 'Repo en formato "owner/repo"', required: true },
       { name: 'pull_number', type: 'number', description: 'Número de la PR', required: true },
-      { name: 'event', type: 'string', description: 'APPROVE | REQUEST_CHANGES | COMMENT', default: 'COMMENT', required: true },
+      {
+        name: 'event',
+        type: 'string',
+        description: 'APPROVE | REQUEST_CHANGES | COMMENT',
+        default: 'COMMENT',
+        required: true,
+      },
       { name: 'body', type: 'string', description: 'Cuerpo de la review', required: true },
     ],
     highImpact: true,
@@ -466,37 +596,38 @@ class ToolRegistry {
       try {
         const stats = this._bridge.getStats?.();
         available = stats?.available ?? false;
-      } catch(e) {}
+      } catch (e) {}
     }
-    return TOOL_SCHEMAS
-      .filter(s => (s.source || 'openclaw') === 'openclaw')
-      .map(s => ({ ...s, available }));
+    return TOOL_SCHEMAS.filter((s) => (s.source || 'openclaw') === 'openclaw').map((s) => ({
+      ...s,
+      available,
+    }));
   }
 
   _getLSPTools() {
     const lspAvailable = this._lspManager?.isRunning || false;
-    return TOOL_SCHEMAS
-      .filter(s => s.source === 'lsp')
-      .map(s => ({ ...s, available: lspAvailable }));
+    return TOOL_SCHEMAS.filter((s) => s.source === 'lsp').map((s) => ({
+      ...s,
+      available: lspAvailable,
+    }));
   }
 
   _getGitTools() {
-    return TOOL_SCHEMAS
-      .filter(s => s.source === 'git')
-      .map(s => ({ ...s, available: true }));
+    return TOOL_SCHEMAS.filter((s) => s.source === 'git').map((s) => ({ ...s, available: true }));
   }
 
   _getGitHubTools() {
-    return TOOL_SCHEMAS
-      .filter(s => s.source === 'github')
-      .map(s => ({ ...s, available: true }));
+    return TOOL_SCHEMAS.filter((s) => s.source === 'github').map((s) => ({
+      ...s,
+      available: true,
+    }));
   }
 
   _getMCPTools() {
     if (!this._mcpManager) return [];
     try {
       const tools = this._mcpManager.listAllTools();
-      return tools.map(t => ({
+      return tools.map((t) => ({
         id: `mcp.${t.server}.${t.tool}`,
         name: t.tool,
         domain: ['mcp'],
@@ -528,14 +659,14 @@ class ToolRegistry {
     let all = [...openclaw, ...lsp, ...git, ...github, ...mcp];
 
     if (domain && domain.id) {
-      all = all.filter(t => t.domain.includes(domain.id));
+      all = all.filter((t) => t.domain.includes(domain.id));
     }
 
     return {
       tools: all,
       total: all.length,
-      openclawAvailable: openclaw.some(t => t.available),
-      lspAvailable: lsp.some(t => t.available),
+      openclawAvailable: openclaw.some((t) => t.available),
+      lspAvailable: lsp.some((t) => t.available),
       mcpAvailable: mcp.length > 0,
       bySource: {
         openclaw: openclaw.length,
@@ -557,7 +688,7 @@ class ToolRegistry {
       .concat(this._getGitTools())
       .concat(this._getGitHubTools())
       .concat(this._getMCPTools());
-    return all.find(t => t.id === id) || null;
+    return all.find((t) => t.id === id) || null;
   }
 
   serializeToPrompt(domain = null, maxTools = 30) {
@@ -571,11 +702,11 @@ class ToolRegistry {
     }
     lines.push('');
 
-    const openclawTools = catalog.tools.filter(t => t.source === 'openclaw');
-    const lspTools = catalog.tools.filter(t => t.source === 'lsp');
-    const gitTools = catalog.tools.filter(t => t.source === 'git');
-    const githubTools = catalog.tools.filter(t => t.source === 'github');
-    const mcpTools = catalog.tools.filter(t => t.source === 'mcp');
+    const openclawTools = catalog.tools.filter((t) => t.source === 'openclaw');
+    const lspTools = catalog.tools.filter((t) => t.source === 'lsp');
+    const gitTools = catalog.tools.filter((t) => t.source === 'git');
+    const githubTools = catalog.tools.filter((t) => t.source === 'github');
+    const mcpTools = catalog.tools.filter((t) => t.source === 'mcp');
 
     if (openclawTools.length > 0) {
       lines.push('## Herramientas del sistema (OpenClaw)');
@@ -600,7 +731,8 @@ class ToolRegistry {
     }
 
     if (mcpTools.length > 0) {
-      const usedByOthers = openclawTools.length + lspTools.length + gitTools.length + githubTools.length;
+      const usedByOthers =
+        openclawTools.length + lspTools.length + gitTools.length + githubTools.length;
       const capped = mcpTools.slice(0, Math.max(0, maxTools - usedByOthers));
       lines.push('## Herramientas MCP externas');
       for (const t of capped) {
@@ -648,7 +780,9 @@ class ToolRegistry {
       lines.push('');
       lines.push('Para usar herramientas MCP, responde con formato exacto:');
       lines.push('  ```action');
-      lines.push('  ACCIÓN: mcp_call | SERVIDOR: <servidor> | HERRAMIENTA: <herramienta> | PARAMS: {...}');
+      lines.push(
+        '  ACCIÓN: mcp_call | SERVIDOR: <servidor> | HERRAMIENTA: <herramienta> | PARAMS: {...}'
+      );
       lines.push('  ```');
     }
 

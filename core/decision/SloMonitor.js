@@ -23,12 +23,12 @@ const DEFAULT_SLOS = {
   minSample: 5, // mínimo de propuestas enviadas para evaluar un tipo
   perType: {
     default: { minAccept: 0.5, maxIgnore: 0.4 },
-    git_redflag:      { minAccept: 0.6, maxIgnore: 0.3 },
-    system_warning:   { minAccept: 0.6, maxIgnore: 0.3 },
-    lsp_error:        { minAccept: 0.6, maxIgnore: 0.3 },
-    error_title:      { minAccept: 0.4, maxIgnore: 0.5 },
-    clipboard_context:{ minAccept: 0.4, maxIgnore: 0.5 },
-    upcoming_event:   { minAccept: 0.4, maxIgnore: 0.5 },
+    git_redflag: { minAccept: 0.6, maxIgnore: 0.3 },
+    system_warning: { minAccept: 0.6, maxIgnore: 0.3 },
+    lsp_error: { minAccept: 0.6, maxIgnore: 0.3 },
+    error_title: { minAccept: 0.4, maxIgnore: 0.5 },
+    clipboard_context: { minAccept: 0.4, maxIgnore: 0.5 },
+    upcoming_event: { minAccept: 0.4, maxIgnore: 0.5 },
   },
 };
 
@@ -41,22 +41,29 @@ const round = (v, d = 3) => Math.round(v * 10 ** d) / 10 ** d;
  * @returns {object} { porTipo: {...}, global: {...} }
  */
 function assess(statsPorTipo = {}, slos = DEFAULT_SLOS) {
-  const merged = { ...DEFAULT_SLOS, ...slos, perType: { ...DEFAULT_SLOS.perType, ...(slos.perType || {}) } };
+  const merged = {
+    ...DEFAULT_SLOS,
+    ...slos,
+    perType: { ...DEFAULT_SLOS.perType, ...(slos.perType || {}) },
+  };
 
   const porTipo = {};
-  let sumAccepted = 0, sumRejected = 0, sumIgnored = 0, sumSent = 0;
+  let sumAccepted = 0,
+    sumRejected = 0,
+    sumIgnored = 0,
+    sumSent = 0;
 
   for (const [type, s] of Object.entries(statsPorTipo)) {
     const accepted = s.accepted || 0;
     const rejected = s.rejected || 0;
-    const ignored  = s.ignored || 0;
-    const total    = accepted + rejected + ignored;
+    const ignored = s.ignored || 0;
+    const total = accepted + rejected + ignored;
     const responded = accepted + rejected;
 
     const target = merged.perType[type] || merged.perType.default;
     const sampleOk = total >= merged.minSample;
     const acceptanceRate = responded ? round(accepted / responded) : null;
-    const ignoreRate     = total ? round(ignored / total) : null;
+    const ignoreRate = total ? round(ignored / total) : null;
     const nonNuisanceRate = total ? round(1 - ignoreRate) : null;
 
     porTipo[type] = {
@@ -66,23 +73,27 @@ function assess(statsPorTipo = {}, slos = DEFAULT_SLOS) {
       acceptanceRate,
       ignoreRate,
       nonNuisanceRate,
-      degraded: sampleOk &&
+      degraded:
+        sampleOk &&
         ((acceptanceRate !== null && acceptanceRate < target.minAccept) ||
-         (ignoreRate !== null && ignoreRate > target.maxIgnore)),
+          (ignoreRate !== null && ignoreRate > target.maxIgnore)),
       slo: target,
     };
 
-    sumAccepted += accepted; sumRejected += rejected; sumIgnored += ignored; sumSent += total;
+    sumAccepted += accepted;
+    sumRejected += rejected;
+    sumIgnored += ignored;
+    sumSent += total;
   }
 
   const responded = sumAccepted + sumRejected;
   return {
     porTipo,
     global: {
-      sent:         sumSent,
-      accepted:     sumAccepted,
-      rejected:     sumRejected,
-      ignored:      sumIgnored,
+      sent: sumSent,
+      accepted: sumAccepted,
+      rejected: sumRejected,
+      ignored: sumIgnored,
       acceptanceRate: responded ? round(sumAccepted / responded) : null,
       nonNuisanceRate: sumSent ? round(1 - sumIgnored / sumSent) : null,
     },
@@ -92,7 +103,11 @@ function assess(statsPorTipo = {}, slos = DEFAULT_SLOS) {
 /** Tipos que hoy están degradados (para que el gate les suba el umbral). */
 function degradedTypes(statsPorTipo = {}, slos = DEFAULT_SLOS) {
   const r = assess(statsPorTipo, slos);
-  return new Set(Object.values(r.porTipo).filter(t => t.degraded).map(t => t.type));
+  return new Set(
+    Object.values(r.porTipo)
+      .filter((t) => t.degraded)
+      .map((t) => t.type)
+  );
 }
 
 module.exports = { assess, degradedTypes, DEFAULT_SLOS };

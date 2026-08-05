@@ -1,12 +1,12 @@
 'use strict';
 
 const C = {
-  green:  (s) => `\x1b[32m${s}\x1b[0m`,
-  red:    (s) => `\x1b[31m${s}\x1b[0m`,
+  green: (s) => `\x1b[32m${s}\x1b[0m`,
+  red: (s) => `\x1b[31m${s}\x1b[0m`,
   yellow: (s) => `\x1b[33m${s}\x1b[0m`,
-  cyan:   (s) => `\x1b[36m${s}\x1b[0m`,
-  bold:   (s) => `\x1b[1m${s}\x1b[0m`,
-  dim:    (s) => `\x1b[2m${s}\x1b[0m`,
+  cyan: (s) => `\x1b[36m${s}\x1b[0m`,
+  bold: (s) => `\x1b[1m${s}\x1b[0m`,
+  dim: (s) => `\x1b[2m${s}\x1b[0m`,
 };
 
 let passed = 0;
@@ -84,29 +84,35 @@ async function testScanDiscoversSkills() {
   const sm = new SkillManager({ skillsDir });
   const skills = await sm.scan(true);
   assert(skills.length >= 3, `Encuentra al menos 3 skills (encontró ${skills.length})`);
-  const names = skills.map(s => s.name);
+  const names = skills.map((s) => s.name);
   assert(names.includes('git-workflow'), 'Encuentra skill git-workflow');
   assert(names.includes('code-review'), 'Encuentra skill code-review');
   assert(names.includes('testing-patterns'), 'Encuentra skill testing-patterns');
 
-  const gitSkill = skills.find(s => s.name === 'git-workflow');
+  const gitSkill = skills.find((s) => s.name === 'git-workflow');
   assert(gitSkill.description.includes('git'), 'git-workflow tiene description');
   assert(gitSkill.content.length > 100, 'git-workflow tiene contenido sustancial');
   assert(gitSkill.version === '1.0.0', 'git-workflow tiene version');
-  assert(gitSkill.replaces_domains === null, 'git-workflow no tiene replaces_domains (no definido en frontmatter)');
+  assert(
+    gitSkill.replaces_domains === null,
+    'git-workflow no tiene replaces_domains (no definido en frontmatter)'
+  );
 }
 
 // ── Test 5: Scan con replaces_domains ─────────────────────────────────
 async function testScanReplacesDomains() {
   const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'skills-rd-'));
   fs.mkdirSync(path.join(tmpDir, 'replacer'));
-  fs.writeFileSync(path.join(tmpDir, 'replacer', 'SKILL.md'), `---
+  fs.writeFileSync(
+    path.join(tmpDir, 'replacer', 'SKILL.md'),
+    `---
 description: "Skill that replaces tools"
 version: "1.0.0"
 domains: ["code", "git"]
 replaces_domains: ["filesystem", "web"]
 ---
-Body`);
+Body`
+  );
 
   const sm = new (require('../core/skills/SkillManager.js').SkillManager)({
     skillsDir: tmpDir,
@@ -126,7 +132,10 @@ async function testScanIgnoresNoSkillMd() {
   const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'skills-test-'));
   fs.mkdirSync(path.join(tmpDir, 'empty-dir'));
   fs.mkdirSync(path.join(tmpDir, 'has-skill'));
-  fs.writeFileSync(path.join(tmpDir, 'has-skill', 'SKILL.md'), `---\ndescription: "Test"\n---\nBody`);
+  fs.writeFileSync(
+    path.join(tmpDir, 'has-skill', 'SKILL.md'),
+    `---\ndescription: "Test"\n---\nBody`
+  );
   fs.mkdirSync(path.join(tmpDir, 'no-skill'));
   fs.writeFileSync(path.join(tmpDir, 'no-skill', 'README.md'), 'not a skill');
 
@@ -142,7 +151,10 @@ async function testScanIgnoresNoSkillMd() {
 // ── Test 6: SkillManager.getSkill ──────────────────────────────────────
 async function testGetSkill() {
   const skillsDir = path.resolve(process.cwd(), 'skills');
-  if (!fs.existsSync(skillsDir)) { skipped++; return; }
+  if (!fs.existsSync(skillsDir)) {
+    skipped++;
+    return;
+  }
 
   const sm = new SkillManager({ skillsDir });
   await sm.scan(true);
@@ -158,14 +170,23 @@ async function testGetSkill() {
 // ── Test 7: getAllSkills ───────────────────────────────────────────────
 async function testGetAllSkills() {
   const skillsDir = path.resolve(process.cwd(), 'skills');
-  if (!fs.existsSync(skillsDir)) { skipped++; return; }
+  if (!fs.existsSync(skillsDir)) {
+    skipped++;
+    return;
+  }
 
   const sm = new SkillManager({ skillsDir });
   await sm.scan(true);
   const all = sm.getAllSkills();
   assert(all.length >= 3, 'getAllSkills devuelve todas');
-  assert(all.every(s => s.name), 'Cada skill tiene name');
-  assert(all.every(s => s.description), 'Cada skill tiene description');
+  assert(
+    all.every((s) => s.name),
+    'Cada skill tiene name'
+  );
+  assert(
+    all.every((s) => s.description),
+    'Cada skill tiene description'
+  );
 }
 
 // ── Tests que requieren DB ─────────────────────────────────────────────
@@ -180,7 +201,9 @@ async function testWithDB(description, fn) {
     db = new Database(':memory:');
     sqliteVec.load(db);
   } catch {
-    console.log(`  ${C.yellow('⚠')} better-sqlite3/sqlite-vec no disponible, saltando: ${description}`);
+    console.log(
+      `  ${C.yellow('⚠')} better-sqlite3/sqlite-vec no disponible, saltando: ${description}`
+    );
     skipped++;
     return;
   }
@@ -196,18 +219,24 @@ function testIndexSkills() {
   return testWithDB('Index skills', async (db) => {
     const skillsDir = fs.mkdtempSync(path.join(os.tmpdir(), 'skills-index-'));
     fs.mkdirSync(path.join(skillsDir, 'skill-a'));
-    fs.writeFileSync(path.join(skillsDir, 'skill-a', 'SKILL.md'), `---
+    fs.writeFileSync(
+      path.join(skillsDir, 'skill-a', 'SKILL.md'),
+      `---
 description: "How to use git for version control"
 ---
 # Git skill
-Content about git operations`);
+Content about git operations`
+    );
 
     fs.mkdirSync(path.join(skillsDir, 'skill-b'));
-    fs.writeFileSync(path.join(skillsDir, 'skill-b', 'SKILL.md'), `---
+    fs.writeFileSync(
+      path.join(skillsDir, 'skill-b', 'SKILL.md'),
+      `---
 description: "How to test JavaScript code"
 ---
 # Testing skill
-Content about testing`);
+Content about testing`
+    );
 
     const sm = new SkillManager({ skillsDir, db, threshold: 0.5 });
     const skills = await sm.scan(true);
@@ -231,10 +260,13 @@ function testIndexIdempotent() {
   return testWithDB('Index idempotent', async (db) => {
     const skillsDir = fs.mkdtempSync(path.join(os.tmpdir(), 'skills-idem-'));
     fs.mkdirSync(path.join(skillsDir, 'skill-x'));
-    fs.writeFileSync(path.join(skillsDir, 'skill-x', 'SKILL.md'), `---
+    fs.writeFileSync(
+      path.join(skillsDir, 'skill-x', 'SKILL.md'),
+      `---
 description: "Unique test skill"
 ---
-Content`);
+Content`
+    );
 
     const sm = new SkillManager({ skillsDir, db });
     await sm.scan(true);
@@ -256,18 +288,24 @@ function testMatchSkills() {
   return testWithDB('Match skills', async (db) => {
     const skillsDir = fs.mkdtempSync(path.join(os.tmpdir(), 'skills-match-'));
     fs.mkdirSync(path.join(skillsDir, 'git-skill'));
-    fs.writeFileSync(path.join(skillsDir, 'git-skill', 'SKILL.md'), `---
+    fs.writeFileSync(
+      path.join(skillsDir, 'git-skill', 'SKILL.md'),
+      `---
 description: "Version control with git: commits, branches, merges"
 ---
 # Git Content
-Content about git workflow`);
+Content about git workflow`
+    );
 
     fs.mkdirSync(path.join(skillsDir, 'test-skill'));
-    fs.writeFileSync(path.join(skillsDir, 'test-skill', 'SKILL.md'), `---
+    fs.writeFileSync(
+      path.join(skillsDir, 'test-skill', 'SKILL.md'),
+      `---
 description: "Writing and running tests for Node.js projects"
 ---
 # Test Content
-Content about testing`);
+Content about testing`
+    );
 
     const sm = new SkillManager({ skillsDir, db, threshold: 0.15, topK: 3 });
     await sm.scan(true);
@@ -275,12 +313,12 @@ Content about testing`);
 
     const gitMatches = await sm.match('quiero hacer un commit de git', db);
     assert(gitMatches.length >= 1, 'Match para query de git devuelve resultados');
-    const hasGit = gitMatches.some(m => m.name === 'git-skill');
+    const hasGit = gitMatches.some((m) => m.name === 'git-skill');
     assert(hasGit, 'Query de git matchea git-skill');
 
     const testMatches = await sm.match('necesito escribir tests para mi codigo', db);
     assert(testMatches.length >= 1, 'Match para query de test devuelve resultados');
-    const hasTest = testMatches.some(m => m.name === 'test-skill');
+    const hasTest = testMatches.some((m) => m.name === 'test-skill');
     assert(hasTest, 'Query de test matchea test-skill');
 
     fs.rmSync(skillsDir, { recursive: true, force: true });
@@ -292,16 +330,22 @@ function testMatchGeneric() {
   return testWithDB('Match generic', async (db) => {
     const skillsDir = fs.mkdtempSync(path.join(os.tmpdir(), 'skills-gen-'));
     fs.mkdirSync(path.join(skillsDir, 'skill-a'));
-    fs.writeFileSync(path.join(skillsDir, 'skill-a', 'SKILL.md'), `---
+    fs.writeFileSync(
+      path.join(skillsDir, 'skill-a', 'SKILL.md'),
+      `---
 description: "Advanced Kubernetes cluster management and deployment"
 ---
-# K8s Content`);
+# K8s Content`
+    );
 
     fs.mkdirSync(path.join(skillsDir, 'skill-b'));
-    fs.writeFileSync(path.join(skillsDir, 'skill-b', 'SKILL.md'), `---
+    fs.writeFileSync(
+      path.join(skillsDir, 'skill-b', 'SKILL.md'),
+      `---
 description: "Deep learning model training with PyTorch and TensorFlow"
 ---
-# ML Content`);
+# ML Content`
+    );
 
     const sm = new SkillManager({ skillsDir, db, threshold: 0.72, topK: 3 });
     await sm.scan(true);
@@ -319,11 +363,14 @@ function testBuildInjection() {
   return testWithDB('buildInjection', async (db) => {
     const skillsDir = fs.mkdtempSync(path.join(os.tmpdir(), 'skills-inject-'));
     fs.mkdirSync(path.join(skillsDir, 'git-skill'));
-    fs.writeFileSync(path.join(skillsDir, 'git-skill', 'SKILL.md'), `---
+    fs.writeFileSync(
+      path.join(skillsDir, 'git-skill', 'SKILL.md'),
+      `---
 description: "Git version control operations"
 ---
 # Git Content
-Detailed git workflows.`);
+Detailed git workflows.`
+    );
 
     const sm = new SkillManager({ skillsDir, db, threshold: 0.5 });
     await sm.scan(true);
@@ -347,10 +394,13 @@ function testEnsureIndexed() {
   return testWithDB('ensureIndexed', async (db) => {
     const skillsDir = fs.mkdtempSync(path.join(os.tmpdir(), 'skills-ensure-'));
     fs.mkdirSync(path.join(skillsDir, 'test-skill'));
-    fs.writeFileSync(path.join(skillsDir, 'test-skill', 'SKILL.md'), `---
+    fs.writeFileSync(
+      path.join(skillsDir, 'test-skill', 'SKILL.md'),
+      `---
 description: "Test skill"
 ---
-Content`);
+Content`
+    );
 
     const sm = new SkillManager({ skillsDir, db });
     await sm.scan(true);
@@ -370,10 +420,13 @@ function testScoreConsistency() {
   return testWithDB('Score consistency', async (db) => {
     const skillsDir = fs.mkdtempSync(path.join(os.tmpdir(), 'skills-score-'));
     fs.mkdirSync(path.join(skillsDir, 'test-skill'));
-    fs.writeFileSync(path.join(skillsDir, 'test-skill', 'SKILL.md'), `---
+    fs.writeFileSync(
+      path.join(skillsDir, 'test-skill', 'SKILL.md'),
+      `---
 description: "JavaScript testing with Node.js and assertions"
 ---
-Content`);
+Content`
+    );
 
     const sm = new SkillManager({ skillsDir, db, threshold: 0.3, topK: 5 });
     await sm.scan(true);
@@ -387,8 +440,10 @@ Content`);
       assert(matches[0].distance >= 0, 'distance >= 0');
       // sqlite-vec devuelve distancia L2; para vectores normalizados la
       // similitud coseno es 1 - (d²/2).
-      assert(Math.abs(matches[0].score - (1 - (matches[0].distance * matches[0].distance) / 2)) < 0.001,
-        'score + distance²/2 ≈ 1');
+      assert(
+        Math.abs(matches[0].score - (1 - (matches[0].distance * matches[0].distance) / 2)) < 0.001,
+        'score + distance²/2 ≈ 1'
+      );
     }
 
     fs.rmSync(skillsDir, { recursive: true, force: true });
@@ -428,13 +483,15 @@ async function main() {
   const total = passed + failed;
   console.log(C.bold('\n════════════════════════════════════════════════════════'));
   console.log(
-    C.bold(`  Resultado: ${C.green(passed + ' passed')}  ${failed > 0 ? C.red(failed + ' failed') : C.dim('0 failed')}  ${skipped > 0 ? C.yellow(skipped + ' skipped') : ''}  / ${total + skipped} total`)
+    C.bold(
+      `  Resultado: ${C.green(passed + ' passed')}  ${failed > 0 ? C.red(failed + ' failed') : C.dim('0 failed')}  ${skipped > 0 ? C.yellow(skipped + ' skipped') : ''}  / ${total + skipped} total`
+    )
   );
   console.log(C.bold('════════════════════════════════════════════════════════\n'));
   if (failed > 0) process.exit(1);
 }
 
-main().catch(e => {
+main().catch((e) => {
   console.error(C.red('\nERROR FATAL:'), e.message);
   console.error(e.stack);
   process.exit(1);

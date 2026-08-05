@@ -27,22 +27,34 @@
  * `getSymbols`, `listFiles`, `getDiagnostics`.
  */
 
-const crypto     = require('crypto');
-const fs         = require('fs');
-const path       = require('path');
+const crypto = require('crypto');
+const fs = require('fs');
+const path = require('path');
 
 const { getEventBus } = require('../../infrastructure/event-bus/EventBus.js');
 
-const DEFAULT_POLL_MS       = 30 * 1000;
-const DEFAULT_MAX_SCAN      = 6;                 // archivos diagnosticados por poll
-const DEFAULT_MAX_INDEXED   = 3000;              // límite del índice de archivos del workspace
-const SEVERITY_ERROR        = 1;
-const INDEX_TTL_MS          = 30 * 1000;
+const DEFAULT_POLL_MS = 30 * 1000;
+const DEFAULT_MAX_SCAN = 6; // archivos diagnosticados por poll
+const DEFAULT_MAX_INDEXED = 3000; // límite del índice de archivos del workspace
+const SEVERITY_ERROR = 1;
+const INDEX_TTL_MS = 30 * 1000;
 
 // Carpetas/globals que jamás se indexan (ruido o no-code).
 const IGNORED_DIRS = new Set([
-  'node_modules', '.git', 'dist', 'build', 'out', 'coverage', '.cache',
-  'vendor', 'target', '.next', '.nuxt', '__pycache__', '.venv', 'venv',
+  'node_modules',
+  '.git',
+  'dist',
+  'build',
+  'out',
+  'coverage',
+  '.cache',
+  'vendor',
+  'target',
+  '.next',
+  '.nuxt',
+  '__pycache__',
+  '.venv',
+  'venv',
 ]);
 
 function _defaultListFiles(ws, max = DEFAULT_MAX_INDEXED) {
@@ -50,7 +62,11 @@ function _defaultListFiles(ws, max = DEFAULT_MAX_INDEXED) {
   const walk = (dir, depth) => {
     if (results.length >= max) return;
     let entries;
-    try { entries = fs.readdirSync(dir, { withFileTypes: true }); } catch { return; }
+    try {
+      entries = fs.readdirSync(dir, { withFileTypes: true });
+    } catch {
+      return;
+    }
     for (const e of entries) {
       if (results.length >= max) return;
       const full = path.join(dir, e.name);
@@ -68,11 +84,11 @@ function _defaultListFiles(ws, max = DEFAULT_MAX_INDEXED) {
 
 function _normalizeError(d) {
   return {
-    code:      d.code || null,
-    message:   (d.message || '').trim(),
-    line:      d.range?.start?.line ?? 0,
+    code: d.code || null,
+    message: (d.message || '').trim(),
+    line: d.range?.start?.line ?? 0,
     character: d.range?.start?.character ?? 0,
-    severity:  d.severity ?? 1,
+    severity: d.severity ?? 1,
   };
 }
 
@@ -82,46 +98,47 @@ function _hashErrors(errors) {
 
 class LSPErrorWatcher {
   constructor({
-    lsp               = null,
-    getWorkspace      = () => null,
-    getCurrentTitle   = () => '',
-    getSymbols        = null,
-    getDiagnostics    = null,
-    listFiles         = null,
-    supportedExts     = ['.ts', '.tsx', '.js', '.jsx', '.mjs'],
-    pollMs            = DEFAULT_POLL_MS,
-    maxScanPerPoll    = DEFAULT_MAX_SCAN,
+    lsp = null,
+    getWorkspace = () => null,
+    getCurrentTitle = () => '',
+    getSymbols = null,
+    getDiagnostics = null,
+    listFiles = null,
+    supportedExts = ['.ts', '.tsx', '.js', '.jsx', '.mjs'],
+    pollMs = DEFAULT_POLL_MS,
+    maxScanPerPoll = DEFAULT_MAX_SCAN,
     severityThreshold = SEVERITY_ERROR,
-    bus               = getEventBus(),
-    extraOpenFiles    = null,          // () => string[] — archivos abiertos en el editor (inyección)
+    bus = getEventBus(),
+    extraOpenFiles = null, // () => string[] — archivos abiertos en el editor (inyección)
   } = {}) {
-    this._lsp              = lsp;
-    this._getWorkspace     = getWorkspace || (() => null);
-    this._getCurrentTitle  = getCurrentTitle || (() => '');
-    this._getSymbols       = getSymbols || null;
-    this._getDiagnostics   = getDiagnostics || ((abs) => this._lsp?.getDiagnostics?.(abs) || Promise.resolve([]));
-    this._listFiles        = listFiles || ((ws) => _defaultListFiles(ws, DEFAULT_MAX_INDEXED));
-    this._supportedExts    = supportedExts;
-    this._pollMs           = pollMs;
-    this._maxScanPerPoll   = maxScanPerPoll;
+    this._lsp = lsp;
+    this._getWorkspace = getWorkspace || (() => null);
+    this._getCurrentTitle = getCurrentTitle || (() => '');
+    this._getSymbols = getSymbols || null;
+    this._getDiagnostics =
+      getDiagnostics || ((abs) => this._lsp?.getDiagnostics?.(abs) || Promise.resolve([]));
+    this._listFiles = listFiles || ((ws) => _defaultListFiles(ws, DEFAULT_MAX_INDEXED));
+    this._supportedExts = supportedExts;
+    this._pollMs = pollMs;
+    this._maxScanPerPoll = maxScanPerPoll;
     this._severityThreshold = severityThreshold;
-    this._bus              = bus;
-    this._extraOpenFiles   = extraOpenFiles || null;
+    this._bus = bus;
+    this._extraOpenFiles = extraOpenFiles || null;
 
-    this._timer       = null;
-    this._running     = false;
-    this._polling     = false;
+    this._timer = null;
+    this._running = false;
+    this._polling = false;
 
-    this._workspace   = null;
-    this._filesIndex  = [];        // lista cacheada de archivos soportados
+    this._workspace = null;
+    this._filesIndex = []; // lista cacheada de archivos soportados
     this._filesIndexAt = 0;
 
     this._openInEditor = new Set(); // absPath → archivos que el editor tiene abiertos
-    this._focusedFile  = null;      // absPath del archivo actualmente enfocado
-    this._signals      = new Map(); // absPath → hash del último error emitido
-    this._lastErrors   = new Map(); // absPath → errores del último scan
+    this._focusedFile = null; // absPath del archivo actualmente enfocado
+    this._signals = new Map(); // absPath → hash del último error emitido
+    this._lastErrors = new Map(); // absPath → errores del último scan
     this._lastErrorMsg = null;
-    this._emitted      = 0;
+    this._emitted = 0;
   }
 
   start() {
@@ -132,7 +149,10 @@ class LSPErrorWatcher {
   }
 
   stop() {
-    if (this._timer) { clearInterval(this._timer); this._timer = null; }
+    if (this._timer) {
+      clearInterval(this._timer);
+      this._timer = null;
+    }
     this._running = false;
   }
 
@@ -140,11 +160,14 @@ class LSPErrorWatcher {
   async poll() {
     if (this._polling) return;
     this._polling = true;
-    try { await this._scan(); }
-    catch(e) {
+    try {
+      await this._scan();
+    } catch (e) {
       this._lastErrorMsg = e.message;
       if (process.env.DEBUG) console.warn('[lsp-watcher]', e.message);
-    } finally { this._polling = false; }
+    } finally {
+      this._polling = false;
+    }
   }
 
   /**
@@ -152,11 +175,11 @@ class LSPErrorWatcher {
    * mezclan errores/archivos abiertos entre proyectos (ROADMAP #21).
    */
   resetWorkspace(ws) {
-    this._workspace     = ws || null;
-    this._filesIndex    = [];
-    this._filesIndexAt  = 0;
+    this._workspace = ws || null;
+    this._filesIndex = [];
+    this._filesIndexAt = 0;
     this._openInEditor.clear();
-    this._focusedFile   = null;
+    this._focusedFile = null;
     this._signals.clear();
     this._lastErrors.clear();
   }
@@ -173,21 +196,28 @@ class LSPErrorWatcher {
       this._focusedFile = focused;
       this._openInEditor.add(focused);
       if (this._lsp?.openDocument) {
-        try { await this._lsp.openDocument(focused); } catch(e) { /* no rompe */ }
+        try {
+          await this._lsp.openDocument(focused);
+        } catch (e) {
+          /* no rompe */
+        }
       }
     }
 
     const candidates = this._buildCandidates(ws, focused);
     for (const abs of candidates) {
       let diagnostics;
-      try { diagnostics = await this._getDiagnostics(abs); } catch(e) {
-        if (process.env.DEBUG) console.warn(`[lsp-watcher] diagnóstico ${path.basename(abs)}:`, e.message);
+      try {
+        diagnostics = await this._getDiagnostics(abs);
+      } catch (e) {
+        if (process.env.DEBUG)
+          console.warn(`[lsp-watcher] diagnóstico ${path.basename(abs)}:`, e.message);
         continue;
       }
       const errors = (Array.isArray(diagnostics) ? diagnostics : [])
-        .filter(d => (d.severity ?? SEVERITY_ERROR) === this._severityThreshold)
+        .filter((d) => (d.severity ?? SEVERITY_ERROR) === this._severityThreshold)
         .map(_normalizeError)
-        .filter(e => e.message);
+        .filter((e) => e.message);
 
       this._lastErrors.set(abs, errors);
 
@@ -201,32 +231,36 @@ class LSPErrorWatcher {
       const rel = path.relative(ws, abs);
       let symbols = null;
       if (this._getSymbols && (abs === focused || abs === candidates[0])) {
-        try { symbols = await this._getSymbols(abs); } catch(e) { console.warn('[lsp] falló al obtener símbolos:', e && e.message ? e.message : e); }
+        try {
+          symbols = await this._getSymbols(abs);
+        } catch (e) {
+          console.warn('[lsp] falló al obtener símbolos:', e && e.message ? e.message : e);
+        }
       }
       this._emitted += 1;
       this._bus.emit('lsp:error', {
-        file:      rel.split(path.sep).join('/'),
-        absPath:   abs,
+        file: rel.split(path.sep).join('/'),
+        absPath: abs,
         workspace: ws,
         errors,
-        count:     errors.length,
-        focused:   abs === focused,
+        count: errors.length,
+        focused: abs === focused,
         symbols,
         // Lenguaje del archivo (el LLM debe parchear en el idioma correcto):
         // los errores llegan "en TS" (checkJs), pero el archivo es el que es.
         languageId: this._languageFor(abs),
-        fileType:  path.extname(abs).toLowerCase(),
+        fileType: path.extname(abs).toLowerCase(),
       });
     }
   }
 
   _detectFocusedFile(ws) {
     const title = this._getCurrentTitle() || '';
-    const base  = this._basenameFromTitle(title);
+    const base = this._basenameFromTitle(title);
     if (!base) return Promise.resolve(null);
 
     const files = this._filesFor(ws);
-    const matches = files.filter(f => path.basename(f) === base);
+    const matches = files.filter((f) => path.basename(f) === base);
     // Solo confiar en el foco si el nombre del archivo es inequívoco.
     return Promise.resolve(matches.length === 1 ? matches[0] : null);
   }
@@ -239,7 +273,7 @@ class LSPErrorWatcher {
       // última parte con extensión soportada si el título parece un path.
       const segs = first.split(/[\\/]/);
       const last = segs[segs.length - 1];
-      return (last && this._isSupported(last)) ? last : null;
+      return last && this._isSupported(last) ? last : null;
     }
     return this._isSupported(first) ? first : null;
   }
@@ -256,19 +290,25 @@ class LSPErrorWatcher {
   }
 
   _filesFor(ws) {
-    if (this._filesIndexAt && Date.now() - this._filesIndexAt < INDEX_TTL_MS && this._workspace === ws) {
+    if (
+      this._filesIndexAt &&
+      Date.now() - this._filesIndexAt < INDEX_TTL_MS &&
+      this._workspace === ws
+    ) {
       return this._filesIndex;
     }
     const all = this._listFiles(ws) || [];
-    this._filesIndex = all.filter(f => this._isSupported(path.basename(f)));
+    this._filesIndex = all.filter((f) => this._isSupported(path.basename(f)));
     this._filesIndexAt = Date.now();
     return this._filesIndex;
   }
 
   _buildCandidates(ws, focused) {
-    const files   = this._filesFor(ws);
-    const withOld = this._signals.size ? Array.from(this._signals.keys()).filter(f => f.startsWith(ws)) : [];
-    const seen    = new Set();
+    const files = this._filesFor(ws);
+    const withOld = this._signals.size
+      ? Array.from(this._signals.keys()).filter((f) => f.startsWith(ws))
+      : [];
+    const seen = new Set();
     const ordered = [];
 
     const push = (p) => {
@@ -296,14 +336,18 @@ class LSPErrorWatcher {
 
   getOpenFiles() {
     const extra = this._extraOpenFiles ? this._extraOpenFiles() : [];
-    const set   = new Set(this._openInEditor);
+    const set = new Set(this._openInEditor);
     for (const f of extra || []) {
-      try { set.add(path.resolve(f)); } catch {}
+      try {
+        set.add(path.resolve(f));
+      } catch {}
     }
     return Array.from(set);
   }
 
-  getFocusedFile() { return this._focusedFile; }
+  getFocusedFile() {
+    return this._focusedFile;
+  }
 
   /** Errores (severidad 1) del último scan de un archivo — verificación post-parche. */
   getErrorsFor(absPath) {
@@ -312,13 +356,13 @@ class LSPErrorWatcher {
 
   getStats() {
     return {
-      running:    this._running,
-      workspace:  this._workspace,
-      focused:    this._focusedFile,
-      openFiles:  Array.from(this._openInEditor),
-      signals:    this._signals.size,
-      emitted:    this._emitted,
-      lastError:  this._lastErrorMsg,
+      running: this._running,
+      workspace: this._workspace,
+      focused: this._focusedFile,
+      openFiles: Array.from(this._openInEditor),
+      signals: this._signals.size,
+      emitted: this._emitted,
+      lastError: this._lastErrorMsg,
     };
   }
 }

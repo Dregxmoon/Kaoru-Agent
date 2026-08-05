@@ -12,7 +12,7 @@ function _compressHistory(history) {
     /falló\.?$/i,
   ];
   function isFailure(msg) {
-    return msg.role === 'assistant' && FAIL_PATTERNS.some(p => p.test(msg.content.trim()));
+    return msg.role === 'assistant' && FAIL_PATTERNS.some((p) => p.test(msg.content.trim()));
   }
   const result = [];
   let failRun = [];
@@ -59,12 +59,16 @@ async function processMessage(text, files = []) {
   if (trimmed.startsWith('/')) {
     addMessage('user', trimmed);
     const cmdCtx = {
-      sessionHistory, pushToSession,
-      LLMProvider, ipcRenderer,
+      sessionHistory,
+      pushToSession,
+      LLMProvider,
+      ipcRenderer,
       sendIPC: (ch, d) => ipcRenderer.send(ch, d),
-      addMessage, processMessage,
+      addMessage,
+      processMessage,
       openSettings,
-      fs, path,
+      fs,
+      path,
       process: { cwd: () => _workspacePath || assistant.cwd() },
       // NOTA (sandbox): NO se pasa chatGestureEngine por el bridge. El engine
       // corre en la página y guarda el objeto Live2D real; pasarlo a
@@ -89,7 +93,8 @@ async function processMessage(text, files = []) {
       : cmdResult.result || '(sin respuesta)';
     addMessage('assistant', asstMsg);
     pushToSession('assistant', `[comando] ${asstMsg}`);
-    if (chatGestureEngine) chatGestureEngine.onEvent(cmdResult.error ? 'command_error' : 'command_ok');
+    if (chatGestureEngine)
+      chatGestureEngine.onEvent(cmdResult.error ? 'command_error' : 'command_ok');
     return;
   }
 
@@ -100,11 +105,14 @@ async function processMessage(text, files = []) {
   if (chatGestureEngine) chatGestureEngine.onChat('user', trimmed, chatDetectEmotion);
 
   if (trimmed) {
-    const sessionMsg = fileResult.contexts.length > 0
-      ? trimmed + '\n\n' + fileResult.contexts.map(c =>
-          `[Contexto: ${c.path}]\n\`\`\`\n${c.content}\n\`\`\``
-        ).join('\n\n')
-      : trimmed;
+    const sessionMsg =
+      fileResult.contexts.length > 0
+        ? trimmed +
+          '\n\n' +
+          fileResult.contexts
+            .map((c) => `[Contexto: ${c.path}]\n\`\`\`\n${c.content}\n\`\`\``)
+            .join('\n\n')
+        : trimmed;
     pushToSession('user', sessionMsg);
     ipcRenderer.send('memory-add-turn', { role: 'user', content: sessionMsg });
   }
@@ -127,8 +135,10 @@ async function processMessage(text, files = []) {
 
       // Indicador de progreso minimal
       const progressEl = document.createElement('div');
-      progressEl.style.cssText = 'font-family:var(--font-mono);font-size:10px;color:var(--text-secondary);padding:2px 0;opacity:.6';
-      progressEl.innerHTML = '<span class="loading-spinner">⠋</span> <span class="agent-progress-status">Iniciando...</span>';
+      progressEl.style.cssText =
+        'font-family:var(--font-mono);font-size:10px;color:var(--text-secondary);padding:2px 0;opacity:.6';
+      progressEl.innerHTML =
+        '<span class="loading-spinner">⠋</span> <span class="agent-progress-status">Iniciando...</span>';
       if (bodyEl) bodyEl.appendChild(progressEl);
       _agentProgressEl = progressEl.querySelector('.agent-progress-status');
       _startSpinner(progressEl.querySelector('.loading-spinner'));
@@ -157,9 +167,12 @@ async function processMessage(text, files = []) {
       // La respuesta final autoritativa es `result.response` (el output final
       // del LLM). El buffer de streaming solo sirve de preview en vivo y como
       // fallback si el loop terminó sin una respuesta limpia (max_iterations).
-      const finalText = (result.response && String(result.response).trim())
-        ? result.response
-        : (streamBuf.trim() ? streamBuf : null);
+      const finalText =
+        result.response && String(result.response).trim()
+          ? result.response
+          : streamBuf.trim()
+            ? streamBuf
+            : null;
 
       if (result.error && !finalText) {
         error = result.error;
@@ -175,7 +188,7 @@ async function processMessage(text, files = []) {
         ipcRenderer.send('memory-add-turn', { role: 'assistant', content: response });
         bubble.classList.add('markdown');
         bubble.innerHTML = renderMarkdown(response);
-        bubble.querySelectorAll('.mermaid').forEach(el => _renderMermaid(el));
+        bubble.querySelectorAll('.mermaid').forEach((el) => _renderMermaid(el));
         messagesEl.scrollTop = messagesEl.scrollHeight;
         speak(response);
         return;
@@ -224,7 +237,7 @@ async function processMessage(text, files = []) {
   pushToSession('assistant', response);
   ipcRenderer.send('memory-add-turn', { role: 'assistant', content: response });
   const { bubble } = addMessage('assistant', response);
-  bubble.querySelectorAll('.mermaid').forEach(el => _renderMermaid(el));
+  bubble.querySelectorAll('.mermaid').forEach((el) => _renderMermaid(el));
   messagesEl.scrollTop = messagesEl.scrollHeight;
   speak(response);
 }
@@ -235,17 +248,19 @@ async function _executePlanWithUI(plan, msgDiv) {
 
   const bubble = msgDiv.querySelector('.msg-bubble');
 
-  const stepLabels = plan.steps.map(s => s.description).join(' → ');
+  const stepLabels = plan.steps.map((s) => s.description).join(' → ');
   if (bubble) bubble.textContent = stepLabels;
 
   const card = document.createElement('div');
-  card.className = 'plan-card'; card.id = `plan-${plan.id}`;
+  card.className = 'plan-card';
+  card.id = `plan-${plan.id}`;
   card.innerHTML = `<div class="plan-header"><div class="plan-dot"></div>EJECUTANDO — ${plan.steps.length} PASO${plan.steps.length !== 1 ? 'S' : ''}</div><div class="plan-steps"></div><div class="plan-result" style="display:none"></div>`;
-  const stepsEl  = card.querySelector('.plan-steps');
+  const stepsEl = card.querySelector('.plan-steps');
   const resultEl = card.querySelector('.plan-result');
   for (const step of plan.steps) {
     const el = document.createElement('div');
-    el.className = 'plan-step'; el.id = `step-${step.id}`;
+    el.className = 'plan-step';
+    el.id = `step-${step.id}`;
     el.innerHTML = `<span class="step-icon">⏳</span><span>${step.description}</span>${step.requiresApproval ? '<span style="color:#f59e0b;margin-left:4px">[requiere aprobación]</span>' : ''}`;
     stepsEl.appendChild(el);
   }
@@ -256,14 +271,19 @@ async function _executePlanWithUI(plan, msgDiv) {
   const result = await ipcRenderer.invoke('openclaw-execute-plan', { plan });
 
   const dot = card.querySelector('.plan-dot');
-  if (dot) { dot.style.animation = 'none'; dot.style.background = result.ok ? '#10b981' : '#ef4444'; }
+  if (dot) {
+    dot.style.animation = 'none';
+    dot.style.background = result.ok ? '#10b981' : '#ef4444';
+  }
   const header = card.querySelector('.plan-header');
   if (header) header.style.color = result.ok ? '#10b981' : '#ef4444';
   const headerText = card.querySelector('.plan-header');
-  if (headerText) headerText.innerHTML = `<div class="plan-dot" style="background:${result.ok ? '#10b981' : '#ef4444'};animation:none"></div>${result.ok ? 'COMPLETADO' : 'ERROR'} — ${plan.steps.length} PASO${plan.steps.length !== 1 ? 'S' : ''}`;
+  if (headerText)
+    headerText.innerHTML = `<div class="plan-dot" style="background:${result.ok ? '#10b981' : '#ef4444'};animation:none"></div>${result.ok ? 'COMPLETADO' : 'ERROR'} — ${plan.steps.length} PASO${plan.steps.length !== 1 ? 'S' : ''}`;
 
   if (result.result && result.ok) {
-    const txt = typeof result.result === 'string' ? result.result : JSON.stringify(result.result, null, 2);
+    const txt =
+      typeof result.result === 'string' ? result.result : JSON.stringify(result.result, null, 2);
     if (txt?.trim()) {
       resultEl.textContent = txt;
       resultEl.style.display = 'block';
@@ -303,9 +323,12 @@ function _showPlanApprovalCard(plan, msgDiv) {
   card.className = 'plan-card plan-approval-card';
   card.id = `plan-${plan.id}`;
 
-  const stepsHtml = plan.steps.map(s =>
-    `<div class="plan-step"><span class="step-icon">~</span><span>${s.description}</span></div>`
-  ).join('');
+  const stepsHtml = plan.steps
+    .map(
+      (s) =>
+        `<div class="plan-step"><span class="step-icon">~</span><span>${s.description}</span></div>`
+    )
+    .join('');
 
   card.innerHTML = `
     <div class="plan-header">
@@ -372,7 +395,11 @@ function _compactResult(rawResult) {
     const parsed = JSON.parse(rawResult);
     const compact = {};
     for (const [key, val] of Object.entries(parsed)) {
-      if (val && typeof val === 'object' && (val.status === 'success' || val.status === 'written_unverified')) {
+      if (
+        val &&
+        typeof val === 'object' &&
+        (val.status === 'success' || val.status === 'written_unverified')
+      ) {
         compact[key] = { status: val.status, path: val.path, chars: val.newContent?.length ?? 0 };
       } else if (typeof val === 'string') {
         compact[key] = val.length > 800 ? val.slice(0, 800) + '...' : val;
@@ -388,13 +415,16 @@ function _compactResult(rawResult) {
 
 async function _interpretResult(plan, rawResult, container) {
   // Buscar el mensaje original del usuario para dar contexto
-  const userMsg = [...sessionHistory].reverse().find(m => m.role === 'user');
+  const userMsg = [...sessionHistory].reverse().find((m) => m.role === 'user');
   const goalDesc = plan?.goal || userMsg?.content || 'la tarea';
 
   const compactResult = _compactResult(rawResult);
   const summaryHistory = [
     ...sessionHistory,
-    { role: 'user', content: `Resultado de ejecutar "${goalDesc}":\n\n${compactResult}\n\nInterpreta esto en tu voz. Responde como el asistente personal, útil y directa, sin preguntar qué sigue.` },
+    {
+      role: 'user',
+      content: `Resultado de ejecutar "${goalDesc}":\n\n${compactResult}\n\nInterpreta esto en tu voz. Responde como el asistente personal, útil y directa, sin preguntar qué sigue.`,
+    },
   ];
 
   let summary = null;
@@ -404,7 +434,7 @@ async function _interpretResult(plan, rawResult, container) {
       activeProvider: LLMProvider.getActiveProvider(),
     });
     summary = await LLMProvider.completeTask(context.messages, context.systemPrompt);
-  } catch(e) {
+  } catch (e) {
     console.warn('error interpretando resultado con LLM:', e.message);
   }
 
@@ -445,9 +475,20 @@ function _resultToText(rawResult, goalDesc) {
         const branchLine = stdout.split('\n')[0];
         lines.push(branchLine);
         const changes = (stdout.match(/modified:|new file:|deleted:|renamed:/g) || []).length;
-        if (changes > 0) lines.push(`${changes} archivo${changes !== 1 ? 's' : ''} modificado${changes !== 1 ? 's' : ''}`);
-        const untracked = (stdout.match(/Untracked files:/) ? stdout.split('Untracked files:')[1]?.trim().split('\n').filter(l => l.trim()).length : 0) || 0;
-        if (untracked > 0) lines.push(`${untracked} archivo${untracked !== 1 ? 's' : ''} sin seguimiento`);
+        if (changes > 0)
+          lines.push(
+            `${changes} archivo${changes !== 1 ? 's' : ''} modificado${changes !== 1 ? 's' : ''}`
+          );
+        const untracked =
+          (stdout.match(/Untracked files:/)
+            ? stdout
+                .split('Untracked files:')[1]
+                ?.trim()
+                .split('\n')
+                .filter((l) => l.trim()).length
+            : 0) || 0;
+        if (untracked > 0)
+          lines.push(`${untracked} archivo${untracked !== 1 ? 's' : ''} sin seguimiento`);
       } else if (stdout.length < 500) {
         lines.push(stdout);
       } else {
@@ -470,34 +511,39 @@ function _resultToText(rawResult, goalDesc) {
   }
 }
 
-
 // Colorea un patch unified-diff línea por línea: verde lo agregado, rojo
 // lo quitado, gris el contexto. Antes la tarjeta de aprobación no
 // mostraba el patch en absoluto — el humano aprobaba a ciegas.
 function _renderPatchPreview(patchText) {
   if (!patchText) return '';
-  const esc = (s) => s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
-  const lines = patchText.split('\n').map(l => {
-    let color = 'var(--text-secondary)';
-    if (l.startsWith('+') && !l.startsWith('+++')) color = '#10b981';
-    else if (l.startsWith('-') && !l.startsWith('---')) color = '#ef4444';
-    else if (l.startsWith('@@')) color = 'var(--accent)';
-    return `<div style="color:${color}">${esc(l) || '&nbsp;'}</div>`;
-  }).join('');
+  const esc = (s) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  const lines = patchText
+    .split('\n')
+    .map((l) => {
+      let color = 'var(--text-secondary)';
+      if (l.startsWith('+') && !l.startsWith('+++')) color = '#10b981';
+      else if (l.startsWith('-') && !l.startsWith('---')) color = '#ef4444';
+      else if (l.startsWith('@@')) color = 'var(--accent)';
+      return `<div style="color:${color}">${esc(l) || '&nbsp;'}</div>`;
+    })
+    .join('');
   return `<div style="font-family:var(--font-mono);font-size:10.5px;background:var(--bg-base);border-radius:4px;padding:8px 10px;margin-bottom:10px;max-height:240px;overflow-y:auto;white-space:pre;line-height:1.5">${lines}</div>`;
 }
 
 function _showApprovalCard({ planId, stepId, description, tool, params }) {
-  const card = document.createElement('div'); card.className = 'approval-card';
+  const card = document.createElement('div');
+  card.className = 'approval-card';
   card.innerHTML = `<div class="approval-title">ACCION DE ALTO IMPACTO — APROBACION REQUERIDA</div><div class="approval-cmd">${description}</div><div style="font-size:10px;color:var(--text-secondary);margin-bottom:10px">Herramienta: <b>${tool}</b>${params.command ? ` · <code>${params.command}</code>` : ''}${params.path ? ` · <code>${params.path}</code>` : ''}</div>${_renderPatchPreview(params.patch)}<div class="approval-actions"><button class="btn-approve" id="approve-${stepId}">Ejecutar</button><button class="btn-deny" id="deny-${stepId}">Cancelar</button></div>`;
   messagesEl.appendChild(card);
   messagesEl.scrollTop = messagesEl.scrollHeight;
   document.getElementById(`approve-${stepId}`)?.addEventListener('click', () => {
     ipcRenderer.send('plan-approval-response', { stepId, approved: true });
-    card.style.opacity = '.5'; card.style.pointerEvents = 'none';
+    card.style.opacity = '.5';
+    card.style.pointerEvents = 'none';
   });
   document.getElementById(`deny-${stepId}`)?.addEventListener('click', () => {
     ipcRenderer.send('plan-approval-response', { stepId, approved: false });
-    card.style.opacity = '.5'; card.style.pointerEvents = 'none';
+    card.style.opacity = '.5';
+    card.style.pointerEvents = 'none';
   });
 }

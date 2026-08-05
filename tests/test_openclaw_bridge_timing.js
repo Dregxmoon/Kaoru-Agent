@@ -1,12 +1,12 @@
 'use strict';
 
 const C = {
-  green:  (s) => `\x1b[32m${s}\x1b[0m`,
-  red:    (s) => `\x1b[31m${s}\x1b[0m`,
+  green: (s) => `\x1b[32m${s}\x1b[0m`,
+  red: (s) => `\x1b[31m${s}\x1b[0m`,
   yellow: (s) => `\x1b[33m${s}\x1b[0m`,
-  cyan:   (s) => `\x1b[36m${s}\x1b[0m`,
-  bold:   (s) => `\x1b[1m${s}\x1b[0m`,
-  dim:    (s) => `\x1b[2m${s}\x1b[0m`,
+  cyan: (s) => `\x1b[36m${s}\x1b[0m`,
+  bold: (s) => `\x1b[1m${s}\x1b[0m`,
+  dim: (s) => `\x1b[2m${s}\x1b[0m`,
 };
 
 let passed = 0;
@@ -41,7 +41,7 @@ function testRequireBeforeEnvVar() {
   let bridge;
   try {
     bridge = require('../core/planner/OpenClawBridge.js');
-  } catch(e) {
+  } catch (e) {
     process.env.OPENCLAW_API_KEY = prevKey;
     assert(false, 'OpenClawBridge se requiere sin error', e.message);
     return;
@@ -76,7 +76,7 @@ function testEnvVarBeforeRequire() {
   let bridge;
   try {
     bridge = require('../core/planner/OpenClawBridge.js');
-  } catch(e) {
+  } catch (e) {
     process.env.OPENCLAW_API_KEY = prevKey;
     assert(false, 'OpenClawBridge se requiere sin error (env var presente)', e.message);
     return;
@@ -130,9 +130,13 @@ const total = passed + failed + skipped;
 const color = failed === 0 ? C.green : C.red;
 const skipNote = skipped > 0 ? `  ${C.yellow(`${skipped} skipped`)}` : '';
 if (failed === 0) {
-  console.log(`  ${color('Resultado')}: ${color(`${passed} passed`)}  ${C.dim(`0 failed`)}${skipNote}  / ${total} total`);
+  console.log(
+    `  ${color('Resultado')}: ${color(`${passed} passed`)}  ${C.dim(`0 failed`)}${skipNote}  / ${total} total`
+  );
 } else {
-  console.log(`  Resultado: ${C.green(`${passed} passed`)}  ${C.red(`${failed} failed`)}${skipNote}  / ${total} total`);
+  console.log(
+    `  Resultado: ${C.green(`${passed} passed`)}  ${C.red(`${failed} failed`)}${skipNote}  / ${total} total`
+  );
 }
 console.log(C.bold('════════════════════════════════════════════════════════'));
 

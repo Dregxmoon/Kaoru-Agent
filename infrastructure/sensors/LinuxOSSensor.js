@@ -5,63 +5,80 @@ const { getEventBus } = require('../event-bus/EventBus.js');
 
 const IDLE_THRESHOLD_SECS = 120;
 
-const IGNORED_APPS = new Set([
-  'vtuber-overlay', 'electron', 'desktop-names', 'Hyprland',
-]);
+const IGNORED_APPS = new Set(['vtuber-overlay', 'electron', 'desktop-names', 'Hyprland']);
 
 const APP_NAMES = {
-  'firefox':                    'Firefox',
-  'chromium':                   'Chromium',
-  'chrome':                     'Chrome',
-  'Alacritty':                  'Terminal',
-  'kitty':                      'Terminal',
-  'foot':                       'Terminal',
-  'ghostty':                    'Terminal',
-  'wezterm':                    'Terminal',
-  'Code':                       'VS Code',
-  'cursor':                     'Cursor',
-  'discord':                    'Discord',
-  'vesktop':                    'Discord',
-  'spotify':                    'Spotify',
-  'obsidian':                   'Obsidian',
-  'Thunar':                     'Archivos',
-  'Nautilus':                   'Archivos',
-  'nemo':                       'Archivos',
-  'dolphin':                    'Archivos',
-  'Blender':                    'Blender',
-  'Gimp':                       'GIMP',
-  'Inkscape':                   'Inkscape',
-  'Krita':                      'Krita',
-  'libreoffice-writer':         'LibreOffice',
-  'libreoffice-calc':           'LibreOffice',
-  'libreoffice-impress':        'LibreOffice',
-  'Evince':                     'Lector PDF',
-  'Zathura':                    'Lector PDF',
-  'Sioyek':                     'Lector PDF',
-  'vlc':                        'VLC',
-  'mpv':                        'mpv',
-  'TelegramDesktop':            'Telegram',
-  'signal-desktop':             'Signal',
-  'slack':                      'Slack',
-  'postman':                    'Postman',
-  'insomnia':                   'Insomnia',
-  'Steam':                      'Steam',
-  'Lutris':                     'Lutris',
-  'heroic':                     'Heroic',
+  firefox: 'Firefox',
+  chromium: 'Chromium',
+  chrome: 'Chrome',
+  Alacritty: 'Terminal',
+  kitty: 'Terminal',
+  foot: 'Terminal',
+  ghostty: 'Terminal',
+  wezterm: 'Terminal',
+  Code: 'VS Code',
+  cursor: 'Cursor',
+  discord: 'Discord',
+  vesktop: 'Discord',
+  spotify: 'Spotify',
+  obsidian: 'Obsidian',
+  Thunar: 'Archivos',
+  Nautilus: 'Archivos',
+  nemo: 'Archivos',
+  dolphin: 'Archivos',
+  Blender: 'Blender',
+  Gimp: 'GIMP',
+  Inkscape: 'Inkscape',
+  Krita: 'Krita',
+  'libreoffice-writer': 'LibreOffice',
+  'libreoffice-calc': 'LibreOffice',
+  'libreoffice-impress': 'LibreOffice',
+  Evince: 'Lector PDF',
+  Zathura: 'Lector PDF',
+  Sioyek: 'Lector PDF',
+  vlc: 'VLC',
+  mpv: 'mpv',
+  TelegramDesktop: 'Telegram',
+  'signal-desktop': 'Signal',
+  slack: 'Slack',
+  postman: 'Postman',
+  insomnia: 'Insomnia',
+  Steam: 'Steam',
+  Lutris: 'Lutris',
+  heroic: 'Heroic',
 };
 
 const APP_CATEGORIES = {
-  code:     ['Code', 'cursor', 'sublime_text', 'gnome-builder', 'kdevelop', 'android-studio'],
+  code: ['Code', 'cursor', 'sublime_text', 'gnome-builder', 'kdevelop', 'android-studio'],
   terminal: ['Alacritty', 'kitty', 'foot', 'ghostty', 'wezterm', 'urxvt', 'st', 'xterm'],
-  browser:  ['firefox', 'chromium', 'chrome', 'brave', 'opera', 'vivaldi', 'thorium', 'zen', 'floorp'],
-  design:   ['Gimp', 'Inkscape', 'Krita', 'Blender'],
-  docs:     ['libreoffice-writer', 'libreoffice-calc', 'libreoffice-impress', 'Evince', 'Zathura', 'Sioyek', 'obsidian', 'logseq'],
-  chat:     ['discord', 'vesktop', 'TelegramDesktop', 'signal-desktop', 'slack', 'whatsapp-for-linux'],
-  media:    ['spotify', 'vlc', 'mpv', 'celluloid', 'rhythmbox'],
-  api:      ['postman', 'insomnia'],
-  files:    ['Thunar', 'Nautilus', 'nemo', 'dolphin', 'pcmanfm'],
-  system:   ['gnome-settings', 'xfce4-settings', 'systemsettings'],
-  game:     ['steam', 'lutris', 'heroic', 'mangohud', 'gamescope', 'Steam'],
+  browser: [
+    'firefox',
+    'chromium',
+    'chrome',
+    'brave',
+    'opera',
+    'vivaldi',
+    'thorium',
+    'zen',
+    'floorp',
+  ],
+  design: ['Gimp', 'Inkscape', 'Krita', 'Blender'],
+  docs: [
+    'libreoffice-writer',
+    'libreoffice-calc',
+    'libreoffice-impress',
+    'Evince',
+    'Zathura',
+    'Sioyek',
+    'obsidian',
+    'logseq',
+  ],
+  chat: ['discord', 'vesktop', 'TelegramDesktop', 'signal-desktop', 'slack', 'whatsapp-for-linux'],
+  media: ['spotify', 'vlc', 'mpv', 'celluloid', 'rhythmbox'],
+  api: ['postman', 'insomnia'],
+  files: ['Thunar', 'Nautilus', 'nemo', 'dolphin', 'pcmanfm'],
+  system: ['gnome-settings', 'xfce4-settings', 'systemsettings'],
+  game: ['steam', 'lutris', 'heroic', 'mangohud', 'gamescope', 'Steam'],
 };
 
 function _getFriendlyName(procName) {
@@ -90,13 +107,19 @@ function _exec(cmd, args = []) {
       const child = spawn(cmd, args, { stdio: 'pipe', timeout: 3000, encoding: 'utf8' });
       let stdout = '';
       let stderr = '';
-      child.stdout.on('data', (d) => { stdout += d; });
-      child.stderr.on('data', (d) => { stderr += d; });
+      child.stdout.on('data', (d) => {
+        stdout += d;
+      });
+      child.stderr.on('data', (d) => {
+        stderr += d;
+      });
       child.on('error', () => resolve(null));
       child.on('close', (code) => {
         resolve(code === 0 ? stdout.trim() : null);
       });
-    } catch (_) { resolve(null); }
+    } catch (_) {
+      resolve(null);
+    }
   });
 }
 
@@ -106,14 +129,18 @@ function _execSync(cmd, args = []) {
     const r = spawnSync(cmd, args, { stdio: 'pipe', timeout: 3000, encoding: 'utf8' });
     if (r.status !== 0) return null;
     return r.stdout.trim();
-  } catch (_) { return null; }
+  } catch (_) {
+    return null;
+  }
 }
 
 function _checkBinary(name) {
   try {
     const r = _execSync('which', [name]);
     return r !== null;
-  } catch (_) { return false; }
+  } catch (_) {
+    return false;
+  }
 }
 
 function _parseHyprctlWindow(raw) {
@@ -143,7 +170,14 @@ function _parseHyprctlClients(raw) {
 }
 
 async function _getIdleSecs() {
-  const loginctlOut = await _exec('loginctl', ['show-session', await _getActiveSessionId(), '-p', 'IdleSinceHint', '-p', 'IdleHint']);
+  const loginctlOut = await _exec('loginctl', [
+    'show-session',
+    await _getActiveSessionId(),
+    '-p',
+    'IdleSinceHint',
+    '-p',
+    'IdleHint',
+  ]);
   if (!loginctlOut) return 0;
   const hintMatch = loginctlOut.match(/IdleHint=(yes|no)/);
   const sinceMatch = loginctlOut.match(/IdleSinceHint=(\d+)/);
@@ -156,27 +190,27 @@ async function _getIdleSecs() {
 async function _getActiveSessionId() {
   const out = await _exec('loginctl');
   if (!out) return '';
-  const lines = out.split('\n').filter(l => l.includes('panfilo') || l.includes('wayland'));
+  const lines = out.split('\n').filter((l) => l.includes('panfilo') || l.includes('wayland'));
   if (!lines.length) return '';
   return lines[0].split(/\s+/)[0];
 }
 
 class LinuxOSSensor {
   constructor(stateGraph) {
-    this._graph        = stateGraph;
-    this._bus          = getEventBus();
-    this._polling      = null;
-    this._pollBusy     = false;
-    this._pollMs       = 5000;
-    this._currentApp   = null;
+    this._graph = stateGraph;
+    this._bus = getEventBus();
+    this._polling = null;
+    this._pollBusy = false;
+    this._pollMs = 5000;
+    this._currentApp = null;
     this._currentTitle = null;
-    this._appStart     = null;
-    this._openWindows  = [];
-    this._history      = [];
-    this._maxHistory   = 100;
-    this._running      = false;
-    this._idleSecs     = 0;
-    this._wasIdle      = false;
+    this._appStart = null;
+    this._openWindows = [];
+    this._history = [];
+    this._maxHistory = 100;
+    this._running = false;
+    this._idleSecs = 0;
+    this._wasIdle = false;
 
     this._hyprctlOk = _checkBinary('hyprctl');
     if (!this._hyprctlOk) {
@@ -189,37 +223,40 @@ class LinuxOSSensor {
     this._running = true;
     console.log('[linux-os-sensor] iniciado (Hyprland/Wayland, poll cada 5s)');
     this._poll();
-    this._polling = setInterval(() => { this._poll().catch(e => console.warn('[linux-os-sensor] poll error:', e.message)); }, this._pollMs);
+    this._polling = setInterval(() => {
+      this._poll().catch((e) => console.warn('[linux-os-sensor] poll error:', e.message));
+    }, this._pollMs);
   }
 
   stop() {
-    if (this._polling) { clearInterval(this._polling); this._polling = null; }
+    if (this._polling) {
+      clearInterval(this._polling);
+      this._polling = null;
+    }
     this._running = false;
     console.log('[linux-os-sensor] detenido');
   }
 
   getCurrentContext() {
-    const elapsed = this._appStart
-      ? Math.round((Date.now() - this._appStart) / 1000)
-      : 0;
+    const elapsed = this._appStart ? Math.round((Date.now() - this._appStart) / 1000) : 0;
     return {
-      app:                this._currentApp,
-      friendlyName:       _getFriendlyName(this._currentApp),
-      title:              this._currentTitle,
-      category:           _getCategory(this._currentApp),
+      app: this._currentApp,
+      friendlyName: _getFriendlyName(this._currentApp),
+      title: this._currentTitle,
+      category: _getCategory(this._currentApp),
       elapsed,
-      elapsedFormatted:   _formatElapsed(elapsed),
-      idleSecs:           this._idleSecs,
-      idleFormatted:      this._idleSecs > 0 ? _formatElapsed(this._idleSecs) : null,
-      isIdle:             this._idleSecs >= IDLE_THRESHOLD_SECS,
-      openWindows:        this.getOpenWindows(),
+      elapsedFormatted: _formatElapsed(elapsed),
+      idleSecs: this._idleSecs,
+      idleFormatted: this._idleSecs > 0 ? _formatElapsed(this._idleSecs) : null,
+      isIdle: this._idleSecs >= IDLE_THRESHOLD_SECS,
+      openWindows: this.getOpenWindows(),
       openWindowsSummary: this.getOpenWindowsSummary(),
-      history:            this.getTodayHistory(),
+      history: this.getTodayHistory(),
     };
   }
 
   getOpenWindows() {
-    return this._openWindows.map(w => ({
+    return this._openWindows.map((w) => ({
       ...w,
       focused: w.app === this._currentApp && w.title === this._currentTitle,
     }));
@@ -227,16 +264,18 @@ class LinuxOSSensor {
 
   getOpenWindowsSummary() {
     if (!this._openWindows.length) return null;
-    return this._openWindows.map(w => {
-      const cleanTitle = w.title || '';
-      return cleanTitle ? `${w.friendlyName} (${cleanTitle.slice(0, 50)})` : w.friendlyName;
-    }).join(', ');
+    return this._openWindows
+      .map((w) => {
+        const cleanTitle = w.title || '';
+        return cleanTitle ? `${w.friendlyName} (${cleanTitle.slice(0, 50)})` : w.friendlyName;
+      })
+      .join(', ');
   }
 
   getTodayHistory() {
     const startOfDay = new Date();
     startOfDay.setHours(0, 0, 0, 0);
-    return this._history.filter(e => e.start >= startOfDay.getTime());
+    return this._history.filter((e) => e.start >= startOfDay.getTime());
   }
 
   getTodaySummary() {
@@ -260,7 +299,10 @@ class LinuxOSSensor {
 
     try {
       const raw = await _exec('hyprctl', ['activewindow']);
-      if (!raw) { this._pollBusy = false; return; }
+      if (!raw) {
+        this._pollBusy = false;
+        return;
+      }
 
       const focus = _parseHyprctlWindow(raw);
       const app = focus.class || null;
@@ -296,7 +338,6 @@ class LinuxOSSensor {
       this._bus.emit('os:windows-updated', { windows: openWindows });
       this._processFocus(app, title);
       this._processIdle(idleSecs);
-
     } catch (e) {
       console.warn('[linux-os-sensor] error en poll:', e.message);
     }
@@ -305,24 +346,22 @@ class LinuxOSSensor {
   }
 
   _processFocus(app, title) {
-    const elapsed = this._appStart
-      ? Math.round((Date.now() - this._appStart) / 1000)
-      : 0;
+    const elapsed = this._appStart ? Math.round((Date.now() - this._appStart) / 1000) : 0;
 
     if (app !== this._currentApp) {
       if (this._currentApp && this._appStart) {
         this._saveToHistory(this._currentApp, this._currentTitle, this._appStart, Date.now());
       }
       const prev = this._currentApp;
-      this._currentApp   = app;
+      this._currentApp = app;
       this._currentTitle = title;
-      this._appStart     = Date.now();
+      this._appStart = Date.now();
       this._bus.emit('os:app-changed', {
         app,
         friendlyName: _getFriendlyName(app),
         title,
-        category:     _getCategory(app),
-        elapsed:      0,
+        category: _getCategory(app),
+        elapsed: 0,
         prev,
         prevFriendly: _getFriendlyName(prev),
       });
@@ -332,7 +371,7 @@ class LinuxOSSensor {
         app,
         friendlyName: _getFriendlyName(app),
         title,
-        category:     _getCategory(app),
+        category: _getCategory(app),
         elapsed,
         elapsedFormatted: _formatElapsed(elapsed),
       });
@@ -355,16 +394,24 @@ class LinuxOSSensor {
     if (this._currentApp && this._appStart) {
       this._saveToHistory(this._currentApp, this._currentTitle, this._appStart, Date.now());
     }
-    this._currentApp   = null;
+    this._currentApp = null;
     this._currentTitle = null;
-    this._appStart     = null;
+    this._appStart = null;
   }
 
   _saveToHistory(app, title, start, end) {
     const duration = Math.round((end - start) / 1000);
     if (duration < 5) return;
-    this._history.push({ app, title: title || '', friendlyName: _getFriendlyName(app), start, end, duration });
-    if (this._history.length > this._maxHistory) this._history.splice(0, this._history.length - this._maxHistory);
+    this._history.push({
+      app,
+      title: title || '',
+      friendlyName: _getFriendlyName(app),
+      start,
+      end,
+      duration,
+    });
+    if (this._history.length > this._maxHistory)
+      this._history.splice(0, this._history.length - this._maxHistory);
   }
 }
 

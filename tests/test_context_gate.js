@@ -13,16 +13,22 @@
  *   - QueueStore: difiere, reintenta sin quemar, caduca, dedupe.
  */
 
-const { evaluate, detectFlow, dynamicBudget, QueueStore, FLOW, DEFAULT_GATE_POLICY } =
-  require('../core/decision/ContextGate.js');
+const {
+  evaluate,
+  detectFlow,
+  dynamicBudget,
+  QueueStore,
+  FLOW,
+  DEFAULT_GATE_POLICY,
+} = require('../core/decision/ContextGate.js');
 const { scoreRelevancia } = require('../core/decision/DecisionCore.js');
 
 const C = {
   green: (s) => `\x1b[32m${s}\x1b[0m`,
-  red:   (s) => `\x1b[31m${s}\x1b[0m`,
-  cyan:  (s) => `\x1b[36m${s}\x1b[0m`,
-  bold:  (s) => `\x1b[1m${s}\x1b[0m`,
-  dim:   (s) => `\x1b[2m${s}\x1b[0m`,
+  red: (s) => `\x1b[31m${s}\x1b[0m`,
+  cyan: (s) => `\x1b[36m${s}\x1b[0m`,
+  bold: (s) => `\x1b[1m${s}\x1b[0m`,
+  dim: (s) => `\x1b[2m${s}\x1b[0m`,
 };
 
 let passed = 0;
@@ -71,7 +77,8 @@ function testFlow() {
   // Thrashing invalida el flow profundo.
   const now = 1000000;
   const thrash = detectFlow({
-    idleSecs: 0, appElapsedSec: 30 * 60,
+    idleSecs: 0,
+    appElapsedSec: 30 * 60,
     recentSwitches: Array.from({ length: 8 }, (_, i) => ({ ts: now - i * 5000 })),
     now,
   });
@@ -136,7 +143,10 @@ function testEvaluate() {
 
   // Crítica + presente + R alta → ESCALATE aunque no haya presupuesto.
   const crit = evaluate(cand(0.95, { isCritical: true }), { ...baseCtx, budgetUsed: 999 });
-  assert(crit.admit === true && crit.decision.verdict === 'ESCALATE', 'crítica → ESCALATE sin presupuesto');
+  assert(
+    crit.admit === true && crit.decision.verdict === 'ESCALATE',
+    'crítica → ESCALATE sin presupuesto'
+  );
 
   // Crítica + usuario ausente (no ha hablado + chat cerrado NO = presente real,
   // pero el gate usa `chatOpen` como proxy de presencia; lo crítico exige
@@ -145,7 +155,10 @@ function testEvaluate() {
   assert(critAway.admit === false && critAway.queue === true, 'crítica + chat abierto → QUEUE');
 
   // Usuario habló hace < 2 min → nunca interrumpir, aunque sea crítico.
-  const recent = evaluate(cand(0.95, { isCritical: true }), { ...baseCtx, lastUserMsg: baseCtx.now - 30 * 1000 });
+  const recent = evaluate(cand(0.95, { isCritical: true }), {
+    ...baseCtx,
+    lastUserMsg: baseCtx.now - 30 * 1000,
+  });
   assert(recent.admit === false, 'usuario habló hace 30s → no ACT (ni crítico)');
 }
 
@@ -188,7 +201,11 @@ function testQueue() {
     const ready = q3.poll({ ...baseCtx, now: 1000000 + (i + 1) * 60000 });
     if (ready.length) retries.push(...ready);
   }
-  assert(retries.length === 1, 'candidato admitido → 1 reintento efectivo', `got=${retries.length}`);
+  assert(
+    retries.length === 1,
+    'candidato admitido → 1 reintento efectivo',
+    `got=${retries.length}`
+  );
 
   // Circular: no crece sin límite.
   const q4 = new QueueStore();
@@ -206,22 +223,42 @@ function testPipeline() {
   raw.score = scoreRelevancia(raw.signal);
 
   const result = evaluate(raw, baseCtx);
-  assert(result.admit === true, '.env sin ignorar → ACT', `verdict=${result.decision.verdict} reason=${result.decision.reason}`);
-  assert(result.decision.relevance > 0.6, 'score supera umbral de act', `R=${result.decision.relevance.toFixed(3)}`);
+  assert(
+    result.admit === true,
+    '.env sin ignorar → ACT',
+    `verdict=${result.decision.verdict} reason=${result.decision.reason}`
+  );
+  assert(
+    result.decision.relevance > 0.6,
+    'score supera umbral de act',
+    `R=${result.decision.relevance.toFixed(3)}`
+  );
 }
 
 // ── Test 6: candidatos self-gated (triggers temporales, Gap 2) ───────────────
 
 function testSelfGated() {
-  console.log(C.bold('\nTest 6: selfGated (triggers temporales) → el gate solo impone presupuesto y SLO'));
+  console.log(
+    C.bold('\nTest 6: selfGated (triggers temporales) → el gate solo impone presupuesto y SLO')
+  );
 
-  const temporal = { tipo: 'long_silence', kind: 'default', score: 0.55, selfGated: true, isCritical: false };
+  const temporal = {
+    tipo: 'long_silence',
+    kind: 'default',
+    score: 0.55,
+    selfGated: true,
+    isCritical: false,
+  };
 
   // Aunque el usuario habló hace 30s o está idle, un temporal YA validó su
   // momento: el gate NO re-valida chat/idle/flow → ACT directo.
   const busy = evaluate(temporal, { ...baseCtx, lastUserMsg: baseCtx.now - 30 * 1000 });
   assert(busy.admit === true, 'con chat reciente → ACT (self-gated)');
-  assert(busy.decision.reason === 'GATE3_ACT_SELF_GATED', '…reason = SELF_GATED', busy.decision.reason);
+  assert(
+    busy.decision.reason === 'GATE3_ACT_SELF_GATED',
+    '…reason = SELF_GATED',
+    busy.decision.reason
+  );
 
   const idle = evaluate(temporal, { ...baseCtx, idleSecs: 300 });
   assert(idle.admit === true, 'idle → ACT (self-gated)', `verdict=${idle.decision.verdict}`);
@@ -233,12 +270,20 @@ function testSelfGated() {
   // Lo único que lo frena es el presupuesto...
   const broke = evaluate(temporal, { ...baseCtx, budgetUsed: 12, budgetLimit: 12 });
   assert(broke.admit === false && broke.decision.verdict === 'DROP', 'presupuesto agotado → DROP');
-  assert(broke.decision.reason === 'GATE2_DROP_BUDGET_EXHAUSTED', '…reason = DROP_BUDGET_EXHAUSTED', broke.decision.reason);
+  assert(
+    broke.decision.reason === 'GATE2_DROP_BUDGET_EXHAUSTED',
+    '…reason = DROP_BUDGET_EXHAUSTED',
+    broke.decision.reason
+  );
 
   // ...y la degradación por SLO (F-5): un tipo degradado no molesta.
   const degraded = evaluate(temporal, { ...baseCtx, degradedTypes: new Set(['long_silence']) });
   assert(degraded.admit === false && degraded.decision.verdict === 'DROP', 'tipo degradado → DROP');
-  assert(degraded.decision.reason === 'GATE2_DROP_DEGRADED', '…reason = DROP_DEGRADED', degraded.decision.reason);
+  assert(
+    degraded.decision.reason === 'GATE2_DROP_DEGRADED',
+    '…reason = DROP_DEGRADED',
+    degraded.decision.reason
+  );
 
   // Un sensor NORMAL (sin selfGated) sigue obedeciendo chat/idle/flow.
   const normal = evaluate(cand(0.9), { ...baseCtx, lastUserMsg: baseCtx.now - 30 * 1000 });

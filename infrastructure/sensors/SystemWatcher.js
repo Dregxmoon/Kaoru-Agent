@@ -23,16 +23,16 @@
 
 'use strict';
 
-const os   = require('os');
-const fs   = require('fs');
+const os = require('os');
+const fs = require('fs');
 const path = require('path');
 
 const { getEventBus } = require('../../infrastructure/event-bus/EventBus.js');
 
-const CPU_WARN      = 92;
-const MEM_WARN      = 92;
-const DISK_WARN     = 92;
-const BATTERY_LOW   = 15;
+const CPU_WARN = 92;
+const MEM_WARN = 92;
+const DISK_WARN = 92;
+const BATTERY_LOW = 15;
 const BATTERY_CRITICAL = 8;
 const DEFAULT_POLL_MS = 60 * 1000;
 
@@ -41,24 +41,27 @@ async function _defaultProbe() {
   try {
     const st = await fs.promises.statfs('/');
     if (st.blocks > 0) disk = (1 - st.bfree / st.blocks) * 100;
-  } catch(_) {}
+  } catch (_) {}
 
   let battery = null;
   if (process.platform === 'linux') {
     try {
-      const dirs = fs.readdirSync('/sys/class/power_supply').filter(d => /^BAT/i.test(d));
+      const dirs = fs.readdirSync('/sys/class/power_supply').filter((d) => /^BAT/i.test(d));
       for (const d of dirs) {
-        const base  = path.join('/sys/class/power_supply', d);
+        const base = path.join('/sys/class/power_supply', d);
         const level = parseInt(fs.readFileSync(path.join(base, 'capacity'), 'utf-8'), 10);
         const status = fs.readFileSync(path.join(base, 'status'), 'utf-8').trim();
-        if (!isNaN(level)) { battery = { level, charging: status === 'Charging' }; break; }
+        if (!isNaN(level)) {
+          battery = { level, charging: status === 'Charging' };
+          break;
+        }
       }
-    } catch(_) {}
+    } catch (_) {}
   }
 
   return {
-    cpu:      _cpuPercent(),
-    mem:      _memPercent(),
+    cpu: _cpuPercent(),
+    mem: _memPercent(),
     disk,
     battery,
   };
@@ -66,7 +69,8 @@ async function _defaultProbe() {
 
 function _cpuPercent() {
   const cpus = os.cpus();
-  let idle = 0, total = 0;
+  let idle = 0,
+    total = 0;
   for (const c of cpus) {
     for (const t of Object.keys(c.times)) total += c.times[t];
     idle += c.times.idle;
@@ -81,13 +85,13 @@ function _memPercent() {
 
 class SystemWatcher {
   constructor({ pollMs = DEFAULT_POLL_MS, probe = _defaultProbe, bus = getEventBus() } = {}) {
-    this._bus     = bus;
-    this._pollMs  = pollMs;
-    this._probe   = probe;
-    this._timer   = null;
+    this._bus = bus;
+    this._pollMs = pollMs;
+    this._probe = probe;
+    this._timer = null;
     this._running = false;
-    this._warned  = {}; // kind → { active, value }
-    this._last    = null;
+    this._warned = {}; // kind → { active, value }
+    this._last = null;
     this._lastError = null;
   }
 
@@ -99,7 +103,10 @@ class SystemWatcher {
   }
 
   stop() {
-    if (this._timer) { clearInterval(this._timer); this._timer = null; }
+    if (this._timer) {
+      clearInterval(this._timer);
+      this._timer = null;
+    }
     this._running = false;
   }
 
@@ -108,25 +115,40 @@ class SystemWatcher {
       const s = await this._probe();
       this._last = s;
       this._tick(s);
-    } catch(e) {
+    } catch (e) {
       this._lastError = e.message;
       if (process.env.DEBUG) console.warn('[system-watcher]', e.message);
     }
   }
 
   _tick(s) {
-    this._warnWhileActive('cpu_sustained', s.cpu > CPU_WARN,
-      `La CPU lleva al ${Math.round(s.cpu)}% — algo está comiendo recursos.`);
-    this._warnWhileActive('memory', s.mem > MEM_WARN,
-      `La RAM está al ${Math.round(s.mem)}% — la máquina puede empezar a ir lenta.`);
-    this._warnWhileActive('disk', s.disk > DISK_WARN,
-      `El disco está al ${Math.round(s.disk)}% — conviene liberar espacio.`);
+    this._warnWhileActive(
+      'cpu_sustained',
+      s.cpu > CPU_WARN,
+      `La CPU lleva al ${Math.round(s.cpu)}% — algo está comiendo recursos.`
+    );
+    this._warnWhileActive(
+      'memory',
+      s.mem > MEM_WARN,
+      `La RAM está al ${Math.round(s.mem)}% — la máquina puede empezar a ir lenta.`
+    );
+    this._warnWhileActive(
+      'disk',
+      s.disk > DISK_WARN,
+      `El disco está al ${Math.round(s.disk)}% — conviene liberar espacio.`
+    );
 
     if (s.battery) {
-      this._warnWhileActive('battery_low', s.battery.level <= BATTERY_LOW && !s.battery.charging,
-        `La batería está al ${Math.round(s.battery.level)}% y no está cargando.`);
-      this._warnWhileActive('battery_critical', s.battery.level <= BATTERY_CRITICAL && !s.battery.charging,
-        `Batería crítica: ${Math.round(s.battery.level)}% sin cargar — hay que conectar el cargador.`);
+      this._warnWhileActive(
+        'battery_low',
+        s.battery.level <= BATTERY_LOW && !s.battery.charging,
+        `La batería está al ${Math.round(s.battery.level)}% y no está cargando.`
+      );
+      this._warnWhileActive(
+        'battery_critical',
+        s.battery.level <= BATTERY_CRITICAL && !s.battery.charging,
+        `Batería crítica: ${Math.round(s.battery.level)}% sin cargar — hay que conectar el cargador.`
+      );
     }
   }
 
@@ -146,9 +168,13 @@ class SystemWatcher {
 
   getStats() {
     return {
-      running:   this._running,
-      last:      this._last,
-      warned:    Object.fromEntries(Object.entries(this._warned).filter(([, v]) => v.active).map(([k, v]) => [k, v.at])),
+      running: this._running,
+      last: this._last,
+      warned: Object.fromEntries(
+        Object.entries(this._warned)
+          .filter(([, v]) => v.active)
+          .map(([k, v]) => [k, v.at])
+      ),
       lastError: this._lastError,
     };
   }
@@ -156,5 +182,9 @@ class SystemWatcher {
 
 module.exports = {
   SystemWatcher,
-  CPU_WARN, MEM_WARN, DISK_WARN, BATTERY_LOW, BATTERY_CRITICAL,
+  CPU_WARN,
+  MEM_WARN,
+  DISK_WARN,
+  BATTERY_LOW,
+  BATTERY_CRITICAL,
 };

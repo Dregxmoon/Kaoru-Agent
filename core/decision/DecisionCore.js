@@ -36,28 +36,28 @@ function _norm(v, lo = 0, hi = 1) {
 
 const DEFAULT_POLICY = {
   weights: {
-    severity:     0.40,   // qué tan grave es (0=info, 1=crítico)
-    actionability: 0.25,   // cuánto puede el asistente ayudar de verdad
-    salience:     0.25,   // qué tan ligado a lo que el usuario hace AHORA
-    costOfIgnore: 0.10,   // cuánto cuesta no actuar (secreto expuesto)
+    severity: 0.4, // qué tan grave es (0=info, 1=crítico)
+    actionability: 0.25, // cuánto puede el asistente ayudar de verdad
+    salience: 0.25, // qué tan ligado a lo que el usuario hace AHORA
+    costOfIgnore: 0.1, // cuánto cuesta no actuar (secreto expuesto)
   },
   thresholds: {
-    act:       0.60,      // R ≥ act + buen momento → ACT NOW
-    queue:     0.35,      // R ≥ queue + mal momento → QUEUE
-    escalate:  0.80,      // R ≥ escalate (crítica) → salta presupuesto normal
-    promoteBy: 0.15,      // histéresis: re-promocionar exige R más alta
+    act: 0.6, // R ≥ act + buen momento → ACT NOW
+    queue: 0.35, // R ≥ queue + mal momento → QUEUE
+    escalate: 0.8, // R ≥ escalate (crítica) → salta presupuesto normal
+    promoteBy: 0.15, // histéresis: re-promocionar exige R más alta
   },
   receptivity: {
-    alpha:         0.25,  // suavizado EMA (outcome)
-    accepted:     +1.0,   // aceptó → sube
-    rejected:     -0.6,   // rechazó → baja
-    ignored:      -0.4,   // no tocó la propuesta → baja un poco
-    decayPerHour: 0.03,   // tendencia al neutro con el paso del tiempo
+    alpha: 0.25, // suavizado EMA (outcome)
+    accepted: +1.0, // aceptó → sube
+    rejected: -0.6, // rechazó → baja
+    ignored: -0.4, // no tocó la propuesta → baja un poco
+    decayPerHour: 0.03, // tendencia al neutro con el paso del tiempo
   },
   budget: {
-    base: 12,              // neutro (receptividad 0) → 12 iniciativas/día
-    min:  2,
-    max:  20,
+    base: 12, // neutro (receptividad 0) → 12 iniciativas/día
+    min: 2,
+    max: 20,
   },
 };
 
@@ -71,17 +71,18 @@ function scoreRelevancia(signal = {}, policy = {}) {
   signal = signal || {};
   const w = { ...DEFAULT_POLICY.weights, ...(policy.weights || {}) };
   const s = {
-    severity:     _norm(signal.severity),
+    severity: _norm(signal.severity),
     actionability: _norm(signal.actionability),
-    salience:     _norm(signal.salience),
+    salience: _norm(signal.salience),
     costOfIgnore: _norm(signal.costOfIgnore),
   };
   return clamp(
     w.severity * s.severity +
-    w.actionability * s.actionability +
-    w.salience * s.salience +
-    w.costOfIgnore * s.costOfIgnore,
-    0, 1
+      w.actionability * s.actionability +
+      w.salience * s.salience +
+      w.costOfIgnore * s.costOfIgnore,
+    0,
+    1
   );
 }
 
@@ -95,7 +96,7 @@ function scoreRelevancia(signal = {}, policy = {}) {
  */
 function receptividad(prev, outcome = {}, hoursSincePrev = 0, policy = {}) {
   const rp = { ...DEFAULT_POLICY.receptivity, ...(policy.receptivity || {}) };
-  let base = (typeof prev === 'number' && isFinite(prev)) ? prev : 0;
+  let base = typeof prev === 'number' && isFinite(prev) ? prev : 0;
 
   if (hoursSincePrev > 0) {
     base *= Math.exp(-rp.decayPerHour * hoursSincePrev);
@@ -105,7 +106,7 @@ function receptividad(prev, outcome = {}, hoursSincePrev = 0, policy = {}) {
   const hasOutcome = !!(outcome.accepted || outcome.rejected || outcome.ignored);
   if (!hasOutcome) return clamp(base, -1, 1);
 
-  const delta = outcome.accepted ? rp.accepted : (outcome.rejected ? rp.rejected : rp.ignored);
+  const delta = outcome.accepted ? rp.accepted : outcome.rejected ? rp.rejected : rp.ignored;
   return clamp(base + rp.alpha * (delta - base), -1, 1);
 }
 
@@ -117,8 +118,8 @@ function receptividad(prev, outcome = {}, hoursSincePrev = 0, policy = {}) {
  */
 function presupuesto(rec, policy = {}) {
   const b = { ...DEFAULT_POLICY.budget, ...(policy.budget || {}) };
-  const norm = _norm(rec, -1, 1);              // [-1,1] → [0,1]
-  const target = b.base * (0.4 + 1.2 * norm);   // neutro (0.5) → base
+  const norm = _norm(rec, -1, 1); // [-1,1] → [0,1]
+  const target = b.base * (0.4 + 1.2 * norm); // neutro (0.5) → base
   return Math.round(clamp(target, b.min, b.max));
 }
 
@@ -126,16 +127,16 @@ function presupuesto(rec, policy = {}) {
 
 const REASON = {
   HIGH_VALUE_GOOD_MOMENT: 'GATE3_ACT_HIGH_VALUE',
-  QUEUED_BAD_MOMENT:      'GATE2_QUEUE_BAD_MOMENT',
-  DROP_LOW_RELEVANCE:     'GATE1_DROP_LOW_RELEVANCE',
-  DROP_BUDGET_EXHAUSTED:  'GATE2_DROP_BUDGET_EXHAUSTED',
-  DROP_DEGRADED:          'GATE2_DROP_DEGRADED',
-  DROP_NOT_PRESENT:       'GATE2_DROP_NOT_PRESENT',
-  ESCALATE_CRITICAL:      'GATE3_ESCALATE_CRITICAL',
-  DROP_NO_CRITERION:      'GATE1_DROP_NO_CRITERION',
+  QUEUED_BAD_MOMENT: 'GATE2_QUEUE_BAD_MOMENT',
+  DROP_LOW_RELEVANCE: 'GATE1_DROP_LOW_RELEVANCE',
+  DROP_BUDGET_EXHAUSTED: 'GATE2_DROP_BUDGET_EXHAUSTED',
+  DROP_DEGRADED: 'GATE2_DROP_DEGRADED',
+  DROP_NOT_PRESENT: 'GATE2_DROP_NOT_PRESENT',
+  ESCALATE_CRITICAL: 'GATE3_ESCALATE_CRITICAL',
+  DROP_NO_CRITERION: 'GATE1_DROP_NO_CRITERION',
   // Trigger temporal (F-4): su condición ya validó el momento, el gate solo
   // impone presupuesto y SLO → admit directo, pero con audit propio.
-  SELF_GATED_ADMIT:       'GATE3_ACT_SELF_GATED',
+  SELF_GATED_ADMIT: 'GATE3_ACT_SELF_GATED',
 };
 
 /**
@@ -152,28 +153,48 @@ const REASON = {
  */
 function decide(ctx = {}, policy = {}) {
   const th = { ...DEFAULT_POLICY.thresholds, ...(policy.thresholds || {}) };
-  const R   = _norm(ctx.relevance);
-  const budgetUsed  = ctx.budgetUsed ?? 0;
+  const R = _norm(ctx.relevance);
+  const budgetUsed = ctx.budgetUsed ?? 0;
   const budgetLimit = ctx.budgetLimit ?? Infinity;
 
   // Crítica: salta el presupuesto normal, jamás salta "¿está el usuario?".
   if (ctx.isCritical && R >= th.escalate) {
     if (ctx.userPresent === false) {
-      return { verdict: 'QUEUE', reason: REASON.QUEUED_BAD_MOMENT, relevance: R, decisionId: _id() };
+      return {
+        verdict: 'QUEUE',
+        reason: REASON.QUEUED_BAD_MOMENT,
+        relevance: R,
+        decisionId: _id(),
+      };
     }
-    return { verdict: 'ESCALATE', reason: REASON.ESCALATE_CRITICAL, relevance: R, decisionId: _id() };
+    return {
+      verdict: 'ESCALATE',
+      reason: REASON.ESCALATE_CRITICAL,
+      relevance: R,
+      decisionId: _id(),
+    };
   }
 
   // Presupuesto normal agotado (no aplica a críticas).
   if (budgetUsed >= budgetLimit) {
-    return { verdict: 'DROP', reason: REASON.DROP_BUDGET_EXHAUSTED, relevance: R, decisionId: _id() };
+    return {
+      verdict: 'DROP',
+      reason: REASON.DROP_BUDGET_EXHAUSTED,
+      relevance: R,
+      decisionId: _id(),
+    };
   }
 
   // Histéresis: un tipo degradado necesita superar un umbral más alto.
   const actThreshold = ctx.degraded ? th.act + th.promoteBy : th.act;
 
   if (R >= actThreshold && ctx.goodMoment !== false) {
-    return { verdict: 'ACT', reason: REASON.HIGH_VALUE_GOOD_MOMENT, relevance: R, decisionId: _id() };
+    return {
+      verdict: 'ACT',
+      reason: REASON.HIGH_VALUE_GOOD_MOMENT,
+      relevance: R,
+      decisionId: _id(),
+    };
   }
 
   if (R >= th.queue) {
@@ -212,12 +233,12 @@ class AuditLog {
       kind: entry.kind || null,
       signal: entry.signal || null,
       scores: entry.scores || null,
-      score: entry.score ?? null,             // F-1: R (relevancia) calculada
-      flow: entry.flow || null,               // F-3: idle/active/deep
+      score: entry.score ?? null, // F-1: R (relevancia) calculada
+      flow: entry.flow || null, // F-3: idle/active/deep
       context: entry.context || null,
       verdict: entry.verdict || null,
       reason: entry.reason || null,
-      outcome: entry.outcome || null,     // accepted/rejected/ignored (F-4)
+      outcome: entry.outcome || null, // accepted/rejected/ignored (F-4)
       decisionId: entry.decisionId || null,
       shadow: !!entry.shadow,
     };
@@ -230,8 +251,8 @@ class AuditLog {
 
   getEntries({ limit = 100, type = null, verdict = null } = {}) {
     let list = this._entries;
-    if (type) list = list.filter(e => e.type === type);
-    if (verdict) list = list.filter(e => e.verdict === verdict);
+    if (type) list = list.filter((e) => e.type === type);
+    if (verdict) list = list.filter((e) => e.verdict === verdict);
     return list.slice(-limit);
   }
 
@@ -245,7 +266,9 @@ class AuditLog {
     return { total: this._entries.length, byVerdict, byReason };
   }
 
-  reset() { this._entries = []; }
+  reset() {
+    this._entries = [];
+  }
 }
 
 module.exports = {

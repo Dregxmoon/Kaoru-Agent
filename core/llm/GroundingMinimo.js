@@ -11,7 +11,7 @@
  * Por ahora: mínimo funcional para que el asistente deje de responder con strings aleatorios.
  */
 
-const fs   = require('fs');
+const fs = require('fs');
 const path = require('path');
 
 // ── Cargar Identity Core ──────────────────────────────────────────────────────
@@ -24,7 +24,7 @@ function getIdentity() {
   try {
     _identity = JSON.parse(fs.readFileSync(IDENTITY_PATH, 'utf-8'));
     console.log('[grounding] identity.json cargado');
-  } catch(e) {
+  } catch (e) {
     console.error('[grounding] ERROR cargando identity.json:', e.message);
     _identity = { name: 'asistente', core: 'Soy tu asistente personal.' };
   }
@@ -33,24 +33,24 @@ function getIdentity() {
 
 // ── Contexto del OS ───────────────────────────────────────────────────────────
 function getOSContext() {
-  const now  = new Date();
+  const now = new Date();
   const hour = now.getHours();
 
   let timeOfDay;
-  if (hour >= 5  && hour < 12) timeOfDay = 'mañana';
+  if (hour >= 5 && hour < 12) timeOfDay = 'mañana';
   else if (hour >= 12 && hour < 18) timeOfDay = 'tarde';
   else if (hour >= 18 && hour < 22) timeOfDay = 'noche';
   else timeOfDay = 'madrugada';
 
-  const days = ['domingo','lunes','martes','miércoles','jueves','viernes','sábado'];
+  const days = ['domingo', 'lunes', 'martes', 'miércoles', 'jueves', 'viernes', 'sábado'];
   const dayName = days[now.getDay()];
 
   return {
-    time:      now.toLocaleTimeString('es-MX', { hour: '2-digit', minute: '2-digit' }),
-    date:      now.toLocaleDateString('es-MX', { weekday: 'long', day: 'numeric', month: 'long' }),
+    time: now.toLocaleTimeString('es-MX', { hour: '2-digit', minute: '2-digit' }),
+    date: now.toLocaleDateString('es-MX', { weekday: 'long', day: 'numeric', month: 'long' }),
     timeOfDay,
     dayName,
-    platform:  process.platform,
+    platform: process.platform,
     formatted: `Son las ${now.toLocaleTimeString('es-MX', { hour: '2-digit', minute: '2-digit' })} del ${dayName} por la ${timeOfDay}.`,
   };
 }
@@ -67,7 +67,7 @@ function serializeIdentity(identity) {
     lines.push(`# CARÁCTER`);
     lines.push(identity.character.summary);
     if (identity.character.traits?.length) {
-      identity.character.traits.forEach(t => lines.push(`- ${t}`));
+      identity.character.traits.forEach((t) => lines.push(`- ${t}`));
     }
     lines.push('');
   }
@@ -93,7 +93,7 @@ function serializeIdentity(identity) {
 
   if (identity.limits?.what_i_am_not?.length) {
     lines.push(`# LO QUE NO SOY`);
-    identity.limits.what_i_am_not.forEach(l => lines.push(`- ${l}`));
+    identity.limits.what_i_am_not.forEach((l) => lines.push(`- ${l}`));
     lines.push('');
   }
 
@@ -108,7 +108,7 @@ function serializeWorkingMemory(history, maxTurns = 8) {
   const recent = history.slice(-maxTurns);
 
   const lines = ['# CONVERSACIÓN ACTUAL (esta sesión)'];
-  recent.forEach(msg => {
+  recent.forEach((msg) => {
     const role = msg.role === 'user' ? 'Usuario' : 'Asistente';
     lines.push(`${role}: ${msg.content}`);
   });
@@ -127,7 +127,7 @@ function serializeWorkingMemory(history, maxTurns = 8) {
  */
 function buildSystemPrompt(sessionHistory = []) {
   const identity = getIdentity();
-  const os       = getOSContext();
+  const os = getOSContext();
 
   const sections = [];
 
@@ -148,7 +148,9 @@ function buildSystemPrompt(sessionHistory = []) {
 
   // 4. Instrucción final
   sections.push(`# INSTRUCCIÓN`);
-  sections.push(`Responde como la asistente personal. Sé concisa cuando el momento lo pide, más extensa cuando el tema lo merece. No uses las frases prohibidas. No te presentes a ti misma en cada mensaje. Responde en el idioma en que te hablen.`);
+  sections.push(
+    `Responde como la asistente personal. Sé concisa cuando el momento lo pide, más extensa cuando el tema lo merece. No uses las frases prohibidas. No te presentes a ti misma en cada mensaje. Responde en el idioma en que te hablen.`
+  );
 
   return sections.join('\n');
 }

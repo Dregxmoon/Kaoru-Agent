@@ -55,11 +55,13 @@ function _linuxIsAvailable() {
 function _linuxGetKey(rawKeyName) {
   try {
     const keyName = _sanitizeKeyName(rawKeyName);
-    return execFileSync(
-      'secret-tool',
-      ['lookup', 'service', SERVICE, 'key', keyName],
-      { encoding: 'utf-8', timeout: 5000, stdio: ['ignore', 'pipe', 'ignore'] }
-    ).trim() || null;
+    return (
+      execFileSync('secret-tool', ['lookup', 'service', SERVICE, 'key', keyName], {
+        encoding: 'utf-8',
+        timeout: 5000,
+        stdio: ['ignore', 'pipe', 'ignore'],
+      }).trim() || null
+    );
   } catch {
     return null;
   }
@@ -82,11 +84,10 @@ function _linuxSetKey(rawKeyName, value) {
 function _linuxDeleteKey(rawKeyName) {
   try {
     const keyName = _sanitizeKeyName(rawKeyName);
-    execFileSync(
-      'secret-tool',
-      ['clear', 'service', SERVICE, 'key', keyName],
-      { timeout: 5000, stdio: 'ignore' }
-    );
+    execFileSync('secret-tool', ['clear', 'service', SERVICE, 'key', keyName], {
+      timeout: 5000,
+      stdio: 'ignore',
+    });
     return true;
   } catch {
     return false;
@@ -111,11 +112,17 @@ function _winGetKey(rawKeyName) {
   const credFile = path.join(CRED_DIR, `cred-${keyName}.xml`);
   if (!fs.existsSync(credFile)) return null;
   try {
-    return execFileSync(
-      'powershell',
-      ['-NoProfile', '-Command', `$c=Import-Clixml '${credFile}'; Write-Output $c.GetNetworkCredential().Password`],
-      { encoding: 'utf-8', timeout: 5000, stdio: ['ignore', 'pipe', 'ignore'] }
-    ).trim() || null;
+    return (
+      execFileSync(
+        'powershell',
+        [
+          '-NoProfile',
+          '-Command',
+          `$c=Import-Clixml '${credFile}'; Write-Output $c.GetNetworkCredential().Password`,
+        ],
+        { encoding: 'utf-8', timeout: 5000, stdio: ['ignore', 'pipe', 'ignore'] }
+      ).trim() || null
+    );
   } catch {
     return null;
   }
@@ -129,8 +136,11 @@ function _winSetKey(rawKeyName, value) {
   try {
     execFileSync(
       'powershell',
-      ['-NoProfile', '-Command',
-        `$sec=ConvertTo-SecureString '${escaped}' -AsPlainText -Force; $cred=New-Object System.Management.Automation.PSCredential('${SERVICE}/${keyName}',$sec); $cred | Export-Clixml '${credFile}'`],
+      [
+        '-NoProfile',
+        '-Command',
+        `$sec=ConvertTo-SecureString '${escaped}' -AsPlainText -Force; $cred=New-Object System.Management.Automation.PSCredential('${SERVICE}/${keyName}',$sec); $cred | Export-Clixml '${credFile}'`,
+      ],
       { encoding: 'utf-8', timeout: 5000, stdio: ['ignore', 'ignore', 'ignore'] }
     );
     return true;

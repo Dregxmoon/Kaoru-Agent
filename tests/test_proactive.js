@@ -24,16 +24,16 @@
  */
 
 const path = require('path');
-const fs   = require('fs');
-const os   = require('os');
+const fs = require('fs');
+const os = require('os');
 
 const C = {
-  green:  (s) => `\x1b[32m${s}\x1b[0m`,
-  red:    (s) => `\x1b[31m${s}\x1b[0m`,
+  green: (s) => `\x1b[32m${s}\x1b[0m`,
+  red: (s) => `\x1b[31m${s}\x1b[0m`,
   yellow: (s) => `\x1b[33m${s}\x1b[0m`,
-  cyan:   (s) => `\x1b[36m${s}\x1b[0m`,
-  bold:   (s) => `\x1b[1m${s}\x1b[0m`,
-  dim:    (s) => `\x1b[2m${s}\x1b[0m`,
+  cyan: (s) => `\x1b[36m${s}\x1b[0m`,
+  bold: (s) => `\x1b[1m${s}\x1b[0m`,
+  dim: (s) => `\x1b[2m${s}\x1b[0m`,
 };
 
 let passed = 0;
@@ -51,20 +51,22 @@ function assert(condition, label, detail = '') {
 }
 
 const { ProactiveEngine } = require('../core/behavior/ProactiveEngine.js');
-const { BehaviorModel }   = require('../core/behavior/BehaviorModel.js');
-const { StateGraph }      = require('../core/state-graph/StateGraph.js');
-const { SessionManager }  = require('../core/state-graph/SessionManager.js');
-const LLMProvider         = require('../core/llm/LLMProvider.js');
-const { getEventBus }     = require('../infrastructure/event-bus/EventBus.js');
+const { BehaviorModel } = require('../core/behavior/BehaviorModel.js');
+const { StateGraph } = require('../core/state-graph/StateGraph.js');
+const { SessionManager } = require('../core/state-graph/SessionManager.js');
+const LLMProvider = require('../core/llm/LLMProvider.js');
+const { getEventBus } = require('../infrastructure/event-bus/EventBus.js');
 
-function flush() { return new Promise(r => setTimeout(r, 0)); }
+function flush() {
+  return new Promise((r) => setTimeout(r, 0));
+}
 
 // ── Mocks ─────────────────────────────────────────────────────────────────────
 
 function fakeGraph(userNodes = []) {
   return {
     _ready: true,
-    queryNodes: ({ type } = {}) => userNodes.filter(n => !type || n.type === type),
+    queryNodes: ({ type } = {}) => userNodes.filter((n) => !type || n.type === type),
     getWorldModel: () => [],
     getRecentEpisodes: () => [],
     getLastSessions: () => [],
@@ -106,7 +108,10 @@ async function testTryTriggerContract() {
   let engine = makeEngine();
   let res = await engine._tryTrigger({ type: 'long_silence', context: 'x' });
   assert(res && res.blocked, 'sin proveedor LLM → { blocked }');
-  assert(!engine._lastAttemptByType['long_silence'], 'sin proveedor → NO consume cooldown por tipo');
+  assert(
+    !engine._lastAttemptByType['long_silence'],
+    'sin proveedor → NO consume cooldown por tipo'
+  );
   restore();
 
   // 1b. Conversación RECIENTE del usuario → bloqueado (el chat abierto por sí
@@ -116,16 +121,27 @@ async function testTryTriggerContract() {
   engine.onUserMessage(); // el usuario acaba de hablar
   res = await engine._tryTrigger({ type: 'long_silence', context: 'x' });
   assert(res && res.blocked, 'conversación reciente (< 2 min) → { blocked }');
-  assert(!engine._lastAttemptByType['long_silence'], 'conversación reciente → NO consume cooldown por tipo');
+  assert(
+    !engine._lastAttemptByType['long_silence'],
+    'conversación reciente → NO consume cooldown por tipo'
+  );
 
   // 1b2. Chat abierto pero sin conversación reciente → NO bloquea (Fase B:
   //      las propuestas se muestran en el chat)
-  restore = stubLLM({ complete: async () => '¿Quieres que revise lo que estabas haciendo con los tests?' });
+  restore = stubLLM({
+    complete: async () => '¿Quieres que revise lo que estabas haciendo con los tests?',
+  });
   engine = makeEngine();
   engine.setChatOpen(true);
   res = await engine._tryTrigger({ type: 'long_silence', context: 'x' });
-  assert(res === '¿Quieres que revise lo que estabas haciendo con los tests?', 'chat abierto sin conversación reciente → NO bloquea');
-  assert(typeof engine._lastAttemptByType['long_silence'] === 'number', 'chat abierto → consume cooldown (sí se consultó al LLM)');
+  assert(
+    res === '¿Quieres que revise lo que estabas haciendo con los tests?',
+    'chat abierto sin conversación reciente → NO bloquea'
+  );
+  assert(
+    typeof engine._lastAttemptByType['long_silence'] === 'number',
+    'chat abierto → consume cooldown (sí se consultó al LLM)'
+  );
   engine.setChatOpen(false);
   restore();
 
@@ -134,20 +150,32 @@ async function testTryTriggerContract() {
   engine = makeEngine();
   res = await engine._tryTrigger({ type: 'long_silence', context: 'x' });
   assert(res === null, 'LLM dijo NO → null');
-  assert(typeof engine._lastAttemptByType['long_silence'] === 'number', 'LLM dijo NO → SÍ consume cooldown (fue consultado)');
+  assert(
+    typeof engine._lastAttemptByType['long_silence'] === 'number',
+    'LLM dijo NO → SÍ consume cooldown (fue consultado)'
+  );
   restore();
 
   // 1d. LLM genera mensaje → se emite initiative:trigger y se actualiza _lastProactive
-  restore = stubLLM({ complete: async () => 'Llevas un rato sin escribir: ¿quieres que haga una pausa contigo?' });
+  restore = stubLLM({
+    complete: async () => 'Llevas un rato sin escribir: ¿quieres que haga una pausa contigo?',
+  });
   engine = makeEngine();
   const fired = [];
   const listener = (p) => fired.push(p);
   getEventBus().on('initiative:trigger', listener);
   res = await engine._tryTrigger({ type: 'long_silence', context: 'x' });
-  assert(res === 'Llevas un rato sin escribir: ¿quieres que haga una pausa contigo?', 'LLM genera mensaje → devuelve el mensaje');
-  assert(fired.length === 1 && fired[0].suggestion === 'Llevas un rato sin escribir: ¿quieres que haga una pausa contigo?' && fired[0].reason === 'long_silence',
+  assert(
+    res === 'Llevas un rato sin escribir: ¿quieres que haga una pausa contigo?',
+    'LLM genera mensaje → devuelve el mensaje'
+  );
+  assert(
+    fired.length === 1 &&
+      fired[0].suggestion === 'Llevas un rato sin escribir: ¿quieres que haga una pausa contigo?' &&
+      fired[0].reason === 'long_silence',
     'emite initiative:trigger con { reason, suggestion }',
-    JSON.stringify(fired));
+    JSON.stringify(fired)
+  );
   assert(engine._lastProactive > 0, '_lastProactive actualizado');
   getEventBus().off('initiative:trigger', listener);
   engine.stop();
@@ -221,7 +249,10 @@ async function testIdleGate() {
   assert(res && res.blocked, 'idle 33min + trigger normal → { blocked }');
 
   const res2 = await engine._tryTrigger({ type: 'return_from_break', gapSec: 1200, context: 'y' });
-  assert(typeof res2 === 'string', 'idle 33min + return_from_break → SÍ dispara (es el trigger que vuelve del AFK)');
+  assert(
+    typeof res2 === 'string',
+    'idle 33min + return_from_break → SÍ dispara (es el trigger que vuelve del AFK)'
+  );
   engine.stop();
   restore();
 }
@@ -229,22 +260,40 @@ async function testIdleGate() {
 // ── Test 6: sustained_focus no consume la racha si queda bloqueado ───────────
 
 async function testStreakNotConsumedWhenBlocked() {
-  console.log(C.bold('\nTest 6: sustained_focus NO consume la racha si el trigger queda bloqueado'));
+  console.log(
+    C.bold('\nTest 6: sustained_focus NO consume la racha si el trigger queda bloqueado')
+  );
 
   // 6a. Conversación reciente al cruzar el umbral → la racha NO se consume
   let restore = stubLLM();
   let engine = makeEngine();
   engine.onUserMessage();
-  await engine._onAppTick({ friendlyName: 'VSCode', category: 'code', elapsed: 301, elapsedFormatted: '5m' });
-  assert(engine._categoryStreakFired === false, 'bloqueado por conversación reciente → _categoryStreakFired queda false (reintentará)');
+  await engine._onAppTick({
+    friendlyName: 'VSCode',
+    category: 'code',
+    elapsed: 301,
+    elapsedFormatted: '5m',
+  });
+  assert(
+    engine._categoryStreakFired === false,
+    'bloqueado por conversación reciente → _categoryStreakFired queda false (reintentará)'
+  );
   engine.stop();
   restore();
 
   // 6b. Desbloqueado y el LLM dice NO → la racha SÍ se consume (fue consultado)
   restore = stubLLM({ complete: async () => 'NO' });
   engine = makeEngine();
-  await engine._onAppTick({ friendlyName: 'VSCode', category: 'code', elapsed: 301, elapsedFormatted: '5m' });
-  assert(engine._categoryStreakFired === true, 'LLM dijo NO → _categoryStreakFired true (consultado)');
+  await engine._onAppTick({
+    friendlyName: 'VSCode',
+    category: 'code',
+    elapsed: 301,
+    elapsedFormatted: '5m',
+  });
+  assert(
+    engine._categoryStreakFired === true,
+    'LLM dijo NO → _categoryStreakFired true (consultado)'
+  );
   engine.stop();
   restore();
 
@@ -254,9 +303,20 @@ async function testStreakNotConsumedWhenBlocked() {
   const fired = [];
   const listener = (p) => fired.push(p);
   getEventBus().on('initiative:trigger', listener);
-  await engine._onAppTick({ friendlyName: 'VSCode', category: 'code', elapsed: 301, elapsedFormatted: '5m' });
-  assert(fired.length === 1 && fired[0].reason === 'sustained_focus', 'se emite el mensaje de sustained_focus');
-  assert(engine._categoryStreakFired === true && engine._categoryStreakFiredAt > 0, 'racha marcada como disparada');
+  await engine._onAppTick({
+    friendlyName: 'VSCode',
+    category: 'code',
+    elapsed: 301,
+    elapsedFormatted: '5m',
+  });
+  assert(
+    fired.length === 1 && fired[0].reason === 'sustained_focus',
+    'se emite el mensaje de sustained_focus'
+  );
+  assert(
+    engine._categoryStreakFired === true && engine._categoryStreakFiredAt > 0,
+    'racha marcada como disparada'
+  );
   getEventBus().off('initiative:trigger', listener);
   engine.stop();
   restore();
@@ -265,11 +325,27 @@ async function testStreakNotConsumedWhenBlocked() {
   restore = stubLLM();
   engine = makeEngine();
   engine._lastProactive = Date.now(); // acabamos de enviar algo hace 0s
-  await engine._onAppTick({ friendlyName: 'VSCode', category: 'code', elapsed: 301, elapsedFormatted: '5m' });
-  assert(engine._categoryStreakFired === false, 'bloqueado por gap global → la racha NO se consume');
+  await engine._onAppTick({
+    friendlyName: 'VSCode',
+    category: 'code',
+    elapsed: 301,
+    elapsedFormatted: '5m',
+  });
+  assert(
+    engine._categoryStreakFired === false,
+    'bloqueado por gap global → la racha NO se consume'
+  );
   engine._lastProactive = 0;
-  await engine._onAppTick({ friendlyName: 'VSCode', category: 'code', elapsed: 301, elapsedFormatted: '5m' });
-  assert(engine._categoryStreakFired === true, 'pasado el gap global → reintenta y consume la racha');
+  await engine._onAppTick({
+    friendlyName: 'VSCode',
+    category: 'code',
+    elapsed: 301,
+    elapsedFormatted: '5m',
+  });
+  assert(
+    engine._categoryStreakFired === true,
+    'pasado el gap global → reintenta y consume la racha'
+  );
   engine.stop();
   restore();
 }
@@ -283,31 +359,77 @@ async function testFollowup() {
   const engine = makeEngine();
 
   // Primer disparo (racha consumida, _lastProactive=now, cooldown=now)
-  await engine._onAppTick({ friendlyName: 'VSCode', category: 'code', elapsed: 301, elapsedFormatted: '5m' });
+  await engine._onAppTick({
+    friendlyName: 'VSCode',
+    category: 'code',
+    elapsed: 301,
+    elapsedFormatted: '5m',
+  });
   assert(engine._categoryStreakFired === true, 'primer disparo consume la racha');
 
   // 7a. Todavía no llega al umbral de follow-up → no dispara, flag queda false
-  await engine._onAppTick({ friendlyName: 'VSCode', category: 'code', elapsed: 600, elapsedFormatted: '10m' });
-  assert(engine._categoryStreakFollowupFired === false, 'antes de minSec×3 → el follow-up NO dispara ni se consume');
+  await engine._onAppTick({
+    friendlyName: 'VSCode',
+    category: 'code',
+    elapsed: 600,
+    elapsedFormatted: '10m',
+  });
+  assert(
+    engine._categoryStreakFollowupFired === false,
+    'antes de minSec×3 → el follow-up NO dispara ni se consume'
+  );
   engine.stop();
 
   // 7b. En el umbral pero con cooldown/gap activos → bloqueado y NO se consume
   const engine2 = makeEngine();
-  await engine2._onAppTick({ friendlyName: 'VSCode', category: 'code', elapsed: 301, elapsedFormatted: '5m' });
-  await engine2._onAppTick({ friendlyName: 'VSCode', category: 'code', elapsed: 900, elapsedFormatted: '15m' });
-  assert(engine2._categoryStreakFollowupFired === false,
-    'en el umbral con cooldown por tipo + gap activos → bloqueado y NO consume el follow-up');
+  await engine2._onAppTick({
+    friendlyName: 'VSCode',
+    category: 'code',
+    elapsed: 301,
+    elapsedFormatted: '5m',
+  });
+  await engine2._onAppTick({
+    friendlyName: 'VSCode',
+    category: 'code',
+    elapsed: 900,
+    elapsedFormatted: '15m',
+  });
+  assert(
+    engine2._categoryStreakFollowupFired === false,
+    'en el umbral con cooldown por tipo + gap activos → bloqueado y NO consume el follow-up'
+  );
   engine2.stop();
 
   // 7c. Con cooldown y gap simulados como pasados → el follow-up dispara
   const engine3 = makeEngine();
-  await engine3._onAppTick({ friendlyName: 'VSCode', category: 'code', elapsed: 301, elapsedFormatted: '5m' });
-  engine3._lastAttemptByType = {};   // cooldown por tipo pasado
-  engine3._lastProactive = 0;        // gap global pasado
-  await engine3._onAppTick({ friendlyName: 'VSCode', category: 'code', elapsed: 900, elapsedFormatted: '15m' });
-  assert(engine3._categoryStreakFollowupFired === true, 'con cooldown/gap pasados → el follow-up dispara y se consume');
-  await engine3._onAppTick({ friendlyName: 'VSCode', category: 'code', elapsed: 1200, elapsedFormatted: '20m' });
-  assert(engine3._categoryStreakFollowupFired === true, 'segundo follow-up → ya consumido, no dispara de nuevo');
+  await engine3._onAppTick({
+    friendlyName: 'VSCode',
+    category: 'code',
+    elapsed: 301,
+    elapsedFormatted: '5m',
+  });
+  engine3._lastAttemptByType = {}; // cooldown por tipo pasado
+  engine3._lastProactive = 0; // gap global pasado
+  await engine3._onAppTick({
+    friendlyName: 'VSCode',
+    category: 'code',
+    elapsed: 900,
+    elapsedFormatted: '15m',
+  });
+  assert(
+    engine3._categoryStreakFollowupFired === true,
+    'con cooldown/gap pasados → el follow-up dispara y se consume'
+  );
+  await engine3._onAppTick({
+    friendlyName: 'VSCode',
+    category: 'code',
+    elapsed: 1200,
+    elapsedFormatted: '20m',
+  });
+  assert(
+    engine3._categoryStreakFollowupFired === true,
+    'segundo follow-up → ya consumido, no dispara de nuevo'
+  );
   engine3.stop();
   restore();
 }
@@ -324,8 +446,10 @@ async function testSessionEnd() {
   engine._categoryStreakStart = Date.now() - 21 * 60 * 1000; // 21 min de racha
   await engine._onAppChanged({ app: 'firefox', category: 'browser' });
   await flush();
-  assert(typeof engine._lastAttemptByType['session_end'] === 'number',
-    'racha ≥ 20 min + salto a no-trabajo → trigger session_end consultado');
+  assert(
+    typeof engine._lastAttemptByType['session_end'] === 'number',
+    'racha ≥ 20 min + salto a no-trabajo → trigger session_end consultado'
+  );
   engine.stop();
   restore();
 
@@ -349,24 +473,26 @@ async function testThrash() {
   const restore = stubLLM({ complete: async () => 'NO' });
   const engine = makeEngine();
   engine._recentSwitches = [
-    { ts: Date.now() - 1000, category: 'code',     app: 'vscode' },
-    { ts: Date.now() - 900,  category: 'terminal', app: 'kitty' },
-    { ts: Date.now() - 800,  category: 'code',     app: 'vscode' },
-    { ts: Date.now() - 700,  category: 'docs',     app: 'chrome' },
-    { ts: Date.now() - 600,  category: 'code',     app: 'vscode' },
-    { ts: Date.now() - 500,  category: 'terminal', app: 'kitty' },
+    { ts: Date.now() - 1000, category: 'code', app: 'vscode' },
+    { ts: Date.now() - 900, category: 'terminal', app: 'kitty' },
+    { ts: Date.now() - 800, category: 'code', app: 'vscode' },
+    { ts: Date.now() - 700, category: 'docs', app: 'chrome' },
+    { ts: Date.now() - 600, category: 'code', app: 'vscode' },
+    { ts: Date.now() - 500, category: 'terminal', app: 'kitty' },
   ];
   await engine._onAppChanged({ app: 'firefox', category: 'browser' }); // el 7º switch
   await flush();
-  assert(typeof engine._lastAttemptByType['context_switch_thrash'] === 'number',
-    '6+ cambios en la ventana con 3+ categorías → trigger thrash consultado');
+  assert(
+    typeof engine._lastAttemptByType['context_switch_thrash'] === 'number',
+    '6+ cambios en la ventana con 3+ categorías → trigger thrash consultado'
+  );
 
   // Ventana que no alcanza el mínimo → no dispara
   const engine2 = makeEngine();
   engine2._recentSwitches = [
     { ts: Date.now() - 1000, category: 'code', app: 'vscode' },
-    { ts: Date.now() - 500,  category: 'code', app: 'vscode' },
-    { ts: Date.now() - 200,  category: 'code', app: 'cursor' },
+    { ts: Date.now() - 500, category: 'code', app: 'vscode' },
+    { ts: Date.now() - 200, category: 'code', app: 'cursor' },
   ];
   await engine2._onAppChanged({ app: 'firefox', category: 'browser' });
   await flush();
@@ -386,11 +512,13 @@ async function testReturnFromBreak() {
   let restore = stubLLM({ complete: async () => 'NO' });
   let engine = makeEngine();
   engine._categoryStreakFired = true; // previo a la ausencia, estaba disparado
-  engine._onIdleChanged({ idle: true, idleSecs: 1200 });   // idle ~20 min
+  engine._onIdleChanged({ idle: true, idleSecs: 1200 }); // idle ~20 min
   await engine._onIdleChanged({ idle: false, idleSecs: 0 }); // vuelve
   await flush();
-  assert(typeof engine._lastAttemptByType['return_from_break'] === 'number',
-    'ausencia de 20 min → trigger return_from_break consultado');
+  assert(
+    typeof engine._lastAttemptByType['return_from_break'] === 'number',
+    'ausencia de 20 min → trigger return_from_break consultado'
+  );
   assert(engine._categoryStreakFired === false, 'al volver, la racha de enfoque se reinicia');
   engine.stop();
   restore();
@@ -398,7 +526,7 @@ async function testReturnFromBreak() {
   // 10b. Ausencia corta (< 15 min) → no trigger
   restore = stubLLM();
   engine = makeEngine();
-  engine._onIdleChanged({ idle: true, idleSecs: 600 });    // ~10 min
+  engine._onIdleChanged({ idle: true, idleSecs: 600 }); // ~10 min
   await engine._onIdleChanged({ idle: false, idleSecs: 0 });
   await flush();
   assert(!engine._lastAttemptByType['return_from_break'], 'ausencia de 10 min → NO hay trigger');
@@ -410,7 +538,10 @@ async function testReturnFromBreak() {
   engine = makeEngine();
   await engine._onIdleChanged({ idle: false, idleSecs: 0 });
   await flush();
-  assert(!engine._lastAttemptByType['return_from_break'], 'idle:false sin idle previo → NO dispara');
+  assert(
+    !engine._lastAttemptByType['return_from_break'],
+    'idle:false sin idle previo → NO dispara'
+  );
   engine.stop();
   restore();
 }
@@ -423,8 +554,11 @@ function testSpecialDate() {
   // 11a. Cumpleaños hoy en texto → detectado como birthday
   let engine = makeEngine([{ type: 'User', content: 'Cumpleaños: 15 de junio' }]);
   let r = engine._checkSpecialDate(new Date(2026, 5, 15, 12));
-  assert(r && r.type === 'special_date' && r.subtype === 'birthday',
-    'cumpleaños "15 de junio" detectado el 15/6 (texto)', JSON.stringify(r));
+  assert(
+    r && r.type === 'special_date' && r.subtype === 'birthday',
+    'cumpleaños "15 de junio" detectado el 15/6 (texto)',
+    JSON.stringify(r)
+  );
 
   // 11b. Mismo nodo en otra fecha → no
   r = engine._checkSpecialDate(new Date(2026, 5, 20, 12));
@@ -433,7 +567,11 @@ function testSpecialDate() {
   // 11c. FIX QW-5: fecha guardada "15/06/2000" (con ceros y año) → detectada
   engine = makeEngine([{ type: 'User', content: 'Aniversario: 15/06/2000' }]);
   r = engine._checkSpecialDate(new Date(2026, 5, 15, 12));
-  assert(r && r.type === 'special_date', 'fecha "15/06/2000" detectada (fix QW-5)', JSON.stringify(r));
+  assert(
+    r && r.type === 'special_date',
+    'fecha "15/06/2000" detectada (fix QW-5)',
+    JSON.stringify(r)
+  );
 
   // 11d. Fecha ISO "2026-06-15" en contenido → detectada
   engine = makeEngine([{ type: 'User', content: 'recordatorio: 2026-06-15 es importante' }]);
@@ -506,13 +644,17 @@ async function testSessionTs() {
   sm.addTurn('user', 'hola');
   sm.addTurn('assistant', 'encantada');
   const h = sm.getHistory();
-  assert(h.length === 2 && typeof h[0].ts === 'number' && typeof h[1].ts === 'number',
-    'addTurn guarda ts en cada turno');
+  assert(
+    h.length === 2 && typeof h[0].ts === 'number' && typeof h[1].ts === 'number',
+    'addTurn guarda ts en cada turno'
+  );
   // Sin close() → simulamos un crash → la sesión queda reanudable
   const sm2 = new SessionManager(graph, null);
   const resumed = await sm2.start(null);
-  assert(resumed.resumed === true && resumed.history.length === 2,
-    'la sesión interrumpida se reanuda con su historial');
+  assert(
+    resumed.resumed === true && resumed.history.length === 2,
+    'la sesión interrumpida se reanuda con su historial'
+  );
   assert(typeof resumed.history[0].ts === 'number', 'ts preservado tras el resume');
   await sm2.close().catch(() => {});
 
@@ -539,9 +681,11 @@ async function testSessionTs() {
   testBehaviorUrgency();
   await testSessionTs();
 
-  console.log(C.bold(`\nResultado: ${C.green(`${passed} ✓`)}${failed ? ` / ${C.red(`${failed} ✗`)}` : ''}`));
+  console.log(
+    C.bold(`\nResultado: ${C.green(`${passed} ✓`)}${failed ? ` / ${C.red(`${failed} ✗`)}` : ''}`)
+  );
   process.exit(failed ? 1 : 0);
-})().catch(e => {
+})().catch((e) => {
   console.error(C.red('Fallo en la ejecución de la suite:'), e);
   process.exit(1);
 });

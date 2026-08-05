@@ -28,13 +28,13 @@ if (require.main === module && !API_KEY) {
 
 // ── Límites ─────────────────────────────────────────────────────────────────
 
-const MAX_REQUEST_BODY = 10 * 1024 * 1024;  // 10 MB
-const RATE_LIMIT_WINDOW = 1000;              // 1 segundo
-const RATE_LIMIT_MAX = 100;                  // 100 req/s máximo
+const MAX_REQUEST_BODY = 10 * 1024 * 1024; // 10 MB
+const RATE_LIMIT_WINDOW = 1000; // 1 segundo
+const RATE_LIMIT_MAX = 100; // 100 req/s máximo
 
-const MAX_EXEC_OUTPUT = 5 * 1024 * 1024;     // 5 MB
-const MAX_EXEC_TIMEOUT = 120_000;            // 2 min
-const MAX_CODE_TIMEOUT = 60_000;             // 1 min
+const MAX_EXEC_OUTPUT = 5 * 1024 * 1024; // 5 MB
+const MAX_EXEC_TIMEOUT = 120_000; // 2 min
+const MAX_CODE_TIMEOUT = 60_000; // 1 min
 
 // ── Rate limiter ────────────────────────────────────────────────────────────
 
@@ -118,7 +118,7 @@ const BLOCKED_COMMAND_PATTERNS = [
 ];
 
 function _isBlockedCommand(command) {
-  return BLOCKED_COMMAND_PATTERNS.some(re => re.test(command));
+  return BLOCKED_COMMAND_PATTERNS.some((re) => re.test(command));
 }
 
 function _buildCommandArgs(fullCommand) {
@@ -129,10 +129,19 @@ function _buildCommandArgs(fullCommand) {
 
   for (let i = 0; i < fullCommand.length; i++) {
     const ch = fullCommand[i];
-    if (ch === "'" && !inDouble) { inSingle = !inSingle; continue; }
-    if (ch === '"' && !inSingle) { inDouble = !inDouble; continue; }
+    if (ch === "'" && !inDouble) {
+      inSingle = !inSingle;
+      continue;
+    }
+    if (ch === '"' && !inSingle) {
+      inDouble = !inDouble;
+      continue;
+    }
     if (ch === ' ' && !inSingle && !inDouble) {
-      if (current) { args.push(current); current = ''; }
+      if (current) {
+        args.push(current);
+        current = '';
+      }
       continue;
     }
     if (ch === '\\' && i + 1 < fullCommand.length) {
@@ -169,7 +178,7 @@ const IMMUTABLE_PATH_PATTERNS = [
 ];
 
 function _isImmutablePath(filePath) {
-  return IMMUTABLE_PATH_PATTERNS.some(re => re.test(filePath));
+  return IMMUTABLE_PATH_PATTERNS.some((re) => re.test(filePath));
 }
 
 function _isOutsideAllowed(filePath) {
@@ -185,14 +194,22 @@ function _isOutsideAllowed(filePath) {
 
 // ── Handlers ────────────────────────────────────────────────────────────────
 
-const DEFAULT_IGNORED = new Set(['node_modules', '.git', 'dist', 'build', '.next', '.cache', '__pycache__']);
+const DEFAULT_IGNORED = new Set([
+  'node_modules',
+  '.git',
+  'dist',
+  'build',
+  '.next',
+  '.cache',
+  '__pycache__',
+]);
 
 function _splitIgnore(ignore) {
   if (!ignore) return DEFAULT_IGNORED;
   return new Set(
     String(ignore)
       .split(',')
-      .map(s => s.trim())
+      .map((s) => s.trim())
       .filter(Boolean)
       .concat([...DEFAULT_IGNORED])
   );
@@ -236,7 +253,6 @@ function _collectFiles(base, opts = {}) {
 }
 
 const HANDLERS = {
-
   exec(input) {
     const command = input.command;
     const rawCwd = input.cwd || ALLOWED_PATH;
@@ -281,7 +297,13 @@ const HANDLERS = {
       child.on('error', (e) => {
         clearTimeout(timer);
         resolve({
-          result: { stdout: Buffer.concat(stdout).toString('utf-8'), stderr: Buffer.concat(stderr).toString('utf-8'), exitCode: null, signal: null, error: e.message },
+          result: {
+            stdout: Buffer.concat(stdout).toString('utf-8'),
+            stderr: Buffer.concat(stderr).toString('utf-8'),
+            exitCode: null,
+            signal: null,
+            error: e.message,
+          },
         });
       });
 
@@ -292,7 +314,7 @@ const HANDLERS = {
             stdout: Buffer.concat(stdout).toString('utf-8'),
             stderr: Buffer.concat(stderr).toString('utf-8'),
             exitCode: code,
-            signal: killed ? 'timeout' : (signal || null),
+            signal: killed ? 'timeout' : signal || null,
             error: null,
           },
         });
@@ -317,7 +339,9 @@ const HANDLERS = {
     if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
 
     fs.writeFileSync(filePath, input.content, input.encoding || 'utf-8');
-    return { result: `Written ${Buffer.byteLength(input.content, input.encoding || 'utf-8')} bytes to ${filePath}` };
+    return {
+      result: `Written ${Buffer.byteLength(input.content, input.encoding || 'utf-8')} bytes to ${filePath}`,
+    };
   },
 
   edit(input) {
@@ -359,7 +383,8 @@ const HANDLERS = {
       };
     }
 
-    const newContent = content.slice(0, firstIndex) + newText + content.slice(firstIndex + oldText.length);
+    const newContent =
+      content.slice(0, firstIndex) + newText + content.slice(firstIndex + oldText.length);
     fs.writeFileSync(filePath, newContent, 'utf-8');
     return { result: `Edited ${filePath} (1 reemplazo exacto)` };
   },
@@ -406,7 +431,7 @@ const HANDLERS = {
 
     const include = input.include ? _minimatchGlob(input.include) : null;
     const ignore = input.ignore || 'node_modules,.git,dist,build,.env,package-lock.json';
-    const maxResults = Math.min((input.max_results || 50), 500);
+    const maxResults = Math.min(input.max_results || 50, 500);
 
     const files = _collectFiles(base, { ignore, includeMatcher: include, maxFiles: 4000 });
     const matches = [];
@@ -445,9 +470,7 @@ const HANDLERS = {
 
     const matcher = _minimatchGlob(pattern);
     const files = _collectFiles(base, { ignore: 'node_modules,.git,dist,build', maxFiles: 10000 });
-    const matched = files
-      .map(f => path.relative(ALLOWED_PATH, f))
-      .filter(rel => matcher(rel));
+    const matched = files.map((f) => path.relative(ALLOWED_PATH, f)).filter((rel) => matcher(rel));
     return { result: { count: matched.length, files: matched.slice(0, 200) } };
   },
 
@@ -483,7 +506,15 @@ const HANDLERS = {
 
       child.on('error', (e) => {
         clearTimeout(timer);
-        resolve({ result: { stdout: Buffer.concat(stdout).toString('utf-8'), stderr: Buffer.concat(stderr).toString('utf-8'), exitCode: null, signal: null, error: e.message } });
+        resolve({
+          result: {
+            stdout: Buffer.concat(stdout).toString('utf-8'),
+            stderr: Buffer.concat(stderr).toString('utf-8'),
+            exitCode: null,
+            signal: null,
+            error: e.message,
+          },
+        });
       });
 
       child.on('close', (code_, signal) => {
@@ -493,7 +524,7 @@ const HANDLERS = {
             stdout: Buffer.concat(stdout).toString('utf-8'),
             stderr: Buffer.concat(stderr).toString('utf-8'),
             exitCode: code_,
-            signal: killed ? 'timeout' : (signal || null),
+            signal: killed ? 'timeout' : signal || null,
             error: null,
           },
         });
@@ -569,7 +600,7 @@ const server = http.createServer((req, res) => {
     let body = '';
     let bodySize = 0;
 
-    req.on('data', chunk => {
+    req.on('data', (chunk) => {
       bodySize += chunk.length;
       if (bodySize > MAX_REQUEST_BODY) {
         req.destroy(new Error('request body too large'));
@@ -581,7 +612,11 @@ const server = http.createServer((req, res) => {
     req.on('end', () => {
       if (req.destroyed) return;
       let parsed;
-      try { parsed = JSON.parse(body); } catch { return respond(res, 400, { error: 'Invalid JSON' }); }
+      try {
+        parsed = JSON.parse(body);
+      } catch {
+        return respond(res, 400, { error: 'Invalid JSON' });
+      }
       handleTool(parsed).then((result) => {
         if (result.error) respond(res, 400, result);
         else respond(res, 200, result);
@@ -623,7 +658,7 @@ function _gracefulShutdown() {
 
 // Arrancar solo si es el entry point (no al ser importado como módulo)
 if (require.main === module) {
-  startServer(PORT).catch(e => {
+  startServer(PORT).catch((e) => {
     console.error('[openclaw-server] error al iniciar:', e.message);
     process.exit(1);
   });

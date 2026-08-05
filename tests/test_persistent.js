@@ -21,15 +21,15 @@
  */
 
 const path = require('path');
-const fs   = require('fs');
-const os   = require('os');
+const fs = require('fs');
+const os = require('os');
 
 const C = {
-  green:  (s) => `\x1b[32m${s}\x1b[0m`,
-  red:    (s) => `\x1b[31m${s}\x1b[0m`,
-  cyan:   (s) => `\x1b[36m${s}\x1b[0m`,
-  bold:   (s) => `\x1b[1m${s}\x1b[0m`,
-  dim:    (s) => `\x1b[2m${s}\x1b[0m`,
+  green: (s) => `\x1b[32m${s}\x1b[0m`,
+  red: (s) => `\x1b[31m${s}\x1b[0m`,
+  cyan: (s) => `\x1b[36m${s}\x1b[0m`,
+  bold: (s) => `\x1b[1m${s}\x1b[0m`,
+  dim: (s) => `\x1b[2m${s}\x1b[0m`,
 };
 
 let passed = 0;
@@ -47,10 +47,14 @@ function assert(condition, label, detail = '') {
 }
 
 const { ProactiveEngine } = require('../core/behavior/ProactiveEngine.js');
-const { ProposalStore }   = require('../core/behavior/ProposalStore.js');
-const { execute: executeCommand, getCommand, getHelp } = require('../core/commands/CommandRegistry.js');
-const LLMProvider         = require('../core/llm/LLMProvider.js');
-const { getEventBus }     = require('../infrastructure/event-bus/EventBus.js');
+const { ProposalStore } = require('../core/behavior/ProposalStore.js');
+const {
+  execute: executeCommand,
+  getCommand,
+  getHelp,
+} = require('../core/commands/CommandRegistry.js');
+const LLMProvider = require('../core/llm/LLMProvider.js');
+const { getEventBus } = require('../infrastructure/event-bus/EventBus.js');
 
 const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'persistent-'));
 
@@ -66,7 +70,10 @@ function fakeGraph(extra = {}) {
 }
 
 function fakeSensor() {
-  return { getCurrentContext: () => ({ category: null, elapsed: 0, idleSecs: 0 }), getTodaySummary: () => '' };
+  return {
+    getCurrentContext: () => ({ category: null, elapsed: 0, idleSecs: 0 }),
+    getTodaySummary: () => '',
+  };
 }
 
 function stubLLM({ complete } = {}) {
@@ -74,11 +81,17 @@ function stubLLM({ complete } = {}) {
   const origC = LLMProvider.complete;
   let calls = 0;
   LLMProvider.getActiveProvider = () => 'groq';
-  LLMProvider.complete = async (...args) => { calls++; return complete ? complete(...args) : 'mensaje de prueba'; };
+  LLMProvider.complete = async (...args) => {
+    calls++;
+    return complete ? complete(...args) : 'mensaje de prueba';
+  };
   return {
     calls: () => calls,
     lastSystemPrompt: () => LLMProvider.complete._lastSystem,
-    restore: () => { LLMProvider.getActiveProvider = origP; LLMProvider.complete = origC; },
+    restore: () => {
+      LLMProvider.getActiveProvider = origP;
+      LLMProvider.complete = origC;
+    },
   };
 }
 
@@ -128,7 +141,9 @@ async function testDailyBudgetEngine() {
   const stub = stubLLM({ complete: async () => 'prueba uno' });
   const bus = getEventBus();
   let fired = null;
-  const l = (p) => { fired = p; };
+  const l = (p) => {
+    fired = p;
+  };
   bus.on('initiative:trigger', l);
   const res = await engine._tryTrigger({ type: 'long_silence', context: 'x' });
   bus.off('initiative:trigger', l);
@@ -145,7 +160,11 @@ async function testDailyBudgetEngine() {
   //     ya en modo producción, decide no escribir (responde NO) → null.
   engine._lastProactive = 0;
   const stub2 = stubLLM({ complete: async () => 'NO' });
-  const res2 = await engine._tryTrigger({ type: 'git_redflag', kind: 'env_unignored', context: 'El .env no está en .gitignore.' });
+  const res2 = await engine._tryTrigger({
+    type: 'git_redflag',
+    kind: 'env_unignored',
+    context: 'El .env no está en .gitignore.',
+  });
   assert(res2 === null, 'LLM NO → null');
   assert(store.dailyCount() === 1, 'LLM NO → presupuesto intacto');
   stub2.restore();
@@ -158,7 +177,10 @@ async function testDailyBudgetEngine() {
   const res3 = await engine._tryTrigger({ type: 'upcoming_event', context: 'x' });
   assert(res3 && res3.blocked, 'presupuesto agotado → { blocked }');
   assert(stub3.calls() === 0, 'presupuesto agotado → el LLM NUNCA se consulta');
-  assert(!engine._lastAttemptByType['upcoming_event'], 'presupuesto agotado → no consume cooldown por tipo');
+  assert(
+    !engine._lastAttemptByType['upcoming_event'],
+    'presupuesto agotado → no consume cooldown por tipo'
+  );
   stub3.restore();
 
   // 2d. Sin store → no hay presupuesto, no bloquea por esto
@@ -179,9 +201,25 @@ async function testForget() {
 
   const { StateGraph } = require('../core/state-graph/StateGraph.js');
   const graph = new StateGraph(path.join(tmpDir, 'forget-c3.db'));
-  await graph.init();  graph.createNode({ type: 'User', label: 'cumple_papa', content: 'Cumpleaños de papá: 15 de junio', importance: 0.9 });
-  graph.createNode({ type: 'User', label: 'gusto_musica', content: 'Le gusta el rock de los 90', importance: 0.7 });
-  graph.createNode({ type: 'Project', label: 'proyecto_asistente', content: 'Proyecto: asistente vtuber', importance: 0.8 });
+  await graph.init();
+  graph.createNode({
+    type: 'User',
+    label: 'cumple_papa',
+    content: 'Cumpleaños de papá: 15 de junio',
+    importance: 0.9,
+  });
+  graph.createNode({
+    type: 'User',
+    label: 'gusto_musica',
+    content: 'Le gusta el rock de los 90',
+    importance: 0.7,
+  });
+  graph.createNode({
+    type: 'Project',
+    label: 'proyecto_asistente',
+    content: 'Proyecto: asistente vtuber',
+    importance: 0.8,
+  });
 
   // 3a. Sin coincidencias
   const none = graph.forget('noexiste-nada');
@@ -194,14 +232,20 @@ async function testForget() {
   // 3c. Archiva por label (prioridad) y el nodo desaparece de queryNodes
   const res = graph.forget('cumple');
   assert(res.archived === 1, 'forget("cumple") archiva 1 nodo');
-  assert(res.nodes[0] && res.nodes[0].label === 'cumple_papa', 'archivó el nodo con label correcto');
+  assert(
+    res.nodes[0] && res.nodes[0].label === 'cumple_papa',
+    'archivó el nodo con label correcto'
+  );
   const after = graph.queryNodes({ search: 'cumple' });
   assert(after.length === 0, 'el nodo archivado ya no aparece en consultas activas');
 
   // 3d. Coincidencia por contenido (no por label)
   const res2 = graph.forget('rock');
   assert(res2.archived >= 1, 'forget("rock") archiva por contenido');
-  assert(graph.queryNodes({ search: 'rock' }).length === 0, 'nodo archivado por contenido fuera de las activas');
+  assert(
+    graph.queryNodes({ search: 'rock' }).length === 0,
+    'nodo archivado por contenido fuera de las activas'
+  );
 
   // 3e. El resto de la memoria sigue intacta
   assert(graph.queryNodes({ search: 'asistente' }).length === 1, 'memoria no relacionada intacta');
@@ -221,7 +265,11 @@ function testOlvidaCommand() {
     ipcRenderer: {
       invoke: async (channel, payload) => {
         if (channel === 'memory-forget' && payload.text === 'cumpleaños') {
-          return { found: 2, archived: 1, nodes: [{ label: 'cumple_papa', content: 'Cumpleaños de papá: 15 de junio' }] };
+          return {
+            found: 2,
+            archived: 1,
+            nodes: [{ label: 'cumple_papa', content: 'Cumpleaños de papá: 15 de junio' }],
+          };
         }
         if (payload.text === 'noexiste') return { found: 0, archived: 0 };
         return { found: 1, archived: 1, nodes: [], warning: 'memoria en RAM (no persistente)' };
@@ -229,16 +277,16 @@ function testOlvidaCommand() {
     },
   };
 
-  executeCommand('/olvida cumpleaños', ctx).then(r => {
+  executeCommand('/olvida cumpleaños', ctx).then((r) => {
     assert(r.result.includes('Archivé **1** nodo(s)'), 'resultado describe el archivo');
     assert(r.result.includes('cumple_papa'), 'resultado lista el nodo archivado');
   });
 
-  executeCommand('/olvida noexiste', ctx).then(r => {
+  executeCommand('/olvida noexiste', ctx).then((r) => {
     assert(r.result.includes('No encontré nada'), 'sin coincidencias → mensaje claro');
   });
 
-  executeCommand('/olvida', ctx).then(r => {
+  executeCommand('/olvida', ctx).then((r) => {
     assert(r.result.includes('/olvida <texto>'), 'sin argumento → muestra el uso');
   });
 }
@@ -251,7 +299,12 @@ async function testPendingRecap() {
   // 5a. Con un recordatorio próximo → detectado y ofrecido por el pipeline
   const graph = fakeGraph({
     queryNodes: () => [
-      { id: 1, label: 'recordar_x1', content: 'Pidió recordar: llamar al doctor en 30 minutos', importance: 0.88 },
+      {
+        id: 1,
+        label: 'recordar_x1',
+        content: 'Pidió recordar: llamar al doctor en 30 minutos',
+        importance: 0.88,
+      },
       { id: 2, label: 'no_es_recordar', content: 'otra cosa', importance: 0.5 },
     ],
   });
@@ -264,16 +317,23 @@ async function testPendingRecap() {
   assert(pendings[0].nodeId === 1, 'referencia al nodo recordar_ correcto');
   assert(pendings[0].when > Date.now(), 'el pendiente es futuro');
 
-  const stub = stubLLM({ complete: async () => 'Tienes pendiente llamar al doctor, ¿lo retomamos?' });
+  const stub = stubLLM({
+    complete: async () => 'Tienes pendiente llamar al doctor, ¿lo retomamos?',
+  });
   const bus = getEventBus();
   let fired = null;
-  const l = (p) => { fired = p; };
+  const l = (p) => {
+    fired = p;
+  };
   bus.on('initiative:trigger', l);
   const res = await engine.pendingRecap();
   bus.off('initiative:trigger', l);
   assert(res && res.length > 5, 'pendingRecap → el LLM genera el recap');
   assert(fired && fired.reason === 'pending_recap', 'la iniciativa es de tipo pending_recap');
-  assert(fired && fired.proposal && fired.proposal.kind === 'info', 'pending_recap → propuesta informativa (sin acción)');
+  assert(
+    fired && fired.proposal && fired.proposal.kind === 'info',
+    'pending_recap → propuesta informativa (sin acción)'
+  );
   stub.restore();
 
   // 5b. Sin pendientes → silencio (nadie habla por hablar)
@@ -302,14 +362,19 @@ async function testGenuinityPrompt() {
   store.reset();
   const engine = makeEngine(store, fakeGraph());
 
-  const stub = stubLLM({ complete: async (...args) => {
-    stub._lastSystem = args[1];
-    return 'm';
-  } });
+  const stub = stubLLM({
+    complete: async (...args) => {
+      stub._lastSystem = args[1];
+      return 'm';
+    },
+  });
   await engine._tryTrigger({ type: 'long_silence', context: 'x' });
 
   const system = stub._lastSystem || '';
-  assert(system.includes('REGLA DE MEMORIA FACTUAL'), 'prompt contiene la regla de memoria factual');
+  assert(
+    system.includes('REGLA DE MEMORIA FACTUAL'),
+    'prompt contiene la regla de memoria factual'
+  );
   assert(system.includes('Nunca inventes'), 'prompt prohíbe inventar');
   assert(system.includes('memoria que aparece abajo'), 'memoria como fuente obligatoria');
   stub.restore();
@@ -319,7 +384,11 @@ async function testGenuinityPrompt() {
 // ── Runner ────────────────────────────────────────────────────────────────────
 
 (async () => {
-  console.log(C.cyan(C.bold('Fase C — compañero persistente: presupuesto diario, /olvida, pendientes, genuinidad')));
+  console.log(
+    C.cyan(
+      C.bold('Fase C — compañero persistente: presupuesto diario, /olvida, pendientes, genuinidad')
+    )
+  );
 
   testDailyBudgetStore();
   await testDailyBudgetEngine();
@@ -329,12 +398,12 @@ async function testGenuinityPrompt() {
   await testGenuinityPrompt();
 
   // Los asserts async del comando corren por microtareas; esperar un tick.
-  await new Promise(r => setImmediate(r));
+  await new Promise((r) => setImmediate(r));
 
   console.log('');
   console.log(C.bold(`Resultado: ${C.green(passed + ' ✓')} / ${C.red(failed + ' ✗')}`));
   process.exit(failed ? 1 : 0);
-})().catch(e => {
+})().catch((e) => {
   console.error(C.red('Fallo en la ejecución de la suite:'), e);
   process.exit(1);
 });

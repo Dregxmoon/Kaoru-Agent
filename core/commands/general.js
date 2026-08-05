@@ -45,7 +45,9 @@ module.exports = function registerCommands(register) {
           `- Herramientas: ${(stats.tools || []).join(', ') || 'ninguna'}`,
           `- OpenClaw disponible: ${stats.available ? 'si' : 'no'}`,
         ].join('\n');
-      } catch (e) { return `Error obteniendo estadisticas: ${e.message}`; }
+      } catch (e) {
+        return `Error obteniendo estadisticas: ${e.message}`;
+      }
     },
   });
 
@@ -60,12 +62,17 @@ module.exports = function registerCommands(register) {
         if (!ok) return `Telemetria no disponible: ${error}`;
         if (!report) return 'No hay datos de telemetria aun.';
         const { current, previous, deltas, verdict, acceptance, prevAcceptance } = report;
-        if (!current.activeDays && !current.userMessages) return 'No hay actividad registrada este mes todavia.';
-        const arrow = (v) => v == null ? '–' : (v > 0 ? `▲ +${v}%` : v < 0 ? `▼ ${v}%` : '＝ 0%');
-        const fmtMs = (ms) => ms == null ? '–' : (ms < 1000 ? `${ms} ms` : `${(ms / 1000).toFixed(1)} s`);
-        const verdictLabel = { improved: 'mejor que', regressed: 'peor que', stable: 'igual que' }[verdict];
+        if (!current.activeDays && !current.userMessages)
+          return 'No hay actividad registrada este mes todavia.';
+        const arrow = (v) => (v == null ? '–' : v > 0 ? `▲ +${v}%` : v < 0 ? `▼ ${v}%` : '＝ 0%');
+        const fmtMs = (ms) =>
+          ms == null ? '–' : ms < 1000 ? `${ms} ms` : `${(ms / 1000).toFixed(1)} s`;
+        const verdictLabel = { improved: 'mejor que', regressed: 'peor que', stable: 'igual que' }[
+          verdict
+        ];
         const lines = [
-          `**¿Estamos mejor que el mes pasado?** → ${verdictLabel} ${previous.monthKey}`, '',
+          `**¿Estamos mejor que el mes pasado?** → ${verdictLabel} ${previous.monthKey}`,
+          '',
           `│ ${current.monthKey} vs ${previous.monthKey}`,
           `│ Mensajes/dia: ${current.messagesPerDay.toFixed(1)} vs ${previous.messagesPerDay.toFixed(1)}  ${arrow(deltas.messagesPerDay)}`,
           `│ Respuesta p50: ${fmtMs(current.p50ResponseMs)} vs ${fmtMs(previous.p50ResponseMs)}  ${arrow(deltas.p50ResponseMs)}`,
@@ -79,7 +86,9 @@ module.exports = function registerCommands(register) {
           lines.push(`│ Aceptacion: ${cur} vs ${prev}  ${arrow(deltas.acceptanceRate)}`);
         }
         return lines.join('\n');
-      } catch (e) { return `Error obteniendo telemetria: ${e.message}`; }
+      } catch (e) {
+        return `Error obteniendo telemetria: ${e.message}`;
+      }
     },
   });
 
@@ -93,7 +102,8 @@ module.exports = function registerCommands(register) {
       const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
       const lines = [`# Conversacion (${timestamp})`, `# Total mensajes: ${history.length}`, ''];
       for (const m of history) {
-        const role = m.role === 'user' ? '## Usuario' : m.role === 'assistant' ? '## Asistente' : '## Sistema';
+        const role =
+          m.role === 'user' ? '## Usuario' : m.role === 'assistant' ? '## Asistente' : '## Sistema';
         lines.push(`${role}\n${m.content}\n`);
       }
       const text = lines.join('\n');
@@ -115,17 +125,23 @@ module.exports = function registerCommands(register) {
     usage: '/olvida <texto>',
     handler: async (args, ctx) => {
       const text = args.join(' ').trim();
-      if (!text) return 'Usa `/olvida <texto>` — p. ej. `/olvida cumpleanos` para quitar esa fecha de mi memoria.';
+      if (!text)
+        return 'Usa `/olvida <texto>` — p. ej. `/olvida cumpleanos` para quitar esa fecha de mi memoria.';
       if (!ctx.ipcRenderer) return 'IPC no disponible.';
       try {
         const res = await ctx.ipcRenderer.invoke('memory-forget', { text });
         if (res.error) return `No pude olvidarlo: ${res.error}`;
         if (!res.found) return `No encontré nada en mi memoria que coincida con \`${text}\`.`;
         if (res.warning) return `*${res.warning}*`;
-        const items = (res.nodes || []).map(n => `- ~~${n.label}~~ — ${n.content}`).join('\n');
-        const extra = res.found > res.archived ? `\n_(quedaron ${res.found - res.archived} coincidencias mas que no toque por precaucion)_` : '';
+        const items = (res.nodes || []).map((n) => `- ~~${n.label}~~ — ${n.content}`).join('\n');
+        const extra =
+          res.found > res.archived
+            ? `\n_(quedaron ${res.found - res.archived} coincidencias mas que no toque por precaucion)_`
+            : '';
         return `Archivé **${res.archived}** nodo(s) de memoria con \`${text}\`:\n${items}${extra}`;
-      } catch (e) { return `Error: ${e.message}`; }
+      } catch (e) {
+        return `Error: ${e.message}`;
+      }
     },
   });
 };

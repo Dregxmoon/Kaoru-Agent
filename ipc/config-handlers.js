@@ -26,16 +26,21 @@ function register(ctx) {
       }
     }
 
-    const apiKeysToSave = keychainActive ? {} : (providers || {});
+    const apiKeysToSave = keychainActive ? {} : providers || {};
 
-    saveConfig({ llm: {
-      primary: existingPrimary,
-      fallback: existingFallback,
-      providers: newProviders,
-      apiKeys: apiKeysToSave,
-    } });
+    saveConfig({
+      llm: {
+        primary: existingPrimary,
+        fallback: existingFallback,
+        providers: newProviders,
+        apiKeys: apiKeysToSave,
+      },
+    });
 
-    console.log('[config] keys LLM actualizadas', keychainActive ? '(llavero del sistema)' : '(config.json)');
+    console.log(
+      '[config] keys LLM actualizadas',
+      keychainActive ? '(llavero del sistema)' : '(config.json)'
+    );
     Core.reloadLLMConfig();
     return true;
   });

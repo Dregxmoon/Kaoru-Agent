@@ -21,16 +21,16 @@
  */
 
 const path = require('path');
-const fs   = require('fs');
-const os   = require('os');
+const fs = require('fs');
+const os = require('os');
 
 const C = {
-  green:  (s) => `\x1b[32m${s}\x1b[0m`,
-  red:    (s) => `\x1b[31m${s}\x1b[0m`,
+  green: (s) => `\x1b[32m${s}\x1b[0m`,
+  red: (s) => `\x1b[31m${s}\x1b[0m`,
   yellow: (s) => `\x1b[33m${s}\x1b[0m`,
-  cyan:   (s) => `\x1b[36m${s}\x1b[0m`,
-  bold:   (s) => `\x1b[1m${s}\x1b[0m`,
-  dim:    (s) => `\x1b[2m${s}\x1b[0m`,
+  cyan: (s) => `\x1b[36m${s}\x1b[0m`,
+  bold: (s) => `\x1b[1m${s}\x1b[0m`,
+  dim: (s) => `\x1b[2m${s}\x1b[0m`,
 };
 
 let passed = 0;
@@ -48,9 +48,9 @@ function assert(condition, label, detail = '') {
 }
 
 const { ProactiveEngine } = require('../core/behavior/ProactiveEngine.js');
-const { ProposalStore }   = require('../core/behavior/ProposalStore.js');
-const LLMProvider         = require('../core/llm/LLMProvider.js');
-const { getEventBus }     = require('../infrastructure/event-bus/EventBus.js');
+const { ProposalStore } = require('../core/behavior/ProposalStore.js');
+const LLMProvider = require('../core/llm/LLMProvider.js');
+const { getEventBus } = require('../infrastructure/event-bus/EventBus.js');
 
 const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'proposals-'));
 
@@ -65,7 +65,10 @@ function fakeGraph() {
 }
 
 function fakeSensor() {
-  return { getCurrentContext: () => ({ category: null, elapsed: 0, idleSecs: 0 }), getTodaySummary: () => '' };
+  return {
+    getCurrentContext: () => ({ category: null, elapsed: 0, idleSecs: 0 }),
+    getTodaySummary: () => '',
+  };
 }
 
 function stubLLM({ provider = 'groq', complete } = {}) {
@@ -73,10 +76,16 @@ function stubLLM({ provider = 'groq', complete } = {}) {
   const origC = LLMProvider.complete;
   let calls = 0;
   LLMProvider.getActiveProvider = () => provider;
-  LLMProvider.complete = async (...args) => { calls++; return complete ? complete(...args) : 'mensaje de propuesta de prueba'; };
+  LLMProvider.complete = async (...args) => {
+    calls++;
+    return complete ? complete(...args) : 'mensaje de propuesta de prueba';
+  };
   return {
     calls: () => calls,
-    restore: () => { LLMProvider.getActiveProvider = origP; LLMProvider.complete = origC; },
+    restore: () => {
+      LLMProvider.getActiveProvider = origP;
+      LLMProvider.complete = origC;
+    },
   };
 }
 
@@ -109,19 +118,31 @@ function testProposalStore() {
   // 1b. Aceptar resetea la racha de rechazos
   store.record({ proposalId: 'p5', type: 'git_redflag', decision: 'accepted' });
   assert(store.cooldownMultiplier('git_redflag') === 1, 'aceptar resetea la racha → factor 1');
-  assert(store._data.byType.git_redflag.accepted === 1 && store._data.byType.git_redflag.rejected === 4, 'contadores por tipo correctos');
+  assert(
+    store._data.byType.git_redflag.accepted === 1 && store._data.byType.git_redflag.rejected === 4,
+    'contadores por tipo correctos'
+  );
 
   // 1c. Persistencia real en disco (recargar desde archivo)
   const reloaded = new ProposalStore({ filePath });
-  assert(reloaded._data.byType.git_redflag.rejected === 4, 'recargado desde disco conserva los rechazos');
+  assert(
+    reloaded._data.byType.git_redflag.rejected === 4,
+    'recargado desde disco conserva los rechazos'
+  );
   assert(reloaded._data.byType.git_redflag.accepted === 1, 'recargado conserva las aceptaciones');
 
   // 1d. Tipos sin feedback → factor 1
-  assert(new ProposalStore({ filePath }).cooldownMultiplier('long_silence') === 1, 'tipo sin feedback → factor 1');
+  assert(
+    new ProposalStore({ filePath }).cooldownMultiplier('long_silence') === 1,
+    'tipo sin feedback → factor 1'
+  );
 
   // 1e. reset limpia el archivo
   store.reset();
-  assert(new ProposalStore({ filePath })._data.byType.git_redflag === undefined, 'reset deja el store vacío en disco');
+  assert(
+    new ProposalStore({ filePath })._data.byType.git_redflag === undefined,
+    'reset deja el store vacío en disco'
+  );
 }
 
 // ── Test 2: payload con propuesta determinista ────────────────────────────────
@@ -137,27 +158,47 @@ async function testPayload() {
   const engine = makeEngine(store);
   const stub = stubLLM();
   let captured = null;
-  const listener = (p) => { captured = p; };
+  const listener = (p) => {
+    captured = p;
+  };
   bus.on('initiative:trigger', listener);
-  const res = await engine._tryTrigger({ type: 'git_redflag', kind: 'env_unignored', context: 'El .env no está en .gitignore.' });
+  const res = await engine._tryTrigger({
+    type: 'git_redflag',
+    kind: 'env_unignored',
+    context: 'El .env no está en .gitignore.',
+  });
   bus.off('initiative:trigger', listener);
   stub.restore();
   engine.stop();
 
   assert(res, 'trigger pasa el pre-filtro y el LLM genera mensaje');
   assert(captured && captured.proposal, 'payload lleva bloque proposal');
-  assert(captured?.proposal?.id && typeof captured.proposal.id === 'string', 'proposal.id generado');
+  assert(
+    captured?.proposal?.id && typeof captured.proposal.id === 'string',
+    'proposal.id generado'
+  );
   assert(captured?.proposal?.type === 'git_redflag', 'proposal.type = tipo del trigger');
   assert(captured?.proposal?.kind === 'action', 'proposal.kind = action');
-  assert(captured?.proposal?.action?.tool === 'gitignore_add', 'proposal.action declarada (Fase B la ejecuta)');
-  assert(captured?.proposalId === captured?.proposal?.id, 'proposalId del payload coincide con proposal.id');
-  assert(typeof captured?.proposal?.title === 'string' && captured.proposal.title.length > 0, 'proposal.title presente');
+  assert(
+    captured?.proposal?.action?.tool === 'gitignore_add',
+    'proposal.action declarada (Fase B la ejecuta)'
+  );
+  assert(
+    captured?.proposalId === captured?.proposal?.id,
+    'proposalId del payload coincide con proposal.id'
+  );
+  assert(
+    typeof captured?.proposal?.title === 'string' && captured.proposal.title.length > 0,
+    'proposal.title presente'
+  );
 
   // 2b. Trigger sin hint → proposal null (solo informa)
   const engine2 = makeEngine(store);
   const stub2 = stubLLM();
   let captured2 = null;
-  const listener2 = (p) => { captured2 = p; };
+  const listener2 = (p) => {
+    captured2 = p;
+  };
   bus.on('initiative:trigger', listener2);
   await engine2._tryTrigger({ type: 'long_silence', context: 'x' });
   bus.off('initiative:trigger', listener2);
@@ -177,7 +218,10 @@ async function testPayload() {
   );
   engine3.stop();
 
-  assert(payload3?.proposal?.type === 'git_redflag', 'kind sin entrada propia → hint default del tipo');
+  assert(
+    payload3?.proposal?.type === 'git_redflag',
+    'kind sin entrada propia → hint default del tipo'
+  );
   assert(payload3?.proposal?.action?.tool === 'git_status', 'default de git_redflag → git_status');
 }
 
@@ -191,7 +235,11 @@ function testDecisions() {
   const engine = makeEngine(store);
 
   // 3a. handler directo
-  const s1 = engine.handleDecision({ proposalId: 'p-1', type: 'system_warning', decision: 'accepted' });
+  const s1 = engine.handleDecision({
+    proposalId: 'p-1',
+    type: 'system_warning',
+    decision: 'accepted',
+  });
   assert(s1 && s1.accepted === 1, 'handleDecision(accepted) registra en el store');
   assert(store.cooldownMultiplier('system_warning') === 1, 'aceptar no penaliza el cooldown');
 
@@ -205,9 +253,16 @@ function testDecisions() {
   assert(after.factor === 2, 'factor expuesto en getCooldownFor');
 
   // 3c. validación: decisiones inválidas / sin store
-  assert(engine.handleDecision({ proposalId: 'x', type: 'system_warning', decision: 'maybe' }) === false, 'decisión inválida → false');
+  assert(
+    engine.handleDecision({ proposalId: 'x', type: 'system_warning', decision: 'maybe' }) === false,
+    'decisión inválida → false'
+  );
   const noStore = new ProactiveEngine(fakeGraph());
-  assert(noStore.handleDecision({ proposalId: 'x', type: 'system_warning', decision: 'accepted' }) === false, 'sin store → false (no-op)');
+  assert(
+    noStore.handleDecision({ proposalId: 'x', type: 'system_warning', decision: 'accepted' }) ===
+      false,
+    'sin store → false (no-op)'
+  );
 
   engine.stop();
 }
@@ -223,10 +278,16 @@ async function testBusDecision() {
   const engine = makeEngine(store);
 
   bus.emit('initiative:decision', { proposalId: 'p-4', type: 'error_title', decision: 'rejected' });
-  await new Promise(r => setImmediate(r));
+  await new Promise((r) => setImmediate(r));
 
-  assert(store._data.byType.error_title?.rejected === 1, 'emit en el bus → feedback persistido por el engine');
-  assert(engine.getCooldownFor('error_title').factor === 1.5, 'factor aplicado tras el rechazo por bus');
+  assert(
+    store._data.byType.error_title?.rejected === 1,
+    'emit en el bus → feedback persistido por el engine'
+  );
+  assert(
+    engine.getCooldownFor('error_title').factor === 1.5,
+    'factor aplicado tras el rechazo por bus'
+  );
 
   engine.stop();
 }
@@ -258,14 +319,26 @@ async function testAutonomySlider() {
   const stub2 = stubLLM();
   let fired2 = null;
   const bus = getEventBus();
-  const l2 = (p) => { fired2 = p; };
+  const l2 = (p) => {
+    fired2 = p;
+  };
   bus.on('initiative:trigger', l2);
-  await engine2._tryTrigger({ type: 'git_redflag', kind: 'env_unignored', context: 'El .env no está en .gitignore.' });
+  await engine2._tryTrigger({
+    type: 'git_redflag',
+    kind: 'env_unignored',
+    context: 'El .env no está en .gitignore.',
+  });
   bus.off('initiative:trigger', l2);
   assert(stub2.calls() === 1, 'suggest → consulta al LLM');
 
-  const infoPayload = await engine2._buildPayload({ type: 'upcoming_event', context: 'Recordatorio: doctor a las 5.' }, 'mensaje');
-  assert(infoPayload && infoPayload.proposal && infoPayload.proposal.kind === 'info', 'suggest → lleva propuesta informativa');
+  const infoPayload = await engine2._buildPayload(
+    { type: 'upcoming_event', context: 'Recordatorio: doctor a las 5.' },
+    'mensaje'
+  );
+  assert(
+    infoPayload && infoPayload.proposal && infoPayload.proposal.kind === 'info',
+    'suggest → lleva propuesta informativa'
+  );
   stub2.restore();
 
   // 5c. act → hoy se comporta como suggest (la ejecución llega en Fase B)
@@ -299,7 +372,7 @@ async function testAutonomySlider() {
   console.log('');
   console.log(C.bold(`Resultado: ${C.green(passed + ' ✓')} / ${C.red(failed + ' ✗')}`));
   process.exit(failed ? 1 : 0);
-})().catch(e => {
+})().catch((e) => {
   console.error(C.red('Fallo en la ejecución de la suite:'), e);
   process.exit(1);
 });

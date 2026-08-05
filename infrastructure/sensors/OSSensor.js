@@ -19,20 +19,38 @@
  *            el foco vuelva a una app real.
  */
 
-const { spawn }       = require('child_process');
+const { spawn } = require('child_process');
 const { getEventBus } = require('../event-bus/EventBus.js');
 
 // FIX Bug 13: añadir claude y variantes a la lista de ignorados
 const IGNORED_APPS = new Set([
-  'explorer', 'SearchHost', 'ShellExperienceHost', 'StartMenuExperienceHost',
-  'LockApp', 'LogonUI', 'dwm', 'taskhostw', 'RuntimeBroker',
-  'TextInputHost', 'ApplicationFrameHost', 'SystemSettings',
-  'vtuber-overlay', 'electron',
-  'RazerAppEngine', 'RazerCentralService', 'RazerIngameEngine',
-  'rzsd', 'Razer Synapse', 'RzSDKService',
+  'explorer',
+  'SearchHost',
+  'ShellExperienceHost',
+  'StartMenuExperienceHost',
+  'LockApp',
+  'LogonUI',
+  'dwm',
+  'taskhostw',
+  'RuntimeBroker',
+  'TextInputHost',
+  'ApplicationFrameHost',
+  'SystemSettings',
+  'vtuber-overlay',
+  'electron',
+  'RazerAppEngine',
+  'RazerCentralService',
+  'RazerIngameEngine',
+  'rzsd',
+  'Razer Synapse',
+  'RzSDKService',
   // Bug 13: ignorar Claude para evitar contaminación del contexto
-  'claude', 'Claude', 'claude.exe', 'Claude.exe',
-  'anthropic', 'Anthropic',
+  'claude',
+  'Claude',
+  'claude.exe',
+  'Claude.exe',
+  'anthropic',
+  'Anthropic',
 ]);
 
 // Helper para chequear si un nombre de proceso debe ignorarse
@@ -52,78 +70,96 @@ function shouldIgnoreApp(procName) {
 }
 
 const APP_NAMES = {
-  'Code':            'Visual Studio Code',
-  'code':            'Visual Studio Code',
-  'cursor':          'Cursor',
-  'chrome':          'Google Chrome',
-  'msedge':          'Microsoft Edge',
-  'firefox':         'Firefox',
-  'Discord':         'Discord',
-  'discord':         'Discord',
-  'Slack':           'Slack',
-  'slack':           'Slack',
-  'WINWORD':         'Microsoft Word',
-  'EXCEL':           'Microsoft Excel',
-  'POWERPNT':        'PowerPoint',
-  'notion':          'Notion',
-  'obsidian':        'Obsidian',
-  'figma':           'Figma',
-  'Figma':           'Figma',
-  'spotify':         'Spotify',
-  'Spotify':         'Spotify',
-  'WhatsApp':        'WhatsApp',
-  'Telegram':        'Telegram',
-  'WindowsTerminal': 'Terminal',
-  'cmd':             'Símbolo del sistema',
-  'powershell':      'PowerShell',
-  'wt':              'Terminal',
-  'notepad':         'Bloc de notas',
-  'notepad++':       'Notepad++',
-  'sublime_text':    'Sublime Text',
-  'idea64':          'IntelliJ IDEA',
-  'pycharm64':       'PyCharm',
-  'webstorm64':      'WebStorm',
-  'postman':         'Postman',
-  'insomnia':        'Insomnia',
-  'vlc':             'VLC',
-  'warp':            'Warp Terminal',
-  'mpc-hc64':        'Media Player Classic',
-  'explorer':        'Explorador de archivos',
-  'SystemSettings':  'Configuración de Windows',
+  Code: 'Visual Studio Code',
+  code: 'Visual Studio Code',
+  cursor: 'Cursor',
+  chrome: 'Google Chrome',
+  msedge: 'Microsoft Edge',
+  firefox: 'Firefox',
+  Discord: 'Discord',
+  discord: 'Discord',
+  Slack: 'Slack',
+  slack: 'Slack',
+  WINWORD: 'Microsoft Word',
+  EXCEL: 'Microsoft Excel',
+  POWERPNT: 'PowerPoint',
+  notion: 'Notion',
+  obsidian: 'Obsidian',
+  figma: 'Figma',
+  Figma: 'Figma',
+  spotify: 'Spotify',
+  Spotify: 'Spotify',
+  WhatsApp: 'WhatsApp',
+  Telegram: 'Telegram',
+  WindowsTerminal: 'Terminal',
+  cmd: 'Símbolo del sistema',
+  powershell: 'PowerShell',
+  wt: 'Terminal',
+  notepad: 'Bloc de notas',
+  'notepad++': 'Notepad++',
+  sublime_text: 'Sublime Text',
+  idea64: 'IntelliJ IDEA',
+  pycharm64: 'PyCharm',
+  webstorm64: 'WebStorm',
+  postman: 'Postman',
+  insomnia: 'Insomnia',
+  vlc: 'VLC',
+  warp: 'Warp Terminal',
+  'mpc-hc64': 'Media Player Classic',
+  explorer: 'Explorador de archivos',
+  SystemSettings: 'Configuración de Windows',
   // Juegos — antes no existía NINGÚN reconocimiento de juegos, así que
   // jugar (sin importar cuánto tiempo) era completamente invisible para la
   // proactividad: category caía a 'other', que ni siquiera está en
   // FOCUS_RULES de ProactiveEngine.js. Ver ese archivo para el fix
   // completo — esto es solo la mitad de "reconocer que hay un juego abierto".
   'VALORANT-Win64-Shipping': 'Valorant',
-  'RiotClientServices':      'Riot Client',
-  'League of Legends':       'League of Legends',
-  'LeagueClient':            'League of Legends',
-  'cs2':                     'Counter-Strike 2',
-  'csgo':                    'CS:GO',
-  'steam':                   'Steam',
-  'steamwebhelper':          'Steam',
-  'EpicGamesLauncher':       'Epic Games',
-  'Overwatch':                'Overwatch 2',
+  RiotClientServices: 'Riot Client',
+  'League of Legends': 'League of Legends',
+  LeagueClient: 'League of Legends',
+  cs2: 'Counter-Strike 2',
+  csgo: 'CS:GO',
+  steam: 'Steam',
+  steamwebhelper: 'Steam',
+  EpicGamesLauncher: 'Epic Games',
+  Overwatch: 'Overwatch 2',
   'FortniteClient-Win64-Shipping': 'Fortnite',
-  'javaw':                    'Minecraft',
+  javaw: 'Minecraft',
 };
 
 const APP_CATEGORIES = {
-  code:     ['Code', 'code', 'cursor', 'idea64', 'pycharm64', 'webstorm64', 'sublime_text', 'notepad++'],
+  code: [
+    'Code',
+    'code',
+    'cursor',
+    'idea64',
+    'pycharm64',
+    'webstorm64',
+    'sublime_text',
+    'notepad++',
+  ],
   terminal: ['WindowsTerminal', 'cmd', 'powershell', 'wt', 'warp'],
-  browser:  ['chrome', 'msedge', 'firefox'],
-  design:   ['figma', 'Figma'],
-  docs:     ['WINWORD', 'EXCEL', 'POWERPNT', 'notion', 'obsidian', 'notepad'],
-  chat:     ['Discord', 'discord', 'Slack', 'slack', 'WhatsApp', 'Telegram'],
-  media:    ['spotify', 'Spotify', 'vlc', 'mpc-hc64'],
-  api:      ['postman', 'insomnia'],
-  files:    ['explorer'],
-  system:   ['SystemSettings', 'ApplicationFrameHost'],
-  game:     [
-    'VALORANT-Win64-Shipping', 'RiotClientServices', 'League of Legends', 'LeagueClient',
-    'cs2', 'csgo', 'steam', 'steamwebhelper', 'EpicGamesLauncher', 'Overwatch',
-    'FortniteClient-Win64-Shipping', 'javaw',
+  browser: ['chrome', 'msedge', 'firefox'],
+  design: ['figma', 'Figma'],
+  docs: ['WINWORD', 'EXCEL', 'POWERPNT', 'notion', 'obsidian', 'notepad'],
+  chat: ['Discord', 'discord', 'Slack', 'slack', 'WhatsApp', 'Telegram'],
+  media: ['spotify', 'Spotify', 'vlc', 'mpc-hc64'],
+  api: ['postman', 'insomnia'],
+  files: ['explorer'],
+  system: ['SystemSettings', 'ApplicationFrameHost'],
+  game: [
+    'VALORANT-Win64-Shipping',
+    'RiotClientServices',
+    'League of Legends',
+    'LeagueClient',
+    'cs2',
+    'csgo',
+    'steam',
+    'steamwebhelper',
+    'EpicGamesLauncher',
+    'Overwatch',
+    'FortniteClient-Win64-Shipping',
+    'javaw',
   ],
 };
 
@@ -211,20 +247,20 @@ foreach ($hwnd in [Win32]::GetVisibleWindows()) {
 
 class OSSensor {
   constructor(stateGraph) {
-    this._graph        = stateGraph;
-    this._bus          = getEventBus();
-    this._polling      = null;
-    this._pollBusy     = false;
-    this._pollMs       = 5000;
-    this._currentApp   = null;
+    this._graph = stateGraph;
+    this._bus = getEventBus();
+    this._polling = null;
+    this._pollBusy = false;
+    this._pollMs = 5000;
+    this._currentApp = null;
     this._currentTitle = null;
-    this._appStart     = null;
-    this._openWindows  = [];
-    this._history      = [];
-    this._maxHistory   = 100;
-    this._running      = false;
-    this._idleSecs     = 0;
-    this._wasIdle      = false;
+    this._appStart = null;
+    this._openWindows = [];
+    this._history = [];
+    this._maxHistory = 100;
+    this._running = false;
+    this._idleSecs = 0;
+    this._wasIdle = false;
   }
 
   start() {
@@ -236,33 +272,34 @@ class OSSensor {
   }
 
   stop() {
-    if (this._polling) { clearInterval(this._polling); this._polling = null; }
+    if (this._polling) {
+      clearInterval(this._polling);
+      this._polling = null;
+    }
     this._running = false;
     console.log('[os-sensor] detenido');
   }
 
   getCurrentContext() {
-    const elapsed = this._appStart
-      ? Math.round((Date.now() - this._appStart) / 1000)
-      : 0;
+    const elapsed = this._appStart ? Math.round((Date.now() - this._appStart) / 1000) : 0;
     return {
-      app:                this._currentApp,
-      friendlyName:       this._getFriendlyName(this._currentApp),
-      title:              this._currentTitle,
-      category:           this._getCategory(this._currentApp),
+      app: this._currentApp,
+      friendlyName: this._getFriendlyName(this._currentApp),
+      title: this._currentTitle,
+      category: this._getCategory(this._currentApp),
       elapsed,
-      elapsedFormatted:   this._formatElapsed(elapsed),
-      idleSecs:           this._idleSecs,
-      idleFormatted:      this._idleSecs > 0 ? this._formatElapsed(this._idleSecs) : null,
-      isIdle:             this._idleSecs >= IDLE_THRESHOLD_SECS,
-      openWindows:        this.getOpenWindows(),
+      elapsedFormatted: this._formatElapsed(elapsed),
+      idleSecs: this._idleSecs,
+      idleFormatted: this._idleSecs > 0 ? this._formatElapsed(this._idleSecs) : null,
+      isIdle: this._idleSecs >= IDLE_THRESHOLD_SECS,
+      openWindows: this.getOpenWindows(),
       openWindowsSummary: this.getOpenWindowsSummary(),
-      history:            this.getTodayHistory(),
+      history: this.getTodayHistory(),
     };
   }
 
   getOpenWindows() {
-    return this._openWindows.map(w => ({
+    return this._openWindows.map((w) => ({
       ...w,
       focused: w.app === this._currentApp && w.title === this._currentTitle,
     }));
@@ -270,16 +307,18 @@ class OSSensor {
 
   getOpenWindowsSummary() {
     if (!this._openWindows.length) return null;
-    return this._openWindows.map(w => {
-      const cleanTitle = this._cleanTitle(w.app, w.title);
-      return cleanTitle ? `${w.friendlyName} (${cleanTitle})` : w.friendlyName;
-    }).join(', ');
+    return this._openWindows
+      .map((w) => {
+        const cleanTitle = this._cleanTitle(w.app, w.title);
+        return cleanTitle ? `${w.friendlyName} (${cleanTitle})` : w.friendlyName;
+      })
+      .join(', ');
   }
 
   getTodayHistory() {
     const startOfDay = new Date();
     startOfDay.setHours(0, 0, 0, 0);
-    return this._history.filter(e => e.start >= startOfDay.getTime());
+    return this._history.filter((e) => e.start >= startOfDay.getTime());
   }
 
   getTodaySummary() {
@@ -307,13 +346,16 @@ class OSSensor {
       this._pollBusy = false;
       if (err || !output) return;
 
-      const lines = output.split('\n').map(l => l.trim()).filter(Boolean);
+      const lines = output
+        .split('\n')
+        .map((l) => l.trim())
+        .filter(Boolean);
       if (!lines.length) return;
 
-      let focus        = null;
-      let focusIgnored  = false; // FIX: distinguir "no hubo línea FOCUS" de "FOCUS cayó en app ignorada"
-      let idleMs        = 0;
-      const windows     = [];
+      let focus = null;
+      let focusIgnored = false; // FIX: distinguir "no hubo línea FOCUS" de "FOCUS cayó en app ignorada"
+      let idleMs = 0;
+      const windows = [];
 
       for (const line of lines) {
         const sepIdx = line.indexOf('|');
@@ -329,7 +371,7 @@ class OSSensor {
         const partsIdx = rest.indexOf('|');
         if (partsIdx === -1) continue;
         const procName = rest.slice(0, partsIdx).trim();
-        const title    = rest.slice(partsIdx + 1).trim();
+        const title = rest.slice(partsIdx + 1).trim();
 
         if (!procName || procName === 'unknown') continue;
 
@@ -350,17 +392,17 @@ class OSSensor {
 
         if (kind === 'WIN') {
           windows.push({
-            app:          procName,
+            app: procName,
             friendlyName: this._getFriendlyName(procName),
             title,
-            category:     this._getCategory(procName),
+            category: this._getCategory(procName),
           });
         }
       }
 
       this._processIdle(Math.round(idleMs / 1000));
 
-      const seen  = new Set();
+      const seen = new Set();
       const dedup = [];
       for (const w of windows) {
         const key = `${w.app}::${w.title}`;
@@ -384,7 +426,7 @@ class OSSensor {
 
   _processIdle(idleSecs) {
     this._idleSecs = idleSecs;
-    const isIdle   = idleSecs >= IDLE_THRESHOLD_SECS;
+    const isIdle = idleSecs >= IDLE_THRESHOLD_SECS;
     if (isIdle && !this._wasIdle) {
       this._wasIdle = true;
       this._bus.emit('os:idle-changed', { idle: true, idleSecs });
@@ -397,24 +439,22 @@ class OSSensor {
   }
 
   _processFocus(procName, title) {
-    const elapsed = this._appStart
-      ? Math.round((Date.now() - this._appStart) / 1000)
-      : 0;
+    const elapsed = this._appStart ? Math.round((Date.now() - this._appStart) / 1000) : 0;
 
     if (procName !== this._currentApp) {
       if (this._currentApp && this._appStart) {
         this._saveToHistory(this._currentApp, this._currentTitle, this._appStart, Date.now());
       }
-      const prev         = this._currentApp;
-      this._currentApp   = procName;
+      const prev = this._currentApp;
+      this._currentApp = procName;
       this._currentTitle = title;
-      this._appStart     = Date.now();
+      this._appStart = Date.now();
       this._bus.emit('os:app-changed', {
-        app:          procName,
+        app: procName,
         friendlyName: this._getFriendlyName(procName),
         title,
-        category:     this._getCategory(procName),
-        elapsed:      0,
+        category: this._getCategory(procName),
+        elapsed: 0,
         prev,
         prevFriendly: this._getFriendlyName(prev),
       });
@@ -422,10 +462,10 @@ class OSSensor {
     } else {
       this._currentTitle = title;
       this._bus.emit('os:app-tick', {
-        app:              procName,
-        friendlyName:     this._getFriendlyName(procName),
+        app: procName,
+        friendlyName: this._getFriendlyName(procName),
         title,
-        category:         this._getCategory(procName),
+        category: this._getCategory(procName),
         elapsed,
         elapsedFormatted: this._formatElapsed(elapsed),
       });
@@ -447,9 +487,9 @@ class OSSensor {
     if (this._currentApp !== null) {
       console.log('[os-sensor] foco en app ignorada — pausando tracking');
     }
-    this._currentApp   = null;
+    this._currentApp = null;
     this._currentTitle = null;
-    this._appStart     = null;
+    this._appStart = null;
   }
 
   _saveToHistory(app, title, start, end) {
@@ -458,18 +498,23 @@ class OSSensor {
     const entry = {
       app,
       friendlyName: this._getFriendlyName(app),
-      title:        title?.slice(0, 120) || '',
-      category:     this._getCategory(app),
-      start, end, duration,
+      title: title?.slice(0, 120) || '',
+      category: this._getCategory(app),
+      start,
+      end,
+      duration,
     };
     this._history.push(entry);
     if (this._history.length > this._maxHistory) this._history.shift();
     if (this._graph?._ready && typeof this._graph.saveAppHistory === 'function') {
-      try { this._graph.saveAppHistory(entry); }
-      catch (e) { console.warn('[os-sensor] error guardando historial:', e.message); }
+      try {
+        this._graph.saveAppHistory(entry);
+      } catch (e) {
+        console.warn('[os-sensor] error guardando historial:', e.message);
+      }
     }
     this._bus.emit('os:history-updated', {
-      latest:     entry,
+      latest: entry,
       todayCount: this.getTodayHistory().length,
     });
   }
@@ -483,7 +528,7 @@ class OSSensor {
     if (!procName) return 'other';
     const lower = procName.toLowerCase();
     for (const [cat, apps] of Object.entries(APP_CATEGORIES)) {
-      if (apps.some(a => a.toLowerCase() === lower)) return cat;
+      if (apps.some((a) => a.toLowerCase() === lower)) return cat;
     }
     return 'other';
   }
@@ -510,7 +555,9 @@ class OSSensor {
   }
 
   _runPS(script, callback) {
-    let output = '', error = '', done = false;
+    let output = '',
+      error = '',
+      done = false;
     const finish = (err, out) => {
       if (done) return;
       done = true;
@@ -518,14 +565,19 @@ class OSSensor {
     };
     let proc;
     try {
-      proc = spawn('powershell', [
-        '-NoProfile', '-NonInteractive', '-WindowStyle', 'Hidden',
-        '-Command', script,
-      ], { windowsHide: true });
+      proc = spawn(
+        'powershell',
+        ['-NoProfile', '-NonInteractive', '-WindowStyle', 'Hidden', '-Command', script],
+        { windowsHide: true }
+      );
       proc.stdout.setEncoding('utf8');
       proc.stderr.setEncoding('utf8');
-      proc.stdout.on('data', d => { output += d; });
-      proc.stderr.on('data', d => { error  += d; });
+      proc.stdout.on('data', (d) => {
+        output += d;
+      });
+      proc.stderr.on('data', (d) => {
+        error += d;
+      });
       proc.on('close', (code) => {
         if (code !== 0 || error) finish(new Error(error || `exit code ${code}`), null);
         else finish(null, output.trim());
@@ -538,7 +590,9 @@ class OSSensor {
     const timeout = setTimeout(() => {
       if (done) return;
       console.warn('[os-sensor] PowerShell timeout (>8s), matando proceso');
-      try { proc.kill(); } catch (_) {}
+      try {
+        proc.kill();
+      } catch (_) {}
       finish(new Error('powershell timeout'), null);
     }, 8000);
     proc.on('close', () => clearTimeout(timeout));

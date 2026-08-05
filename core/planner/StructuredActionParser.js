@@ -50,52 +50,69 @@ const ACTION_TO_TOOL = {
   // 'write' se habría llamado a OpenClawBridge.execute('write', {path,
   // instruction}) directo — y el schema de 'write' espera {path, content},
   // no {path, instruction}, así que 'content' habría llegado undefined.
-  create_file:      'create_file',
-  edit_file:        'edit_file',   // manejado especialmente en Planner._executeEditFile
-  write:            'create_file', // alias moderno (el LLM en fallback textual usa write/edit)
-  edit:             'edit_file',
-  read:             'read',
-  read_file:        'read',
-  delete_file:      'exec',        // mock: delete via exec del
-  create_directory: 'exec',        // mkdir
-  list_directory:   'exec',        // ls / dir
-  run_command:      'exec',
-  run_script:       'exec',
-  git_action:       'exec',
-  install_package:  'exec',
-  exec:             'exec',        // alias directo (algunos modelos usan "exec")
-  web_search:       'web_search',
+  create_file: 'create_file',
+  edit_file: 'edit_file', // manejado especialmente en Planner._executeEditFile
+  write: 'create_file', // alias moderno (el LLM en fallback textual usa write/edit)
+  edit: 'edit_file',
+  read: 'read',
+  read_file: 'read',
+  delete_file: 'exec', // mock: delete via exec del
+  create_directory: 'exec', // mkdir
+  list_directory: 'exec', // ls / dir
+  run_command: 'exec',
+  run_script: 'exec',
+  git_action: 'exec',
+  install_package: 'exec',
+  exec: 'exec', // alias directo (algunos modelos usan "exec")
+  web_search: 'web_search',
   navigate_browser: 'browser',
-  browser_action:   'browser',
-  apply_patch:      'apply_patch',
-  run_code:         'code_execution',
+  browser_action: 'browser',
+  apply_patch: 'apply_patch',
+  run_code: 'code_execution',
 
   // MCP — independiente de OpenClaw. 'mcp' es un pseudo-tool, manejado
   // especialmente en Planner._executeMCP (ver ahí), no por OpenClawBridge.
-  mcp_call:         'mcp',
+  mcp_call: 'mcp',
 };
 
 // ── Descripción legible por acción ────────────────────────────────────────────
 function _buildDescription(action, fields) {
   const f = fields;
   switch (action) {
-    case 'create_file':      return `Crear archivo: ${f.ARCHIVO || '(sin nombre)'}`;
-    case 'edit_file':        return `Editar archivo: ${f.ARCHIVO || '(sin nombre)'}`;
-    case 'read_file':        return `Leer archivo: ${f.ARCHIVO || '(sin nombre)'}`;
-    case 'delete_file':      return `Eliminar archivo: ${f.ARCHIVO || '(sin nombre)'}`;
-    case 'create_directory': return `Crear directorio: ${f.RUTA || '(sin nombre)'}`;
-    case 'list_directory':   return `Listar directorio: ${f.RUTA || '.'}`;
-    case 'run_command':      return `Ejecutar: ${f.COMANDO || '(sin comando)'}`;
-    case 'run_script':       return `Ejecutar script: ${f.COMANDO || '(sin comando)'}`;
-    case 'git_action':       return `Git: ${f.COMANDO || '(sin comando)'}`;
-    case 'install_package':  return `Instalar paquete: ${f.COMANDO || '(sin comando)'}`;
-    case 'web_search':       return `Buscar en la web: "${f.QUERY || ''}"`;
-    case 'navigate_browser': return `Navegar a: ${f.URL || '(sin URL)'}`;
-    case 'browser_action':   return `Navegador: ${f.ACCION || f.ACTION || f.URL || '(sin acción)'}`;
-    case 'apply_patch':      return `Aplicar patch a: ${f.ARCHIVO || '(sin archivo)'}`;
-    case 'run_code':         return `Ejecutar código: ${(f.CÓDIGO || f.CODIGO || f.CODE || '').slice(0, 60)}`;
-    case 'mcp_call':         return `MCP · ${f.SERVIDOR || f.SERVER || '?'}: ${f.HERRAMIENTA || f.TOOL || '?'}`;
-    default:                 return action;
+    case 'create_file':
+      return `Crear archivo: ${f.ARCHIVO || '(sin nombre)'}`;
+    case 'edit_file':
+      return `Editar archivo: ${f.ARCHIVO || '(sin nombre)'}`;
+    case 'read_file':
+      return `Leer archivo: ${f.ARCHIVO || '(sin nombre)'}`;
+    case 'delete_file':
+      return `Eliminar archivo: ${f.ARCHIVO || '(sin nombre)'}`;
+    case 'create_directory':
+      return `Crear directorio: ${f.RUTA || '(sin nombre)'}`;
+    case 'list_directory':
+      return `Listar directorio: ${f.RUTA || '.'}`;
+    case 'run_command':
+      return `Ejecutar: ${f.COMANDO || '(sin comando)'}`;
+    case 'run_script':
+      return `Ejecutar script: ${f.COMANDO || '(sin comando)'}`;
+    case 'git_action':
+      return `Git: ${f.COMANDO || '(sin comando)'}`;
+    case 'install_package':
+      return `Instalar paquete: ${f.COMANDO || '(sin comando)'}`;
+    case 'web_search':
+      return `Buscar en la web: "${f.QUERY || ''}"`;
+    case 'navigate_browser':
+      return `Navegar a: ${f.URL || '(sin URL)'}`;
+    case 'browser_action':
+      return `Navegador: ${f.ACCION || f.ACTION || f.URL || '(sin acción)'}`;
+    case 'apply_patch':
+      return `Aplicar patch a: ${f.ARCHIVO || '(sin archivo)'}`;
+    case 'run_code':
+      return `Ejecutar código: ${(f.CÓDIGO || f.CODIGO || f.CODE || '').slice(0, 60)}`;
+    case 'mcp_call':
+      return `MCP · ${f.SERVIDOR || f.SERVER || '?'}: ${f.HERRAMIENTA || f.TOOL || '?'}`;
+    default:
+      return action;
   }
 }
 
@@ -114,7 +131,10 @@ function _sanitizeShellArg(value) {
   const trimmed = value.trim();
   if (!trimmed) return null;
   if (SHELL_METACHAR_RE.test(trimmed)) {
-    console.warn('[structured-parser] valor rechazado por caracteres de shell sospechosos:', JSON.stringify(trimmed));
+    console.warn(
+      '[structured-parser] valor rechazado por caracteres de shell sospechosos:',
+      JSON.stringify(trimmed)
+    );
     return null;
   }
   return trimmed;
@@ -139,7 +159,9 @@ function _extractBalancedJSON(content, label) {
   // largo en medio, no es el JSON de este campo.
   if (braceStart === -1 || braceStart - searchFrom > 10) return null;
 
-  let depth = 0, inString = false, escaped = false;
+  let depth = 0,
+    inString = false,
+    escaped = false;
   for (let i = braceStart; i < content.length; i++) {
     const c = content[i];
     if (inString) {
@@ -148,12 +170,19 @@ function _extractBalancedJSON(content, label) {
       else if (c === '"') inString = false;
       continue;
     }
-    if (c === '"') { inString = true; continue; }
+    if (c === '"') {
+      inString = true;
+      continue;
+    }
     if (c === '{') depth++;
     else if (c === '}') {
       depth--;
       if (depth === 0) {
-        return { json: content.slice(braceStart, i + 1), fullMatchStart: m.index, fullMatchEnd: i + 1 };
+        return {
+          json: content.slice(braceStart, i + 1),
+          fullMatchStart: m.index,
+          fullMatchEnd: i + 1,
+        };
       }
     }
   }
@@ -171,7 +200,7 @@ function _buildParams(action, fields, userGoal, projectCwd) {
   switch (action) {
     case 'create_file':
       return {
-        path:        fields.ARCHIVO,
+        path: fields.ARCHIVO,
         // G.1: el LLM puede incluir el contenido en CONTENIDO: — si viene,
         // se usa como instruction (en vez de repetir el userGoal como texto).
         instruction: fields.CONTENIDO || userGoal || `Crear el archivo ${fields.ARCHIVO}`,
@@ -179,7 +208,7 @@ function _buildParams(action, fields, userGoal, projectCwd) {
 
     case 'edit_file':
       return {
-        path:        fields.ARCHIVO,
+        path: fields.ARCHIVO,
         instruction: fields.CONTENIDO || userGoal || `Editar el archivo ${fields.ARCHIVO}`,
       };
 
@@ -187,7 +216,7 @@ function _buildParams(action, fields, userGoal, projectCwd) {
       return { path: fields.ARCHIVO };
 
     case 'mcp_call': {
-      const server   = fields.SERVIDOR || fields.SERVER;
+      const server = fields.SERVIDOR || fields.SERVER;
       const toolName = fields.HERRAMIENTA || fields.TOOL;
       if (!server || !toolName) {
         console.warn('[structured-parser] mcp_call sin SERVIDOR o HERRAMIENTA:', fields);
@@ -198,7 +227,10 @@ function _buildParams(action, fields, userGoal, projectCwd) {
         try {
           mcpArgs = JSON.parse(fields.PARAMS);
         } catch (e) {
-          console.warn('[structured-parser] PARAMS de mcp_call no es JSON válido, se ignora:', fields.PARAMS);
+          console.warn(
+            '[structured-parser] PARAMS de mcp_call no es JSON válido, se ignora:',
+            fields.PARAMS
+          );
           return null;
         }
       }
@@ -209,9 +241,7 @@ function _buildParams(action, fields, userGoal, projectCwd) {
       const safeArchivo = _sanitizeShellArg(fields.ARCHIVO);
       if (!safeArchivo) return null;
       return {
-        command: process.platform === 'win32'
-          ? `del "${safeArchivo}"`
-          : `rm "${safeArchivo}"`,
+        command: process.platform === 'win32' ? `del "${safeArchivo}"` : `rm "${safeArchivo}"`,
         cwd,
       };
     }
@@ -249,7 +279,10 @@ function _buildParams(action, fields, userGoal, projectCwd) {
 
     case 'navigate_browser':
     case 'browser_action':
-      return { action: fields.ACCION?.toLowerCase() || fields.ACTION?.toLowerCase() || 'navigate', url: fields.URL };
+      return {
+        action: fields.ACCION?.toLowerCase() || fields.ACTION?.toLowerCase() || 'navigate',
+        url: fields.URL,
+      };
 
     case 'apply_patch':
       return { path: fields.ARCHIVO, patch: fields.PATCH || fields.DIFF };
@@ -286,7 +319,9 @@ class StructuredActionParser {
     // ── 1. Intentar parsear bloque estructurado ───────────────────────────────
     const structured = this._parseStructuredBlock(llmResponse, userGoal);
     if (structured.length > 0) {
-      console.log(`[structured-parser] Bloque estructurado encontrado: ${structured.map(a => a.tool).join(', ')}`);
+      console.log(
+        `[structured-parser] Bloque estructurado encontrado: ${structured.map((a) => a.tool).join(', ')}`
+      );
       return structured;
     }
 
@@ -297,8 +332,10 @@ class StructuredActionParser {
       const legacyActions = ActionParser.parse(llmResponse, userGoal);
 
       if (legacyActions.length > 0) {
-        console.log(`[structured-parser] Fallback a ActionParser legacy: ${legacyActions.map(a => a.tool).join(', ')}`);
-        return legacyActions.map(a => ({ ...a, source: 'legacy_regex' }));
+        console.log(
+          `[structured-parser] Fallback a ActionParser legacy: ${legacyActions.map((a) => a.tool).join(', ')}`
+        );
+        return legacyActions.map((a) => ({ ...a, source: 'legacy_regex' }));
       }
     } catch (e) {
       console.warn('[structured-parser] Error en ActionParser legacy:', e.message);
@@ -309,8 +346,8 @@ class StructuredActionParser {
     if (toolIntent?.detected && toolIntent.level === 'high') {
       console.warn(
         `[structured-parser] El LLM ignoró el bloque de acción. ` +
-        `Intent detectado: ${toolIntent.action} (${(toolIntent.confidence * 100).toFixed(0)}%). ` +
-        `El system prompt puede necesitar ajuste.`
+          `Intent detectado: ${toolIntent.action} (${(toolIntent.confidence * 100).toFixed(0)}%). ` +
+          `El system prompt puede necesitar ajuste.`
       );
     }
 
@@ -361,8 +398,9 @@ class StructuredActionParser {
     const paramsExtracted = _extractBalancedJSON(content, 'PARAMS');
     if (paramsExtracted) {
       fields['PARAMS'] = paramsExtracted.json;
-      workingContent = content.slice(0, paramsExtracted.fullMatchStart)
-                     + content.slice(paramsExtracted.fullMatchEnd);
+      workingContent =
+        content.slice(0, paramsExtracted.fullMatchStart) +
+        content.slice(paramsExtracted.fullMatchEnd);
     }
 
     // Extraer el resto de campos clave:valor separados por "|" o por newlines
@@ -386,7 +424,7 @@ class StructuredActionParser {
       const colonIdx = line.indexOf(':');
       if (colonIdx === -1) continue;
 
-      const key   = line.slice(0, colonIdx).trim().toUpperCase();
+      const key = line.slice(0, colonIdx).trim().toUpperCase();
       const value = line.slice(colonIdx + 1).trim();
 
       if (key && value) fields[key] = value;
@@ -460,7 +498,7 @@ class StructuredActionParser {
       tool,
       params,
       description,
-      action,    // guardamos la intención original también
+      action, // guardamos la intención original también
       source: 'structured',
     };
   }

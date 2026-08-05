@@ -7,11 +7,11 @@ const path = require('path');
 const { GitManager } = require('../core/git/GitManager.js');
 
 const C = {
-  green:  (s) => `\x1b[32m${s}\x1b[0m`,
-  red:    (s) => `\x1b[31m${s}\x1b[0m`,
-  bold:   (s) => `\x1b[1m${s}\x1b[0m`,
-  cyan:   (s) => `\x1b[36m${s}\x1b[0m`,
-  dim:    (s) => `\x1b[2m${s}\x1b[0m`,
+  green: (s) => `\x1b[32m${s}\x1b[0m`,
+  red: (s) => `\x1b[31m${s}\x1b[0m`,
+  bold: (s) => `\x1b[1m${s}\x1b[0m`,
+  cyan: (s) => `\x1b[36m${s}\x1b[0m`,
+  dim: (s) => `\x1b[2m${s}\x1b[0m`,
 };
 
 let passed = 0;
@@ -53,7 +53,9 @@ function setup() {
 }
 
 function teardown() {
-  try { fs.rmSync(tmpRoot, { recursive: true, force: true }); } catch {}
+  try {
+    fs.rmSync(tmpRoot, { recursive: true, force: true });
+  } catch {}
 }
 
 // ── Test 1: no-repo → isRepo false / status falla ─────────────────────────────
@@ -66,7 +68,12 @@ async function testNotARepo() {
     const isRepo = await gm.isRepo(empty);
     assert(isRepo === false, 'isRepo() === false en carpeta sin .git');
     let threw = false;
-    try { await gm.status(empty); } catch (e) { threw = true; assert(e.exitCode != null || e.message, 'status lanza error estructurado'); }
+    try {
+      await gm.status(empty);
+    } catch (e) {
+      threw = true;
+      assert(e.exitCode != null || e.message, 'status lanza error estructurado');
+    }
     assert(threw, 'status() lanza cuando no hay repo');
   } finally {
     fs.rmSync(empty, { recursive: true, force: true });
@@ -83,17 +90,25 @@ async function testStatus() {
   git(repoDir, ['add', 'a.txt']);
   git(repoDir, ['commit', '-m', 'add a']);
 
-  writeFile(repoDir, 'b.txt', 'nuevo\n');   // untracked
+  writeFile(repoDir, 'b.txt', 'nuevo\n'); // untracked
   writeFile(repoDir, 'a.txt', 'hola\ncambio\n'); // unstaged
   writeFile(repoDir, 'c.txt', 'staged\n');
-  git(repoDir, ['add', 'c.txt']);            // staged
+  git(repoDir, ['add', 'c.txt']); // staged
 
   const st = await gm.status(repoDir);
   assert(st.branch === 'main', 'branch = main', `branch: ${st.branch}`);
   assert(st.clean === false, 'repo no está limpio');
   assert(st.untracked.includes('b.txt'), 'b.txt untracked', JSON.stringify(st.untracked));
-  assert(st.unstaged.some(u => u.path === 'a.txt'), 'a.txt unstaged', JSON.stringify(st.unstaged));
-  assert(st.staged.some(s => s.path === 'c.txt'), 'c.txt staged', JSON.stringify(st.staged));
+  assert(
+    st.unstaged.some((u) => u.path === 'a.txt'),
+    'a.txt unstaged',
+    JSON.stringify(st.unstaged)
+  );
+  assert(
+    st.staged.some((s) => s.path === 'c.txt'),
+    'c.txt staged',
+    JSON.stringify(st.staged)
+  );
   assert(st.conflicts.length === 0, 'sin conflictos');
 
   const clean = await gm.status(repoDir);
@@ -106,11 +121,23 @@ async function testDiff() {
   console.log(C.bold('\n── Test 3: git_diff incluye patch y stat ─────────────────────────'));
   const gm = new GitManager();
   const unstaged = await gm.diff(repoDir, { file: 'a.txt' });
-  assert(unstaged.patch.includes('+cambio'), 'patch del unstaged contiene el cambio', unstaged.patch.slice(0, 200));
-  assert(Array.isArray(unstaged.summary) && unstaged.summary.length >= 1, 'summary con stat', JSON.stringify(unstaged.summary));
+  assert(
+    unstaged.patch.includes('+cambio'),
+    'patch del unstaged contiene el cambio',
+    unstaged.patch.slice(0, 200)
+  );
+  assert(
+    Array.isArray(unstaged.summary) && unstaged.summary.length >= 1,
+    'summary con stat',
+    JSON.stringify(unstaged.summary)
+  );
 
   const staged = await gm.diff(repoDir, { staged: true });
-  assert(staged.patch.includes('+staged'), 'patch del staged contiene +staged', staged.patch.slice(0, 200));
+  assert(
+    staged.patch.includes('+staged'),
+    'patch del staged contiene +staged',
+    staged.patch.slice(0, 200)
+  );
 }
 
 // ── Test 4: log ───────────────────────────────────────────────────────────────
@@ -132,7 +159,10 @@ async function testBranch() {
   const gm = new GitManager();
   const b = await gm.branch(repoDir);
   assert(b.current === 'main', 'current = main');
-  assert(b.branches.some(x => x.name === 'main' && x.current), 'main marcada current');
+  assert(
+    b.branches.some((x) => x.name === 'main' && x.current),
+    'main marcada current'
+  );
 }
 
 // ── Test 6: commit ────────────────────────────────────────────────────────────
@@ -146,7 +176,11 @@ async function testCommit() {
   assert(res.hash && /^[0-9a-f]{7,}$/.test(res.hash), 'hash devuelto', res.hash);
 
   let threw = false;
-  try { await gm.commit(repoDir, {}); } catch (e) { threw = /mensaje/.test(e.message); }
+  try {
+    await gm.commit(repoDir, {});
+  } catch (e) {
+    threw = /mensaje/.test(e.message);
+  }
   assert(threw, 'commit sin message es rechazado');
 }
 
@@ -158,16 +192,23 @@ async function testStash() {
   writeFile(repoDir, 'e.txt', 'e\n');
   git(repoDir, ['add', 'e.txt']);
   git(repoDir, ['commit', '-m', 'add e']);
-  writeFile(repoDir, 'e.txt', 'e\nmodificado\n');   // cambio trackeado
+  writeFile(repoDir, 'e.txt', 'e\nmodificado\n'); // cambio trackeado
   const pushed = await gm.stash(repoDir, { action: 'push', message: 'wip e' });
   assert(pushed.ok === true, 'stash push ok');
   const st = await gm.status(repoDir);
-  assert(!st.unstaged.some(u => u.path === 'e.txt') && !st.staged.some(s => s.path === 'e.txt'), 'e.txt ya no aparece como modificado', JSON.stringify({ unstaged: st.unstaged, staged: st.staged }));
+  assert(
+    !st.unstaged.some((u) => u.path === 'e.txt') && !st.staged.some((s) => s.path === 'e.txt'),
+    'e.txt ya no aparece como modificado',
+    JSON.stringify({ unstaged: st.unstaged, staged: st.staged })
+  );
   const list = await gm.stash(repoDir, { action: 'list' });
   assert(list.stashes.length >= 1, 'hay stash listado', JSON.stringify(list.stashes));
   const popped = await gm.stash(repoDir, { action: 'pop' });
   assert(popped.ok === true, 'stash pop ok');
-  assert(fs.readFileSync(path.join(repoDir, 'e.txt'), 'utf-8').includes('modificado'), 'cambio restaurado tras pop');
+  assert(
+    fs.readFileSync(path.join(repoDir, 'e.txt'), 'utf-8').includes('modificado'),
+    'cambio restaurado tras pop'
+  );
 }
 
 // ── Test 8: merge con conflicto detectado ─────────────────────────────────────
@@ -191,7 +232,11 @@ async function testMergeConflict() {
 
   const res = await gm.merge(repoDir, { branch: 'feature' });
   assert(res.conflict === true, 'merge reporta conflicto', JSON.stringify(res).slice(0, 300));
-  assert(res.conflictedFiles.includes('conflict.txt'), 'archivo en conflicto detectado', JSON.stringify(res.conflictedFiles));
+  assert(
+    res.conflictedFiles.includes('conflict.txt'),
+    'archivo en conflicto detectado',
+    JSON.stringify(res.conflictedFiles)
+  );
   assert(res.hint && res.hint.length > 0, 'incluye hint de resolución');
 
   // el repo queda con UU → status lo ve
@@ -209,10 +254,18 @@ async function testParamValidation() {
   console.log(C.bold('\n── Test 9: parámetros inválidos rechazados ──────────────────────'));
   const gm = new GitManager();
   let threw = false;
-  try { await gm.merge(repoDir, { branch: '--abort' }); } catch (e) { threw = /rama/.test(e.message); }
+  try {
+    await gm.merge(repoDir, { branch: '--abort' });
+  } catch (e) {
+    threw = /rama/.test(e.message);
+  }
   assert(threw, 'merge branch "--abort" rechazado');
   threw = false;
-  try { await gm.merge(repoDir, { branch: 'feat; rm -rf /' }); } catch (e) { threw = /rama/.test(e.message); }
+  try {
+    await gm.merge(repoDir, { branch: 'feat; rm -rf /' });
+  } catch (e) {
+    threw = /rama/.test(e.message);
+  }
   assert(threw, 'merge branch con shell metachar rechazado');
 }
 
@@ -241,10 +294,18 @@ async function testPush() {
   assert(res2.pushed === true, 'push sin branch explícita (usa upstream)');
 
   let threw = false;
-  try { await gm.push(repoDir, { branch: '--abort' }); } catch (e) { threw = /rama/.test(e.message); }
+  try {
+    await gm.push(repoDir, { branch: '--abort' });
+  } catch (e) {
+    threw = /rama/.test(e.message);
+  }
   assert(threw, 'branch inválida rechazada');
   threw = false;
-  try { await gm.push(repoDir, { remote: '--mirror' }); } catch (e) { threw = /remote/.test(e.message); }
+  try {
+    await gm.push(repoDir, { remote: '--mirror' });
+  } catch (e) {
+    threw = /remote/.test(e.message);
+  }
   assert(threw, 'remote inválido rechazado');
 }
 
@@ -274,7 +335,9 @@ async function main() {
   console.log(C.bold('\n════════════════════════════════════════════════════════'));
   const total = passed + failed;
   console.log(
-    C.bold(`  Resultado: ${C.green(passed + ' passed')}  ${failed > 0 ? C.red(failed + ' failed') : C.dim('0 failed')}  / ${total} total`)
+    C.bold(
+      `  Resultado: ${C.green(passed + ' passed')}  ${failed > 0 ? C.red(failed + ' failed') : C.dim('0 failed')}  / ${total} total`
+    )
   );
   console.log(C.bold('════════════════════════════════════════════════════════\n'));
 
@@ -284,6 +347,8 @@ async function main() {
 main().catch((e) => {
   console.error(C.red('\nERROR FATAL:'), e.message);
   console.error(e.stack);
-  try { teardown(); } catch {}
+  try {
+    teardown();
+  } catch {}
   process.exit(1);
 });

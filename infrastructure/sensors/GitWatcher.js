@@ -25,42 +25,52 @@
 'use strict';
 
 const { execFile } = require('child_process');
-const path         = require('path');
-const fs           = require('fs');
+const path = require('path');
+const fs = require('fs');
 
 const { getEventBus } = require('../../infrastructure/event-bus/EventBus.js');
 
-const DEFAULT_POLL_MS    = 5 * 60 * 1000;
+const DEFAULT_POLL_MS = 5 * 60 * 1000;
 const UNCOMMITTED_THRESHOLD = 12; // archivos modificados a partir de los cuales es "demasiados"
 
 function _defaultExec(args, opts, cb) {
-  execFile('git', args, { cwd: opts.cwd, timeout: opts.timeout || 10000, maxBuffer: opts.maxBuffer || 2 * 1024 * 1024 }, (err, stdout) => {
-    // err.code numérico = el comando corrió y devolvió exit != 0 (normal para
-    // check-ignore, rev-list sin upstream, etc.). Sin err o err.code no
-    // numérico (ENOENT/signal) = fallo fatal del proceso git en sí.
-    if (err && typeof err.code !== 'number') return cb(err);
-    cb(null, { code: err ? err.code : 0, stdout: stdout || '' });
-  });
+  execFile(
+    'git',
+    args,
+    { cwd: opts.cwd, timeout: opts.timeout || 10000, maxBuffer: opts.maxBuffer || 2 * 1024 * 1024 },
+    (err, stdout) => {
+      // err.code numérico = el comando corrió y devolvió exit != 0 (normal para
+      // check-ignore, rev-list sin upstream, etc.). Sin err o err.code no
+      // numérico (ENOENT/signal) = fallo fatal del proceso git en sí.
+      if (err && typeof err.code !== 'number') return cb(err);
+      cb(null, { code: err ? err.code : 0, stdout: stdout || '' });
+    }
+  );
 }
 
 class GitWatcher {
-  constructor({ workspace = null, pollMs = DEFAULT_POLL_MS, bus = getEventBus(), exec = _defaultExec } = {}) {
-    this._bus       = bus;
+  constructor({
+    workspace = null,
+    pollMs = DEFAULT_POLL_MS,
+    bus = getEventBus(),
+    exec = _defaultExec,
+  } = {}) {
+    this._bus = bus;
     this._workspace = workspace;
-    this._pollMs    = pollMs;
-    this._exec      = exec;
-    this._timer     = null;
-    this._running   = false;
-    this._polling   = false;
-    this._branch    = null;
-    this._flags     = {};
+    this._pollMs = pollMs;
+    this._exec = exec;
+    this._timer = null;
+    this._running = false;
+    this._polling = false;
+    this._branch = null;
+    this._flags = {};
     this._lastError = null;
   }
 
   setWorkspace(ws) {
     this._workspace = ws;
-    this._branch    = null;
-    this._flags     = {};
+    this._branch = null;
+    this._flags = {};
   }
 
   start() {
@@ -71,7 +81,10 @@ class GitWatcher {
   }
 
   stop() {
-    if (this._timer) { clearInterval(this._timer); this._timer = null; }
+    if (this._timer) {
+      clearInterval(this._timer);
+      this._timer = null;
+    }
     this._running = false;
   }
 
@@ -80,7 +93,7 @@ class GitWatcher {
     this._polling = true;
     try {
       await this._scan();
-    } catch(e) {
+    } catch (e) {
       this._lastError = e.message;
       if (process.env.DEBUG) console.warn('[git-watcher]', e.message);
     } finally {
@@ -109,8 +122,11 @@ class GitWatcher {
       const ignored = (await this._git(['check-ignore', '.env'])).code === 0;
       this._setFlag('env_unignored', !tracked && !ignored, () => {
         this._bus.emit('git:redflag', {
-          kind: 'env_unignored', file: '.env', branch,
-          message: 'El archivo .env existe en el proyecto y no está en .gitignore — riesgo de filtrar secretos si se commitea.',
+          kind: 'env_unignored',
+          file: '.env',
+          branch,
+          message:
+            'El archivo .env existe en el proyecto y no está en .gitignore — riesgo de filtrar secretos si se commitea.',
         });
       });
     } else {
@@ -122,7 +138,9 @@ class GitWatcher {
     const conflictCount = conflicted.trim() ? conflicted.trim().split('\n').length : 0;
     this._setFlag('merge_conflict', conflictCount > 0, () => {
       this._bus.emit('git:redflag', {
-        kind: 'merge_conflict', count: conflictCount, branch,
+        kind: 'merge_conflict',
+        count: conflictCount,
+        branch,
         message: `Hay ${conflictCount} archivo(s) con conflicto de merge sin resolver.`,
       });
     });
@@ -132,7 +150,9 @@ class GitWatcher {
     const dirty = porcelain.trim() ? porcelain.trim().split('\n').length : 0;
     this._setFlag('uncommitted', dirty >= UNCOMMITTED_THRESHOLD, () => {
       this._bus.emit('git:redflag', {
-        kind: 'uncommitted', count: dirty, branch,
+        kind: 'uncommitted',
+        count: dirty,
+        branch,
         message: `Hay ${dirty} archivos modificados sin commitear.`,
       });
     });
@@ -143,7 +163,9 @@ class GitWatcher {
       const count = parseInt(unpushed.stdout.trim(), 10) || 0;
       this._setFlag('unpushed', count > 0, () => {
         this._bus.emit('git:redflag', {
-          kind: 'unpushed_commits', count, branch,
+          kind: 'unpushed_commits',
+          count,
+          branch,
           message: `Hay ${count} commit(s) locales sin subir a la rama remota.`,
         });
       });
@@ -167,10 +189,10 @@ class GitWatcher {
 
   getStats() {
     return {
-      running:   this._running,
+      running: this._running,
       workspace: this._workspace,
-      branch:    this._branch,
-      flags:     this._flags,
+      branch: this._branch,
+      flags: this._flags,
       lastError: this._lastError,
     };
   }

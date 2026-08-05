@@ -7,12 +7,12 @@ const fs = require('fs');
 const crypto = require('crypto');
 
 const C = {
-  green:  (s) => `\x1b[32m${s}\x1b[0m`,
-  red:    (s) => `\x1b[31m${s}\x1b[0m`,
+  green: (s) => `\x1b[32m${s}\x1b[0m`,
+  red: (s) => `\x1b[31m${s}\x1b[0m`,
   yellow: (s) => `\x1b[33m${s}\x1b[0m`,
-  cyan:   (s) => `\x1b[36m${s}\x1b[0m`,
-  bold:   (s) => `\x1b[1m${s}\x1b[0m`,
-  dim:    (s) => `\x1b[2m${s}\x1b[0m`,
+  cyan: (s) => `\x1b[36m${s}\x1b[0m`,
+  bold: (s) => `\x1b[1m${s}\x1b[0m`,
+  dim: (s) => `\x1b[2m${s}\x1b[0m`,
 };
 
 let passed = 0;
@@ -49,7 +49,9 @@ function postJSON(url, body, apiKey = null, timeoutMs = 5000) {
 
     const req = http.request(options, (res) => {
       let data = '';
-      res.on('data', (chunk) => { data += chunk; });
+      res.on('data', (chunk) => {
+        data += chunk;
+      });
       res.on('end', () => {
         try {
           resolve({ status: res.statusCode, body: JSON.parse(data) });
@@ -59,7 +61,10 @@ function postJSON(url, body, apiKey = null, timeoutMs = 5000) {
       });
     });
 
-    req.setTimeout(timeoutMs, () => { req.destroy(); reject(new Error('timeout')); });
+    req.setTimeout(timeoutMs, () => {
+      req.destroy();
+      reject(new Error('timeout'));
+    });
     req.on('error', reject);
     req.write(payload);
     req.end();
@@ -77,13 +82,21 @@ function getJSON(url, timeoutMs = 5000) {
     };
     const req = http.request(options, (res) => {
       let data = '';
-      res.on('data', (c) => { data += c; });
+      res.on('data', (c) => {
+        data += c;
+      });
       res.on('end', () => {
-        try { resolve({ status: res.statusCode, body: JSON.parse(data) }); }
-        catch { resolve({ status: res.statusCode, body: { raw: data } }); }
+        try {
+          resolve({ status: res.statusCode, body: JSON.parse(data) });
+        } catch {
+          resolve({ status: res.statusCode, body: { raw: data } });
+        }
       });
     });
-    req.setTimeout(timeoutMs, () => { req.destroy(); reject(new Error('timeout')); });
+    req.setTimeout(timeoutMs, () => {
+      req.destroy();
+      reject(new Error('timeout'));
+    });
     req.on('error', reject);
     req.end();
   });
@@ -94,9 +107,16 @@ function getJSON(url, timeoutMs = 5000) {
 async function testAuthNoKey() {
   console.log(C.bold('\n── Test 1: Sin API key → 401 ──────────────────────────────────'));
 
-  const res = await postJSON('http://127.0.0.1:18789/v1/tool', { tool: 'read', input: { path: 'package.json' } }, null);
+  const res = await postJSON(
+    'http://127.0.0.1:18789/v1/tool',
+    { tool: 'read', input: { path: 'package.json' } },
+    null
+  );
   assert(res.status === 401, `HTTP 401 — ${res.status}`);
-  assert(res.body && res.body.error && res.body.error.includes('unauthorized'), `Mensaje de error de autenticación`);
+  assert(
+    res.body && res.body.error && res.body.error.includes('unauthorized'),
+    `Mensaje de error de autenticación`
+  );
 }
 
 // ── Test 2: API key correcta → 200 (path válido) ───────────────────────────
@@ -104,7 +124,11 @@ async function testAuthNoKey() {
 async function testAuthValidKey(apiKey) {
   console.log(C.bold('\n── Test 2: API key correcta → 200 ─────────────────────────────'));
 
-  const res = await postJSON('http://127.0.0.1:18789/v1/tool', { tool: 'read', input: { path: 'package.json' } }, apiKey);
+  const res = await postJSON(
+    'http://127.0.0.1:18789/v1/tool',
+    { tool: 'read', input: { path: 'package.json' } },
+    apiKey
+  );
   assert(res.status === 200, `HTTP 200 — ${res.status}`);
   assert(res.body && res.body.result, 'Respuesta tiene result');
 }
@@ -114,7 +138,11 @@ async function testAuthValidKey(apiKey) {
 async function testAuthInvalidKey() {
   console.log(C.bold('\n── Test 3: API key inválida → 401 ─────────────────────────────'));
 
-  const res = await postJSON('http://127.0.0.1:18789/v1/tool', { tool: 'read', input: { path: 'package.json' } }, 'wrong-key-12345');
+  const res = await postJSON(
+    'http://127.0.0.1:18789/v1/tool',
+    { tool: 'read', input: { path: 'package.json' } },
+    'wrong-key-12345'
+  );
   assert(res.status === 401, `HTTP 401 — ${res.status}`);
 }
 
@@ -134,21 +162,43 @@ async function testPathOutsideAllowed(apiKey) {
   console.log(C.bold('\n── Test 5: Path fuera del directorio permitido → bloqueado ────'));
 
   // Intentar leer /etc/passwd
-  const res1 = await postJSON('http://127.0.0.1:18789/v1/tool', { tool: 'read', input: { path: '/etc/passwd' } }, apiKey);
+  const res1 = await postJSON(
+    'http://127.0.0.1:18789/v1/tool',
+    { tool: 'read', input: { path: '/etc/passwd' } },
+    apiKey
+  );
   assert(res1.status === 400, `read /etc/passwd → 400 (${res1.status})`);
-  assert(res1.body.error && res1.body.error.includes('outside allowed'), `read /etc/passwd bloqueado: "${res1.body.error}"`);
+  assert(
+    res1.body.error && res1.body.error.includes('outside allowed'),
+    `read /etc/passwd bloqueado: "${res1.body.error}"`
+  );
 
   // Intentar escribir fuera
-  const res2 = await postJSON('http://127.0.0.1:18789/v1/tool', { tool: 'write', input: { path: '/tmp/evil.txt', content: 'pwned' } }, apiKey);
+  const res2 = await postJSON(
+    'http://127.0.0.1:18789/v1/tool',
+    { tool: 'write', input: { path: '/tmp/evil.txt', content: 'pwned' } },
+    apiKey
+  );
   assert(res2.status === 400, `write /tmp/evil.txt → 400 (${res2.status})`);
-  assert(res2.body.error && res2.body.error.includes('outside allowed'), `write /tmp/evil.txt bloqueado`);
+  assert(
+    res2.body.error && res2.body.error.includes('outside allowed'),
+    `write /tmp/evil.txt bloqueado`
+  );
 
   // Intentar editar fuera
-  const res3 = await postJSON('http://127.0.0.1:18789/v1/tool', { tool: 'edit', input: { path: '/etc/hosts', old_text: '127.0.0.1', new_text: '0.0.0.0' } }, apiKey);
+  const res3 = await postJSON(
+    'http://127.0.0.1:18789/v1/tool',
+    { tool: 'edit', input: { path: '/etc/hosts', old_text: '127.0.0.1', new_text: '0.0.0.0' } },
+    apiKey
+  );
   assert(res3.status === 400, `edit /etc/hosts → 400 (${res3.status})`);
 
   // Intentar path traversal
-  const res4 = await postJSON('http://127.0.0.1:18789/v1/tool', { tool: 'read', input: { path: '../../../etc/passwd' } }, apiKey);
+  const res4 = await postJSON(
+    'http://127.0.0.1:18789/v1/tool',
+    { tool: 'read', input: { path: '../../../etc/passwd' } },
+    apiKey
+  );
   assert(res4.status === 400, `path traversal → 400 (${res4.status})`);
 }
 
@@ -157,13 +207,21 @@ async function testPathOutsideAllowed(apiKey) {
 async function testPathInsideAllowed(apiKey) {
   console.log(C.bold('\n── Test 6: Path dentro del directorio permitido → funciona ────'));
 
-  const res = await postJSON('http://127.0.0.1:18789/v1/tool', { tool: 'read', input: { path: 'package.json' } }, apiKey);
+  const res = await postJSON(
+    'http://127.0.0.1:18789/v1/tool',
+    { tool: 'read', input: { path: 'package.json' } },
+    apiKey
+  );
   assert(res.status === 200, `read package.json → 200 (${res.status})`);
   assert(res.body && res.body.result, 'Devuelve contenido');
 
   // write dentro
   const testFile = 'tests/_test_f2_write.txt';
-  const res2 = await postJSON('http://127.0.0.1:18789/v1/tool', { tool: 'write', input: { path: testFile, content: 'Fase 2 test' } }, apiKey);
+  const res2 = await postJSON(
+    'http://127.0.0.1:18789/v1/tool',
+    { tool: 'write', input: { path: testFile, content: 'Fase 2 test' } },
+    apiKey
+  );
   assert(res2.status === 200, `write ${testFile} → 200 (${res2.status})`);
   assert(fs.existsSync(path.resolve(testFile)), 'Archivo creado en disco');
   fs.unlinkSync(path.resolve(testFile));
@@ -182,7 +240,11 @@ async function testImmutablePaths(apiKey) {
   ];
 
   for (const t of tests) {
-    const res = await postJSON('http://127.0.0.1:18789/v1/tool', { tool: 'read', input: { path: t.path } }, apiKey);
+    const res = await postJSON(
+      'http://127.0.0.1:18789/v1/tool',
+      { tool: 'read', input: { path: t.path } },
+      apiKey
+    );
     assert(res.status === 400, `read ${t.desc} bloqueado (${res.status})`);
   }
 }
@@ -201,7 +263,11 @@ async function testBlockedCommands(apiKey) {
   ];
 
   for (const cmd of blocked) {
-    const res = await postJSON('http://127.0.0.1:18789/v1/tool', { tool: 'exec', input: { command: cmd } }, apiKey);
+    const res = await postJSON(
+      'http://127.0.0.1:18789/v1/tool',
+      { tool: 'exec', input: { command: cmd } },
+      apiKey
+    );
     assert(res.status === 400, `"${cmd.slice(0, 30)}..." bloqueado (${res.status})`);
     assert(res.body.error && res.body.error.includes('blocked'), `Mensaje: "${res.body.error}"`);
   }
@@ -212,9 +278,16 @@ async function testBlockedCommands(apiKey) {
 async function testSafeCommands(apiKey) {
   console.log(C.bold('\n── Test 9: Comandos seguros → ejecutables ───────────────────────'));
 
-  const res = await postJSON('http://127.0.0.1:18789/v1/tool', { tool: 'exec', input: { command: 'echo hello', timeout: 5 } }, apiKey);
+  const res = await postJSON(
+    'http://127.0.0.1:18789/v1/tool',
+    { tool: 'exec', input: { command: 'echo hello', timeout: 5 } },
+    apiKey
+  );
   assert(res.status === 200, `echo hello → 200 (${res.status})`);
-  assert(res.body && res.body.result && res.body.result.stdout.trim() === 'hello', 'stdout es "hello"');
+  assert(
+    res.body && res.body.result && res.body.result.stdout.trim() === 'hello',
+    'stdout es "hello"'
+  );
 }
 
 // ── Test 10: exec sin shell:true = argumentos separados ──────────────────────
@@ -223,7 +296,11 @@ async function testExecNoShell(apiKey) {
   console.log(C.bold('\n── Test 10: exec sin shell: true ───────────────────────────────'));
 
   // ls con argumento complejo
-  const res = await postJSON('http://127.0.0.1:18789/v1/tool', { tool: 'exec', input: { command: 'ls -la', timeout: 5 } }, apiKey);
+  const res = await postJSON(
+    'http://127.0.0.1:18789/v1/tool',
+    { tool: 'exec', input: { command: 'ls -la', timeout: 5 } },
+    apiKey
+  );
   assert(res.status === 200, `ls -la → 200 (${res.status})`);
   assert(res.body.result.stdout.length > 0, 'ls -la produce salida');
 }
@@ -279,7 +356,9 @@ async function main() {
   console.log(C.bold('\n════════════════════════════════════════════════════════'));
   const total = passed + failed;
   console.log(
-    C.bold(`  Resultado: ${C.green(passed + ' passed')}  ${failed > 0 ? C.red(failed + ' failed') : C.dim('0 failed')}  / ${total} total`)
+    C.bold(
+      `  Resultado: ${C.green(passed + ' passed')}  ${failed > 0 ? C.red(failed + ' failed') : C.dim('0 failed')}  / ${total} total`
+    )
   );
   console.log(C.bold('════════════════════════════════════════════════════════\n'));
 

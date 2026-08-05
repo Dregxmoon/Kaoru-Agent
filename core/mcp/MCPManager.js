@@ -48,19 +48,22 @@ const REGISTRY_TIMEOUT_MS = 8 * 1000;
 // exponencial + jitter, hasta un tope — después de eso queda en 'error'
 // visible en el panel, esperando que el usuario reconecte a mano.
 const MAX_RECONNECT_ATTEMPTS = 5;
-const RECONNECT_BASE_MS      = 1000;
+const RECONNECT_BASE_MS = 1000;
 
 // Sleep cancelable: disconnect() despierta el await con un evento, para que
 // el timer de reconexión no mantenga vivo el event loop al cerrar la app.
 function _cancellableSleep(ms, onCancel) {
-  return new Promise(resolve => {
+  return new Promise((resolve) => {
     const timer = setTimeout(resolve, ms);
-    onCancel(() => { clearTimeout(timer); resolve(); });
+    onCancel(() => {
+      clearTimeout(timer);
+      resolve();
+    });
   });
 }
 
 function _reconnectBackoff(attempt) {
-  const base   = RECONNECT_BASE_MS * Math.pow(2, attempt); // 1s, 2s, 4s, 8s, 16s...
+  const base = RECONNECT_BASE_MS * Math.pow(2, attempt); // 1s, 2s, 4s, 8s, 16s...
   const jitter = base * (0.7 + Math.random() * 0.6);
   return Math.round(jitter);
 }
@@ -73,24 +76,38 @@ function _reconnectBackoff(attempt) {
 const FALLBACK_CATALOG = [
   {
     name: 'filesystem',
-    description: 'Leer/escribir/listar archivos en carpetas específicas del sistema — más allá del proyecto (necesita indicarle la carpeta permitida como argumento).',
-    registryType: 'npm', identifier: '@modelcontextprotocol/server-filesystem',
-    args: ['<ruta-permitida>'], requiredEnv: [],
+    description:
+      'Leer/escribir/listar archivos en carpetas específicas del sistema — más allá del proyecto (necesita indicarle la carpeta permitida como argumento).',
+    registryType: 'npm',
+    identifier: '@modelcontextprotocol/server-filesystem',
+    args: ['<ruta-permitida>'],
+    requiredEnv: [],
   },
   {
     name: 'memory',
-    description: 'Memoria de grafo de conocimiento persistente entre sesiones (servidor de referencia oficial de Anthropic).',
-    registryType: 'npm', identifier: '@modelcontextprotocol/server-memory', args: [], requiredEnv: [],
+    description:
+      'Memoria de grafo de conocimiento persistente entre sesiones (servidor de referencia oficial de Anthropic).',
+    registryType: 'npm',
+    identifier: '@modelcontextprotocol/server-memory',
+    args: [],
+    requiredEnv: [],
   },
   {
     name: 'sequential-thinking',
     description: 'Herramienta de razonamiento paso a paso estructurado para problemas complejos.',
-    registryType: 'npm', identifier: '@modelcontextprotocol/server-sequential-thinking', args: [], requiredEnv: [],
+    registryType: 'npm',
+    identifier: '@modelcontextprotocol/server-sequential-thinking',
+    args: [],
+    requiredEnv: [],
   },
   {
     name: 'everything',
-    description: 'Servidor de referencia/pruebas con herramientas de ejemplo — útil para probar que la integración MCP en sí funciona, no para uso diario.',
-    registryType: 'npm', identifier: '@modelcontextprotocol/server-everything', args: [], requiredEnv: [],
+    description:
+      'Servidor de referencia/pruebas con herramientas de ejemplo — útil para probar que la integración MCP en sí funciona, no para uso diario.',
+    registryType: 'npm',
+    identifier: '@modelcontextprotocol/server-everything',
+    args: [],
+    requiredEnv: [],
   },
 ];
 
@@ -98,35 +115,38 @@ const FALLBACK_CATALOG = [
 
 class MCPServerConnection {
   constructor(config) {
-    this.id        = config.id;
-    this.name      = config.name;
-    this.config    = config; // { command, args, env }
-    this.client    = null;
+    this.id = config.id;
+    this.name = config.name;
+    this.config = config; // { command, args, env }
+    this.client = null;
     this.transport = null;
-    this.status    = 'disconnected'; // disconnected | connecting | connected | reconnecting | error
-    this.error     = null;
-    this.tools     = []; // [{ name, description, inputSchema }]
+    this.status = 'disconnected'; // disconnected | connecting | connected | reconnecting | error
+    this.error = null;
+    this.tools = []; // [{ name, description, inputSchema }]
     this._cancelReconnect = null;
 
-    this._intentionalDisconnect  = false; // true si disconnect() lo pidió el usuario
-    this._reconnectAttempts      = 0;
-    this._reconnectInProgress    = false;
-    this._onStatusChange         = null;  // callback del Manager, para _notify()
+    this._intentionalDisconnect = false; // true si disconnect() lo pidió el usuario
+    this._reconnectAttempts = 0;
+    this._reconnectInProgress = false;
+    this._onStatusChange = null; // callback del Manager, para _notify()
   }
 
   async connect() {
     if (this.status === 'connected' || this.status === 'connecting') return;
     this.status = 'connecting';
-    this.error  = null;
+    this.error = null;
     this._intentionalDisconnect = false;
 
     try {
       this.transport = new StdioClientTransport({
         command: this.config.command,
-        args:    this.config.args || [],
-        env:     { ...process.env, ...(this.config.env || {}) },
+        args: this.config.args || [],
+        env: { ...process.env, ...(this.config.env || {}) },
       });
-      this.client = new Client({ name: 'asistente-personal', version: '1.0.0' }, { capabilities: {} });
+      this.client = new Client(
+        { name: 'asistente-personal', version: '1.0.0' },
+        { capabilities: {} }
+      );
 
       // Auto-reconnect: el SDK avisa acá cuando el transporte se cierra por
       // CUALQUIER razón — incluyendo que nosotros mismos llamemos
@@ -140,20 +160,34 @@ class MCPServerConnection {
       await Promise.race([
         this.client.connect(this.transport),
         new Promise((_, reject) =>
-          setTimeout(() => reject(new Error(`timeout de conexión (${CONNECT_TIMEOUT_MS / 1000}s) — si es la primera vez, npx puede estar descargando el paquete`)), CONNECT_TIMEOUT_MS)
+          setTimeout(
+            () =>
+              reject(
+                new Error(
+                  `timeout de conexión (${CONNECT_TIMEOUT_MS / 1000}s) — si es la primera vez, npx puede estar descargando el paquete`
+                )
+              ),
+            CONNECT_TIMEOUT_MS
+          )
         ),
       ]);
 
       const listed = await this.client.listTools();
-      this.tools  = listed.tools || [];
+      this.tools = listed.tools || [];
       this.status = 'connected';
       this._reconnectAttempts = 0; // conexión sana — resetea el presupuesto de reintentos
-      console.log(`[mcp] conectado: "${this.name}" (${this.tools.length} tools: ${this.tools.map(t => t.name).join(', ')})`);
+      console.log(
+        `[mcp] conectado: "${this.name}" (${this.tools.length} tools: ${this.tools.map((t) => t.name).join(', ')})`
+      );
     } catch (e) {
       this.status = 'error';
-      this.error  = e.message;
+      this.error = e.message;
       console.warn(`[mcp] error conectando a "${this.name}":`, e.message);
-      try { await this.transport?.close(); } catch (_) { /* best-effort */ }
+      try {
+        await this.transport?.close();
+      } catch (_) {
+        /* best-effort */
+      }
       this.client = null;
     }
     this._onStatusChange?.();
@@ -177,7 +211,7 @@ class MCPServerConnection {
 
     if (this._reconnectAttempts >= MAX_RECONNECT_ATTEMPTS) {
       this.status = 'error';
-      this.error  = `Se perdió la conexión y no se pudo recuperar tras ${MAX_RECONNECT_ATTEMPTS} intentos. Reconecta manualmente desde el panel.`;
+      this.error = `Se perdió la conexión y no se pudo recuperar tras ${MAX_RECONNECT_ATTEMPTS} intentos. Reconecta manualmente desde el panel.`;
       console.warn(`[mcp] "${this.name}" agotó los intentos de reconexión`);
       this._reconnectInProgress = false;
       this._onStatusChange?.();
@@ -189,11 +223,18 @@ class MCPServerConnection {
     this._onStatusChange?.();
 
     const waitMs = _reconnectBackoff(this._reconnectAttempts - 1);
-    console.log(`[mcp] "${this.name}" — reintentando en ${waitMs}ms (intento ${this._reconnectAttempts}/${MAX_RECONNECT_ATTEMPTS})`);
-    await _cancellableSleep(waitMs, cb => { this._cancelReconnect = cb; });
+    console.log(
+      `[mcp] "${this.name}" — reintentando en ${waitMs}ms (intento ${this._reconnectAttempts}/${MAX_RECONNECT_ATTEMPTS})`
+    );
+    await _cancellableSleep(waitMs, (cb) => {
+      this._cancelReconnect = cb;
+    });
     this._cancelReconnect = null;
 
-    if (this._intentionalDisconnect) { this._reconnectInProgress = false; return; }
+    if (this._intentionalDisconnect) {
+      this._reconnectInProgress = false;
+      return;
+    }
     this.status = 'disconnected'; // deja que connect() haga su cosa normal
     await this.connect();
 
@@ -206,16 +247,23 @@ class MCPServerConnection {
   }
 
   async disconnect() {
-    this._intentionalDisconnect  = true;
-    this._reconnectInProgress    = false;
-    if (this._cancelReconnect) { this._cancelReconnect(); this._cancelReconnect = null; }
-    if (this.client) {
-      try { await this.client.close(); } catch (_) { /* best-effort */ }
+    this._intentionalDisconnect = true;
+    this._reconnectInProgress = false;
+    if (this._cancelReconnect) {
+      this._cancelReconnect();
+      this._cancelReconnect = null;
     }
-    this.client    = null;
+    if (this.client) {
+      try {
+        await this.client.close();
+      } catch (_) {
+        /* best-effort */
+      }
+    }
+    this.client = null;
     this.transport = null;
-    this.status    = 'disconnected';
-    this.tools     = [];
+    this.status = 'disconnected';
+    this.tools = [];
   }
 
   async callTool(toolName, args) {
@@ -231,19 +279,25 @@ class MCPServerConnection {
 class MCPManager {
   constructor() {
     this._connections = new Map(); // id -> MCPServerConnection
-    this._onChange     = null;      // callback opcional, para avisar a la UI en vivo
+    this._onChange = null; // callback opcional, para avisar a la UI en vivo
   }
 
-  setOnChange(cb) { this._onChange = cb; }
+  setOnChange(cb) {
+    this._onChange = cb;
+  }
 
   _notify() {
     if (!this._onChange) return;
-    try { this._onChange(this.listServers()); } catch (_) { /* best-effort */ }
+    try {
+      this._onChange(this.listServers());
+    } catch (_) {
+      /* best-effort */
+    }
   }
 
   /** Conecta todos los servidores marcados enabled:true de la config guardada. */
   async init(serverConfigs = []) {
-    const enabled = serverConfigs.filter(s => s.enabled !== false);
+    const enabled = serverConfigs.filter((s) => s.enabled !== false);
     if (!enabled.length) {
       console.log('[mcp] sin servidores configurados — el asistente sigue igual que siempre');
       return;
@@ -269,7 +323,7 @@ class MCPManager {
   }
 
   async addServer(cfg) {
-    const id   = cfg.id || crypto.randomUUID();
+    const id = cfg.id || crypto.randomUUID();
     const full = { ...cfg, id, enabled: cfg.enabled !== false };
     await this._connectOne(full);
     return this.getServerStatus(id);
@@ -277,7 +331,10 @@ class MCPManager {
 
   async removeServer(id) {
     const conn = this._connections.get(id);
-    if (conn) { await conn.disconnect(); this._connections.delete(id); }
+    if (conn) {
+      await conn.disconnect();
+      this._connections.delete(id);
+    }
     this._notify();
   }
 
@@ -292,14 +349,17 @@ class MCPManager {
   }
 
   async disconnectAll() {
-    await Promise.all([...this._connections.values()].map(c => c.disconnect()));
+    await Promise.all([...this._connections.values()].map((c) => c.disconnect()));
   }
 
   listServers() {
-    return [...this._connections.values()].map(c => ({
-      id: c.id, name: c.name, status: c.status, error: c.error,
+    return [...this._connections.values()].map((c) => ({
+      id: c.id,
+      name: c.name,
+      status: c.status,
+      error: c.error,
       toolCount: c.tools.length,
-      tools: c.tools.map(t => ({ name: t.name, description: t.description || '' })),
+      tools: c.tools.map((t) => ({ name: t.name, description: t.description || '' })),
     }));
   }
 
@@ -307,9 +367,12 @@ class MCPManager {
     const c = this._connections.get(id);
     if (!c) return null;
     return {
-      id: c.id, name: c.name, status: c.status, error: c.error,
+      id: c.id,
+      name: c.name,
+      status: c.status,
+      error: c.error,
       toolCount: c.tools.length,
-      tools: c.tools.map(t => ({ name: t.name, description: t.description || '' })),
+      tools: c.tools.map((t) => ({ name: t.name, description: t.description || '' })),
     };
   }
 
@@ -320,9 +383,9 @@ class MCPManager {
       if (conn.status !== 'connected') continue;
       for (const t of conn.tools) {
         out.push({
-          server:      conn.name,
-          serverId:    conn.id,
-          tool:        t.name,
+          server: conn.name,
+          serverId: conn.id,
+          tool: t.name,
           description: t.description || '',
           inputSchema: t.inputSchema,
         });
@@ -332,13 +395,14 @@ class MCPManager {
   }
 
   hasConnectedServers() {
-    return [...this._connections.values()].some(c => c.status === 'connected');
+    return [...this._connections.values()].some((c) => c.status === 'connected');
   }
 
   /** serverRef puede ser el id o el name del servidor — acepta ambos por conveniencia. */
   async callTool(serverRef, toolName, args) {
-    const conn = [...this._connections.values()]
-      .find(c => c.id === serverRef || c.name === serverRef);
+    const conn = [...this._connections.values()].find(
+      (c) => c.id === serverRef || c.name === serverRef
+    );
     if (!conn) throw new Error(`Servidor MCP "${serverRef}" no encontrado o no conectado`);
     return conn.callTool(toolName, args);
   }
@@ -368,9 +432,11 @@ class MCPManager {
       console.warn('[mcp] registro en vivo no disponible, usando catálogo estático:', e.message);
       const q = query.toLowerCase().trim();
       const filtered = q
-        ? FALLBACK_CATALOG.filter(s => s.name.includes(q) || s.description.toLowerCase().includes(q))
+        ? FALLBACK_CATALOG.filter(
+            (s) => s.name.includes(q) || s.description.toLowerCase().includes(q)
+          )
         : FALLBACK_CATALOG;
-      return filtered.map(s => ({ ...s, source: 'static' }));
+      return filtered.map((s) => ({ ...s, source: 'static' }));
     }
   }
 
@@ -390,21 +456,21 @@ class MCPManager {
       // que es el caso simple de "un click y listo" sin infraestructura
       // extra. Los que solo ofrecen pypi/oci/http quedan fuera del
       // catálogo por ahora — se pueden seguir agregando a mano con JSON.
-      const pkg = (s.packages || []).find(p =>
-        p.registryType === 'npm' && (!p.transport || p.transport.type === 'stdio')
+      const pkg = (s.packages || []).find(
+        (p) => p.registryType === 'npm' && (!p.transport || p.transport.type === 'stdio')
       );
       if (!pkg) continue;
 
       out.push({
-        name:        s.title || s.name,
+        name: s.title || s.name,
         description: s.description || '',
         registryType: 'npm',
-        identifier:  pkg.identifier,
-        version:     pkg.version,
-        args:        (pkg.packageArguments || []).map(a => a.default || a.valueHint || `<${a.name}>`),
+        identifier: pkg.identifier,
+        version: pkg.version,
+        args: (pkg.packageArguments || []).map((a) => a.default || a.valueHint || `<${a.name}>`),
         requiredEnv: (pkg.environmentVariables || [])
-          .filter(e => e.isRequired)
-          .map(e => ({ name: e.name, description: e.description || '' })),
+          .filter((e) => e.isRequired)
+          .map((e) => ({ name: e.name, description: e.description || '' })),
         source: 'live',
       });
     }

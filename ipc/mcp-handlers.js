@@ -12,23 +12,39 @@ function register(ctx) {
   });
 
   ipcMain.handle('get-workspace', () => {
-    try { return Core.getWorkspace(); }
-    catch (err) { console.warn('[main] error en get-workspace:', err.message); return null; }
+    try {
+      return Core.getWorkspace();
+    } catch (err) {
+      console.warn('[main] error en get-workspace:', err.message);
+      return null;
+    }
   });
 
   ipcMain.handle('mcp-list-servers', async () => {
-    try { return await Core.mcpListServers(); }
-    catch (err) { console.error('[main] error en mcp-list-servers:', err.message); return { error: err.message }; }
+    try {
+      return await Core.mcpListServers();
+    } catch (err) {
+      console.error('[main] error en mcp-list-servers:', err.message);
+      return { error: err.message };
+    }
   });
 
   ipcMain.handle('mcp-list-tools', () => {
-    try { return Core.mcpListAllTools(); }
-    catch (err) { console.error('[main] error en mcp-list-tools:', err.message); return { error: err.message }; }
+    try {
+      return Core.mcpListAllTools();
+    } catch (err) {
+      console.error('[main] error en mcp-list-tools:', err.message);
+      return { error: err.message };
+    }
   });
 
   ipcMain.handle('mcp-search-registry', async (e, { query }) => {
-    try { return await Core.mcpSearchRegistry(query || ''); }
-    catch (err) { console.error('[main] error en mcp-search-registry:', err.message); return { error: err.message }; }
+    try {
+      return await Core.mcpSearchRegistry(query || '');
+    } catch (err) {
+      console.error('[main] error en mcp-search-registry:', err.message);
+      return { error: err.message };
+    }
   });
 
   ipcMain.handle('mcp-add-server', async (e, { serverCfg }) => {
@@ -36,8 +52,10 @@ function register(ctx) {
       const status = await Core.mcpAddServer(serverCfg);
       const cfg = loadConfig();
       const servers = cfg?.mcp?.servers || [];
-      const withoutDup = servers.filter(s => s.id !== status.id);
-      saveConfig({ mcp: { servers: [...withoutDup, { ...serverCfg, id: status.id, enabled: true }] } });
+      const withoutDup = servers.filter((s) => s.id !== status.id);
+      saveConfig({
+        mcp: { servers: [...withoutDup, { ...serverCfg, id: status.id, enabled: true }] },
+      });
       return { ok: true, status };
     } catch (err) {
       console.error('[main] error en mcp-add-server:', err.message);
@@ -49,7 +67,7 @@ function register(ctx) {
     try {
       await Core.mcpRemoveServer(id);
       const cfg = loadConfig();
-      const servers = (cfg?.mcp?.servers || []).filter(s => s.id !== id);
+      const servers = (cfg?.mcp?.servers || []).filter((s) => s.id !== id);
       saveConfig({ mcp: { servers } });
       return { ok: true };
     } catch (err) {
@@ -62,12 +80,12 @@ function register(ctx) {
     try {
       const cfg = loadConfig();
       const servers = cfg?.mcp?.servers || [];
-      const serverCfg = servers.find(s => s.id === id);
+      const serverCfg = servers.find((s) => s.id === id);
       if (!serverCfg) return { ok: false, error: 'Servidor no encontrado en config' };
 
       await Core.mcpToggleServer(id, enabled, serverCfg);
 
-      const updated = servers.map(s => s.id === id ? { ...s, enabled } : s);
+      const updated = servers.map((s) => (s.id === id ? { ...s, enabled } : s));
       saveConfig({ mcp: { servers: updated } });
       return { ok: true };
     } catch (err) {
@@ -84,7 +102,7 @@ function register(ctx) {
     const stats = Core.getStats();
     return {
       openclaw: stats.openclaw,
-      planner:  stats.planner,
+      planner: stats.planner,
       provider: stats.provider,
     };
   });

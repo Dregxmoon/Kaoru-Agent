@@ -1,12 +1,12 @@
 'use strict';
 
 const C = {
-  green:  (s) => `\x1b[32m${s}\x1b[0m`,
-  red:    (s) => `\x1b[31m${s}\x1b[0m`,
+  green: (s) => `\x1b[32m${s}\x1b[0m`,
+  red: (s) => `\x1b[31m${s}\x1b[0m`,
   yellow: (s) => `\x1b[33m${s}\x1b[0m`,
-  cyan:   (s) => `\x1b[36m${s}\x1b[0m`,
-  bold:   (s) => `\x1b[1m${s}\x1b[0m`,
-  dim:    (s) => `\x1b[2m${s}\x1b[0m`,
+  cyan: (s) => `\x1b[36m${s}\x1b[0m`,
+  bold: (s) => `\x1b[1m${s}\x1b[0m`,
+  dim: (s) => `\x1b[2m${s}\x1b[0m`,
 };
 
 let passed = 0;
@@ -26,7 +26,12 @@ function assert(condition, label, detail = '') {
 const path = require('path');
 const fs = require('fs');
 const os = require('os');
-const { resolveFileReferences, readFileContent, buildFileContext, listProjectFiles } = require('../core/commands/FileResolver.js');
+const {
+  resolveFileReferences,
+  readFileContent,
+  buildFileContext,
+  listProjectFiles,
+} = require('../core/commands/FileResolver.js');
 
 // ── Test 1: resolveFileReferences ───────────────────────────────────────
 function testResolveReferences() {
@@ -124,9 +129,18 @@ function testListFiles() {
 
   const files = listProjectFiles(tmpDir);
   assert(files.length > 0, 'Lista archivos del proyecto');
-  assert(files.some(f => f.path === 'src/index.js'), 'Incluye src/index.js');
-  assert(files.some(f => f.name === 'README.md'), 'Incluye README.md');
-  assert(files.every(f => !f.path.includes('.gitignore')), 'Excluye .gitignore');
+  assert(
+    files.some((f) => f.path === 'src/index.js'),
+    'Incluye src/index.js'
+  );
+  assert(
+    files.some((f) => f.name === 'README.md'),
+    'Incluye README.md'
+  );
+  assert(
+    files.every((f) => !f.path.includes('.gitignore')),
+    'Excluye .gitignore'
+  );
 
   fs.rmSync(tmpDir, { recursive: true, force: true });
 }
@@ -141,7 +155,10 @@ function testListFilesFilter() {
 
   const files = listProjectFiles(tmpDir, 'index');
   assert(files.length > 0, 'Encuentra archivos con filtro');
-  assert(files.every(f => f.path.toLowerCase().includes('index')), 'Todos los resultados contienen el filtro');
+  assert(
+    files.every((f) => f.path.toLowerCase().includes('index')),
+    'Todos los resultados contienen el filtro'
+  );
 
   fs.rmSync(tmpDir, { recursive: true, force: true });
 }
@@ -155,7 +172,7 @@ function testListIgnoreNodeModules() {
   fs.writeFileSync(path.join(tmpDir, 'index.js'), '// ok', 'utf-8');
 
   const files = listProjectFiles(tmpDir);
-  assert(!files.some(f => f.path.includes('node_modules')), 'Excluye node_modules');
+  assert(!files.some((f) => f.path.includes('node_modules')), 'Excluye node_modules');
 
   fs.rmSync(tmpDir, { recursive: true, force: true });
 }
@@ -205,5 +222,7 @@ testComplexPaths();
 testMaxFiles();
 
 const total = passed + failed;
-console.log(`\n${C.bold(C.cyan(`📁 FileResolver: ${passed}/${total} tests passed`))}${failed > 0 ? C.red(` (${failed} failed)`) : C.green(' ✅')}`);
+console.log(
+  `\n${C.bold(C.cyan(`📁 FileResolver: ${passed}/${total} tests passed`))}${failed > 0 ? C.red(` (${failed} failed)`) : C.green(' ✅')}`
+);
 module.exports = { passed, failed };

@@ -11,15 +11,17 @@ module.exports = function registerCommands(register) {
 
       const provider = (args[0] || '').toLowerCase();
       const available = LLMProvider.getAvailableProviders();
-      const valid = available.find(p => p.id === provider);
+      const valid = available.find((p) => p.id === provider);
 
       if (!valid) {
         const current = LLMProvider.getActiveProvider();
-        const lines = available.map(p => {
-          const cost = p.free ? '*gratis*' : '*pago*';
-          const active = p.id === current ? ' >' : '';
-          return `  \`/${p.id}\`${active} — ${p.name} (${cost})`;
-        }).join('\n');
+        const lines = available
+          .map((p) => {
+            const cost = p.free ? '*gratis*' : '*pago*';
+            const active = p.id === current ? ' >' : '';
+            return `  \`/${p.id}\`${active} — ${p.name} (${cost})`;
+          })
+          .join('\n');
         return `Proveedor activo: **${current || 'ninguno'}**\n\n**Disponibles:**\n${lines}`;
       }
       LLMProvider.configure({ llm: { primary: provider } });
@@ -48,25 +50,34 @@ module.exports = function registerCommands(register) {
         const smartModel = args[4] || fastModel;
         try {
           const id = LLMProvider.addCustomProvider({
-            name, baseURL, type: 'openai',
+            name,
+            baseURL,
+            type: 'openai',
             models: { fast: fastModel, smart: smartModel },
           });
           return `Provider custom agregado: **${name}** (\`${id}\`)\nEndpoint: \`${baseURL}\`\nModelos: fast=\`${fastModel}\`, smart=\`${smartModel}\`\n\nConfigura la API key con \`/credenciales\` y activalo con \`/model ${id}\``;
-        } catch (e) { return `Error: ${e.message}`; }
+        } catch (e) {
+          return `Error: ${e.message}`;
+        }
       }
 
       if (sub === 'remove' && args[1]) {
         try {
           LLMProvider.removeCustomProvider(args[1]);
           return `Provider \`${args[1]}\` eliminado.`;
-        } catch (e) { return `Error: ${e.message}`; }
+        } catch (e) {
+          return `Error: ${e.message}`;
+        }
       }
 
       if (sub === 'set' && args[1]) {
         const available = LLMProvider.getAvailableProviders();
-        const target = available.find(p => p.id === args[1].toLowerCase());
+        const target = available.find((p) => p.id === args[1].toLowerCase());
         if (!target) {
-          const names = available.filter(p => p.hasKey).map(p => `\`${p.id}\``).join(', ');
+          const names = available
+            .filter((p) => p.hasKey)
+            .map((p) => `\`${p.id}\``)
+            .join(', ');
           return `No encontrado. Proveedores con key: ${names || 'ninguno'}`;
         }
         if (!target.hasKey) {
@@ -79,7 +90,7 @@ module.exports = function registerCommands(register) {
 
       const all = LLMProvider.getAvailableProviders();
       const active = LLMProvider.getActiveProvider();
-      const activeDef = all.find(p => p.id === active);
+      const activeDef = all.find((p) => p.id === active);
 
       const lines = ['**Proveedores LLM disponibles:**\n'];
       for (const p of all) {
@@ -103,7 +114,10 @@ module.exports = function registerCommands(register) {
       if (activeDef) {
         const modelFast = activeDef.models?.fast || '?';
         const modelSmart = activeDef.models?.smart || '?';
-        lines.push('', `**Activo:** ${activeDef.name} — fast: \`${modelFast}\`, smart: \`${modelSmart}\``);
+        lines.push(
+          '',
+          `**Activo:** ${activeDef.name} — fast: \`${modelFast}\`, smart: \`${modelSmart}\``
+        );
       }
 
       return lines.join('\n');
@@ -122,10 +136,12 @@ module.exports = function registerCommands(register) {
       if (!name) {
         const all = AgentManager.getAll();
         const active = AgentManager.getActive().name;
-        const list = all.map(a => {
-          const marker = a.name === active ? '→' : ' ';
-          return `${marker} **/${a.name}** — ${a.description}`;
-        }).join('\n');
+        const list = all
+          .map((a) => {
+            const marker = a.name === active ? '→' : ' ';
+            return `${marker} **/${a.name}** — ${a.description}`;
+          })
+          .join('\n');
         return `**Agente activo:** \`${active}\`\n\n${list}`;
       }
 
@@ -167,19 +183,15 @@ module.exports = function registerCommands(register) {
       if (!skills || skills.length === 0) return 'No hay skills cargadas.';
       const name = (args[0] || '').toLowerCase();
       if (name) {
-        const skill = skills.find(s => s.name.toLowerCase() === name);
+        const skill = skills.find((s) => s.name.toLowerCase() === name);
         if (!skill) return `Skill no encontrada: \`${args[0]}\`. Usa \`/skill\` para ver la lista.`;
-        const lines = [
-          `**${skill.name}** v${skill.version}`,
-          '',
-          skill.description,
-        ];
+        const lines = [`**${skill.name}** v${skill.version}`, '', skill.description];
         if (skill.domains && skill.domains.length > 0) {
           lines.push('', `**Dominios:** ${skill.domains.join(', ')}`);
         }
         return lines.join('\n');
       }
-      const lines = skills.map(s => `• **${s.name}** — ${s.description}`);
+      const lines = skills.map((s) => `• **${s.name}** — ${s.description}`);
       return `**Skills disponibles (${skills.length}):**\n\n${lines.join('\n')}`;
     },
   });

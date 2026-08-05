@@ -74,7 +74,7 @@ class Harness {
       if (await bridge.isAvailable()) break;
       await sleep(500);
     }
-    if (!await bridge.isAvailable()) {
+    if (!(await bridge.isAvailable())) {
       console.warn('[harness] OpenClaw no disponible para el bridge');
     }
 
@@ -140,7 +140,9 @@ class Harness {
       this._core?.shutdown?.();
     } catch {}
     if (this._server) {
-      try { this._server.kill('SIGTERM'); } catch {}
+      try {
+        this._server.kill('SIGTERM');
+      } catch {}
       this._server = null;
     }
     if (this._apiKey && process.env.OPENCLAW_API_KEY === this._apiKey) {

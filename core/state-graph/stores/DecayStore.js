@@ -8,16 +8,17 @@ class DecayStore {
   }
 
   applyDecay() {
-    const now   = Date.now();
-    const nodes = this._db.prepare(
-      'SELECT id, importance, decay_rate, last_accessed_at FROM nodes WHERE archived=0'
-    ).all();
+    const now = Date.now();
+    const nodes = this._db
+      .prepare('SELECT id, importance, decay_rate, last_accessed_at FROM nodes WHERE archived=0')
+      .all();
 
-    const update  = this._db.prepare('UPDATE nodes SET importance=? WHERE id=?');
+    const update = this._db.prepare('UPDATE nodes SET importance=? WHERE id=?');
     const archive = this._db.prepare('UPDATE nodes SET archived=1 WHERE id=?');
 
     const runDecay = this._db.transaction(() => {
-      let decayed = 0, archived = 0;
+      let decayed = 0,
+        archived = 0;
 
       for (const node of nodes) {
         const daysSince = (now - node.last_accessed_at) / (1000 * 60 * 60 * 24);

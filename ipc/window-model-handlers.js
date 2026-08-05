@@ -8,7 +8,9 @@ function register(ctx) {
   const { S, savedConfig, loadConfig, saveConfig } = ctx;
 
   // IPC: overlay
-  ipcMain.on('drag-start', () => { S.userHasMoved = true; });
+  ipcMain.on('drag-start', () => {
+    S.userHasMoved = true;
+  });
   ipcMain.on('drag-move', (e, { x, y }) => {
     if (!S.mainWindow || S.mainWindow.isDestroyed()) return;
     const size = S.mainWindow.getSize();
@@ -18,7 +20,10 @@ function register(ctx) {
     if (!S.mainWindow || S.mainWindow.isDestroyed()) return;
     S.mainWindow.setIgnoreMouseEvents(!hovering, { forward: true });
   });
-  ipcMain.on('view-changed', (e, view) => { S.currentView = view; if (S.tray) S.tray.setContextMenu(ctx.buildTrayMenu()); });
+  ipcMain.on('view-changed', (e, view) => {
+    S.currentView = view;
+    if (S.tray) S.tray.setContextMenu(ctx.buildTrayMenu());
+  });
   ipcMain.on('model-dblclick', () => ctx.toggleChatWindow());
 
   ipcMain.on('chat-close', () => {
@@ -26,7 +31,10 @@ function register(ctx) {
     app.quit();
   });
 
-  ipcMain.on('chat-theme-changed', (e, theme) => { S.chatTheme = theme; saveConfig({ chatTheme: theme }); });
+  ipcMain.on('chat-theme-changed', (e, theme) => {
+    S.chatTheme = theme;
+    saveConfig({ chatTheme: theme });
+  });
 
   // IPC: modelo Live2D
   const MODELS_DIR = path.join(__dirname, '..', 'models');
@@ -39,7 +47,7 @@ function register(ctx) {
       const folder = path.join(MODELS_DIR, entry.name);
       let model3 = null;
       try {
-        model3 = fs.readdirSync(folder).find(f => f.endsWith('.model3.json')) || null;
+        model3 = fs.readdirSync(folder).find((f) => f.endsWith('.model3.json')) || null;
       } catch {}
       if (model3) {
         models.push({
@@ -55,11 +63,11 @@ function register(ctx) {
 
   function getActiveModel() {
     const models = listModels();
-    return models.find(m => m.active) || models[0] || null;
+    return models.find((m) => m.active) || models[0] || null;
   }
 
   function setActiveModel(id) {
-    if (!listModels().find(m => m.id === id)) return false;
+    if (!listModels().find((m) => m.id === id)) return false;
     S.activeModelId = id;
     saveConfig({ activeModel: id });
     return true;
@@ -69,8 +77,10 @@ function register(ctx) {
     const info = getActiveModel();
     if (!info) return;
     const payload = { ...info, models: listModels() };
-    if (S.mainWindow && !S.mainWindow.isDestroyed()) S.mainWindow.webContents.send('model-changed', payload);
-    if (S.chatWindow && !S.chatWindow.isDestroyed()) S.chatWindow.webContents.send('model-changed', payload);
+    if (S.mainWindow && !S.mainWindow.isDestroyed())
+      S.mainWindow.webContents.send('model-changed', payload);
+    if (S.chatWindow && !S.chatWindow.isDestroyed())
+      S.chatWindow.webContents.send('model-changed', payload);
     broadcastViewsChanged();
   }
 
@@ -91,7 +101,11 @@ function register(ctx) {
     const walk = (dir, depth) => {
       if (depth > 2 || model3Rel) return;
       let entries;
-      try { entries = fs.readdirSync(dir, { withFileTypes: true }); } catch { return; }
+      try {
+        entries = fs.readdirSync(dir, { withFileTypes: true });
+      } catch {
+        return;
+      }
       for (const entry of entries) {
         if (model3Rel) return;
         if (entry.isDirectory()) walk(path.join(dir, entry.name), depth + 1);
@@ -131,13 +145,19 @@ function register(ctx) {
   }
 
   function currentViewsState() {
-    return { modelId: S.activeModelId, mode: getModelViewMode(S.activeModelId), activeView: S.currentView };
+    return {
+      modelId: S.activeModelId,
+      mode: getModelViewMode(S.activeModelId),
+      activeView: S.currentView,
+    };
   }
 
   function broadcastViewsChanged() {
     const payload = currentViewsState();
-    if (S.mainWindow && !S.mainWindow.isDestroyed()) S.mainWindow.webContents.send('views-changed', payload);
-    if (S.chatWindow && !S.chatWindow.isDestroyed()) S.chatWindow.webContents.send('views-changed', payload);
+    if (S.mainWindow && !S.mainWindow.isDestroyed())
+      S.mainWindow.webContents.send('views-changed', payload);
+    if (S.chatWindow && !S.chatWindow.isDestroyed())
+      S.chatWindow.webContents.send('views-changed', payload);
   }
 
   ipcMain.handle('views-get', () => currentViewsState());

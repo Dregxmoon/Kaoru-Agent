@@ -47,7 +47,11 @@ module.exports = function registerCommands(register) {
             return 'Uso: `/github client-id <CLIENT_ID>`. Creá una OAuth App en github.com/settings/applications/new y pegá el Client ID (es público, no un secreto).';
           }
           let persisted = false;
-          try { persisted = K.setKey(CLIENT_ID_KEY, id) === true; } catch { persisted = false; }
+          try {
+            persisted = K.setKey(CLIENT_ID_KEY, id) === true;
+          } catch {
+            persisted = false;
+          }
           return `Client ID guardado${persisted ? '' : ' (solo por sesión: no se pudo persistir en el llavero)'}. Ahora usá \`/github login\` para vincular tu cuenta desde el navegador.`;
         }
 
@@ -64,7 +68,11 @@ module.exports = function registerCommands(register) {
         case 'logout': {
           gh.configure({ token: null });
           let removed = false;
-          try { removed = K.deleteKey(GITHUB_TOKEN_KEY) === true; } catch { removed = false; }
+          try {
+            removed = K.deleteKey(GITHUB_TOKEN_KEY) === true;
+          } catch {
+            removed = false;
+          }
           return removed
             ? 'Sesión de GitHub cerrada — token eliminado del llavero.'
             : 'No había token persistido que eliminar.';
@@ -73,12 +81,18 @@ module.exports = function registerCommands(register) {
         case 'status':
         default: {
           let has = false;
-          try { has = await gh.hasToken; } catch { has = false; }
+          try {
+            has = await gh.hasToken;
+          } catch {
+            has = false;
+          }
           const clientId = await _resolveClientId(ctx, K);
           const base = has
             ? 'GitHub: hay una cuenta conectada (oculto). Usá `/github whoami` para verla.'
             : 'GitHub: no hay cuenta conectada. Usá `/github login` para vincularla desde el navegador.';
-          const clientNote = clientId ? '' : ' Falta configurar el Client ID: `/github client-id <ID>`.';
+          const clientNote = clientId
+            ? ''
+            : ' Falta configurar el Client ID: `/github client-id <ID>`.';
           return base + clientNote;
         }
       }
@@ -101,9 +115,15 @@ async function _patLogin(token, gh, K) {
     return `No se pudo verificar el token: ${e.message}`;
   }
   let persisted = false;
-  try { persisted = K.setKey(GITHUB_TOKEN_KEY, token) === true; } catch { persisted = false; }
+  try {
+    persisted = K.setKey(GITHUB_TOKEN_KEY, token) === true;
+  } catch {
+    persisted = false;
+  }
   const name = me.name ? ` (${me.name})` : '';
-  const persistNote = persisted ? '' : '\n⚠️ No se pudo persistir en el llavero — el token quedará activo solo durante esta sesión.';
+  const persistNote = persisted
+    ? ''
+    : '\n⚠️ No se pudo persistir en el llavero — el token quedará activo solo durante esta sesión.';
   return `Conectado a GitHub como **@${me.login}**${name}.${persistNote}`;
 }
 
@@ -111,7 +131,8 @@ async function _patLogin(token, gh, K) {
 
 async function _resolveClientId(ctx, K) {
   if (ctx && ctx.githubClientId) return ctx.githubClientId;
-  if (process.env.GITHUB_CLIENT_ID && process.env.GITHUB_CLIENT_ID.trim()) return process.env.GITHUB_CLIENT_ID.trim();
+  if (process.env.GITHUB_CLIENT_ID && process.env.GITHUB_CLIENT_ID.trim())
+    return process.env.GITHUB_CLIENT_ID.trim();
   // En el renderer, process.env no siempre refleja el .env cargado en main;
   // preguntamos al proceso principal (env → llavero).
   try {
@@ -120,7 +141,10 @@ async function _resolveClientId(ctx, K) {
       if (viaIpc) return viaIpc;
     }
   } catch {}
-  try { const v = K.getKey(CLIENT_ID_KEY); if (v && v.trim()) return v.trim(); } catch {}
+  try {
+    const v = K.getKey(CLIENT_ID_KEY);
+    if (v && v.trim()) return v.trim();
+  } catch {}
   return null;
 }
 
@@ -147,9 +171,10 @@ async function _deviceLogin(ctx, gh, K, sleep) {
     return 'Para vincular tu cuenta desde el navegador primero necesito el Client ID de tu GitHub OAuth App.\n\n1. Creala en github.com/settings/applications/new (Callback URL: `http://localhost` sirve para este flujo).\n2. Guardala con `/github client-id <CLIENT_ID>`.\n\nAlternativa rápida: `/github login <PAT>` con un token personal.';
   }
 
-  const flow = (ctx && ctx.createDeviceFlow)
-    ? ctx.createDeviceFlow({ clientId })
-    : new OAuthDeviceFlow({ clientId });
+  const flow =
+    ctx && ctx.createDeviceFlow
+      ? ctx.createDeviceFlow({ clientId })
+      : new OAuthDeviceFlow({ clientId });
 
   let info;
   try {
@@ -188,11 +213,19 @@ async function _pollDeviceFlow(ctx, gh, K, flow, info, sleep) {
     if (res.ok && res.accessToken) {
       gh.configure({ token: res.accessToken });
       let me = null;
-      try { me = await gh.whoami(); } catch {}
+      try {
+        me = await gh.whoami();
+      } catch {}
       let persisted = false;
-      try { persisted = K.setKey(GITHUB_TOKEN_KEY, res.accessToken) === true; } catch { persisted = false; }
+      try {
+        persisted = K.setKey(GITHUB_TOKEN_KEY, res.accessToken) === true;
+      } catch {
+        persisted = false;
+      }
       const who = me ? ` como **@${me.login}**` : '';
-      const persistNote = persisted ? '' : '\n No se pudo persistir en el llavero — el token quedará activo solo durante esta sesión.';
+      const persistNote = persisted
+        ? ''
+        : '\n No se pudo persistir en el llavero — el token quedará activo solo durante esta sesión.';
       _notify(ctx, `Conectado a GitHub${who}.${persistNote}`);
       return;
     }

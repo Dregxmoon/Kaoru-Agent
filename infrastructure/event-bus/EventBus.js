@@ -19,8 +19,8 @@
 class EventBus {
   constructor() {
     this._listeners = new Map();
-    this._log       = [];
-    this._maxLog    = 200;
+    this._log = [];
+    this._maxLog = 200;
   }
 
   /**
@@ -72,7 +72,7 @@ class EventBus {
     for (const handler of handlers) {
       try {
         handler(payload);
-      } catch(e) {
+      } catch (e) {
         console.error(`[event-bus] error en handler de '${event}':`, e.message);
       }
     }

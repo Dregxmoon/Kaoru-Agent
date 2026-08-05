@@ -1,20 +1,28 @@
 'use strict';
 
 const TONE_RULES = [
-  { pattern: /no\s+(me\s+)?funciona|error|fallo|rompi|bug|crash|exploto/i, tone: 'empathic', score: 5 },
-  { pattern: /^(qu[eé]|c[oó]mo|cu[aá]ndo|d[oó]nde|qui[eén])\s+/i,        tone: 'direct',   score: 4 },
-  { pattern: /\bpor\s+qu[eé]\b|\bc[oó]mo\s+funciona\b|\bexplica\b/i,      tone: 'curious',  score: 4 },
-  { pattern: /\b(código|función|clase|método|variable|import|export|async|await|const|let|var)\b/i, tone: 'focused', score: 3 },
-  { pattern: /^(hola|buenas|oye|hey|qu[eé]\s+tal|c[oó]mo\s+est[aá]s)/i,  tone: 'playful',  score: 4 },
-  { pattern: /triste|cansad[o,a]|estresad[o,a]|frustrad[o,a]/i,           tone: 'empathic', score: 3 },
-  { pattern: /gracias|te\s+agradezco|thanks/i,                            tone: 'playful',  score: 2 },
+  {
+    pattern: /no\s+(me\s+)?funciona|error|fallo|rompi|bug|crash|exploto/i,
+    tone: 'empathic',
+    score: 5,
+  },
+  { pattern: /^(qu[eé]|c[oó]mo|cu[aá]ndo|d[oó]nde|qui[eén])\s+/i, tone: 'direct', score: 4 },
+  { pattern: /\bpor\s+qu[eé]\b|\bc[oó]mo\s+funciona\b|\bexplica\b/i, tone: 'curious', score: 4 },
+  {
+    pattern: /\b(código|función|clase|método|variable|import|export|async|await|const|let|var)\b/i,
+    tone: 'focused',
+    score: 3,
+  },
+  { pattern: /^(hola|buenas|oye|hey|qu[eé]\s+tal|c[oó]mo\s+est[aá]s)/i, tone: 'playful', score: 4 },
+  { pattern: /triste|cansad[o,a]|estresad[o,a]|frustrad[o,a]/i, tone: 'empathic', score: 3 },
+  { pattern: /gracias|te\s+agradezco|thanks/i, tone: 'playful', score: 2 },
 ];
 
 const LENGTH_RULES = [
-  { pattern: /^(s[ií]|no|ok|vale|bien|listo|claro|entend[ií])\.?\s*$/i, length: 'brief'    },
-  { pattern: /explica(me)?\s+|describe\s+|dame\s+(un\s+)?detalle/i,      length: 'detailed' },
-  { pattern: /resume(me)?\s+|en\s+resumen|tl;?dr/i,                       length: 'brief'    },
-  { pattern: /doc(umentaci[oó]n)?\s+|tutorial|gu[ií]a\s+paso/i,          length: 'detailed' },
+  { pattern: /^(s[ií]|no|ok|vale|bien|listo|claro|entend[ií])\.?\s*$/i, length: 'brief' },
+  { pattern: /explica(me)?\s+|describe\s+|dame\s+(un\s+)?detalle/i, length: 'detailed' },
+  { pattern: /resume(me)?\s+|en\s+resumen|tl;?dr/i, length: 'brief' },
+  { pattern: /doc(umentaci[oó]n)?\s+|tutorial|gu[ií]a\s+paso/i, length: 'detailed' },
 ];
 
 class BehaviorModel {
@@ -27,10 +35,10 @@ class BehaviorModel {
   evaluate(userMessage = '', osContext = null, history = []) {
     const text = userMessage.trim();
 
-    const tone          = this._detectTone(text, osContext, history);
+    const tone = this._detectTone(text, osContext, history);
     const responseLength = this._detectLength(text);
-    const urgency       = this._detectUrgency(text, osContext, history);
-    const notes         = this._buildNotes(tone, osContext, history);
+    const urgency = this._detectUrgency(text, osContext, history);
+    const notes = this._buildNotes(tone, osContext, history);
     const proactiveScore = this._computeProactiveScore(osContext, history, urgency);
 
     this._lastTone = tone;
@@ -40,7 +48,7 @@ class BehaviorModel {
 
     console.log(
       `[behavior] tone=${tone} length=${responseLength}` +
-      ` urgency=${urgency} proactive=${proactiveScore.toFixed(2)}`
+        ` urgency=${urgency} proactive=${proactiveScore.toFixed(2)}`
     );
 
     return ctx;
@@ -92,7 +100,8 @@ class BehaviorModel {
   }
 
   _detectUrgency(text, osContext, history) {
-    const urgentWords = /urgente|r[aá]pido|ahora mismo|inmediatamente|ya\s+mismo|ASAP|se\s+rompi[oó]|se\s+cay[oó]/i;
+    const urgentWords =
+      /urgente|r[aá]pido|ahora mismo|inmediatamente|ya\s+mismo|ASAP|se\s+rompi[oó]|se\s+cay[oó]/i;
     if (urgentWords.test(text)) return 'high';
 
     if (osContext?.category === 'terminal') return 'medium';
@@ -103,7 +112,7 @@ class BehaviorModel {
     // la heurística en vez de asumir falsamente que los mensajes fueron rápidos.
     if (history.length >= 2) {
       const lastTs = history[history.length - 1]?.ts || history[history.length - 1]?.timestamp;
-      if (lastTs && (Date.now() - lastTs) < 10_000) return 'medium';
+      if (lastTs && Date.now() - lastTs < 10_000) return 'medium';
     }
 
     // Hora tardía + este es el primer mensaje tras silencio largo → puede ser urgente
@@ -115,7 +124,7 @@ class BehaviorModel {
     // Mensaje corto después de larga inactividad — el usuario está apurado
     if (history.length >= 1) {
       const lastTs = history[history.length - 1]?.ts || history[history.length - 1]?.timestamp;
-      if (lastTs && (Date.now() - lastTs) > 60 * 60 * 1000 && text.length < 30) {
+      if (lastTs && Date.now() - lastTs > 60 * 60 * 1000 && text.length < 30) {
         return 'medium';
       }
     }
@@ -184,25 +193,25 @@ class BehaviorModel {
     const lines = ['# COMPORTAMIENTO ESTE TURNO'];
 
     const toneDesc = {
-      curious:  'Muestra curiosidad genuina. Haz preguntas si algo no está claro.',
+      curious: 'Muestra curiosidad genuina. Haz preguntas si algo no está claro.',
       empathic: 'Empieza reconociendo la situación antes de dar soluciones.',
-      dry:      'Sé concisa y directa. El humor seco está bien si el momento lo permite.',
-      direct:   'Ve al grano. Sin preámbulos ni relleno.',
-      playful:  'Tono relajado. Puedes bromear con mesura.',
-      focused:  'Modo técnico. Precisión sobre calidez.',
+      dry: 'Sé concisa y directa. El humor seco está bien si el momento lo permite.',
+      direct: 'Ve al grano. Sin preámbulos ni relleno.',
+      playful: 'Tono relajado. Puedes bromear con mesura.',
+      focused: 'Modo técnico. Precisión sobre calidez.',
     };
 
     lines.push(`Tono: ${toneDesc[behaviorCtx.tone] || 'Natural.'}`);
 
     const lenDesc = {
-      brief:    'Respuesta corta — máximo 2-3 oraciones.',
-      normal:   'Longitud normal — lo que el tema necesite.',
+      brief: 'Respuesta corta — máximo 2-3 oraciones.',
+      normal: 'Longitud normal — lo que el tema necesite.',
       detailed: 'Respuesta extensa — el usuario quiere detalle.',
     };
     lines.push(`Extensión: ${lenDesc[behaviorCtx.responseLength] || 'Normal.'}`);
 
     if (behaviorCtx.notes?.length) {
-      behaviorCtx.notes.forEach(n => lines.push(`- ${n}`));
+      behaviorCtx.notes.forEach((n) => lines.push(`- ${n}`));
     }
 
     return lines.join('\n');

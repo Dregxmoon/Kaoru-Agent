@@ -23,9 +23,9 @@ const ModelAugmenter = require('../core/behavior/ModelAugmenter.js');
 // nada de esto expone Node/fs/child_process a la página ni a los CDN.
 const coreBehaviorDir = path.join(__dirname, '..', 'core', 'behavior');
 const coreSources = {
-  GestureLexicon:   fs.readFileSync(path.join(coreBehaviorDir, 'GestureLexicon.js'), 'utf8'),
+  GestureLexicon: fs.readFileSync(path.join(coreBehaviorDir, 'GestureLexicon.js'), 'utf8'),
   GestureHeuristic: fs.readFileSync(path.join(coreBehaviorDir, 'GestureHeuristic.js'), 'utf8'),
-  GestureEngine:    fs.readFileSync(path.join(coreBehaviorDir, 'GestureEngine.js'), 'utf8'),
+  GestureEngine: fs.readFileSync(path.join(coreBehaviorDir, 'GestureEngine.js'), 'utf8'),
 };
 
 // TTS: lanza tts_stream.py, captura el audio en bytes y lo devuelve como
@@ -33,18 +33,28 @@ const coreSources = {
 // puede moverse al preload).
 function ttsStream(args = {}) {
   return new Promise((resolve, reject) => {
-    if (!args.pythonBin) { reject(new Error('pythonBin requerido')); return; }
+    if (!args.pythonBin) {
+      reject(new Error('pythonBin requerido'));
+      return;
+    }
     const chunks = [];
     const proc = cp.spawn(args.pythonBin, [
       path.join(__dirname, '..', 'tts_stream.py'),
-      '--voice', args.voice || 'ja-JP-NanamiNeural',
-      '--rate',  args.rate || '+8%',
-      '--pitch', args.pitch || '+18Hz',
-      '--text',  args.text || '',
+      '--voice',
+      args.voice || 'ja-JP-NanamiNeural',
+      '--rate',
+      args.rate || '+8%',
+      '--pitch',
+      args.pitch || '+18Hz',
+      '--text',
+      args.text || '',
     ]);
     proc.stdout.on('data', (c) => chunks.push(c));
     proc.on('close', (code) => {
-      if (code !== 0 || chunks.length === 0) { reject(new Error('TTS failed')); return; }
+      if (code !== 0 || chunks.length === 0) {
+        reject(new Error('TTS failed'));
+        return;
+      }
       resolve(new Uint8Array(Buffer.concat(chunks)));
     });
     proc.on('error', reject);

@@ -1,38 +1,37 @@
-
-const path   = require('path');
-const fs     = require('fs');
-const cp     = require('child_process');
+const path = require('path');
+const fs = require('fs');
+const cp = require('child_process');
 const crypto = require('crypto');
 
-const { getIntentDetector }            = require('./grounding/IntentDetector.js');
-const { getStateGraph }                = require('./state-graph/StateGraph.js');
-const { GroundingEngine }              = require('./grounding/GroundingEngine.js');
-const { SessionManager }               = require('./state-graph/SessionManager.js');
-const { StateUpdater }                 = require('./state-graph/StateUpdater.js');
-const { OSSensor }                     = require('../infrastructure/sensors/OSSensor.js');
-const { LinuxOSSensor }                = require('../infrastructure/sensors/LinuxOSSensor.js');
-const { GitWatcher }                   = require('../infrastructure/sensors/GitWatcher.js');
-const { SystemWatcher }                = require('../infrastructure/sensors/SystemWatcher.js');
-const { TitleWatcher }                 = require('../infrastructure/sensors/TitleWatcher.js');
-const { ClipboardWatcher }             = require('../infrastructure/sensors/ClipboardWatcher.js');
-const { UpcomingEventsWatcher }        = require('../infrastructure/sensors/UpcomingEventsWatcher.js');
-const { getEventBus }                  = require('../infrastructure/event-bus/EventBus.js');
-const { LSPErrorWatcher }              = require('../infrastructure/sensors/LSPErrorWatcher.js');
-const { SymbolIndex }                  = require('./lsp/SymbolIndex.js');
-const { ProactiveEngine }              = require('./behavior/ProactiveEngine.js');
-const { ProposalStore }                = require('./behavior/ProposalStore.js');
-const { ProactiveExecutor }            = require('./behavior/ProactiveExecutor.js');
-const { TelemetryStore }               = require('./telemetry/TelemetryStore.js');
-const { BehaviorModel }                = require('./behavior/BehaviorModel.js');
+const { getIntentDetector } = require('./grounding/IntentDetector.js');
+const { getStateGraph } = require('./state-graph/StateGraph.js');
+const { GroundingEngine } = require('./grounding/GroundingEngine.js');
+const { SessionManager } = require('./state-graph/SessionManager.js');
+const { StateUpdater } = require('./state-graph/StateUpdater.js');
+const { OSSensor } = require('../infrastructure/sensors/OSSensor.js');
+const { LinuxOSSensor } = require('../infrastructure/sensors/LinuxOSSensor.js');
+const { GitWatcher } = require('../infrastructure/sensors/GitWatcher.js');
+const { SystemWatcher } = require('../infrastructure/sensors/SystemWatcher.js');
+const { TitleWatcher } = require('../infrastructure/sensors/TitleWatcher.js');
+const { ClipboardWatcher } = require('../infrastructure/sensors/ClipboardWatcher.js');
+const { UpcomingEventsWatcher } = require('../infrastructure/sensors/UpcomingEventsWatcher.js');
+const { getEventBus } = require('../infrastructure/event-bus/EventBus.js');
+const { LSPErrorWatcher } = require('../infrastructure/sensors/LSPErrorWatcher.js');
+const { SymbolIndex } = require('./lsp/SymbolIndex.js');
+const { ProactiveEngine } = require('./behavior/ProactiveEngine.js');
+const { ProposalStore } = require('./behavior/ProposalStore.js');
+const { ProactiveExecutor } = require('./behavior/ProactiveExecutor.js');
+const { TelemetryStore } = require('./telemetry/TelemetryStore.js');
+const { BehaviorModel } = require('./behavior/BehaviorModel.js');
 const { getPlanner, setProjectCWD, getProjectCWD, isHighImpact } = require('./planner/Planner.js');
-const { getOpenClawBridge }            = require('./planner/OpenClawBridge.js');
-const { AgentLoop }                    = require('./planner/AgentLoop.js');
-const { getMCPManager }                = require('./mcp/MCPManager.js');
-const LLMProvider                      = require('./llm/LLMProvider.js');
-const KeychainManager                  = require('../infrastructure/keychain/KeychainManager.js');
-const TaskDetector                     = require('./task/TaskDetector.js');
-const { getToolRegistry }              = require('./task/ToolRegistry.js');
-const { resolveToolset }               = require('./task/ToolResolver.js');
+const { getOpenClawBridge } = require('./planner/OpenClawBridge.js');
+const { AgentLoop } = require('./planner/AgentLoop.js');
+const { getMCPManager } = require('./mcp/MCPManager.js');
+const LLMProvider = require('./llm/LLMProvider.js');
+const KeychainManager = require('../infrastructure/keychain/KeychainManager.js');
+const TaskDetector = require('./task/TaskDetector.js');
+const { getToolRegistry } = require('./task/ToolRegistry.js');
+const { resolveToolset } = require('./task/ToolResolver.js');
 
 // FIX: presupuesto de tokens del system prompt COMPLETO — antes vivía
 // dentro de GroqSerializer.js y se aplicaba antes de pegar BehaviorModel,
@@ -50,20 +49,20 @@ function setMaxSystemChars(chars) {
   console.log(`[core] MAX_SYSTEM_CHARS = ${MAX_SYSTEM_CHARS}`);
 }
 
-let _graph       = null;
-let _grounding   = null;
-let _session     = null;
-let _updater     = null;
-let _osSensor    = null;
-let _proactive   = null;
-let _behavior    = null;
-let _planner     = null;
-let _bridge      = null;
-let _bus         = null;
-let _app         = null;
-let _configPath  = null;
-let _detector     = null;
-let _mcp          = null;
+let _graph = null;
+let _grounding = null;
+let _session = null;
+let _updater = null;
+let _osSensor = null;
+let _proactive = null;
+let _behavior = null;
+let _planner = null;
+let _bridge = null;
+let _bus = null;
+let _app = null;
+let _configPath = null;
+let _detector = null;
+let _mcp = null;
 let _mcpReadyPromise = Promise.resolve();
 let _openclawProcess = null;
 let _openclawStarting = false;
@@ -71,7 +70,7 @@ let _openclawWorkspace = null;
 let _taskDetector = null;
 let _toolRegistry = null;
 let _lspManager = null;
-let _gitWatcher   = null;
+let _gitWatcher = null;
 let _systemWatcher = null;
 let _titleWatcher = null;
 let _clipboardWatcher = null;
@@ -84,15 +83,15 @@ let _telemetry = null;
 let _activeWorkspace = null;
 let _onProposalResult = null;
 let _proposalExecutedUnsub = null;
-let _lastProposal = null;   // { id, type } de la última propuesta emitida (debug/testing)
+let _lastProposal = null; // { id, type } de la última propuesta emitida (debug/testing)
 
-let _pruneTimer      = null;
-let _pruneInitTimer  = null;
+let _pruneTimer = null;
+let _pruneInitTimer = null;
 let _openclawKillTimer = null;
 let _initiativeUnsub = null;
-let _initialized     = false;
-let _onInitiative    = null;
-let _skillManager    = null;
+let _initialized = false;
+let _onInitiative = null;
+let _skillManager = null;
 
 // Migración: el archivo de memoria se llamaba march.db en versiones previas
 // (y en la carpeta de datos del usuario ~/.config/vtuber-overlay). Se renombra
@@ -128,21 +127,17 @@ function init(app) {
     ? path.join(app.getPath('userData'), 'core.db')
     : path.join(__dirname, '..', 'data', 'core.db');
 
-  _configPath = app
-    ? path.join(app.getPath('userData'), 'config.json')
-    : null;
+  _configPath = app ? path.join(app.getPath('userData'), 'config.json') : null;
 
   _graph = getStateGraph(dbPath);
-if (process.env.DEBUG) console.log('[core] graph.usingFallback:', _graph.usingFallback, '| _graph._db:', !!_graph._db);
+  if (process.env.DEBUG)
+    console.log('[core] graph.usingFallback:', _graph.usingFallback, '| _graph._db:', !!_graph._db);
   _grounding = new GroundingEngine(_graph);
-  _session   = new SessionManager(_graph, _grounding);
-  _updater   = new StateUpdater(_graph);
+  _session = new SessionManager(_graph, _grounding);
+  _updater = new StateUpdater(_graph);
 
-  const SensorClass = process.platform === 'win32'
-    ? OSSensor
-    : process.platform === 'linux'
-      ? LinuxOSSensor
-      : null;
+  const SensorClass =
+    process.platform === 'win32' ? OSSensor : process.platform === 'linux' ? LinuxOSSensor : null;
 
   if (SensorClass) {
     _osSensor = new SensorClass(_graph);
@@ -153,11 +148,9 @@ if (process.env.DEBUG) console.log('[core] graph.usingFallback:', _graph.usingFa
     console.log(`[core] OSSensor no disponible para ${process.platform}`);
   }
 
-  _proactive  = new ProactiveEngine(_graph, {
+  _proactive = new ProactiveEngine(_graph, {
     store: (_proposalStore = new ProposalStore({
-      filePath: app
-        ? path.join(app.getPath('userData'), 'proactive_feedback.json')
-        : null,
+      filePath: app ? path.join(app.getPath('userData'), 'proactive_feedback.json') : null,
     })),
     executor: (_proactiveExecutor = new ProactiveExecutor({
       getWorkspace: () => _activeWorkspace,
@@ -166,14 +159,24 @@ if (process.env.DEBUG) console.log('[core] graph.usingFallback:', _graph.usingFa
       getOpenFiles: () => _lspErrorWatcher?.getOpenFiles() ?? [],
       getDiagnostics: async (absPath) => {
         if (!_lspManager?.isRunning) return null;
-        try { return await _lspManager.getDiagnostics(absPath); } catch { return null; }
+        try {
+          return await _lspManager.getDiagnostics(absPath);
+        } catch {
+          return null;
+        }
       },
       notifyChanged: (absPath, content) => {
-        try { _lspManager?.changeDocument(absPath, content); } catch {}
+        try {
+          _lspManager?.changeDocument(absPath, content);
+        } catch {}
       },
       waitForDiagnostics: async (absPath) => {
         if (!_lspManager?.isRunning) return null;
-        try { return await _lspManager.waitForDiagnostics(absPath); } catch { return null; }
+        try {
+          return await _lspManager.waitForDiagnostics(absPath);
+        } catch {
+          return null;
+        }
       },
     })),
   });
@@ -181,9 +184,9 @@ if (process.env.DEBUG) console.log('[core] graph.usingFallback:', _graph.usingFa
   console.log(`[core] autonomía: ${_proactive.getAutonomyMode()}`);
 
   _behavior = new BehaviorModel(_graph);
-  _planner  = getPlanner();
-  _bridge   = getOpenClawBridge();
-  _mcp      = getMCPManager();
+  _planner = getPlanner();
+  _bridge = getOpenClawBridge();
+  _mcp = getMCPManager();
   _taskDetector = TaskDetector;
   _toolRegistry = getToolRegistry();
   _toolRegistry.setMCPManager(_mcp);
@@ -199,25 +202,31 @@ if (process.env.DEBUG) console.log('[core] graph.usingFallback:', _graph.usingFa
   // el arranque: sin LSP o sin workspace solo trackea el foco del editor.
   _symbolIndex = new SymbolIndex({ lsp: _lspManager });
   _lspErrorWatcher = new LSPErrorWatcher({
-    lsp:            _lspManager,
-    getWorkspace:   () => _activeWorkspace,
+    lsp: _lspManager,
+    getWorkspace: () => _activeWorkspace,
     getCurrentTitle: () => _osSensor?.getCurrentContext()?.title || '',
-    getSymbols:     (file) => _symbolIndex.getSymbolsFor(file),
+    getSymbols: (file) => _symbolIndex.getSymbolsFor(file),
   });
 
   _skillManager = new (require('./skills/SkillManager.js').SkillManager)({
     skillsDir: path.join(__dirname, '..', 'skills'),
-    db: (!_graph.usingFallback && _graph._db) ? _graph._db : null,
+    db: !_graph.usingFallback && _graph._db ? _graph._db : null,
     threshold: 0.35,
     topK: 3,
   });
   if (!_graph.usingFallback && _graph._db) {
-    _skillManager.scan(true).then(() => {
-      console.log('[core] skills escaneadas');
-      _skillManager.index().then(() => {
-        console.log('[core] skills indexadas');
-      }).catch(e => console.warn('[core] error indexando skills:', e.message));
-    }).catch(e => console.warn('[core] error escaneando skills:', e.message));
+    _skillManager
+      .scan(true)
+      .then(() => {
+        console.log('[core] skills escaneadas');
+        _skillManager
+          .index()
+          .then(() => {
+            console.log('[core] skills indexadas');
+          })
+          .catch((e) => console.warn('[core] error indexando skills:', e.message));
+      })
+      .catch((e) => console.warn('[core] error escaneando skills:', e.message));
   }
 
   const projectCWD = app ? app.getAppPath() : process.cwd();
@@ -237,8 +246,14 @@ if (process.env.DEBUG) console.log('[core] graph.usingFallback:', _graph.usingFa
   // opt-in por privacidad).
   const sensorsCfg = _readSensorsConfig();
   const startSensor = (label, factory) => {
-    try { const s = factory(); s.start(); return s; }
-    catch(e) { console.warn(`[core] sensor ${label} no disponible:`, e.message); return null; }
+    try {
+      const s = factory();
+      s.start();
+      return s;
+    } catch (e) {
+      console.warn(`[core] sensor ${label} no disponible:`, e.message);
+      return null;
+    }
   };
   if (sensorsCfg.git !== false) {
     _gitWatcher = startSensor('git', () => new GitWatcher({ workspace: projectCWD }));
@@ -253,18 +268,21 @@ if (process.env.DEBUG) console.log('[core] graph.usingFallback:', _graph.usingFa
     _clipboardWatcher = startSensor('clipboard', () => new ClipboardWatcher());
   }
   if (sensorsCfg.events !== false) {
-    _eventsWatcher = startSensor('upcoming-events', () => new UpcomingEventsWatcher({ graph: _graph }));
+    _eventsWatcher = startSensor(
+      'upcoming-events',
+      () => new UpcomingEventsWatcher({ graph: _graph })
+    );
   }
-  console.log(`[core] sensores de señales: git=${_gitWatcher ? 'on' : 'off'} system=${_systemWatcher ? 'on' : 'off'} title=${_titleWatcher ? 'on' : 'off'} clipboard=${_clipboardWatcher ? 'on' : 'off'} eventos=${_eventsWatcher ? 'on' : 'off'}`);
+  console.log(
+    `[core] sensores de señales: git=${_gitWatcher ? 'on' : 'off'} system=${_systemWatcher ? 'on' : 'off'} title=${_titleWatcher ? 'on' : 'off'} clipboard=${_clipboardWatcher ? 'on' : 'off'} eventos=${_eventsWatcher ? 'on' : 'off'}`
+  );
 
   // ── Fase E: telemetría local ─────────────────────────────────────────────
   // Mide uso real (mensajes/día, tiempo de respuesta, silencios, reuso) en
   // JSON local. El baseline de la tasa de aceptación vive en ProposalStore
   // desde la Fase A — aquí solo se agregan los turnos de conversación.
   _telemetry = new TelemetryStore({
-    filePath: app
-      ? path.join(app.getPath('userData'), 'telemetry.json')
-      : null,
+    filePath: app ? path.join(app.getPath('userData'), 'telemetry.json') : null,
   });
 
   // ── IntentDetector ────────────────────────────────────────────────────────
@@ -278,22 +296,25 @@ if (process.env.DEBUG) console.log('[core] graph.usingFallback:', _graph.usingFa
       console.log('[core] sqlite-vec cargado en StateGraph DB');
 
       _detector = getIntentDetector(_graph._db);
-      _detector.warmup().then(() => {
-        console.log('[core] IntentDetector listo');
-      }).catch(e => {
-        console.warn('[core] IntentDetector warmup falló:', e.message);
-      });
+      _detector
+        .warmup()
+        .then(() => {
+          console.log('[core] IntentDetector listo');
+        })
+        .catch((e) => {
+          console.warn('[core] IntentDetector warmup falló:', e.message);
+        });
 
       // Recall semántico de memoria (StateGraph.queryNodesSemantic) — misma
       // extensión, misma conexión, tabla vec0 separada de intent_vectors.
       // Backfill de nodos viejos sin embedding corre en segundo plano, en
       // lotes chicos, sin bloquear el arranque ni el primer mensaje.
       if (_graph.enableVectorSearch()) {
-        _graph.backfillEmbeddings().catch(e =>
-          console.warn('[core] backfill de embeddings falló:', e.message)
-        );
+        _graph
+          .backfillEmbeddings()
+          .catch((e) => console.warn('[core] backfill de embeddings falló:', e.message));
       }
-    } catch(e) {
+    } catch (e) {
       console.warn('[core] IntentDetector no disponible:', e.message);
       _detector = null;
     }
@@ -303,7 +324,9 @@ if (process.env.DEBUG) console.log('[core] graph.usingFallback:', _graph.usingFa
 
   _initiativeUnsub = _bus.on('initiative:trigger', (payload) => {
     if (process.env.DEBUG) console.log(`[core] initiative: "${payload.suggestion?.slice(0, 60)}"`);
-    _lastProposal = payload.proposal ? { id: payload.proposal.id, type: payload.proposal.type } : null;
+    _lastProposal = payload.proposal
+      ? { id: payload.proposal.id, type: payload.proposal.type }
+      : null;
     if (_onInitiative) _onInitiative(payload);
   });
 
@@ -311,7 +334,8 @@ if (process.env.DEBUG) console.log('[core] graph.usingFallback:', _graph.usingFa
   // ya se procesó en el ProactiveEngine). Se reenvía al renderer para que
   // confirme en el bubble de la propuesta con la verificación REAL.
   _proposalExecutedUnsub = _bus.on('proposal:executed', (payload) => {
-    if (process.env.DEBUG) console.log(`[core] proposal:executed ok=${payload.ok} "${payload.detail || ''}"`);
+    if (process.env.DEBUG)
+      console.log(`[core] proposal:executed ok=${payload.ok} "${payload.detail || ''}"`);
     if (_onProposalResult) _onProposalResult(payload);
   });
 
@@ -331,22 +355,26 @@ if (process.env.DEBUG) console.log('[core] graph.usingFallback:', _graph.usingFa
 
   // Workspace inicial async (MCP filesystem)
   if (_initialWorkspace) {
-    _mcpReadyPromise.then(() => setActiveWorkspace(_initialWorkspace)).then(r => {
-      if (r.ok) {
-        console.log(`[core] workspace inicial (${_envWorkspace ? 'ASISTENTE_WORKSPACE' : 'default (directorio de la app)'}):`, r.path);
-        _proactive.start();
-        // Fase C: ofrecer retomar lo pendiente (recordatorios) al arrancar.
-        _proactive.pendingRecap().catch(e =>
-          console.warn('[core] error en recap de pendientes:', e.message)
-        );
-        // Fase D: watcher de errores LSP (con su propio scope).
-        if (_readSensorsConfig().lsp !== false && _lspErrorWatcher) {
-          _lspErrorWatcher.start();
-          console.log('[core] LSPErrorWatcher activo');
-        }
-      }
-      else console.warn('[core] workspace inicial inválido:', r.error);
-    });
+    _mcpReadyPromise
+      .then(() => setActiveWorkspace(_initialWorkspace))
+      .then((r) => {
+        if (r.ok) {
+          console.log(
+            `[core] workspace inicial (${_envWorkspace ? 'ASISTENTE_WORKSPACE' : 'default (directorio de la app)'}):`,
+            r.path
+          );
+          _proactive.start();
+          // Fase C: ofrecer retomar lo pendiente (recordatorios) al arrancar.
+          _proactive
+            .pendingRecap()
+            .catch((e) => console.warn('[core] error en recap de pendientes:', e.message));
+          // Fase D: watcher de errores LSP (con su propio scope).
+          if (_readSensorsConfig().lsp !== false && _lspErrorWatcher) {
+            _lspErrorWatcher.start();
+            console.log('[core] LSPErrorWatcher activo');
+          }
+        } else console.warn('[core] workspace inicial inválido:', r.error);
+      });
   }
 
   if (_graph.usingFallback) {
@@ -358,7 +386,7 @@ if (process.env.DEBUG) console.log('[core] graph.usingFallback:', _graph.usingFa
     console.error('║  El asistente está usando MemoryDB (RAM temporal).       ║');
     console.error('║  Todo lo aprendido esta sesión se perderá al cerrar.    ║');
     console.error('║                                                          ║');
-                console.error('║  Solución: npm install                                    ║');
+    console.error('║  Solución: npm install                                    ║');
     console.error('╚══════════════════════════════════════════════════════════╝');
     console.error('');
     _bus.emit('memory-status', { usingFallback: true });
@@ -368,9 +396,13 @@ if (process.env.DEBUG) console.log('[core] graph.usingFallback:', _graph.usingFa
   return { graph: _graph, grounding: _grounding, session: _session };
 }
 
-function onInitiative(cb) { _onInitiative = cb; }
+function onInitiative(cb) {
+  _onInitiative = cb;
+}
 
-function onProposalResult(cb) { _onProposalResult = cb; }
+function onProposalResult(cb) {
+  _onProposalResult = cb;
+}
 
 function setChatOpen(open) {
   _proactive?.setChatOpen(open);
@@ -395,12 +427,14 @@ function _loadLLMConfig() {
       LLMProvider.configure(cfg);
       console.log('[core] LLMProvider configurado, provider:', LLMProvider.getActiveProvider());
     }
-  } catch(e) {
+  } catch (e) {
     console.warn('[core] error cargando config:', e.message);
   }
 }
 
-function reloadLLMConfig() { _loadLLMConfig(); }
+function reloadLLMConfig() {
+  _loadLLMConfig();
+}
 
 // ── MCP ────────────────────────────────────────────────────────────────────────
 // Los servidores se guardan/editan desde main.js (que ya tiene loadConfig/
@@ -411,12 +445,20 @@ function reloadLLMConfig() { _loadLLMConfig(); }
 // nunca un requisito).
 function _loadMCPConfig() {
   try {
-    if (!_configPath || !fs.existsSync(_configPath)) { _mcpReadyPromise = Promise.resolve(); return; }
+    if (!_configPath || !fs.existsSync(_configPath)) {
+      _mcpReadyPromise = Promise.resolve();
+      return;
+    }
     const cfg = JSON.parse(fs.readFileSync(_configPath, 'utf-8'));
     const servers = cfg?.mcp?.servers || [];
-    if (!servers.length) { _mcpReadyPromise = Promise.resolve(); return; }
-    _mcpReadyPromise = _mcp.init(servers).catch(e => console.warn('[core] error inicializando servidores MCP:', e.message));
-  } catch(e) {
+    if (!servers.length) {
+      _mcpReadyPromise = Promise.resolve();
+      return;
+    }
+    _mcpReadyPromise = _mcp
+      .init(servers)
+      .catch((e) => console.warn('[core] error inicializando servidores MCP:', e.message));
+  } catch (e) {
     console.warn('[core] error leyendo config de MCP:', e.message);
     _mcpReadyPromise = Promise.resolve();
   }
@@ -427,7 +469,7 @@ function _readSensorsConfig() {
     if (!_configPath || !fs.existsSync(_configPath)) return {};
     const cfg = JSON.parse(fs.readFileSync(_configPath, 'utf-8'));
     return (cfg && cfg.sensors) || {};
-  } catch(e) {
+  } catch (e) {
     return {};
   }
 }
@@ -437,7 +479,7 @@ function _readAutonomyConfig() {
     if (!_configPath || !fs.existsSync(_configPath)) return 'suggest';
     const cfg = JSON.parse(fs.readFileSync(_configPath, 'utf-8'));
     return (cfg && cfg.autonomy) || 'suggest';
-  } catch(e) {
+  } catch (e) {
     return 'suggest';
   }
 }
@@ -456,24 +498,31 @@ function handleProposalDecision(decision) {
 
 function debugGitScan() {
   if (!_gitWatcher) return { ok: false, error: 'GitWatcher no activo' };
-  return _gitWatcher.poll()
+  return _gitWatcher
+    .poll()
     .then(() => ({ ok: true, stats: _gitWatcher.getStats() }))
-    .catch(e => ({ ok: false, error: e.message }));
+    .catch((e) => ({ ok: false, error: e.message }));
 }
 
 function debugResolveLastProposal(accepted) {
   if (!_lastProposal) return { ok: false, error: 'no hay una propuesta reciente para resolver' };
   const decision = accepted ? 'accepted' : 'rejected';
-  const ok = _proactive?.handleDecision({ proposalId: _lastProposal.id, type: _lastProposal.type, decision }) ?? false;
+  const ok =
+    _proactive?.handleDecision({
+      proposalId: _lastProposal.id,
+      type: _lastProposal.type,
+      decision,
+    }) ?? false;
   return { ok, proposal: _lastProposal, decision };
 }
 
 /** Fase D: fuerza un scan del LSPErrorWatcher (verificación en vivo). */
 function debugLSPScan() {
   if (!_lspErrorWatcher) return Promise.resolve({ ok: false, error: 'LSPErrorWatcher no activo' });
-  return _lspErrorWatcher.poll()
+  return _lspErrorWatcher
+    .poll()
     .then(() => ({ ok: true, stats: _lspErrorWatcher.getStats() }))
-    .catch(e => ({ ok: false, error: e.message }));
+    .catch((e) => ({ ok: false, error: e.message }));
 }
 
 // ── Fase E: reporte de telemetría ─────────────────────────────────────────────
@@ -541,7 +590,7 @@ async function setActiveWorkspace(newPath) {
   _activeWorkspace = resolved;
 
   if (_mcp) {
-    const fsServer = _mcp.listServers().find(s => s.name === 'filesystem');
+    const fsServer = _mcp.listServers().find((s) => s.name === 'filesystem');
     if (fsServer) await _mcp.removeServer(fsServer.id);
     await _mcp.addServer({
       name: 'filesystem',
@@ -554,16 +603,25 @@ async function setActiveWorkspace(newPath) {
   // ── LSP: arrancar servidor para el nuevo workspace ─────────────────
   if (_lspManager) {
     (async () => {
-      try { await _lspManager.stop(); } catch {}
-      try { await _lspManager.start(resolved); console.log('[core] LSP listo para', resolved); }
-      catch(e) { console.warn('[core] LSP no disponible:', e.message); }
+      try {
+        await _lspManager.stop();
+      } catch {}
+      try {
+        await _lspManager.start(resolved);
+        console.log('[core] LSP listo para', resolved);
+      } catch (e) {
+        console.warn('[core] LSP no disponible:', e.message);
+      }
     })();
   }
 
   // ── Fase D: reset del scope del watcher (no mezclar proyectos) ────
   if (_lspErrorWatcher) {
     _lspErrorWatcher.resetWorkspace(resolved);
-    if (_readSensorsConfig().lsp !== false) _lspErrorWatcher.poll().catch(e => console.warn('[core] scan LSP falló:', e && e.message ? e.message : e));
+    if (_readSensorsConfig().lsp !== false)
+      _lspErrorWatcher
+        .poll()
+        .catch((e) => console.warn('[core] scan LSP falló:', e && e.message ? e.message : e));
   }
 
   // ── FIX (auditoría Fase D): OpenClaw corre con OPENCLAW_ALLOWED_PATH fijado
@@ -574,7 +632,9 @@ async function setActiveWorkspace(newPath) {
   _restartOpenClawForWorkspace(resolved);
 
   _bus.emit('workspace:changed', { path: resolved });
-  if (_gitWatcher) { _gitWatcher.setWorkspace(resolved); }
+  if (_gitWatcher) {
+    _gitWatcher.setWorkspace(resolved);
+  }
   console.log('[core] workspace activo:', resolved);
   return { ok: true, path: resolved };
 }
@@ -589,7 +649,10 @@ function getWorkspace() {
 // ── Sesión ────────────────────────────────────────────────────────────────────
 
 async function startSession() {
-  if (!_session) { console.warn('[core] no inicializado'); return null; }
+  if (!_session) {
+    console.warn('[core] no inicializado');
+    return null;
+  }
   const result = await _session.start(_app);
   _bus.emit('session:started', { sessionId: result.sessionId, resumed: result.resumed });
   return result; // { sessionId, resumed, history }
@@ -624,13 +687,18 @@ function _descendantPids(rootPid) {
       try {
         const stat = fs.readFileSync(`/proc/${entry}/stat`, 'utf-8');
         const close = stat.lastIndexOf(')');
-        const after = stat.slice(close + 1).trim().split(/\s+/);
+        const after = stat
+          .slice(close + 1)
+          .trim()
+          .split(/\s+/);
         ppid = parseInt(after[1], 10);
       } catch (_) {}
       if (!children.has(ppid)) children.set(ppid, []);
       children.get(ppid).push(parseInt(entry, 10));
     }
-  } catch (_) { return []; }
+  } catch (_) {
+    return [];
+  }
 
   const out = [];
   const stack = [...(children.get(rootPid) || [])];
@@ -645,14 +713,19 @@ function _descendantPids(rootPid) {
 function _isElectronProcess(pid) {
   try {
     return /electron/i.test(fs.readlinkSync(`/proc/${pid}/exe`));
-  } catch (_) { return true; }
+  } catch (_) {
+    return true;
+  }
 }
 
 function _killDescendants(signal) {
   let n = 0;
   for (const pid of _descendantPids(process.pid)) {
     if (_isElectronProcess(pid)) continue;
-    try { process.kill(pid, signal); n++; } catch (_) {}
+    try {
+      process.kill(pid, signal);
+      n++;
+    } catch (_) {}
   }
   return n;
 }
@@ -665,46 +738,93 @@ async function shutdown() {
   // SIGKILL como red de seguridad 2s después (timer con unref para no
   // retener el event loop de Electron).
   _killDescendants('SIGTERM');
-  const sigkillTimer = setTimeout(() => { _killDescendants('SIGKILL'); }, 2000);
+  const sigkillTimer = setTimeout(() => {
+    _killDescendants('SIGKILL');
+  }, 2000);
   if (typeof sigkillTimer.unref === 'function') sigkillTimer.unref();
 
   if (_mcp) {
-    try { await _mcp.disconnectAll(); } catch(e) { console.warn('[core] error desconectando MCP:', e.message); }
+    try {
+      await _mcp.disconnectAll();
+    } catch (e) {
+      console.warn('[core] error desconectando MCP:', e.message);
+    }
   }
-  if (_initiativeUnsub) { _initiativeUnsub(); _initiativeUnsub = null; }
-  if (_proposalExecutedUnsub) { _proposalExecutedUnsub(); _proposalExecutedUnsub = null; }
+  if (_initiativeUnsub) {
+    _initiativeUnsub();
+    _initiativeUnsub = null;
+  }
+  if (_proposalExecutedUnsub) {
+    _proposalExecutedUnsub();
+    _proposalExecutedUnsub = null;
+  }
 
   await closeSession();
 
   if (_bridge) {
-    try { await _bridge.closeBrowser(); } catch(e) { console.warn('[core] error cerrando navegador:', e.message); }
+    try {
+      await _bridge.closeBrowser();
+    } catch (e) {
+      console.warn('[core] error cerrando navegador:', e.message);
+    }
   }
   _stopOpenClaw();
   if (_osSensor) {
-    try { _osSensor.stop(); } catch(e) { console.warn('[core] error deteniendo sensor:', e.message); }
+    try {
+      _osSensor.stop();
+    } catch (e) {
+      console.warn('[core] error deteniendo sensor:', e.message);
+    }
   }
   if (_lspManager) {
-    try { await _lspManager.stop(); } catch(e) { console.warn('[core] error cerrando LSP:', e.message); }
+    try {
+      await _lspManager.stop();
+    } catch (e) {
+      console.warn('[core] error cerrando LSP:', e.message);
+    }
   }
   if (_lspErrorWatcher) {
-    try { _lspErrorWatcher.stop(); } catch(e) { console.warn('[core] error deteniendo LSPErrorWatcher:', e.message); }
+    try {
+      _lspErrorWatcher.stop();
+    } catch (e) {
+      console.warn('[core] error deteniendo LSPErrorWatcher:', e.message);
+    }
     _lspErrorWatcher = null;
   }
   _proactive?.stop();
   for (const [name, sensor] of [
-    ['git', _gitWatcher], ['system', _systemWatcher], ['title', _titleWatcher],
-    ['clipboard', _clipboardWatcher], ['upcoming-events', _eventsWatcher],
+    ['git', _gitWatcher],
+    ['system', _systemWatcher],
+    ['title', _titleWatcher],
+    ['clipboard', _clipboardWatcher],
+    ['upcoming-events', _eventsWatcher],
   ]) {
-    try { sensor?.stop(); } catch(e) { console.warn(`[core] error deteniendo sensor ${name}:`, e.message); }
+    try {
+      sensor?.stop();
+    } catch (e) {
+      console.warn(`[core] error deteniendo sensor ${name}:`, e.message);
+    }
   }
   _gitWatcher = _systemWatcher = _titleWatcher = _clipboardWatcher = _eventsWatcher = null;
   _proposalStore = null;
   _proactiveExecutor = null;
   _activeWorkspace = null;
   _onProposalResult = null;
-  if (_pruneTimer) { clearInterval(_pruneTimer); _pruneTimer = null; }
-  if (_pruneInitTimer) { clearTimeout(_pruneInitTimer); _pruneInitTimer = null; }
-  if (_graph) { try { _graph.close(); } catch(e) { console.warn('[core] error cerrando DB:', e.message); } }
+  if (_pruneTimer) {
+    clearInterval(_pruneTimer);
+    _pruneTimer = null;
+  }
+  if (_pruneInitTimer) {
+    clearTimeout(_pruneInitTimer);
+    _pruneInitTimer = null;
+  }
+  if (_graph) {
+    try {
+      _graph.close();
+    } catch (e) {
+      console.warn('[core] error cerrando DB:', e.message);
+    }
+  }
 
   _onInitiative = null;
   _initialized = false;
@@ -769,26 +889,29 @@ function _startOpenClaw(workspacePath) {
     const check = () => {
       retries++;
       _bridge.resetAvailabilityCache();
-      _bridge.isAvailable().then(available => {
-        if (available) {
-          console.log('[core] OpenClaw listo — Fase 3 activa');
-          _bus.emit('openclaw:available', { available: true });
-        } else if (retries < OPENCLAW_RETRIES) {
-          setTimeout(check, OPENCLAW_RETRY_MS);
-        } else {
-          console.warn(`[core] OpenClaw no respondió después de ${OPENCLAW_RETRIES} intentos`);
-          _openclawProcess?.kill();
-          _openclawStarting = false;
-          _openclawProcess = null;
-          _bus.emit('openclaw:available', { available: false });
-        }
-      }).catch(() => {
-        if (retries < OPENCLAW_RETRIES) setTimeout(check, OPENCLAW_RETRY_MS);
-        else {
-          _openclawStarting = false;
-          _bus.emit('openclaw:available', { available: false });
-        }
-      });
+      _bridge
+        .isAvailable()
+        .then((available) => {
+          if (available) {
+            console.log('[core] OpenClaw listo — Fase 3 activa');
+            _bus.emit('openclaw:available', { available: true });
+          } else if (retries < OPENCLAW_RETRIES) {
+            setTimeout(check, OPENCLAW_RETRY_MS);
+          } else {
+            console.warn(`[core] OpenClaw no respondió después de ${OPENCLAW_RETRIES} intentos`);
+            _openclawProcess?.kill();
+            _openclawStarting = false;
+            _openclawProcess = null;
+            _bus.emit('openclaw:available', { available: false });
+          }
+        })
+        .catch(() => {
+          if (retries < OPENCLAW_RETRIES) setTimeout(check, OPENCLAW_RETRY_MS);
+          else {
+            _openclawStarting = false;
+            _bus.emit('openclaw:available', { available: false });
+          }
+        });
     };
 
     setTimeout(check, 1500);
@@ -801,18 +924,25 @@ function _startOpenClaw(workspacePath) {
 
 function _stopOpenClaw() {
   const proc = _openclawProcess;
-  if (_openclawKillTimer) { clearTimeout(_openclawKillTimer); _openclawKillTimer = null; }
+  if (_openclawKillTimer) {
+    clearTimeout(_openclawKillTimer);
+    _openclawKillTimer = null;
+  }
   if (proc) {
     console.log('[core] deteniendo OpenClaw...');
     _openclawProcess = null;
     _openclawStarting = false;
     try {
       for (const pid of _descendantPids(proc.pid)) {
-        try { process.kill(pid, 'SIGTERM'); } catch (_) {}
+        try {
+          process.kill(pid, 'SIGTERM');
+        } catch (_) {}
       }
       proc.kill('SIGTERM');
       _openclawKillTimer = setTimeout(() => {
-        try { proc.kill('SIGKILL'); } catch (_) {}
+        try {
+          proc.kill('SIGKILL');
+        } catch (_) {}
         _openclawKillTimer = null;
       }, 3000);
     } catch (e) {
@@ -832,7 +962,11 @@ function _restartOpenClawForWorkspace(ws) {
   if (_openclawWorkspace === resolved) return; // mismo workspace → no tocar nada
   if (!_openclawStarting && _openclawProcess) {
     console.log('[core] workspace cambió — reiniciando OpenClaw para el nuevo allowed path');
-    try { _stopOpenClaw(); } catch (e) { console.warn('[core] falló al detener OpenClaw:', e && e.message ? e.message : e); }
+    try {
+      _stopOpenClaw();
+    } catch (e) {
+      console.warn('[core] falló al detener OpenClaw:', e && e.message ? e.message : e);
+    }
   }
   if (!_openclawProcess && !_openclawStarting) {
     _startOpenClaw(resolved);
@@ -857,8 +991,8 @@ async function buildContext(sessionHistory, activeProvider, options = {}) {
   const mode = options.mode || 'chat'; // 'plan' | 'execute' | 'chat'
   const approvedPlan = options.plan || null;
 
-  const lastUserMsg = [...sessionHistory].reverse().find(m => m.role === 'user');
-  const userText    = lastUserMsg?.content || '';
+  const lastUserMsg = [...sessionHistory].reverse().find((m) => m.role === 'user');
+  const userText = lastUserMsg?.content || '';
 
   const osCtx = _osSensor?.getCurrentContext() ?? null;
 
@@ -868,7 +1002,7 @@ async function buildContext(sessionHistory, activeProvider, options = {}) {
     try {
       behaviorCtx = _behavior.evaluate(userText, osCtx, sessionHistory);
       _bus.emit('behavior:evaluated', behaviorCtx);
-    } catch(e) {
+    } catch (e) {
       console.warn('[core] error en BehaviorModel:', e.message);
     }
   }
@@ -881,10 +1015,10 @@ async function buildContext(sessionHistory, activeProvider, options = {}) {
       if (toolIntent.detected) {
         console.log(
           `[core] toolIntent: ${toolIntent.action}` +
-          ` (${(toolIntent.confidence * 100).toFixed(0)}%, ${toolIntent.level})`
+            ` (${(toolIntent.confidence * 100).toFixed(0)}%, ${toolIntent.level})`
         );
       }
-    } catch(e) {
+    } catch (e) {
       console.warn('[core] IntentDetector error:', e.message);
     }
   }
@@ -896,10 +1030,10 @@ async function buildContext(sessionHistory, activeProvider, options = {}) {
     if (taskIntent.isTask) {
       console.log(
         `[core] taskIntent: ${taskIntent.domain?.id || 'indefinido'}` +
-        ` (confianza: ${taskIntent.confidence})`
+          ` (confianza: ${taskIntent.confidence})`
       );
     }
-  } catch(e) {
+  } catch (e) {
     console.warn('[core] TaskDetector error:', e.message);
   }
 
@@ -934,10 +1068,10 @@ async function buildContext(sessionHistory, activeProvider, options = {}) {
       toolRegistry: _toolRegistry,
       skillManager: _skillManager || null,
       mcpManager: _mcp || null,
-      db: (_graph && !_graph.usingFallback && _graph._db) ? _graph._db : null,
+      db: _graph && !_graph.usingFallback && _graph._db ? _graph._db : null,
     });
     toolCatalog = resolvedTools?.promptCatalog || null;
-  } catch(e) {
+  } catch (e) {
     console.warn('[core] error en resolución de herramientas:', e.message);
   }
   if (!toolCatalog) {
@@ -949,20 +1083,31 @@ async function buildContext(sessionHistory, activeProvider, options = {}) {
   // en todos los turnos, filtrado solo por precedencia (Skill > MCP > OpenClaw).
   if (mode === 'agent') {
     if (result.systemPrompt.length > MAX_SYSTEM_CHARS) {
-      result.systemPrompt = result.systemPrompt.slice(0, MAX_SYSTEM_CHARS) + '\n\n[contexto truncado por longitud]';
+      result.systemPrompt =
+        result.systemPrompt.slice(0, MAX_SYSTEM_CHARS) + '\n\n[contexto truncado por longitud]';
       console.warn(`[core] system prompt truncado modo agent: ${result.systemPrompt.length} chars`);
     }
-    return { ...result, behaviorCtx, toolIntent, taskIntent, mode, nativeToolSchemas: resolvedTools?.nativeToolSchemas || null };
+    return {
+      ...result,
+      behaviorCtx,
+      toolIntent,
+      taskIntent,
+      mode,
+      nativeToolSchemas: resolvedTools?.nativeToolSchemas || null,
+    };
   }
 
   // ── Skill knowledge injection (Fase 4) ──────────────────────────────────
   if (_skillManager && typeof _skillManager.buildInjection === 'function') {
     try {
-      const skillBlock = await _skillManager.buildInjection(userText, (_graph && !_graph.usingFallback && _graph._db) ? _graph._db : null);
+      const skillBlock = await _skillManager.buildInjection(
+        userText,
+        _graph && !_graph.usingFallback && _graph._db ? _graph._db : null
+      );
       if (skillBlock) {
         result.systemPrompt += '\n\n' + skillBlock;
       }
-    } catch(e) {
+    } catch (e) {
       console.warn('[core] error inyectando skills:', e.message);
     }
   }
@@ -988,7 +1133,11 @@ async function buildContext(sessionHistory, activeProvider, options = {}) {
     if (approvedPlan) {
       result.systemPrompt +=
         '\nPlan ya aprobado por el usuario — continúa con los siguientes pasos pendientes:\n' +
-        approvedPlan.steps.filter(s => !s.done).map((s, i) => `  ${i+1}. ${s.description}`).join('\n') + '\n';
+        approvedPlan.steps
+          .filter((s) => !s.done)
+          .map((s, i) => `  ${i + 1}. ${s.description}`)
+          .join('\n') +
+        '\n';
     }
   }
 
@@ -1008,7 +1157,11 @@ async function buildContext(sessionHistory, activeProvider, options = {}) {
     if (approvedPlan) {
       result.systemPrompt +=
         '\n## Plan a ejecutar\n' +
-        approvedPlan.steps.filter(s => !s.done).map((s, i) => `  ${i+1}. ${s.description}`).join('\n') + '\n';
+        approvedPlan.steps
+          .filter((s) => !s.done)
+          .map((s, i) => `  ${i + 1}. ${s.description}`)
+          .join('\n') +
+        '\n';
     }
   }
 
@@ -1053,18 +1206,20 @@ async function buildContext(sessionHistory, activeProvider, options = {}) {
   // secciones COMPLETAS empezando por la menos importante, en vez de cortar
   // a mitad de una instrucción (que rompe el formato estructurado).
   if (result.systemPrompt.length > MAX_SYSTEM_CHARS) {
-    console.warn(`[core] system prompt excede: ${result.systemPrompt.length} > ${MAX_SYSTEM_CHARS} chars, recortando...`);
+    console.warn(
+      `[core] system prompt excede: ${result.systemPrompt.length} > ${MAX_SYSTEM_CHARS} chars, recortando...`
+    );
     // Orden de sacrificio: MCP → OpenClaw → episodios → memoria → OS → comportamiento → tools intent → identidad
     const sectionMarkers = [
-      { name: 'MCP',       marker: '# HERRAMIENTAS MCP',            keepIf: null },
-      { name: 'OpenClaw',  marker: '# HERRAMIENTAS DISPONIBLES',    keepIf: null },
-      { name: 'Plan',      marker: '# MODO PLAN',                   keepIf: null },
-      { name: 'Execute',   marker: '# MODO EJECUCIÓN',              keepIf: null },
-      { name: 'Episodios', marker: '## Episodios recientes',        keepIf: null },
-      { name: 'Memoria',   marker: '## Lo que sé del usuario',      keepIf: null },
-      { name: 'OS',        marker: '## Contexto actual',            keepIf: null },
-      { name: 'Behavior',  marker: '# COMPORTAMIENTO ESTE TURNO',   keepIf: null },
-      { name: 'Intent',    marker: '## INTENCIÓN DE HERRAMIENTA',   keepIf: null },
+      { name: 'MCP', marker: '# HERRAMIENTAS MCP', keepIf: null },
+      { name: 'OpenClaw', marker: '# HERRAMIENTAS DISPONIBLES', keepIf: null },
+      { name: 'Plan', marker: '# MODO PLAN', keepIf: null },
+      { name: 'Execute', marker: '# MODO EJECUCIÓN', keepIf: null },
+      { name: 'Episodios', marker: '## Episodios recientes', keepIf: null },
+      { name: 'Memoria', marker: '## Lo que sé del usuario', keepIf: null },
+      { name: 'OS', marker: '## Contexto actual', keepIf: null },
+      { name: 'Behavior', marker: '# COMPORTAMIENTO ESTE TURNO', keepIf: null },
+      { name: 'Intent', marker: '## INTENCIÓN DE HERRAMIENTA', keepIf: null },
     ];
     for (const section of sectionMarkers) {
       if (result.systemPrompt.length <= MAX_SYSTEM_CHARS) break;
@@ -1078,18 +1233,28 @@ async function buildContext(sessionHistory, activeProvider, options = {}) {
       const nextSep = remaining.indexOf('\n\n---\n\n');
       const sectionEnd = nextSep >= 0 ? from + 1 + nextSep : result.systemPrompt.length;
       const sectionText = result.systemPrompt.slice(from, sectionEnd);
-      result.systemPrompt = result.systemPrompt.slice(0, from) + result.systemPrompt.slice(sectionEnd);
+      result.systemPrompt =
+        result.systemPrompt.slice(0, from) + result.systemPrompt.slice(sectionEnd);
       console.log(`[core] sección "${section.name}" eliminada (${sectionText.length} chars)`);
     }
     // Si sigue excediendo después de eliminar secciones opcionales, truncado duro al final
     if (result.systemPrompt.length > MAX_SYSTEM_CHARS) {
       const budget = MAX_SYSTEM_CHARS - TRUNCATION_SUFFIX.length;
-      console.warn(`[core] truncado duro: ${result.systemPrompt.length} → ${MAX_SYSTEM_CHARS} chars (solo identidad)`);
+      console.warn(
+        `[core] truncado duro: ${result.systemPrompt.length} → ${MAX_SYSTEM_CHARS} chars (solo identidad)`
+      );
       result.systemPrompt = result.systemPrompt.slice(0, Math.max(0, budget)) + TRUNCATION_SUFFIX;
     }
   }
 
-  return { ...result, behaviorCtx, toolIntent, taskIntent, mode, nativeToolSchemas: resolvedTools?.nativeToolSchemas || null };
+  return {
+    ...result,
+    behaviorCtx,
+    toolIntent,
+    taskIntent,
+    mode,
+    nativeToolSchemas: resolvedTools?.nativeToolSchemas || null,
+  };
 }
 
 /**
@@ -1098,25 +1263,28 @@ async function buildContext(sessionHistory, activeProvider, options = {}) {
  * a 40 tools para no inflar el prompt si hay muchos servidores conectados.
  */
 function _buildMCPCatalogPrompt(mcpTools) {
-  const lines = mcpTools.slice(0, MCP_CATALOG_LIMIT).map(t => {
+  const lines = mcpTools.slice(0, MCP_CATALOG_LIMIT).map((t) => {
     const desc = (t.description || '').replace(/\s+/g, ' ').slice(0, 100);
     return `  - SERVIDOR=${t.server} | HERRAMIENTA=${t.tool}${desc ? ' — ' + desc : ''}`;
   });
 
-  return '\n\n# HERRAMIENTAS MCP DISPONIBLES\n' +
+  return (
+    '\n\n# HERRAMIENTAS MCP DISPONIBLES\n' +
     'Tienes acceso a estas herramientas de servidores MCP conectados. ' +
     'SOLO debes usarlas si el comando que necesitas NO se puede ejecutar con OpenClaw ' +
     '(Ejecutar: <comando>). Para listar archivos, leer archivos, o escribir archivos ' +
     'usa SIEMPRE OpenClaw (Ejecutar: ls <ruta>, Ejecutar: cat <archivo>, etc.).\n\n' +
     'Herramientas disponibles (copia EXACTAMENTE el SERVIDOR y HERRAMIENTA de esta lista):\n' +
-    lines.join('\n') + '\n\n' +
+    lines.join('\n') +
+    '\n\n' +
     'Para usar una herramienta MCP, responde con este formato EXACTO (sin comillas alrededor de SERVIDOR y HERRAMIENTA):\n' +
     '```action\n' +
     'ACCIÓN: mcp_call | SERVIDOR: filesystem | HERRAMIENTA: list_directory | PARAMS: {"path": "/ruta"}\n' +
     '```\n' +
     'El SERVIDOR y HERRAMIENTA deben coincidir EXACTAMENTE con la lista de arriba, incluyendo mayúsculas. ' +
     'PARAMS debe ser JSON válido en una sola línea. ' +
-    'El sistema pedirá confirmación al usuario antes de ejecutar cualquier herramienta MCP.';
+    'El sistema pedirá confirmación al usuario antes de ejecutar cualquier herramienta MCP.'
+  );
 }
 
 // ── Fase 3: Planner y OpenClaw ────────────────────────────────────────────────
@@ -1129,7 +1297,7 @@ async function isOpenClawAvailable() {
 /**
  * Genera un plan estructurado para una tarea detectada.
  * Fase 1 del sistema de dos fases (plan → ejecución).
- * 
+ *
  * @param {string} userGoal - El mensaje del usuario
  * @param {object} taskIntent - Resultado de TaskDetector.detect()
  * @param {Array} sessionHistory - Historial de la sesión
@@ -1166,7 +1334,16 @@ async function generatePlan(userGoal, taskIntent, sessionHistory = []) {
     const fallbackPlan = _planner.planFromLLMResponse(llmResponse, userGoal, null);
     if (fallbackPlan && fallbackPlan.steps?.length > 0) {
       _bus.emit('plan:generated', { goal: userGoal, plan: fallbackPlan, llmResponse });
-      return { plan: { steps: fallbackPlan.steps.map(s => ({ done: false, description: s.description || s.tool })) }, llmResponse, error: null };
+      return {
+        plan: {
+          steps: fallbackPlan.steps.map((s) => ({
+            done: false,
+            description: s.description || s.tool,
+          })),
+        },
+        llmResponse,
+        error: null,
+      };
     }
 
     return { plan: null, llmResponse, error: 'No se pudo extraer un plan de la respuesta' };
@@ -1215,10 +1392,13 @@ async function executeTool(tool, params) {
   // — ese tipo de acción SOLO puede pasar por el flujo normal con plan +
   // confirmación del usuario.
   if (isHighImpact(tool, params || {})) {
-    console.warn(`[core] executeTool bloqueado — "${tool}" requiere pasar por el flujo de plan con aprobación, no por el atajo directo`);
+    console.warn(
+      `[core] executeTool bloqueado — "${tool}" requiere pasar por el flujo de plan con aprobación, no por el atajo directo`
+    );
     return {
-      ok:     false,
-      error:  'Esta acción requiere aprobación explícita — usa el flujo de plan (openclaw-parse-plan → openclaw-execute-plan) en vez de executeTool directo.',
+      ok: false,
+      error:
+        'Esta acción requiere aprobación explícita — usa el flujo de plan (openclaw-parse-plan → openclaw-execute-plan) en vez de executeTool directo.',
       tool,
       result: null,
       elapsed: 0,
@@ -1258,9 +1438,7 @@ function _resolveAgentMode(userMessage, opts = {}) {
     // si el detector falla, se asume conversación (fast)
   }
 
-  return isTask
-    ? { mode: 'smart', maxIterations: 25 }
-    : { mode: 'fast', maxIterations: 8 };
+  return isTask ? { mode: 'smart', maxIterations: 25 } : { mode: 'fast', maxIterations: 8 };
 }
 
 /**
@@ -1287,7 +1465,12 @@ async function runAgent(userMessage, opts = {}) {
   console.log(`[agent-timing] buildContext ${Date.now() - _t0}ms`);
 
   if (!context || !context.systemPrompt) {
-    return { response: null, iterations: 0, toolResults: [], error: 'No se pudo construir contexto' };
+    return {
+      response: null,
+      iterations: 0,
+      toolResults: [],
+      error: 'No se pudo construir contexto',
+    };
   }
 
   // ── Modo automático por intención: sin override explícito, TaskDetector
@@ -1306,7 +1489,7 @@ async function runAgent(userMessage, opts = {}) {
     toolResolver: { resolveToolset },
     skillManager: _skillManager || null,
     mcpManager: _mcp || null,
-    skillDb: (_graph && !_graph.usingFallback && _graph._db) ? _graph._db : null,
+    skillDb: _graph && !_graph.usingFallback && _graph._db ? _graph._db : null,
   };
 
   // evalMode: benchmark headless — toda tool de alto impacto se auto-aprueba,
@@ -1341,30 +1524,32 @@ function getStats() {
         return acc;
       }, {});
     }
-  } catch(_) {}
+  } catch (_) {}
 
   return {
-    session:        _session?.getStats()            ?? { error: 'no inicializado' },
-    osSensor:       _osSensor?.getCurrentContext()  ?? null,
-    proactive:      _proactive?.getStats()          ?? null,
-    autonomy:       _proactive?.getAutonomyMode()   ?? null,
-    executor:       _proactiveExecutor?.getStats()  ?? null,
+    session: _session?.getStats() ?? { error: 'no inicializado' },
+    osSensor: _osSensor?.getCurrentContext() ?? null,
+    proactive: _proactive?.getStats() ?? null,
+    autonomy: _proactive?.getAutonomyMode() ?? null,
+    executor: _proactiveExecutor?.getStats() ?? null,
     signals: {
-      git:       _gitWatcher?.getStats()      ?? null,
-      system:    _systemWatcher?.getStats()   ?? null,
-      title:     _titleWatcher?.getStats()    ?? null,
+      git: _gitWatcher?.getStats() ?? null,
+      system: _systemWatcher?.getStats() ?? null,
+      title: _titleWatcher?.getStats() ?? null,
       clipboard: _clipboardWatcher?.getStats() ?? null,
-      events:    _eventsWatcher?.getStats()   ?? null,
-      lsp:       _lspErrorWatcher?.getStats() ?? null,
+      events: _eventsWatcher?.getStats() ?? null,
+      lsp: _lspErrorWatcher?.getStats() ?? null,
     },
-    planner:        _planner?.getStats()            ?? null,
-    openclaw:       _bridge?.getStats()             ?? null,
+    planner: _planner?.getStats() ?? null,
+    openclaw: _bridge?.getStats() ?? null,
     intentDetector: _detector ? { ready: _detector.isReady() } : null,
-    lsp:            _lspManager ? { running: _lspManager.isRunning, filePatterns: _lspManager.supportedFilePatterns } : null,
-    telemetry:      _telemetry?.getStats() ?? null,
-    eventBus:       busEvents,
-    provider:       LLMProvider.getActiveProvider() ?? 'groq',
-    usingFallback:  _graph?.usingFallback           ?? false,
+    lsp: _lspManager
+      ? { running: _lspManager.isRunning, filePatterns: _lspManager.supportedFilePatterns }
+      : null,
+    telemetry: _telemetry?.getStats() ?? null,
+    eventBus: busEvents,
+    provider: LLMProvider.getActiveProvider() ?? 'groq',
+    usingFallback: _graph?.usingFallback ?? false,
   };
 }
 
@@ -1374,7 +1559,9 @@ async function forceProactive(triggerType = 'long_silence') {
 
 function _scheduleDailyPrune() {
   const run = () => {
-    try { _graph?.pruneAppHistory(30); } catch(e) {
+    try {
+      _graph?.pruneAppHistory(30);
+    } catch (e) {
       console.warn('[core] error en prune diario:', e.message);
     }
   };
@@ -1384,14 +1571,30 @@ function _scheduleDailyPrune() {
 
 // ── Getters ───────────────────────────────────────────────────────────────────
 
-function getGraph()         { return _graph;     }
-function getOSSensor()      { return _osSensor;  }
-function getGrounding()     { return _grounding; }
-function getEventBus_()     { return _bus;       }
-function getBehaviorModel() { return _behavior;  }
-function getPlanner_()      { return _planner;   }
-function getBridge()        { return _bridge;    }
-function getTaskDetector_() { return _taskDetector; }
+function getGraph() {
+  return _graph;
+}
+function getOSSensor() {
+  return _osSensor;
+}
+function getGrounding() {
+  return _grounding;
+}
+function getEventBus_() {
+  return _bus;
+}
+function getBehaviorModel() {
+  return _behavior;
+}
+function getPlanner_() {
+  return _planner;
+}
+function getBridge() {
+  return _bridge;
+}
+function getTaskDetector_() {
+  return _taskDetector;
+}
 function listSkills() {
   if (!_skillManager) return [];
   return _skillManager.getAllSkills();
@@ -1401,7 +1604,7 @@ function storeFact({ type, label, content, importance = 0.85, tags = [] }) {
   if (!_graph?.isReady) return null;
   try {
     return _graph.createNode({ type, label, content, importance, tags });
-  } catch(e) {
+  } catch (e) {
     console.warn('[core] error guardando hecho:', e.message);
     return null;
   }
@@ -1420,11 +1623,11 @@ module.exports = {
   getGraph,
   getOSSensor,
   getGrounding,
-  getEventBus:      getEventBus_,
+  getEventBus: getEventBus_,
   getBehaviorModel,
-  getPlanner:       getPlanner_,
+  getPlanner: getPlanner_,
   getBridge,
-  getTaskDetector:  getTaskDetector_,
+  getTaskDetector: getTaskDetector_,
   onInitiative,
   onProposalResult,
   setChatOpen,

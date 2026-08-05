@@ -1,12 +1,12 @@
 'use strict';
 
 const C = {
-  green:  (s) => `\x1b[32m${s}\x1b[0m`,
-  red:    (s) => `\x1b[31m${s}\x1b[0m`,
+  green: (s) => `\x1b[32m${s}\x1b[0m`,
+  red: (s) => `\x1b[31m${s}\x1b[0m`,
   yellow: (s) => `\x1b[33m${s}\x1b[0m`,
-  cyan:   (s) => `\x1b[36m${s}\x1b[0m`,
-  bold:   (s) => `\x1b[1m${s}\x1b[0m`,
-  dim:    (s) => `\x1b[2m${s}\x1b[0m`,
+  cyan: (s) => `\x1b[36m${s}\x1b[0m`,
+  bold: (s) => `\x1b[1m${s}\x1b[0m`,
+  dim: (s) => `\x1b[2m${s}\x1b[0m`,
 };
 
 let passed = 0;
@@ -72,20 +72,29 @@ function testApprovalGate() {
   console.log(C.bold('\n── Approval gate (isHighImpact) ────────────────────────'));
 
   // browser siempre es high-impact
-  assert(AP.isHighImpact('browser', { action: 'navigate', url: 'https://example.com' }), 'browser → high impact');
+  assert(
+    AP.isHighImpact('browser', { action: 'navigate', url: 'https://example.com' }),
+    'browser → high impact'
+  );
 
   // web_search NO es high impact (solo lectura)
   assert(!AP.isHighImpact('web_search', { query: 'test' }), 'web_search → low impact');
 
   // apply_patch siempre es high impact
-  assert(AP.isHighImpact('apply_patch', { path: 'file.txt', patch: '' }), 'apply_patch → high impact');
+  assert(
+    AP.isHighImpact('apply_patch', { path: 'file.txt', patch: '' }),
+    'apply_patch → high impact'
+  );
 
   // code_execution siempre es high impact
   assert(AP.isHighImpact('code_execution', { code: 'print(1)' }), 'code_execution → high impact');
 
   // exec con comando peligroso es high impact
   assert(AP.isHighImpact('exec', { command: 'rm -rf /tmp/test' }), 'exec rm -rf → high impact');
-  assert(AP.isHighImpact('exec', { command: 'git push --force origin main' }), 'exec git push --force → high impact');
+  assert(
+    AP.isHighImpact('exec', { command: 'git push --force origin main' }),
+    'exec git push --force → high impact'
+  );
 
   // exec con comando seguro NO es high impact
   assert(!AP.isHighImpact('exec', { command: 'git status' }), 'exec git status → low impact');
@@ -101,10 +110,16 @@ function testApprovalGate() {
   assert(AP.isHighImpact('write', { path: '.env', content: 'X=1' }), 'write a .env → high impact');
 
   // write fuera del proyecto es high impact
-  assert(AP.isHighImpact('write', { path: '/tmp/foo' }), 'write a /tmp/foo → high impact (outside project)');
+  assert(
+    AP.isHighImpact('write', { path: '/tmp/foo' }),
+    'write a /tmp/foo → high impact (outside project)'
+  );
 
   // edit fuera del proyecto es high impact
-  assert(AP.isHighImpact('edit', { path: '/etc/hosts', oldString: 'a', newString: 'b' }), 'edit /etc/hosts → high impact');
+  assert(
+    AP.isHighImpact('edit', { path: '/etc/hosts', oldString: 'a', newString: 'b' }),
+    'edit /etc/hosts → high impact'
+  );
 }
 
 // ── Test 3: Schema params vs handler params ───────────────────────────────
@@ -115,23 +130,41 @@ function testSchemaHandlerParity() {
   const allSchemas = registry._getOpenClawTools();
 
   // read: schema tiene "path", handler espera "path"
-  const readSchema = allSchemas.find(s => s.name === 'read');
-  assert(readSchema.params.some(p => p.name === 'path'), 'read schema tiene param "path"');
+  const readSchema = allSchemas.find((s) => s.name === 'read');
+  assert(
+    readSchema.params.some((p) => p.name === 'path'),
+    'read schema tiene param "path"'
+  );
 
   // write: schema tiene "path", "content"; handler espera "path", "content"
-  const writeSchema = allSchemas.find(s => s.name === 'write');
-  assert(writeSchema.params.some(p => p.name === 'path'), 'write schema tiene param "path"');
-  assert(writeSchema.params.some(p => p.name === 'content'), 'write schema tiene param "content"');
+  const writeSchema = allSchemas.find((s) => s.name === 'write');
+  assert(
+    writeSchema.params.some((p) => p.name === 'path'),
+    'write schema tiene param "path"'
+  );
+  assert(
+    writeSchema.params.some((p) => p.name === 'content'),
+    'write schema tiene param "content"'
+  );
 
   // edit: schema usa oldString/newString, handler usa old_text/new_text
   // La traducción la hace OpenClawBridge.TOOL_SCHEMAS.edit
-  const editSchema = allSchemas.find(s => s.name === 'edit');
-  assert(editSchema.params.some(p => p.name === 'oldString'), 'edit schema tiene param "oldString"');
-  assert(editSchema.params.some(p => p.name === 'newString'), 'edit schema tiene param "newString"');
+  const editSchema = allSchemas.find((s) => s.name === 'edit');
+  assert(
+    editSchema.params.some((p) => p.name === 'oldString'),
+    'edit schema tiene param "oldString"'
+  );
+  assert(
+    editSchema.params.some((p) => p.name === 'newString'),
+    'edit schema tiene param "newString"'
+  );
 
   // exec: schema tiene "command", handler espera "command"
-  const execSchema = allSchemas.find(s => s.name === 'exec');
-  assert(execSchema.params.some(p => p.name === 'command'), 'exec schema tiene param "command"');
+  const execSchema = allSchemas.find((s) => s.name === 'exec');
+  assert(
+    execSchema.params.some((p) => p.name === 'command'),
+    'exec schema tiene param "command"'
+  );
 }
 
 // ── Test 4: HighImpact en ToolRegistry coincide con ActionParser ──────────
@@ -165,7 +198,10 @@ function testConsistentHighImpact() {
     }
     // exec: condicional en ActionParser
     if (s.name === 'exec') {
-      assert(s.highImpact === false, 'exec: highImpact=false en ToolRegistry (depende del comando)');
+      assert(
+        s.highImpact === false,
+        'exec: highImpact=false en ToolRegistry (depende del comando)'
+      );
       continue;
     }
   }
@@ -180,7 +216,16 @@ function testBridgeToolRouting() {
 
   // Verificar que las tools que van por HTTP tienen schema builders en el bridge
   const bridgeSchemas = {};
-  for (const key of ['exec', 'read', 'write', 'edit', 'apply_patch', 'code_execution', 'grep', 'glob']) {
+  for (const key of [
+    'exec',
+    'read',
+    'write',
+    'edit',
+    'apply_patch',
+    'code_execution',
+    'grep',
+    'glob',
+  ]) {
     bridgeSchemas[key] = true;
   }
 
@@ -192,8 +237,14 @@ function testBridgeToolRouting() {
 
   // BrowserBridge usa executeBrowserAction y executeWebSearch
   const BrowserBridge = require('../core/planner/BrowserBridge.js');
-  assert(typeof BrowserBridge.executeBrowserAction === 'function', 'BrowserBridge.executeBrowserAction existe');
-  assert(typeof BrowserBridge.executeWebSearch === 'function', 'BrowserBridge.executeWebSearch existe');
+  assert(
+    typeof BrowserBridge.executeBrowserAction === 'function',
+    'BrowserBridge.executeBrowserAction existe'
+  );
+  assert(
+    typeof BrowserBridge.executeWebSearch === 'function',
+    'BrowserBridge.executeWebSearch existe'
+  );
 }
 
 // ── Test 6: Server handler error consistency ──────────────────────────────
@@ -204,7 +255,10 @@ function testServerHandlerErrors() {
 
   // exec sin comando
   const execNoCmd = handlers.exec({});
-  assert(execNoCmd.error && execNoCmd.error.includes('command required'), 'exec sin command → error "command required"');
+  assert(
+    execNoCmd.error && execNoCmd.error.includes('command required'),
+    'exec sin command → error "command required"'
+  );
 
   // exec con comando bloqueado
   const execBlocked = handlers.exec({ command: 'sudo rm -rf /' });
@@ -212,19 +266,35 @@ function testServerHandlerErrors() {
 
   // read de archivo inexistente (fuera del proyecto)
   const readNonexistent = handlers.read({ path: '/nonexistent-12345' });
-  assert(readNonexistent.error && readNonexistent.error.includes('outside allowed'), 'read fuera del proyecto → error "outside allowed"');
+  assert(
+    readNonexistent.error && readNonexistent.error.includes('outside allowed'),
+    'read fuera del proyecto → error "outside allowed"'
+  );
 
   // read de archivo inexistente dentro del proyecto
   const readInside = handlers.read({ path: '__test_e2e_nonexistent_12345__' });
-  assert(readInside.error && readInside.error.includes('File not found'), 'read dentro del proyecto pero inexistente → error "File not found"');
+  assert(
+    readInside.error && readInside.error.includes('File not found'),
+    'read dentro del proyecto pero inexistente → error "File not found"'
+  );
 
   // write a path inmutable
   const writeImmutable = handlers.write({ path: '.env', content: 'test' });
-  assert(writeImmutable.error && writeImmutable.error.includes('outside allowed'), 'write .env → error "outside allowed"');
+  assert(
+    writeImmutable.error && writeImmutable.error.includes('outside allowed'),
+    'write .env → error "outside allowed"'
+  );
 
   // edit sin old_text match
-  const editNoMatch = handlers.edit({ path: 'nonexistent-edit-test-12345', old_text: 'notfound', new_text: '' });
-  assert(editNoMatch.error && editNoMatch.error.includes('File not found'), 'edit archivo inexistente → error');
+  const editNoMatch = handlers.edit({
+    path: 'nonexistent-edit-test-12345',
+    old_text: 'notfound',
+    new_text: '',
+  });
+  assert(
+    editNoMatch.error && editNoMatch.error.includes('File not found'),
+    'edit archivo inexistente → error'
+  );
 }
 
 // ── Test 7: Edición determinista (diff search/replace) ────────────────────
@@ -239,21 +309,36 @@ function testDeterministicEdit() {
 
   // old_text aparece 2 veces → ambigüedad → error, sin modificar nada
   const ambiguous = handlers.edit({ path: tmpFile, old_text: 'line one', new_text: 'X' });
-  assert(ambiguous.error && ambiguous.error.includes('ambiguo'), 'edit con 2 coincidencias → error "ambiguo"');
-  assert(fs.readFileSync(tmpFile, 'utf-8') === 'line one\nline two\nline one\n', 'edit ambiguo no modifica el archivo');
+  assert(
+    ambiguous.error && ambiguous.error.includes('ambiguo'),
+    'edit con 2 coincidencias → error "ambiguo"'
+  );
+  assert(
+    fs.readFileSync(tmpFile, 'utf-8') === 'line one\nline two\nline one\n',
+    'edit ambiguo no modifica el archivo'
+  );
 
   // old_text único → reemplazo exacto determinista
   const ok = handlers.edit({ path: tmpFile, old_text: 'line two', new_text: 'line TWO' });
   assert(ok.result && ok.result.includes('Edited'), 'edit único → ok');
-  assert(fs.readFileSync(tmpFile, 'utf-8') === 'line one\nline TWO\nline one\n', 'edit único reemplaza exactamente una vez');
+  assert(
+    fs.readFileSync(tmpFile, 'utf-8') === 'line one\nline TWO\nline one\n',
+    'edit único reemplaza exactamente una vez'
+  );
 
   // old_text inexistente → error claro
   const missing = handlers.edit({ path: tmpFile, old_text: 'nope', new_text: 'X' });
-  assert(missing.error && missing.error.includes('no se encontró'), 'edit sin coincidencia → error claro');
+  assert(
+    missing.error && missing.error.includes('no se encontró'),
+    'edit sin coincidencia → error claro'
+  );
 
   // alias oldString/newString (schema del ToolRegistry)
   const alias = handlers.edit({ path: tmpFile, oldString: 'line one', newString: 'L' });
-  assert(alias.error && alias.error.includes('ambiguo'), 'edit con oldString/newText → usa los alias (ambiguo aquí)');
+  assert(
+    alias.error && alias.error.includes('ambiguo'),
+    'edit con oldString/newText → usa los alias (ambiguo aquí)'
+  );
 
   fs.unlinkSync(tmpFile);
 }
@@ -270,7 +355,10 @@ function testSearchTools() {
 
   // grep con regex inválida → error claro, no crash
   const badRe = handlers.grep({ pattern: '[' });
-  assert(badRe.error && badRe.error.includes('regex inválido'), 'grep con regex inválido → error claro');
+  assert(
+    badRe.error && badRe.error.includes('regex inválido'),
+    'grep con regex inválido → error claro'
+  );
 
   // grep encuentra coincidencias en el propio proyecto
   const g = handlers.grep({ pattern: 'HANDLERS', path: '.', include: 'openclaw-server.js' });
@@ -280,13 +368,22 @@ function testSearchTools() {
 
   // grep excluye node_modules por defecto (el walker no entra a node_modules)
   const g2 = srv.HANDLERS.grep({ pattern: 'minimatch', path: '.', include: '**/*.js' });
-  const noNodeModules = (g2.result?.matches || []).every(m => !m.path.startsWith('node_modules/'));
-  assert(noNodeModules, 'grep ignora node_modules', JSON.stringify((g2.result?.matches || []).slice(0, 3)));
+  const noNodeModules = (g2.result?.matches || []).every(
+    (m) => !m.path.startsWith('node_modules/')
+  );
+  assert(
+    noNodeModules,
+    'grep ignora node_modules',
+    JSON.stringify((g2.result?.matches || []).slice(0, 3))
+  );
 
   // glob lista archivos por patrón
   const gl = handlers.glob({ pattern: 'src/**/*.js' });
   assert(gl.result && gl.result.count > 0, 'glob encuentra archivos en src');
-  assert(gl.result.files.every(f => f.endsWith('.js')), 'glob respeta el patrón *.js');
+  assert(
+    gl.result.files.every((f) => f.endsWith('.js')),
+    'glob respeta el patrón *.js'
+  );
 
   // glob fuera del proyecto → error
   const gl2 = handlers.glob({ pattern: '*', path: '/etc' });
@@ -313,16 +410,23 @@ async function testToolResolverCatalog() {
   // Verificar que todas las herramientas OpenClaw + LSP + Git + GitHub están
   // en el catálogo (Git/GitHub nativas son parte del toolset desde §10).
   const allToolNames = [
-    ...registry._getOpenClawTools().map(t => t.name),
-    ...registry._getLSPTools().map(t => t.name),
-    ...registry._getGitTools().map(t => t.name),
-    ...registry._getGitHubTools().map(t => t.name),
+    ...registry._getOpenClawTools().map((t) => t.name),
+    ...registry._getLSPTools().map((t) => t.name),
+    ...registry._getGitTools().map((t) => t.name),
+    ...registry._getGitHubTools().map((t) => t.name),
   ];
   for (const name of allToolNames) {
-    assert(result.nativeToolSchemas.some(s => s.name === name), `${name}: presente en nativeToolSchemas`);
+    assert(
+      result.nativeToolSchemas.some((s) => s.name === name),
+      `${name}: presente en nativeToolSchemas`
+    );
   }
 
-  assertEqual(result.nativeToolSchemas.length, allToolNames.length, 'nativeToolSchemas cubre todas las herramientas');
+  assertEqual(
+    result.nativeToolSchemas.length,
+    allToolNames.length,
+    'nativeToolSchemas cubre todas las herramientas'
+  );
 }
 
 // ── Run ────────────────────────────────────────────────────────────────────
@@ -364,12 +468,19 @@ async function main() {
   const color = failed === 0 ? C.green : C.red;
   const skipNote = skipped > 0 ? `  ${C.yellow(`${skipped} skipped`)}` : '';
   if (failed === 0) {
-    console.log(`  ${color('Resultado')}: ${color(`${passed} passed`)}  ${C.dim(`0 failed`)}${skipNote}  / ${total} total`);
+    console.log(
+      `  ${color('Resultado')}: ${color(`${passed} passed`)}  ${C.dim(`0 failed`)}${skipNote}  / ${total} total`
+    );
   } else {
-    console.log(`  Resultado: ${C.green(`${passed} passed`)}  ${C.red(`${failed} failed`)}${skipNote}  / ${total} total`);
+    console.log(
+      `  Resultado: ${C.green(`${passed} passed`)}  ${C.red(`${failed} failed`)}${skipNote}  / ${total} total`
+    );
   }
   console.log(C.bold('════════════════════════════════════════════════════════'));
   if (failed > 0) process.exit(1);
 }
 
-main().catch(e => { console.error(e); process.exit(1); });
+main().catch((e) => {
+  console.error(e);
+  process.exit(1);
+});

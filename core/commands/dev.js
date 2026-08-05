@@ -20,7 +20,11 @@ module.exports = function registerCommands(register) {
         if (depth > 3) return [];
         const items = [];
         let entries;
-        try { entries = ctx.fs.readdirSync(dir, { withFileTypes: true }); } catch { return []; }
+        try {
+          entries = ctx.fs.readdirSync(dir, { withFileTypes: true });
+        } catch {
+          return [];
+        }
         for (const e of entries) {
           if (e.name.startsWith('.') || e.name === 'node_modules' || e.name === 'exports') continue;
           const full = ctx.path.join(dir, e.name);
@@ -32,7 +36,9 @@ module.exports = function registerCommands(register) {
             try {
               const stat = ctx.fs.statSync(full);
               items.push({ path: rel, type: 'file', size: stat.size });
-            } catch { items.push({ path: rel, type: 'file' }); }
+            } catch {
+              items.push({ path: rel, type: 'file' });
+            }
           }
         }
         return items;
@@ -49,21 +55,28 @@ module.exports = function registerCommands(register) {
         } catch {}
       }
 
-      const totalFiles = files.filter(f => f.type === 'file').length;
-      const totalDirs = files.filter(f => f.type === 'dir').length;
+      const totalFiles = files.filter((f) => f.type === 'file').length;
+      const totalDirs = files.filter((f) => f.type === 'dir').length;
       const byExt = {};
       for (const f of files) {
         if (f.type !== 'file') continue;
         const ext = ctx.path.extname(f.path).toLowerCase() || '(sin ext)';
         byExt[ext] = (byExt[ext] || 0) + 1;
       }
-      const topExt = Object.entries(byExt).sort((a, b) => b[1] - a[1]).slice(0, 8)
-        .map(([ext, count]) => `${ext} (${count})`).join(', ');
+      const topExt = Object.entries(byExt)
+        .sort((a, b) => b[1] - a[1])
+        .slice(0, 8)
+        .map(([ext, count]) => `${ext} (${count})`)
+        .join(', ');
 
       const treeLines = [];
-      const topDirs = files.filter(f => f.type === 'dir' && f.path.split(ctx.path.sep).length === 2).slice(0, 20);
+      const topDirs = files
+        .filter((f) => f.type === 'dir' && f.path.split(ctx.path.sep).length === 2)
+        .slice(0, 20);
       for (const d of topDirs) treeLines.push(`[DIR] ${d.path}`);
-      const topFiles = files.filter(f => f.type === 'file' && f.path.split(ctx.path.sep).length <= 2).slice(0, 30);
+      const topFiles = files
+        .filter((f) => f.type === 'file' && f.path.split(ctx.path.sep).length <= 2)
+        .slice(0, 30);
       for (const f of topFiles) treeLines.push(`      ${f.path} (${_formatSize(f.size)})`);
 
       if (ctx.sendIPC) {
@@ -87,7 +100,9 @@ module.exports = function registerCommands(register) {
         ...treeLines.slice(0, 40),
         '```',
         treeLines.length > 40 ? `*... y ${treeLines.length - 40} items mas*` : '',
-      ].filter(Boolean).join('\n');
+      ]
+        .filter(Boolean)
+        .join('\n');
     },
   });
 
@@ -158,10 +173,13 @@ module.exports = function registerCommands(register) {
           timeout: 30,
         });
         const output = (result.stdout || '') + (result.stderr || '');
-        const lines = output.trim().split('\n').filter(l => l.includes(': error') || l.includes(': warning'));
+        const lines = output
+          .trim()
+          .split('\n')
+          .filter((l) => l.includes(': error') || l.includes(': warning'));
         if (lines.length === 0) return 'No se encontraron errores de lint.';
-        const errorCount = lines.filter(l => l.includes(': error')).length;
-        const warningCount = lines.filter(l => l.includes(': warning')).length;
+        const errorCount = lines.filter((l) => l.includes(': error')).length;
+        const warningCount = lines.filter((l) => l.includes(': warning')).length;
         return [
           `**Lint completo — ${lines.length} issues**`,
           `- ${errorCount} errores, ${warningCount} warnings`,
@@ -170,7 +188,9 @@ module.exports = function registerCommands(register) {
           ...lines.slice(0, 30),
           '```',
           lines.length > 30 ? `... y ${lines.length - 30} mas` : '',
-        ].filter(Boolean).join('\n');
+        ]
+          .filter(Boolean)
+          .join('\n');
       } catch (e) {
         return `Error ejecutando linter: ${e.message}. ¿Esta instalado eslint?`;
       }
@@ -188,7 +208,8 @@ module.exports = function registerCommands(register) {
           command: 'git log --oneline -1',
           timeout: 5,
         });
-        if (!stat || stat.exitCode !== 0) return 'No hay commits para revertir o no es un repo git.';
+        if (!stat || stat.exitCode !== 0)
+          return 'No hay commits para revertir o no es un repo git.';
         const lastCommit = (stat.stdout || '').trim();
         const result = await ctx.ipcRenderer.invoke('exec-command', {
           command: 'git reset --soft HEAD~1',
@@ -198,7 +219,9 @@ module.exports = function registerCommands(register) {
           return `Commit revertido (soft): \`${lastCommit}\`\nLos cambios quedan en staging. Usa \`git reset HEAD .\` para sacarlos si quieres.`;
         }
         return `Error al revertir: ${result.stderr || 'desconocido'}`;
-      } catch (e) { return `Error: ${e.message}`; }
+      } catch (e) {
+        return `Error: ${e.message}`;
+      }
     },
   });
 
@@ -209,11 +232,18 @@ module.exports = function registerCommands(register) {
     handler: async (args, ctx) => {
       const history = ctx.sessionHistory || [];
       if (history.length < 2) return 'No hay suficiente historial para reintentar.';
-      const lastUserIdx = history.map((m, i) => m.role === 'user' ? i : -1).filter(i => i >= 0).pop();
+      const lastUserIdx = history
+        .map((m, i) => (m.role === 'user' ? i : -1))
+        .filter((i) => i >= 0)
+        .pop();
       if (lastUserIdx === undefined) return 'No se encontro un mensaje de usuario para reintentar.';
       const lastUserMsg = history[lastUserIdx].content;
-      if (!lastUserMsg || lastUserMsg.startsWith('/')) return 'El ultimo mensaje era un comando, no se puede reintentar.';
-      if (ctx.processMessage) { ctx.processMessage(lastUserMsg); return 'Reintentando ultimo mensaje...'; }
+      if (!lastUserMsg || lastUserMsg.startsWith('/'))
+        return 'El ultimo mensaje era un comando, no se puede reintentar.';
+      if (ctx.processMessage) {
+        ctx.processMessage(lastUserMsg);
+        return 'Reintentando ultimo mensaje...';
+      }
       return 'No se puede reintentar — processMessage no disponible.';
     },
   });

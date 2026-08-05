@@ -36,7 +36,7 @@ const path = require('path');
 // 0.72 filtra la mayoría de preguntas conversacionales que accidentalmente
 // comparten vocabulario con acciones de herramienta.
 const THRESHOLD_HIGH = 0.75;
-const THRESHOLD_LOW  = 0.55;
+const THRESHOLD_LOW = 0.55;
 
 // Número de candidatos a recuperar de sqlite-vec antes de agregar por acción.
 // Más candidatos = más preciso, pero más lento. 8 es el sweet spot para
@@ -80,7 +80,7 @@ async function _getEmbedder() {
  */
 async function _embed(text) {
   const embedder = await _getEmbedder();
-  const output   = await embedder(text, { pooling: 'mean', normalize: true });
+  const output = await embedder(text, { pooling: 'mean', normalize: true });
   return output.data; // Float32Array
 }
 
@@ -128,7 +128,7 @@ class IntentDetector {
    * @param {import('better-sqlite3').Database} db — instancia ya abierta de core.db
    */
   constructor(db) {
-    this._db    = db;
+    this._db = db;
     this._ready = false;
     this._cache = new Map(); // cache LRU simple para mensajes recientes
     this._cacheMaxAgeMs = 5 * 60 * 1000; // 5 minutos TTL
@@ -136,7 +136,9 @@ class IntentDetector {
     this._init();
   }
 
-  isReady() { return this._ready; }
+  isReady() {
+    return this._ready;
+  }
 
   _init() {
     try {
@@ -152,9 +154,7 @@ class IntentDetector {
         return;
       }
 
-      const count = this._db
-        .prepare('SELECT COUNT(*) as n FROM intent_catalog')
-        .get().n;
+      const count = this._db.prepare('SELECT COUNT(*) as n FROM intent_catalog').get().n;
 
       if (count === 0) {
         console.warn('[intent-detector] Catálogo vacío. Ejecuta init_vectors.js');
@@ -180,7 +180,6 @@ class IntentDetector {
 
       this._ready = true;
       console.log(`[intent-detector] Listo. ${count} frases en el catálogo.`);
-
     } catch (e) {
       console.warn('[intent-detector] Error al inicializar:', e.message);
       this._ready = false;
@@ -209,9 +208,14 @@ class IntentDetector {
     const t0 = Date.now();
 
     const _none = (reason) => ({
-      detected: false, action: null, tool: null,
-      confidence: 0, level: 'none', description: reason,
-      candidates: [], elapsed: Date.now() - t0,
+      detected: false,
+      action: null,
+      tool: null,
+      confidence: 0,
+      level: 'none',
+      description: reason,
+      candidates: [],
+      elapsed: Date.now() - t0,
     });
 
     if (!userMessage || userMessage.trim().length < 3) {
@@ -243,10 +247,7 @@ class IntentDetector {
     // normalizados, cos_sim = 1 - (distancia²/2) → distanceToSimilarity().
     let rows;
     try {
-      rows = this._queryVec.all(
-        _float32ToBuffer(queryVector),
-        TOP_K
-      );
+      rows = this._queryVec.all(_float32ToBuffer(queryVector), TOP_K);
     } catch (e) {
       console.warn('[intent-detector] Error en búsqueda vectorial:', e.message);
       return _none(`Error en búsqueda: ${e.message}`);
@@ -266,20 +267,20 @@ class IntentDetector {
     // mejor frases de herramienta (0.64–0.90) de conversacionales (0.47–0.68)
     // que la suma/8 (0.08–0.47 solapado).
     const actionScores = new Map();
-    const actionMeta   = new Map();
+    const actionMeta = new Map();
 
     for (const row of rows) {
       const score = distanceToSimilarity(row.distance);
-      const prev  = actionScores.get(row.action) ?? 0;
+      const prev = actionScores.get(row.action) ?? 0;
       actionScores.set(row.action, Math.max(prev, score));
 
       if (!actionMeta.has(row.action)) {
         actionMeta.set(row.action, {
-          action:      row.action,
-          tool:        row.tool,
+          action: row.action,
+          tool: row.tool,
           description: row.description,
-          topPhrase:   row.phrase,
-          topScore:    score,
+          topPhrase: row.phrase,
+          topScore: score,
         });
       }
     }
@@ -289,11 +290,11 @@ class IntentDetector {
       const meta = actionMeta.get(action);
       normalized.push({
         action,
-        tool:        meta.tool,
+        tool: meta.tool,
         description: meta.description,
-        topPhrase:   meta.topPhrase,
+        topPhrase: meta.topPhrase,
         score,
-        rawScore:    score,
+        rawScore: score,
       });
     }
 
@@ -316,13 +317,13 @@ class IntentDetector {
 
     const result = {
       detected,
-      action:      detected ? best.action : null,
-      tool:        detected ? best.tool : null,
-      confidence:  parseFloat(best.score.toFixed(4)),
+      action: detected ? best.action : null,
+      tool: detected ? best.tool : null,
+      confidence: parseFloat(best.score.toFixed(4)),
       level,
       description: best.description,
-      candidates:  normalized.slice(0, 3), // top 3 para debug
-      elapsed:     Date.now() - t0,
+      candidates: normalized.slice(0, 3), // top 3 para debug
+      elapsed: Date.now() - t0,
     };
 
     // Cache: guardar resultado (LRU simple: máx 50 entradas, TTL 5 min)
@@ -344,7 +345,7 @@ class IntentDetector {
     const logScore = (best.score * 100).toFixed(1);
     console.log(
       `[intent-detector] "${userMessage.slice(0, 40)}..." ` +
-      `→ ${best.action} (${logScore}%, ${level}) en ${result.elapsed}ms`
+        `→ ${best.action} (${logScore}%, ${level}) en ${result.elapsed}ms`
     );
 
     return result;
@@ -374,10 +375,19 @@ let _instance = null;
 
 function getIntentDetector(db) {
   if (!_instance) {
-    if (!db) throw new Error('[intent-detector] Se requiere instancia de DB para la primera creación');
+    if (!db)
+      throw new Error('[intent-detector] Se requiere instancia de DB para la primera creación');
     _instance = new IntentDetector(db);
   }
   return _instance;
 }
 
-module.exports = { IntentDetector, getIntentDetector, THRESHOLD_HIGH, THRESHOLD_LOW, embedText, float32ToBuffer, distanceToSimilarity };
+module.exports = {
+  IntentDetector,
+  getIntentDetector,
+  THRESHOLD_HIGH,
+  THRESHOLD_LOW,
+  embedText,
+  float32ToBuffer,
+  distanceToSimilarity,
+};

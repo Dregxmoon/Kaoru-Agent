@@ -54,7 +54,9 @@ const DEFAULT_TIMEOUT = 30_000;
 // Core._startOpenClaw() (línea 205 en Core.js) setea process.env.OPENCLAW_API_KEY
 // DESPUÉS de que este módulo ya fue require()-do (línea 38 en Core.js).
 // Con un const de módulo, el cliente nunca manda el header de auth.
-function _getApiKey() { return process.env.OPENCLAW_API_KEY || null; }
+function _getApiKey() {
+  return process.env.OPENCLAW_API_KEY || null;
+}
 
 // Herramientas que se resuelven con el navegador propio del asistente,
 // no con el servidor HTTP de OpenClaw/mock.
@@ -67,7 +69,7 @@ const TOOL_SCHEMAS = {
     tool: 'exec',
     input: {
       command: params.command,
-      cwd:     params.cwd     || undefined,
+      cwd: params.cwd || undefined,
       timeout: params.timeout || 15,
     },
   }),
@@ -123,11 +125,11 @@ const TOOL_SCHEMAS = {
 function postJSON(url, body, timeoutMs = DEFAULT_TIMEOUT) {
   return new Promise((resolve, reject) => {
     const payload = JSON.stringify(body);
-    const parsed  = new URL(url);
+    const parsed = new URL(url);
 
     const apiKey = _getApiKey();
     const headers = {
-      'Content-Type':   'application/json',
+      'Content-Type': 'application/json',
       'Content-Length': Buffer.byteLength(payload),
     };
     if (apiKey) {
@@ -137,15 +139,17 @@ function postJSON(url, body, timeoutMs = DEFAULT_TIMEOUT) {
 
     const options = {
       hostname: parsed.hostname,
-      port:     Number(parsed.port) || 18789,
-      path:     parsed.pathname,
-      method:   'POST',
+      port: Number(parsed.port) || 18789,
+      path: parsed.pathname,
+      method: 'POST',
       headers,
     };
 
     const req = http.request(options, (res) => {
       let data = '';
-      res.on('data', (chunk) => { data += chunk; });
+      res.on('data', (chunk) => {
+        data += chunk;
+      });
       res.on('end', () => {
         try {
           resolve({ status: res.statusCode, body: JSON.parse(data) });
@@ -171,21 +175,29 @@ function getJSON(url, timeoutMs = 5000) {
     const parsed = new URL(url);
     const options = {
       hostname: parsed.hostname,
-      port:     Number(parsed.port) || 18789,
-      path:     parsed.pathname,
-      method:   'GET',
+      port: Number(parsed.port) || 18789,
+      path: parsed.pathname,
+      method: 'GET',
     };
 
     const req = http.request(options, (res) => {
       let data = '';
-      res.on('data', (c) => { data += c; });
+      res.on('data', (c) => {
+        data += c;
+      });
       res.on('end', () => {
-        try { resolve({ status: res.statusCode, body: JSON.parse(data) }); }
-        catch { resolve({ status: res.statusCode, body: { raw: data } }); }
+        try {
+          resolve({ status: res.statusCode, body: JSON.parse(data) });
+        } catch {
+          resolve({ status: res.statusCode, body: { raw: data } });
+        }
       });
     });
 
-    req.setTimeout(timeoutMs, () => { req.destroy(); reject(new Error('timeout')); });
+    req.setTimeout(timeoutMs, () => {
+      req.destroy();
+      reject(new Error('timeout'));
+    });
     req.on('error', reject);
     req.end();
   });
@@ -195,11 +207,11 @@ function getJSON(url, timeoutMs = 5000) {
 
 class OpenClawBridge {
   constructor() {
-    this._available    = null;
-    this._lastPing     = 0;
+    this._available = null;
+    this._lastPing = 0;
     this._pingInterval = 60_000;
-    this._actionLog    = [];
-    this._maxLog       = 200;
+    this._actionLog = [];
+    this._maxLog = 200;
   }
 
   // ── Disponibilidad ──────────────────────────────────────────────────────────
@@ -207,7 +219,7 @@ class OpenClawBridge {
   async isAvailable(force = false) {
     const now = Date.now();
     const ttl = this._available ? this._pingInterval : 2000;
-    if (!force && this._available !== null && (now - this._lastPing) < ttl) {
+    if (!force && this._available !== null && now - this._lastPing < ttl) {
       return this._available;
     }
 
@@ -231,7 +243,7 @@ class OpenClawBridge {
 
   resetAvailabilityCache() {
     this._available = null;
-    this._lastPing  = 0;
+    this._lastPing = 0;
   }
 
   // ── Ejecución principal ─────────────────────────────────────────────────────
@@ -246,16 +258,26 @@ class OpenClawBridge {
     // ── browser / web_search → BrowserBridge (Playwright real) ───────────────
     if (BROWSER_TOOLS.has(tool)) {
       try {
-        console.log(`[openclaw] ejecutando vía BrowserBridge: ${tool}`, JSON.stringify(params).slice(0, 120));
-        const browserResult = tool === 'web_search'
-          ? await BrowserBridge.executeWebSearch(params)
-          : await BrowserBridge.executeBrowserAction(params);
+        console.log(
+          `[openclaw] ejecutando vía BrowserBridge: ${tool}`,
+          JSON.stringify(params).slice(0, 120)
+        );
+        const browserResult =
+          tool === 'web_search'
+            ? await BrowserBridge.executeWebSearch(params)
+            : await BrowserBridge.executeBrowserAction(params);
 
         const elapsed = Date.now() - t0;
         this._log({ tool, params, ok: true, result: browserResult.result, elapsed });
         console.log(`[openclaw] ${tool} completado en ${elapsed}ms (BrowserBridge)`);
 
-        return { ok: true, result: browserResult.result, error: browserResult.error || null, tool, elapsed };
+        return {
+          ok: true,
+          result: browserResult.result,
+          error: browserResult.error || null,
+          tool,
+          elapsed,
+        };
       } catch (e) {
         return this._err(tool, e.message, t0);
       }
@@ -275,7 +297,7 @@ class OpenClawBridge {
     let body;
     try {
       body = builder(params);
-    } catch(e) {
+    } catch (e) {
       return this._err(tool, `Parámetros inválidos: ${e.message}`, t0);
     }
 
@@ -284,7 +306,7 @@ class OpenClawBridge {
     let res;
     try {
       res = await postJSON(`${_openclawBase()}/v1/tool`, body, opts.timeout || DEFAULT_TIMEOUT);
-    } catch(e) {
+    } catch (e) {
       this._available = false;
       return this._err(tool, `Error de red: ${e.message}`, t0);
     }
@@ -353,10 +375,10 @@ class OpenClawBridge {
   }
 
   getStats() {
-    const total  = this._actionLog.length;
-    const ok     = this._actionLog.filter(e => e.ok).length;
+    const total = this._actionLog.length;
+    const ok = this._actionLog.filter((e) => e.ok).length;
     const failed = total - ok;
-    const tools  = [...new Set(this._actionLog.map(e => e.tool))];
+    const tools = [...new Set(this._actionLog.map((e) => e.tool))];
     return { total, ok, failed, tools, available: this._available };
   }
 }

@@ -12,9 +12,7 @@ function register(ctx) {
 
     const result = await populateDatabase(db, { force: true });
 
-    const count = result.populated
-      ? result.inserted
-      : result.existing;
+    const count = result.populated ? result.inserted : result.existing;
 
     console.log(`[init-vectors] ${count} frases en ${Core.getGraph()?._dbPath ?? 'N/A'}`);
     return `${count} frases vectorizadas`;
@@ -34,13 +32,20 @@ function register(ctx) {
 
   ipcMain.handle('exec-command', async (e, { command, timeout }) => {
     if (!EXEC_COMMAND_ALLOWLIST.has(command)) {
-      return { exitCode: 1, stdout: '', stderr: `comando no permitido: ${JSON.stringify(command)}` };
+      return {
+        exitCode: 1,
+        stdout: '',
+        stderr: `comando no permitido: ${JSON.stringify(command)}`,
+      };
     }
     const util = require('util');
     const exec = util.promisify(require('child_process').exec);
     const safeTimeout = Math.min(timeout || 10, 60) * 1000;
     try {
-      const { stdout, stderr } = await exec(command, { timeout: safeTimeout, maxBuffer: 1024 * 1024 });
+      const { stdout, stderr } = await exec(command, {
+        timeout: safeTimeout,
+        maxBuffer: 1024 * 1024,
+      });
       return { exitCode: 0, stdout: stdout || '', stderr: stderr || '' };
     } catch (err) {
       return {

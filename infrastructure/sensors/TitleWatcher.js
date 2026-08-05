@@ -61,14 +61,22 @@ class TitleWatcher {
 
   _check({ app, category, title } = {}) {
     if (!title) return;
-    const match = ERROR_TITLE_PATTERNS.find(p => p.test(title));
-    if (!match) { this._lastKey = null; return; }
+    const match = ERROR_TITLE_PATTERNS.find((p) => p.test(title));
+    if (!match) {
+      this._lastKey = null;
+      return;
+    }
 
     const key = `${app || ''}|${title}`;
     if (key === this._lastKey) return; // mismo error en el mismo título → dedup
     this._lastKey = key;
     this._count++;
-    this._bus.emit('os:error-title', { app: app || null, category: category || null, title, match: String(match) });
+    this._bus.emit('os:error-title', {
+      app: app || null,
+      category: category || null,
+      title,
+      match: String(match),
+    });
   }
 
   getStats() {

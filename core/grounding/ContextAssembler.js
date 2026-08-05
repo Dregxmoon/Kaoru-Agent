@@ -7,14 +7,14 @@
  *   - Todo lo demás igual
  */
 
-const fs   = require('fs');
+const fs = require('fs');
 const path = require('path');
 
-const { GroqSerializer }                     = require('./serializers/GroqSerializer.js');
+const { GroqSerializer } = require('./serializers/GroqSerializer.js');
 const { GeminiSerializer, OpenAISerializer } = require('./serializers/GeminiOpenAISerializer.js');
 
 const SERIALIZERS = {
-  groq:   new GroqSerializer(),
+  groq: new GroqSerializer(),
   gemini: new GeminiSerializer(),
   openai: new OpenAISerializer(),
 };
@@ -51,13 +51,19 @@ function _sanitizeOSContext(ctx) {
   if (!ctx) return ctx;
   return {
     ...ctx,
-    friendlyName:       _sanitizeAppName(ctx.friendlyName),
-    title:              _sanitizeAppName(ctx.title),
+    friendlyName: _sanitizeAppName(ctx.friendlyName),
+    title: _sanitizeAppName(ctx.title),
     openWindowsSummary: ctx.openWindowsSummary
-      ? ctx.openWindowsSummary.split(', ').map(w => _sanitizeAppName(w)).join(', ')
+      ? ctx.openWindowsSummary
+          .split(', ')
+          .map((w) => _sanitizeAppName(w))
+          .join(', ')
       : null,
-    todaySummary:       ctx.todaySummary
-      ? ctx.todaySummary.split(', ').map(w => _sanitizeAppName(w)).join(', ')
+    todaySummary: ctx.todaySummary
+      ? ctx.todaySummary
+          .split(', ')
+          .map((w) => _sanitizeAppName(w))
+          .join(', ')
       : null,
   };
 }
@@ -66,7 +72,7 @@ function getIdentity() {
   if (_identity) return _identity;
   try {
     _identity = JSON.parse(fs.readFileSync(IDENTITY_PATH, 'utf-8'));
-  } catch(e) {
+  } catch (e) {
     console.warn('[context-assembler] no se pudo cargar identity.json:', e.message);
     _identity = { name: 'asistente', core: 'Soy tu asistente personal.' };
   }
@@ -79,69 +85,69 @@ function buildOSContext(osSensor) {
   const ctx = osSensor.getCurrentContext();
   if (!ctx) return _buildMinimalOSContext();
 
-  const now  = new Date();
+  const now = new Date();
   const hour = now.getHours();
   let timeOfDay;
-  if      (hour >= 5  && hour < 12) timeOfDay = 'mañana';
+  if (hour >= 5 && hour < 12) timeOfDay = 'mañana';
   else if (hour >= 12 && hour < 18) timeOfDay = 'tarde';
   else if (hour >= 18 && hour < 22) timeOfDay = 'noche';
-  else                               timeOfDay = 'madrugada';
+  else timeOfDay = 'madrugada';
 
-  const days    = ['domingo','lunes','martes','miércoles','jueves','viernes','sábado'];
+  const days = ['domingo', 'lunes', 'martes', 'miércoles', 'jueves', 'viernes', 'sábado'];
   const timeStr = now.toLocaleTimeString('es-MX', { hour: '2-digit', minute: '2-digit' });
   const dayName = days[now.getDay()];
 
   const raw = {
-    time:               timeStr,
-    date:               now.toLocaleDateString('es-MX', { weekday: 'long', day: 'numeric', month: 'long' }),
+    time: timeStr,
+    date: now.toLocaleDateString('es-MX', { weekday: 'long', day: 'numeric', month: 'long' }),
     timeOfDay,
     dayName,
-    timeFormatted:      `Son las ${timeStr} del ${dayName} por la ${timeOfDay}.`,
-    platform:           process.platform,
-    app:                ctx.app              ?? null,
-    friendlyName:       ctx.friendlyName     ?? null,
-    title:              ctx.title            ?? null,
-    category:           ctx.category         ?? null,
-    elapsed:            ctx.elapsed          ?? 0,
-    elapsedFormatted:   ctx.elapsedFormatted ?? '0s',
-    idleSecs:           ctx.idleSecs         ?? null,
-    idleFormatted:      ctx.idleFormatted    ?? null,
+    timeFormatted: `Son las ${timeStr} del ${dayName} por la ${timeOfDay}.`,
+    platform: process.platform,
+    app: ctx.app ?? null,
+    friendlyName: ctx.friendlyName ?? null,
+    title: ctx.title ?? null,
+    category: ctx.category ?? null,
+    elapsed: ctx.elapsed ?? 0,
+    elapsedFormatted: ctx.elapsedFormatted ?? '0s',
+    idleSecs: ctx.idleSecs ?? null,
+    idleFormatted: ctx.idleFormatted ?? null,
     openWindowsSummary: ctx.openWindowsSummary ?? null,
-    todaySummary:       osSensor.getTodaySummary() ?? null,
+    todaySummary: osSensor.getTodaySummary() ?? null,
   };
   return _sanitizeOSContext(raw);
 }
 
 function _buildMinimalOSContext() {
-  const now  = new Date();
+  const now = new Date();
   const hour = now.getHours();
   let timeOfDay;
-  if      (hour >= 5  && hour < 12) timeOfDay = 'mañana';
+  if (hour >= 5 && hour < 12) timeOfDay = 'mañana';
   else if (hour >= 12 && hour < 18) timeOfDay = 'tarde';
   else if (hour >= 18 && hour < 22) timeOfDay = 'noche';
-  else                               timeOfDay = 'madrugada';
+  else timeOfDay = 'madrugada';
 
-  const days    = ['domingo','lunes','martes','miércoles','jueves','viernes','sábado'];
+  const days = ['domingo', 'lunes', 'martes', 'miércoles', 'jueves', 'viernes', 'sábado'];
   const timeStr = now.toLocaleTimeString('es-MX', { hour: '2-digit', minute: '2-digit' });
   const dayName = days[now.getDay()];
 
   return {
-    time:               timeStr,
-    date:               now.toLocaleDateString('es-MX', { weekday: 'long', day: 'numeric', month: 'long' }),
+    time: timeStr,
+    date: now.toLocaleDateString('es-MX', { weekday: 'long', day: 'numeric', month: 'long' }),
     timeOfDay,
     dayName,
-    timeFormatted:      `Son las ${timeStr} del ${dayName} por la ${timeOfDay}.`,
-    platform:           process.platform,
-    app:                null,
-    friendlyName:       null,
-    title:              null,
-    category:           null,
-    elapsed:            0,
-    elapsedFormatted:   '0s',
-    idleSecs:           null,
-    idleFormatted:      null,
+    timeFormatted: `Son las ${timeStr} del ${dayName} por la ${timeOfDay}.`,
+    platform: process.platform,
+    app: null,
+    friendlyName: null,
+    title: null,
+    category: null,
+    elapsed: 0,
+    elapsedFormatted: '0s',
+    idleSecs: null,
+    idleFormatted: null,
     openWindowsSummary: null,
-    todaySummary:       null,
+    todaySummary: null,
   };
 }
 
@@ -161,14 +167,17 @@ class ContextAssembler {
    * @param {string} opts.activeProvider
    * @param {object} opts.toolIntent       — resultado de IntentDetector (Fase 3)
    */
-  build({ sessionHistory = [], retrievalResult = null, activeProvider = 'groq', toolIntent = null }) {
+  build({
+    sessionHistory = [],
+    retrievalResult = null,
+    activeProvider = 'groq',
+    toolIntent = null,
+  }) {
     const identity = getIdentity();
-    const osCtx    = buildOSContext(this._osSensor);
+    const osCtx = buildOSContext(this._osSensor);
 
-    const history    = sessionHistory.slice(0, -1);
-    const currentMsg = sessionHistory.length > 0
-      ? sessionHistory[sessionHistory.length - 1]
-      : null;
+    const history = sessionHistory.slice(0, -1);
+    const currentMsg = sessionHistory.length > 0 ? sessionHistory[sessionHistory.length - 1] : null;
 
     const contextPackage = {
       identity,
@@ -178,20 +187,20 @@ class ContextAssembler {
         : { nodes: [], episodes: [] },
       sessionHistory: history,
       currentMessage: currentMsg,
-      toolIntent,   // ← Fase 3: el GroqSerializer lo lee e inyecta en el system prompt
+      toolIntent, // ← Fase 3: el GroqSerializer lo lee e inyecta en el system prompt
     };
 
-    const serializer      = SERIALIZERS[activeProvider] ?? SERIALIZERS.groq;
-    const result          = serializer.serialize(contextPackage);
+    const serializer = SERIALIZERS[activeProvider] ?? SERIALIZERS.groq;
+    const result = serializer.serialize(contextPackage);
     const estimatedTokens = Math.round(result.systemPrompt.length / 4);
 
     console.log(
       `[context-assembler] provider=${activeProvider}` +
-      ` tokens≈${estimatedTokens}` +
-      ` nodes=${retrievalResult?.nodes?.length ?? 0}` +
-      ` episodes=${retrievalResult?.episodeNodes?.length ?? 0}` +
-      ` app=${osCtx.friendlyName ?? 'none'}` +
-      ` toolIntent=${toolIntent?.action ?? 'none'}`
+        ` tokens≈${estimatedTokens}` +
+        ` nodes=${retrievalResult?.nodes?.length ?? 0}` +
+        ` episodes=${retrievalResult?.episodeNodes?.length ?? 0}` +
+        ` app=${osCtx.friendlyName ?? 'none'}` +
+        ` toolIntent=${toolIntent?.action ?? 'none'}`
     );
 
     return result;

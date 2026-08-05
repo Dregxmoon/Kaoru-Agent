@@ -1,13 +1,18 @@
 'use strict';
 
-const { OAuthDeviceFlow, DEVICE_CODE_URL, ACCESS_TOKEN_URL, DEFAULT_SCOPE } = require('../core/github/OAuthDeviceFlow.js');
+const {
+  OAuthDeviceFlow,
+  DEVICE_CODE_URL,
+  ACCESS_TOKEN_URL,
+  DEFAULT_SCOPE,
+} = require('../core/github/OAuthDeviceFlow.js');
 
 const C = {
-  green:  (s) => `\x1b[32m${s}\x1b[0m`,
-  red:    (s) => `\x1b[31m${s}\x1b[0m`,
-  cyan:   (s) => `\x1b[36m${s}\x1b[0m`,
-  bold:   (s) => `\x1b[1m${s}\x1b[0m`,
-  dim:    (s) => `\x1b[2m${s}\x1b[0m`,
+  green: (s) => `\x1b[32m${s}\x1b[0m`,
+  red: (s) => `\x1b[31m${s}\x1b[0m`,
+  cyan: (s) => `\x1b[36m${s}\x1b[0m`,
+  bold: (s) => `\x1b[1m${s}\x1b[0m`,
+  dim: (s) => `\x1b[2m${s}\x1b[0m`,
 };
 
 let passed = 0;
@@ -54,7 +59,11 @@ async function testStart() {
   const call = calls[0];
   assert(call.url === DEVICE_CODE_URL, 'POST al endpoint de device code', call.url);
   assert(call.body.includes('client_id=Iv1.abc'), 'envía client_id', call.body);
-  assert(decodeURIComponent(call.body).replace(/\+/g, ' ').includes(DEFAULT_SCOPE), 'envía scopes', call.body);
+  assert(
+    decodeURIComponent(call.body).replace(/\+/g, ' ').includes(DEFAULT_SCOPE),
+    'envía scopes',
+    call.body
+  );
 }
 
 // ── Test 2: start() falla sin client_id ──────────────────────────────────────
@@ -62,7 +71,11 @@ async function testStart() {
 function testNoClientId() {
   console.log(C.bold('\n── Test 2: sin client_id no se puede construir el flujo ──────────'));
   let threw = false;
-  try { new OAuthDeviceFlow({ fetch: async () => {} }); } catch (e) { threw = /clientId/.test(e.message); }
+  try {
+    new OAuthDeviceFlow({ fetch: async () => {} });
+  } catch (e) {
+    threw = /clientId/.test(e.message);
+  }
   assert(threw, 'lanza error de clientId faltante');
 }
 
@@ -90,11 +103,18 @@ async function testPollStates() {
     { error: 'slow_down' },
     { error: 'access_denied' },
   ];
-  const fakeFetch = async () => ({ ok: false, status: 200, json: async () => seq.shift() || { error: 'expired_token' } });
+  const fakeFetch = async () => ({
+    ok: false,
+    status: 200,
+    json: async () => seq.shift() || { error: 'expired_token' },
+  });
   const flow = new OAuthDeviceFlow({ fetch: fakeFetch, clientId: 'Iv1.abc' });
 
   const pending = await flow.poll('d');
-  assert(pending.ok === false && pending.error === 'authorization_pending', 'authorization_pending');
+  assert(
+    pending.ok === false && pending.error === 'authorization_pending',
+    'authorization_pending'
+  );
   const slow = await flow.poll('d');
   assert(slow.error === 'slow_down', 'slow_down');
   const denied = await flow.poll('d');
@@ -107,11 +127,23 @@ async function testPollStates() {
 
 async function testStartError() {
   console.log(C.bold('\n── Test 5: start() propaga error del endpoint ───────────────────'));
-  const fakeFetch = async () => ({ ok: false, status: 422, json: async () => ({ error: 'invalid_client_id', error_description: 'Client id inválido' }) });
+  const fakeFetch = async () => ({
+    ok: false,
+    status: 422,
+    json: async () => ({ error: 'invalid_client_id', error_description: 'Client id inválido' }),
+  });
   const flow = new OAuthDeviceFlow({ fetch: fakeFetch, clientId: 'bad' });
   let err = null;
-  try { await flow.start(); } catch (e) { err = e; }
-  assert(err && /Client id inválido/.test(err.message), 'error_description propagado', err?.message);
+  try {
+    await flow.start();
+  } catch (e) {
+    err = e;
+  }
+  assert(
+    err && /Client id inválido/.test(err.message),
+    'error_description propagado',
+    err?.message
+  );
   assert(err.status === 422, 'status preservado');
 }
 
@@ -131,7 +163,9 @@ async function main() {
   console.log(C.bold('\n════════════════════════════════════════════════════════'));
   const total = passed + failed;
   console.log(
-    C.bold(`  Resultado: ${C.green(passed + ' passed')}  ${failed > 0 ? C.red(failed + ' failed') : C.dim('0 failed')}  / ${total} total`)
+    C.bold(
+      `  Resultado: ${C.green(passed + ' passed')}  ${failed > 0 ? C.red(failed + ' failed') : C.dim('0 failed')}  / ${total} total`
+    )
   );
   console.log(C.bold('════════════════════════════════════════════════════════\n'));
 

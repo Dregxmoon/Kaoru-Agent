@@ -3,7 +3,7 @@
  * SessionManager.js — con deduplicación al inicio de sesión
  */
 
-const { StateUpdater }          = require('./StateUpdater.js');
+const { StateUpdater } = require('./StateUpdater.js');
 const { ContradictionResolver } = require('./ContradictionResolver.js');
 
 const DECAY_INTERVAL_HOURS = 20;
@@ -26,15 +26,15 @@ class SessionManager {
    * @param {{ resumeMaxAgeHours?: number }} [options]
    */
   constructor(stateGraph, groundingEngine, { resumeMaxAgeHours = 48 } = {}) {
-    this._graph        = stateGraph;
-    this._grounding    = groundingEngine;
-    this._updater      = new StateUpdater(stateGraph);
-    this._resolver     = new ContradictionResolver(stateGraph);
-    this._sessionId    = null;
+    this._graph = stateGraph;
+    this._grounding = groundingEngine;
+    this._updater = new StateUpdater(stateGraph);
+    this._resolver = new ContradictionResolver(stateGraph);
+    this._sessionId = null;
     /** @type {Array<{ role: string, content: string, ts?: number }>} */
-    this._history      = [];
-    this._turnCount    = 0;
-    this._isClosing    = false;
+    this._history = [];
+    this._turnCount = 0;
+    this._isClosing = false;
     this._closePromise = null;
     this._resumeMaxAgeHours = resumeMaxAgeHours;
   }
@@ -57,9 +57,11 @@ class SessionManager {
 
     const resumable = this._graph.findResumableSession(this._resumeMaxAgeHours);
     if (resumable) {
-      console.log(`[session] reanudando sesión interrumpida ${resumable.id} (${resumable.history.length} mensajes)`);
+      console.log(
+        `[session] reanudando sesión interrumpida ${resumable.id} (${resumable.history.length} mensajes)`
+      );
       this._sessionId = resumable.id;
-      this._history   = resumable.history;
+      this._history = resumable.history;
       this._turnCount = resumable.turnCount;
       this._resolver.deduplicateNodes();
       this._updater.cleanupMemoryArtifacts();
@@ -68,7 +70,7 @@ class SessionManager {
     }
 
     this._sessionId = this._graph.startSession();
-    this._history   = [];
+    this._history = [];
     this._turnCount = 0;
     console.log(`[session] sesión ${this._sessionId} iniciada`);
 
@@ -96,29 +98,36 @@ class SessionManager {
     }
   }
 
-  getHistory() { return [...this._history]; }
+  getHistory() {
+    return [...this._history];
+  }
 
   async close() {
     if (this._isClosing || !this._sessionId) return;
     this._isClosing = true;
 
     const sessionId = this._sessionId;
-    const history   = [...this._history];
+    const history = [...this._history];
     const turnCount = this._turnCount;
     this._sessionId = null;
 
     console.log(`[session] cerrando sesión ${sessionId} (${turnCount} turnos)...`);
 
-    this._closePromise = this._updater.processSession(sessionId, history, turnCount)
-      .then(result => {
+    this._closePromise = this._updater
+      .processSession(sessionId, history, turnCount)
+      .then((result) => {
         console.log(`[session] memoria guardada: ${result.saved} nodos`);
         return result;
       })
-      .catch(err => {
+      .catch((err) => {
         console.error('[session] error:', err.message);
-        try { this._graph.endSession(sessionId, { turnCount, summary: null }); } catch(_) {}
+        try {
+          this._graph.endSession(sessionId, { turnCount, summary: null });
+        } catch (_) {}
       })
-      .finally(() => { this._isClosing = false; });
+      .finally(() => {
+        this._isClosing = false;
+      });
 
     return this._closePromise;
   }
@@ -126,13 +135,18 @@ class SessionManager {
   /** @param {ElectronAppLike | null} [app] */
   _maybeRunDecay(app) {
     try {
-      const fs   = require('fs');
+      const fs = require('fs');
       const path = require('path');
       const marker = app ? path.join(app.getPath('userData'), 'decay_marker.json') : null;
-      if (!marker) { this._updater.runDecay(); return; }
+      if (!marker) {
+        this._updater.runDecay();
+        return;
+      }
       let lastRun = 0;
       if (fs.existsSync(marker)) {
-        try { lastRun = JSON.parse(fs.readFileSync(marker, 'utf-8')).ts || 0; } catch(_) {}
+        try {
+          lastRun = JSON.parse(fs.readFileSync(marker, 'utf-8')).ts || 0;
+        } catch (_) {}
       }
       const hoursSince = (Date.now() - lastRun) / (1000 * 60 * 60);
       if (hoursSince >= DECAY_INTERVAL_HOURS) {
@@ -140,15 +154,17 @@ class SessionManager {
         this._updater.runDecay();
         fs.writeFileSync(marker, JSON.stringify({ ts: Date.now() }), 'utf-8');
       }
-    } catch(e) { console.warn('[session] error decay:', /** @type {Error} */ (e).message); }
+    } catch (e) {
+      console.warn('[session] error decay:', /** @type {Error} */ (e).message);
+    }
   }
 
   getStats() {
     return {
-      session:    this._sessionId,
-      turns:      this._turnCount,
+      session: this._sessionId,
+      turns: this._turnCount,
       historyLen: this._history.length,
-      graph:      this._graph.getStats(),
+      graph: this._graph.getStats(),
     };
   }
 }

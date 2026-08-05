@@ -1,12 +1,12 @@
 'use strict';
 
 const C = {
-  green:  (s) => `\x1b[32m${s}\x1b[0m`,
-  red:    (s) => `\x1b[31m${s}\x1b[0m`,
+  green: (s) => `\x1b[32m${s}\x1b[0m`,
+  red: (s) => `\x1b[31m${s}\x1b[0m`,
   yellow: (s) => `\x1b[33m${s}\x1b[0m`,
-  cyan:   (s) => `\x1b[36m${s}\x1b[0m`,
-  bold:   (s) => `\x1b[1m${s}\x1b[0m`,
-  dim:    (s) => `\x1b[2m${s}\x1b[0m`,
+  cyan: (s) => `\x1b[36m${s}\x1b[0m`,
+  bold: (s) => `\x1b[1m${s}\x1b[0m`,
+  dim: (s) => `\x1b[2m${s}\x1b[0m`,
 };
 
 let passed = 0;
@@ -38,19 +38,30 @@ function testAgentLoopFallbackParser() {
       toolsExecuted.push({ tool, params });
       return { ok: true, result: `fake ${tool} ok`, tool, elapsed: 5 };
     },
-    async isAvailable() { return true; },
-    getStats() { return {}; },
-    getActionLog() { return []; },
+    async isAvailable() {
+      return true;
+    },
+    getStats() {
+      return {};
+    },
+    getActionLog() {
+      return [];
+    },
     resetAvailabilityCache() {},
     closeBrowser() {},
-    exec(cmd) { return this.execute('exec', { command: cmd }); },
+    exec(cmd) {
+      return this.execute('exec', { command: cmd });
+    },
   };
 
   let callCount = 0;
   const mockLLM = async () => {
     callCount++;
     if (callCount === 1) {
-      return { content: 'Voy a leer el archivo.\n```action\nACCIÓN: read_file | ARCHIVO: tests/test_agent_loop.js\n```' };
+      return {
+        content:
+          'Voy a leer el archivo.\n```action\nACCIÓN: read_file | ARCHIVO: tests/test_agent_loop.js\n```',
+      };
     }
     return { content: 'Listo, ya leí el archivo.' };
   };
@@ -58,7 +69,7 @@ function testAgentLoopFallbackParser() {
   const loop = new AgentLoop({ maxIterations: 3, llm: mockLLM, bridge: fakeBridge });
 
   const result = loop.run('Read the test file', 'System prompt', []);
-  return result.then(r => {
+  return result.then((r) => {
     assert(!r.truncated, 'No truncado');
     assert(r.error === null, 'Sin error');
     assert(toolsExecuted.length >= 1, 'Al menos 1 herramienta ejecutada vía parser legacy');
@@ -82,9 +93,15 @@ function testApprovalFlow() {
       toolsExecuted.push({ tool, params });
       return { ok: true, result: `ok`, tool, elapsed: 5 };
     },
-    async isAvailable() { return true; },
-    getStats() { return {}; },
-    getActionLog() { return []; },
+    async isAvailable() {
+      return true;
+    },
+    getStats() {
+      return {};
+    },
+    getActionLog() {
+      return [];
+    },
     resetAvailabilityCache() {},
     closeBrowser() {},
   };
@@ -93,7 +110,9 @@ function testApprovalFlow() {
   const mockLLM = async () => {
     approvalCallCount++;
     if (approvalCallCount === 1) {
-      return { content: 'Ejecuto el comando.\n```action\nACCIÓN: run_command | COMANDO: rm -rf /\n```' };
+      return {
+        content: 'Ejecuto el comando.\n```action\nACCIÓN: run_command | COMANDO: rm -rf /\n```',
+      };
     }
     return { content: 'Está bien, no lo ejecuto.' };
   };
@@ -109,10 +128,13 @@ function testApprovalFlow() {
     },
   });
 
-  return result.then(r => {
+  return result.then((r) => {
     assert(approvalChecks.length >= 1, 'Handler de aprobación fue llamado');
     assert(toolsExecuted.length === 0, 'Ninguna herramienta se ejecutó (rechazada)');
-    assert(r.error === null || r.error === 'max_iterations_reached', 'Sin error o máximo alcanzado (porque el LLM repitió la acción y se agotaron iteraciones)');
+    assert(
+      r.error === null || r.error === 'max_iterations_reached',
+      'Sin error o máximo alcanzado (porque el LLM repitió la acción y se agotaron iteraciones)'
+    );
   });
 }
 
@@ -149,12 +171,15 @@ function testToolchainConsistency() {
 
   const fromSchemas = TOOL_SCHEMAS;
   const fromProvider = LLMProvider.getToolSchemas();
-  assert(fromSchemas.length === fromProvider.length, 'ToolSchemas y Provider coinciden en cantidad');
+  assert(
+    fromSchemas.length === fromProvider.length,
+    'ToolSchemas y Provider coinciden en cantidad'
+  );
   assert(fromSchemas.length >= 8, 'al menos 8 herramientas (incluyendo OpenClaw + LSP)');
 
   // Verificar que cada schema de tool puede ser parseado por StructuredActionParser
   const parser = getStructuredActionParser('/tmp');
-  const allToolNames = fromSchemas.map(t => t.name);
+  const allToolNames = fromSchemas.map((t) => t.name);
   const actionToActionFormat = {
     exec: 'ACCIÓN: run_command | COMANDO: test\n',
     read: 'ACCIÓN: read_file | ARCHIVO: test.txt\n',
@@ -167,11 +192,13 @@ function testToolchainConsistency() {
   };
   for (const [tool, fmt] of Object.entries(actionToActionFormat)) {
     const result = parser.parse(`\`\`\`action\n${fmt}\`\`\``, null);
-    const found = result.some(a => a.tool === tool);
+    const found = result.some((a) => a.tool === tool);
     if (found) {
       console.log(`  ${C.dim('ℹ')} ${tool} → StructuredActionParser lo reconoce`);
     } else {
-      console.log(`  ${C.yellow('⚠')} ${tool} → no tiene handler directo (usa fallback en ActionParser, puede causar edge cases)`);
+      console.log(
+        `  ${C.yellow('⚠')} ${tool} → no tiene handler directo (usa fallback en ActionParser, puede causar edge cases)`
+      );
     }
   }
 
@@ -204,8 +231,10 @@ async function testServerAuth() {
     const timeout = setTimeout(() => reject(new Error('timeout')), 5000);
     const check = () => {
       const req = http.get('http://127.0.0.1:18789/health', (res) => {
-        if (res.statusCode === 200) { clearTimeout(timeout); resolve(); }
-        else setTimeout(check, 200);
+        if (res.statusCode === 200) {
+          clearTimeout(timeout);
+          resolve();
+        } else setTimeout(check, 200);
       });
       req.on('error', () => setTimeout(check, 200));
     };
@@ -215,18 +244,33 @@ async function testServerAuth() {
   function post(body, key) {
     return new Promise((resolve) => {
       const payload = JSON.stringify(body);
-      const headers = { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(payload) };
+      const headers = {
+        'Content-Type': 'application/json',
+        'Content-Length': Buffer.byteLength(payload),
+      };
       if (key) headers['X-Api-Key'] = key;
-      const req = http.request({
-        hostname: '127.0.0.1', port: 18789, path: '/v1/tool', method: 'POST', headers,
-      }, (res) => {
-        let d = ''; res.on('data', c => d += c);
-        res.on('end', () => {
-          try { resolve({ status: res.statusCode, body: JSON.parse(d) }); }
-          catch { resolve({ status: res.statusCode, body: { raw: d } }); }
-        });
-      });
-      req.write(payload); req.end();
+      const req = http.request(
+        {
+          hostname: '127.0.0.1',
+          port: 18789,
+          path: '/v1/tool',
+          method: 'POST',
+          headers,
+        },
+        (res) => {
+          let d = '';
+          res.on('data', (c) => (d += c));
+          res.on('end', () => {
+            try {
+              resolve({ status: res.statusCode, body: JSON.parse(d) });
+            } catch {
+              resolve({ status: res.statusCode, body: { raw: d } });
+            }
+          });
+        }
+      );
+      req.write(payload);
+      req.end();
     });
   }
 
@@ -241,15 +285,20 @@ async function testServerAuth() {
     const r3 = await post({ tool: 'exec', input: { command: 'echo bye' } }, 'wrong-key');
     assert(r3.status === 401, 'Key inválida → 401');
 
-    const r4 = await (() => new Promise((resolve) => {
-      http.get('http://127.0.0.1:18789/health', (res) => {
-        let d = ''; res.on('data', c => d += c);
-        res.on('end', () => {
-          try { resolve({ status: res.statusCode, body: JSON.parse(d) }); }
-          catch { resolve({ status: res.statusCode, body: { raw: d } }); }
+    const r4 = await (() =>
+      new Promise((resolve) => {
+        http.get('http://127.0.0.1:18789/health', (res) => {
+          let d = '';
+          res.on('data', (c) => (d += c));
+          res.on('end', () => {
+            try {
+              resolve({ status: res.statusCode, body: JSON.parse(d) });
+            } catch {
+              resolve({ status: res.statusCode, body: { raw: d } });
+            }
+          });
         });
-      });
-    }))();
+      }))();
     assert(r4.status === 200, 'Health check sin key → 200');
   } finally {
     serverProcess.kill();
@@ -280,8 +329,10 @@ async function testPathSandbox() {
     const timeout = setTimeout(() => reject(new Error('timeout')), 5000);
     const check = () => {
       const req = http.get('http://127.0.0.1:18789/health', (res) => {
-        if (res.statusCode === 200) { clearTimeout(timeout); resolve(); }
-        else setTimeout(check, 200);
+        if (res.statusCode === 200) {
+          clearTimeout(timeout);
+          resolve();
+        } else setTimeout(check, 200);
       });
       req.on('error', () => setTimeout(check, 200));
     };
@@ -291,17 +342,32 @@ async function testPathSandbox() {
   function post(body) {
     return new Promise((resolve) => {
       const payload = JSON.stringify(body);
-      const req = http.request({
-        hostname: '127.0.0.1', port: 18789, path: '/v1/tool', method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(payload), 'X-Api-Key': apiKey },
-      }, (res) => {
-        let d = ''; res.on('data', c => d += c);
-        res.on('end', () => {
-          try { resolve({ status: res.statusCode, body: JSON.parse(d) }); }
-          catch { resolve({ status: res.statusCode, body: { raw: d } }); }
-        });
-      });
-      req.write(payload); req.end();
+      const req = http.request(
+        {
+          hostname: '127.0.0.1',
+          port: 18789,
+          path: '/v1/tool',
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Content-Length': Buffer.byteLength(payload),
+            'X-Api-Key': apiKey,
+          },
+        },
+        (res) => {
+          let d = '';
+          res.on('data', (c) => (d += c));
+          res.on('end', () => {
+            try {
+              resolve({ status: res.statusCode, body: JSON.parse(d) });
+            } catch {
+              resolve({ status: res.statusCode, body: { raw: d } });
+            }
+          });
+        }
+      );
+      req.write(payload);
+      req.end();
     });
   }
 
@@ -363,8 +429,10 @@ async function testCommandBlocklist() {
     const timeout = setTimeout(() => reject(new Error('timeout')), 5000);
     const check = () => {
       const req = http.get('http://127.0.0.1:18789/health', (res) => {
-        if (res.statusCode === 200) { clearTimeout(timeout); resolve(); }
-        else setTimeout(check, 200);
+        if (res.statusCode === 200) {
+          clearTimeout(timeout);
+          resolve();
+        } else setTimeout(check, 200);
       });
       req.on('error', () => setTimeout(check, 200));
     };
@@ -374,17 +442,32 @@ async function testCommandBlocklist() {
   function post(body) {
     return new Promise((resolve) => {
       const payload = JSON.stringify(body);
-      const req = http.request({
-        hostname: '127.0.0.1', port: 18789, path: '/v1/tool', method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(payload), 'X-Api-Key': apiKey },
-      }, (res) => {
-        let d = ''; res.on('data', c => d += c);
-        res.on('end', () => {
-          try { resolve({ status: res.statusCode, body: JSON.parse(d) }); }
-          catch { resolve({ status: res.statusCode, body: { raw: d } }); }
-        });
-      });
-      req.write(payload); req.end();
+      const req = http.request(
+        {
+          hostname: '127.0.0.1',
+          port: 18789,
+          path: '/v1/tool',
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Content-Length': Buffer.byteLength(payload),
+            'X-Api-Key': apiKey,
+          },
+        },
+        (res) => {
+          let d = '';
+          res.on('data', (c) => (d += c));
+          res.on('end', () => {
+            try {
+              resolve({ status: res.statusCode, body: JSON.parse(d) });
+            } catch {
+              resolve({ status: res.statusCode, body: { raw: d } });
+            }
+          });
+        }
+      );
+      req.write(payload);
+      req.end();
     });
   }
 
@@ -427,8 +510,10 @@ async function testExecNoShellPipes() {
     const timeout = setTimeout(() => reject(new Error('timeout')), 5000);
     const check = () => {
       const req = http.get('http://127.0.0.1:18789/health', (res) => {
-        if (res.statusCode === 200) { clearTimeout(timeout); resolve(); }
-        else setTimeout(check, 200);
+        if (res.statusCode === 200) {
+          clearTimeout(timeout);
+          resolve();
+        } else setTimeout(check, 200);
       });
       req.on('error', () => setTimeout(check, 200));
     };
@@ -438,17 +523,32 @@ async function testExecNoShellPipes() {
   function post(body) {
     return new Promise((resolve) => {
       const payload = JSON.stringify(body);
-      const req = http.request({
-        hostname: '127.0.0.1', port: 18789, path: '/v1/tool', method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(payload), 'X-Api-Key': apiKey },
-      }, (res) => {
-        let d = ''; res.on('data', c => d += c);
-        res.on('end', () => {
-          try { resolve({ status: res.statusCode, body: JSON.parse(d) }); }
-          catch { resolve({ status: res.statusCode, body: { raw: d } }); }
-        });
-      });
-      req.write(payload); req.end();
+      const req = http.request(
+        {
+          hostname: '127.0.0.1',
+          port: 18789,
+          path: '/v1/tool',
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Content-Length': Buffer.byteLength(payload),
+            'X-Api-Key': apiKey,
+          },
+        },
+        (res) => {
+          let d = '';
+          res.on('data', (c) => (d += c));
+          res.on('end', () => {
+            try {
+              resolve({ status: res.statusCode, body: JSON.parse(d) });
+            } catch {
+              resolve({ status: res.statusCode, body: { raw: d } });
+            }
+          });
+        }
+      );
+      req.write(payload);
+      req.end();
     });
   }
 
@@ -459,7 +559,10 @@ async function testExecNoShellPipes() {
     assert(r1.body.result.stdout.trim() === 'hello | wc -c', 'Pipe es literal, no se ejecuta');
 
     // Redirección '>' es literal
-    const r2 = await post({ tool: 'exec', input: { command: 'echo test > /tmp/evil.txt', timeout: 5 } });
+    const r2 = await post({
+      tool: 'exec',
+      input: { command: 'echo test > /tmp/evil.txt', timeout: 5 },
+    });
     assert(r2.status === 200, 'echo redirect → 200');
     assert(!r2.body.result.stdout.includes('Written'), 'No escribió archivo');
   } finally {
@@ -476,14 +579,18 @@ function testLLMProviderEdgeCases() {
 
   // OpenAI con JSON malformed en arguments
   const badJson = {
-    choices: [{
-      message: {
-        tool_calls: [{
-          type: 'function',
-          function: { name: 'exec', arguments: '{broken}' },
-        }],
+    choices: [
+      {
+        message: {
+          tool_calls: [
+            {
+              type: 'function',
+              function: { name: 'exec', arguments: '{broken}' },
+            },
+          ],
+        },
       },
-    }],
+    ],
   };
   const r1 = LLM._debug_normalizeOpenAI(badJson);
   assert(r1.toolCalls === null || r1.toolCalls.length === 0, 'JSON inválido no rompe');
@@ -527,7 +634,9 @@ async function main() {
   console.log(C.bold('\n════════════════════════════════════════════════════════'));
   const total = passed + failed;
   console.log(
-    C.bold(`  Resultado: ${C.green(passed + ' passed')}  ${failed > 0 ? C.red(failed + ' failed') : C.dim('0 failed')}  / ${total} total`)
+    C.bold(
+      `  Resultado: ${C.green(passed + ' passed')}  ${failed > 0 ? C.red(failed + ' failed') : C.dim('0 failed')}  / ${total} total`
+    )
   );
   console.log(C.bold('════════════════════════════════════════════════════════\n'));
 

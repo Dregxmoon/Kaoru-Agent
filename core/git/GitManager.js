@@ -53,15 +53,20 @@ function _run(cwd, args, opts = {}) {
 }
 
 function _validBranch(branch) {
-  return typeof branch === 'string' && SAFE_BRANCH_RE.test(branch) && !branch.startsWith('-') && !branch.includes('..');
+  return (
+    typeof branch === 'string' &&
+    SAFE_BRANCH_RE.test(branch) &&
+    !branch.startsWith('-') &&
+    !branch.includes('..')
+  );
 }
 
 function _validPaths(paths) {
   if (typeof paths === 'string') paths = [paths];
   if (!Array.isArray(paths) || paths.length === 0) return [];
   const clean = paths
-    .map(p => (typeof p === 'string' ? p.trim() : ''))
-    .filter(p => p && SAFE_PATH_RE.test(p) && !p.startsWith('-') && !p.includes('..'));
+    .map((p) => (typeof p === 'string' ? p.trim() : ''))
+    .filter((p) => p && SAFE_PATH_RE.test(p) && !p.startsWith('-') && !p.includes('..'));
   return clean;
 }
 
@@ -85,7 +90,7 @@ function _toError(r, context) {
 
 // ── Parsing de `git status --porcelain=v1 -b` ─────────────────────────────────
 function _parseStatusPorcelain(stdout) {
-  const lines = stdout.split('\n').filter(l => l.length > 0);
+  const lines = stdout.split('\n').filter((l) => l.length > 0);
   const staged = [];
   const unstaged = [];
   const untracked = [];
@@ -158,12 +163,21 @@ class GitManager {
       branch: parsed.branchInfo.branch,
       ahead: parsed.branchInfo.ahead,
       behind: parsed.branchInfo.behind,
-      clean: parsed.staged.length + parsed.unstaged.length + parsed.untracked.length + parsed.conflicts.length === 0,
-      staged: parsed.staged.map(s => ({ path: s.path, status: s.status })),
-      unstaged: parsed.unstaged.map(s => ({ path: s.path, status: s.status })),
+      clean:
+        parsed.staged.length +
+          parsed.unstaged.length +
+          parsed.untracked.length +
+          parsed.conflicts.length ===
+        0,
+      staged: parsed.staged.map((s) => ({ path: s.path, status: s.status })),
+      unstaged: parsed.unstaged.map((s) => ({ path: s.path, status: s.status })),
       untracked: parsed.untracked,
       conflicts: parsed.conflicts,
-      total: parsed.staged.length + parsed.unstaged.length + parsed.untracked.length + parsed.conflicts.length,
+      total:
+        parsed.staged.length +
+        parsed.unstaged.length +
+        parsed.untracked.length +
+        parsed.conflicts.length,
     };
   }
 
@@ -178,13 +192,19 @@ class GitManager {
     if (r.code !== 0) throw _toError(r, 'git diff falló');
     const patch = r.stdout;
     const stat = await this._exec(cwd, [...args, '--stat'], { maxBuffer: 2 * 1024 * 1024 });
-    const summary = (stat.stdout || '').trim().split('\n').filter(l => l.trim());
+    const summary = (stat.stdout || '')
+      .trim()
+      .split('\n')
+      .filter((l) => l.trim());
     return {
       isRepo: true,
       file: file || null,
       staged: !!staged,
       summary,
-      patch: patch.length <= MAX_DIFF_PATCH ? patch : patch.slice(0, MAX_DIFF_PATCH) + `\n[... diff truncado: ${patch.length} chars totales]`,
+      patch:
+        patch.length <= MAX_DIFF_PATCH
+          ? patch
+          : patch.slice(0, MAX_DIFF_PATCH) + `\n[... diff truncado: ${patch.length} chars totales]`,
       patchTruncated: patch.length > MAX_DIFF_PATCH,
     };
   }
@@ -199,8 +219,8 @@ class GitManager {
     if (r.code !== 0) throw _toError(r, 'git log falló');
     const commits = (r.stdout || '')
       .split('\n')
-      .filter(l => l.trim())
-      .map(line => {
+      .filter((l) => l.trim())
+      .map((line) => {
         const [hash, author, date, ...rest] = line.split('|');
         return { hash, author, date, subject: rest.join('|') };
       });
@@ -210,16 +230,20 @@ class GitManager {
   // ── git_branch (lectura) ─────────────────────────────────────────────────────
   async branch(cwd) {
     _assertDir(cwd);
-    const r = await this._exec(cwd, [
-      'for-each-ref',
-      'refs/heads',
-      '--format=%(HEAD)|%(refname:short)|%(upstream:short)|%(upstream:track)',
-    ], { maxBuffer: 2 * 1024 * 1024 });
+    const r = await this._exec(
+      cwd,
+      [
+        'for-each-ref',
+        'refs/heads',
+        '--format=%(HEAD)|%(refname:short)|%(upstream:short)|%(upstream:track)',
+      ],
+      { maxBuffer: 2 * 1024 * 1024 }
+    );
     if (r.code !== 0) throw _toError(r, 'git branch falló');
     const branches = (r.stdout || '')
       .split('\n')
-      .filter(l => l.trim())
-      .map(line => {
+      .filter((l) => l.trim())
+      .map((line) => {
         const [head, name, upstream, track] = line.split('|');
         const ahead = track ? (track.match(/ahead (\d+)/) || [])[1] : null;
         const behind = track ? (track.match(/behind (\d+)/) || [])[1] : null;
@@ -231,7 +255,7 @@ class GitManager {
           behind: behind ? parseInt(behind, 10) : 0,
         };
       });
-    const current = branches.find(b => b.current)?.name || null;
+    const current = branches.find((b) => b.current)?.name || null;
     return { isRepo: true, current, total: branches.length, branches };
   }
 
@@ -249,7 +273,8 @@ class GitManager {
     _assertDir(cwd);
     const message = typeof opts.message === 'string' ? opts.message.trim() : '';
     if (!message) throw new Error('git_commit requiere un mensaje (message).');
-    if (message.length > 5000) throw new Error('El mensaje de commit es demasiado largo (máx 5000).');
+    if (message.length > 5000)
+      throw new Error('El mensaje de commit es demasiado largo (máx 5000).');
 
     const addR = await this._exec(cwd, ['add', '-A']);
     if (addR.code !== 0) throw _toError(addR, 'git add falló');
@@ -263,7 +288,7 @@ class GitManager {
     // El hash corto vive dentro del corchete de la línea de resumen:
     //   [main (root-commit) e627b0e] feat: x
     const bracket = out.match(/\[([^\]]*)\]/);
-    const hash = bracket ? ((bracket[1].match(/\b[0-9a-f]{7,40}\b/) || [])[0] || null) : null;
+    const hash = bracket ? (bracket[1].match(/\b[0-9a-f]{7,40}\b/) || [])[0] || null : null;
     return {
       isRepo: true,
       committed: true,
@@ -280,15 +305,22 @@ class GitManager {
     _assertDir(cwd);
     const action = opts.action || 'list';
     if (!['list', 'push', 'pop', 'apply', 'drop'].includes(action)) {
-      throw new Error(`git_stash action inválida: ${action}. Válidas: list, push, pop, apply, drop.`);
+      throw new Error(
+        `git_stash action inválida: ${action}. Válidas: list, push, pop, apply, drop.`
+      );
     }
     if (action === 'list') {
-      const r = await this._exec(cwd, ['stash', 'list', '--format=%gd|%gs'], { maxBuffer: 2 * 1024 * 1024 });
-      if (r.code !== 0) throw _toError(r, 'git stash list falló');
-      const stashes = (r.stdout || '').split('\n').filter(l => l.trim()).map(line => {
-        const [ref, ...subject] = line.split('|');
-        return { ref, subject: subject.join('|') };
+      const r = await this._exec(cwd, ['stash', 'list', '--format=%gd|%gs'], {
+        maxBuffer: 2 * 1024 * 1024,
       });
+      if (r.code !== 0) throw _toError(r, 'git stash list falló');
+      const stashes = (r.stdout || '')
+        .split('\n')
+        .filter((l) => l.trim())
+        .map((line) => {
+          const [ref, ...subject] = line.split('|');
+          return { ref, subject: subject.join('|') };
+        });
       return { isRepo: true, total: stashes.length, stashes };
     }
     const args = ['stash', action];
@@ -329,11 +361,13 @@ class GitManager {
   // ── git_push (muta) ──────────────────────────────────────────────────────────
   async push(cwd, opts = {}) {
     _assertDir(cwd);
-    const remote = typeof opts.remote === 'string' && opts.remote.trim() ? opts.remote.trim() : 'origin';
+    const remote =
+      typeof opts.remote === 'string' && opts.remote.trim() ? opts.remote.trim() : 'origin';
     if (!/^[A-Za-z0-9._/-]{1,200}$/.test(remote) || remote.startsWith('-')) {
       throw new Error('git_push: remote inválido.');
     }
-    const branch = typeof opts.branch === 'string' && opts.branch.trim() ? opts.branch.trim() : null;
+    const branch =
+      typeof opts.branch === 'string' && opts.branch.trim() ? opts.branch.trim() : null;
     if (branch && !_validBranch(branch)) throw new Error('git_push: rama inválida.');
 
     const args = ['push'];
@@ -343,21 +377,21 @@ class GitManager {
     if (opts.force) args.push('--force');
 
     const token = this._resolveToken();
-    const env = token
-      ? { GIT_ASKPASS: this._writeAskpass(token), GIT_TERMINAL_PROMPT: '0' }
-      : null;
+    const env = token ? { GIT_ASKPASS: this._writeAskpass(token), GIT_TERMINAL_PROMPT: '0' } : null;
     const r = await this._exec(cwd, args, { maxBuffer: 8 * 1024 * 1024, env });
     if (token) this._cleanupAskpass();
 
     if (r.code !== 0) {
       const err = _toError(r, 'git push falló');
       if (token && /denied|401|403|Authentication/i.test(err.message)) {
-        err.hint = 'El push fue rechazado por GitHub. Verificá que el token en el llavero (github_token) tenga scope "repo".';
+        err.hint =
+          'El push fue rechazado por GitHub. Verificá que el token en el llavero (github_token) tenga scope "repo".';
       }
       throw err;
     }
     const out = (r.stdout + '\n' + r.stderr).trim();
-    const to = (out.match(/^\s*[0-9a-f]{7,40}\.\.\.[0-9a-f]{7,40}\s+(\S+)/m) || [])[1] || branch || '';
+    const to =
+      (out.match(/^\s*[0-9a-f]{7,40}\.\.\.[0-9a-f]{7,40}\s+(\S+)/m) || [])[1] || branch || '';
     return {
       isRepo: true,
       pushed: true,
@@ -370,7 +404,8 @@ class GitManager {
   // Token para push HTTPS: env → llavero (github_token). Lazy require para no
   // cargar KeychainManager en contextos donde no hace falta.
   _resolveToken() {
-    if (process.env.GITHUB_TOKEN && process.env.GITHUB_TOKEN.trim()) return process.env.GITHUB_TOKEN.trim();
+    if (process.env.GITHUB_TOKEN && process.env.GITHUB_TOKEN.trim())
+      return process.env.GITHUB_TOKEN.trim();
     if (process.env.GH_TOKEN && process.env.GH_TOKEN.trim()) return process.env.GH_TOKEN.trim();
     try {
       const K = require('../../infrastructure/keychain/KeychainManager.js');
@@ -388,7 +423,9 @@ class GitManager {
     const escaped = token.replace(/'/g, "'\\''");
     fs.writeFileSync(
       askpass,
-      '#!/bin/sh\nif printf "%s" "$1" | grep -qi "password"; then\n  echo \'' + escaped + '\'\nelse\n  echo "oauth2"\nfi\n',
+      '#!/bin/sh\nif printf "%s" "$1" | grep -qi "password"; then\n  echo \'' +
+        escaped +
+        '\'\nelse\n  echo "oauth2"\nfi\n',
       { mode: 0o700 }
     );
     this._askpassPath = askpass;
@@ -396,15 +433,19 @@ class GitManager {
   }
 
   _cleanupAskpass() {
-    try { if (this._askpassPath) fs.unlinkSync(this._askpassPath); } catch {}
+    try {
+      if (this._askpassPath) fs.unlinkSync(this._askpassPath);
+    } catch {}
     this._askpassPath = null;
   }
 
   async _unmergedFiles(cwd) {
     try {
-      const r = await this._exec(cwd, ['diff', '--name-only', '--diff-filter=U'], { maxBuffer: 1024 * 1024 });
+      const r = await this._exec(cwd, ['diff', '--name-only', '--diff-filter=U'], {
+        maxBuffer: 1024 * 1024,
+      });
       if (r.code !== 0) return [];
-      return (r.stdout || '').split('\n').filter(l => l.trim());
+      return (r.stdout || '').split('\n').filter((l) => l.trim());
     } catch {
       return [];
     }
@@ -412,10 +453,12 @@ class GitManager {
 
   _conflictResult(r, op, branch, conflictFiles) {
     const output = (r.stdout + '\n' + r.stderr).trim();
-    const conflicted = conflictFiles.length > 0
-      ? conflictFiles
-      : (output.match(/(?:CONFLICT|both modified) \(.*?\) in ([^\n]+)/g) || [])
-          .map(m => m.replace(/^.* in /, '').trim());
+    const conflicted =
+      conflictFiles.length > 0
+        ? conflictFiles
+        : (output.match(/(?:CONFLICT|both modified) \(.*?\) in ([^\n]+)/g) || []).map((m) =>
+            m.replace(/^.* in /, '').trim()
+          );
     return {
       isRepo: true,
       conflict: true,

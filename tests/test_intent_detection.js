@@ -24,12 +24,12 @@ const path = require('path');
 
 // ── Colores para consola ──────────────────────────────────────────────────────
 const C = {
-  green:  (s) => `\x1b[32m${s}\x1b[0m`,
-  red:    (s) => `\x1b[31m${s}\x1b[0m`,
+  green: (s) => `\x1b[32m${s}\x1b[0m`,
+  red: (s) => `\x1b[31m${s}\x1b[0m`,
   yellow: (s) => `\x1b[33m${s}\x1b[0m`,
-  cyan:   (s) => `\x1b[36m${s}\x1b[0m`,
-  bold:   (s) => `\x1b[1m${s}\x1b[0m`,
-  dim:    (s) => `\x1b[2m${s}\x1b[0m`,
+  cyan: (s) => `\x1b[36m${s}\x1b[0m`,
+  bold: (s) => `\x1b[1m${s}\x1b[0m`,
+  dim: (s) => `\x1b[2m${s}\x1b[0m`,
 };
 
 let passed = 0;
@@ -51,75 +51,75 @@ function assert(condition, label, detail = '') {
 const TEST_CASES = [
   // ── Deben detectar herramienta (detected: true) ──
   {
-    message:        'Asistente, modifícame el script principal',
+    message: 'Asistente, modifícame el script principal',
     expectedAction: 'edit_file',
-    expectedLevel:  ['high', 'medium'],
-    shouldDetect:   true,
-    label:          'Frase narrativa implícita → edit_file',
+    expectedLevel: ['high', 'medium'],
+    shouldDetect: true,
+    label: 'Frase narrativa implícita → edit_file',
   },
   {
-    message:        'crea un archivo llamado utils.js',
+    message: 'crea un archivo llamado utils.js',
     expectedAction: 'create_file',
-    expectedLevel:  ['high', 'medium'],
-    shouldDetect:   true,
-    label:          'Frase directa → create_file',
+    expectedLevel: ['high', 'medium'],
+    shouldDetect: true,
+    label: 'Frase directa → create_file',
   },
   {
-    message:        'ejecuta npm install en la terminal',
+    message: 'ejecuta npm install en la terminal',
     expectedAction: 'install_package',
-    expectedLevel:  ['high', 'medium'],
-    shouldDetect:   true,
-    label:          'Instalación de paquete',
+    expectedLevel: ['high', 'medium'],
+    shouldDetect: true,
+    label: 'Instalación de paquete',
   },
   {
-    message:        'haz un commit con los cambios de hoy',
+    message: 'haz un commit con los cambios de hoy',
     expectedAction: 'git_action',
-    expectedLevel:  ['high', 'medium'],
-    shouldDetect:   true,
-    label:          'Acción git',
+    expectedLevel: ['high', 'medium'],
+    shouldDetect: true,
+    label: 'Acción git',
   },
   {
-    message:        'busca en internet cómo configurar webpack',
+    message: 'busca en internet cómo configurar webpack',
     expectedAction: 'web_search',
-    expectedLevel:  ['high', 'medium'],
-    shouldDetect:   true,
-    label:          'Búsqueda web',
+    expectedLevel: ['high', 'medium'],
+    shouldDetect: true,
+    label: 'Búsqueda web',
   },
   {
-    message:        'list the files in the project folder',
+    message: 'list the files in the project folder',
     expectedAction: 'list_directory',
-    expectedLevel:  ['high', 'medium'],
-    shouldDetect:   true,
-    label:          'Comando en inglés → list_directory',
+    expectedLevel: ['high', 'medium'],
+    shouldDetect: true,
+    label: 'Comando en inglés → list_directory',
   },
   {
-    message:        'lee el archivo package.json',
+    message: 'lee el archivo package.json',
     expectedAction: 'read_file',
-    expectedLevel:  ['high', 'medium'],
-    shouldDetect:   true,
-    label:          'Leer archivo',
+    expectedLevel: ['high', 'medium'],
+    shouldDetect: true,
+    label: 'Leer archivo',
   },
 
   // ── NO deben detectar herramienta (detected: false) ──
   {
-    message:      'hola Asistente, cómo estás hoy?',
+    message: 'hola Asistente, cómo estás hoy?',
     shouldDetect: false,
-    label:        'Saludo → NO herramienta',
+    label: 'Saludo → NO herramienta',
   },
   {
-    message:      'qué es un closure en JavaScript?',
+    message: 'qué es un closure en JavaScript?',
     shouldDetect: false,
-    label:        'Pregunta técnica conceptual → NO herramienta',
+    label: 'Pregunta técnica conceptual → NO herramienta',
   },
   {
-    message:      'me puedes explicar cómo funciona React?',
+    message: 'me puedes explicar cómo funciona React?',
     shouldDetect: false,
-    label:        'Solicitud de explicación → NO herramienta',
+    label: 'Solicitud de explicación → NO herramienta',
   },
   {
-    message:      'recuerdas lo que te conté ayer sobre el proyecto?',
+    message: 'recuerdas lo que te conté ayer sobre el proyecto?',
     shouldDetect: false,
-    label:        'Pregunta de memoria → NO herramienta',
+    label: 'Pregunta de memoria → NO herramienta',
   },
 ];
 
@@ -135,10 +135,10 @@ Claro, voy a editar el archivo principal del proyecto.
 ACCIÓN: edit_file | ARCHIVO: src/main.js
 \`\`\`
     `,
-    userGoal:       'modifícame el script principal',
-    expectedTool:   'edit_file',
+    userGoal: 'modifícame el script principal',
+    expectedTool: 'edit_file',
     expectedSource: 'structured',
-    shouldParse:    true,
+    shouldParse: true,
   },
   {
     label: 'Parsea bloque run_command con COMANDO',
@@ -149,10 +149,10 @@ Ejecutaré npm install para instalar las dependencias.
 ACCIÓN: run_command | COMANDO: npm install
 \`\`\`
     `,
-    userGoal:       'instala las dependencias',
-    expectedTool:   'exec',
+    userGoal: 'instala las dependencias',
+    expectedTool: 'exec',
     expectedSource: 'structured',
-    shouldParse:    true,
+    shouldParse: true,
   },
   {
     label: 'Parsea bloque web_search con QUERY',
@@ -163,10 +163,10 @@ Voy a buscar eso en internet.
 ACCIÓN: web_search | QUERY: cómo configurar webpack 5
 \`\`\`
     `,
-    userGoal:       'busca cómo configurar webpack',
-    expectedTool:   'web_search',
+    userGoal: 'busca cómo configurar webpack',
+    expectedTool: 'web_search',
     expectedSource: 'structured',
-    shouldParse:    true,
+    shouldParse: true,
   },
   {
     // Regresión: create_file estaba mapeado a tool 'write' en vez de
@@ -183,22 +183,22 @@ Voy a crear ese archivo.
 ACCIÓN: create_file | ARCHIVO: notas.txt
 \`\`\`
     `,
-    userGoal:       'créame un archivo de notas',
-    expectedTool:   'create_file',
+    userGoal: 'créame un archivo de notas',
+    expectedTool: 'create_file',
     expectedSource: 'structured',
-    shouldParse:    true,
+    shouldParse: true,
   },
   {
     label: 'Respuesta sin bloque → array vacío (sin crash)',
-    llmResponse:  'Claro, te ayudo con eso. ¿Puedes darme más detalles?',
-    userGoal:     'modifica el archivo',
-    shouldParse:  false,
+    llmResponse: 'Claro, te ayudo con eso. ¿Puedes darme más detalles?',
+    userGoal: 'modifica el archivo',
+    shouldParse: false,
   },
   {
     label: 'Bloque malformado → ignora graciosamente',
-    llmResponse:  '```action\nSin campo ACCIÓN aquí\n```',
-    userGoal:     '',
-    shouldParse:  false,
+    llmResponse: '```action\nSin campo ACCIÓN aquí\n```',
+    userGoal: '',
+    shouldParse: false,
   },
 ];
 
@@ -209,7 +209,9 @@ async function runIntentDetectorTests(detector) {
 
   for (const tc of TEST_CASES) {
     console.log(`\n${C.cyan('→')} "${tc.message}"`);
-    console.log(`  ${C.dim('Esperado: ' + (tc.shouldDetect ? tc.expectedAction : 'NO herramienta'))}`);
+    console.log(
+      `  ${C.dim('Esperado: ' + (tc.shouldDetect ? tc.expectedAction : 'NO herramienta'))}`
+    );
 
     let result;
     try {
@@ -222,7 +224,9 @@ async function runIntentDetectorTests(detector) {
     const { detected, action, confidence, level } = result;
     const scoreStr = (confidence * 100).toFixed(1) + '%';
 
-    console.log(`  ${C.dim('Resultado: detected=' + detected + ' action=' + action + ' score=' + scoreStr + ' level=' + level)}`);
+    console.log(
+      `  ${C.dim('Resultado: detected=' + detected + ' action=' + action + ' score=' + scoreStr + ' level=' + level)}`
+    );
 
     if (tc.shouldDetect) {
       assert(
@@ -236,11 +240,7 @@ async function runIntentDetectorTests(detector) {
         `nivel actual: ${level}`
       );
     } else {
-      assert(
-        !detected,
-        tc.label,
-        `Se detectó incorrectamente: action=${action} score=${scoreStr}`
-      );
+      assert(!detected, tc.label, `Se detectó incorrectamente: action=${action} score=${scoreStr}`);
     }
   }
 }
@@ -283,7 +283,9 @@ function runStructuredParserTests() {
       if (actions.length === 0) {
         assert(true, 'Devuelve array vacío correctamente');
       } else {
-        console.log(`  ${C.dim('Nota: ActionParser legacy capturó ' + actions.length + ' acciones (fallback)')}`);
+        console.log(
+          `  ${C.dim('Nota: ActionParser legacy capturó ' + actions.length + ' acciones (fallback)')}`
+        );
       }
     }
   }
@@ -298,7 +300,7 @@ async function main() {
   let Database, sqliteVec;
 
   try {
-    Database  = require('better-sqlite3');
+    Database = require('better-sqlite3');
     sqliteVec = require('sqlite-vec');
   } catch (e) {
     console.error(C.red('\nERROR: Dependencias faltantes:'), e.message);
@@ -341,7 +343,9 @@ async function main() {
   console.log(C.bold('\n════════════════════════════════════════════════════════'));
   const total = passed + failed;
   console.log(
-    C.bold(`  Resultado: ${C.green(passed + ' passed')}  ${failed > 0 ? C.red(failed + ' failed') : C.dim('0 failed')}  / ${total} total`)
+    C.bold(
+      `  Resultado: ${C.green(passed + ' passed')}  ${failed > 0 ? C.red(failed + ' failed') : C.dim('0 failed')}  / ${total} total`
+    )
   );
   console.log(C.bold('════════════════════════════════════════════════════════\n'));
 

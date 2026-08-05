@@ -37,25 +37,99 @@
 
 // ── Patrones de intención para StateGraph (sin cambios de Fase 2) ──────────────
 const INTENT_PATTERNS = [
-  { pattern: /\b(proyecto|project|trabajando en|working on|construyendo|building)\b/i,  types: ['Project'] },
-  { pattern: /\b(recuerdas|recuerda|dijiste|mencionaste|remember|acordar)\b/i,          types: ['Episode', 'Belief'] },
-  { pattern: /\b(preferencia|gusta|favorito|like|prefer|odio|hate|detesto)\b/i,        types: ['Preference'] },
-  { pattern: /\b(quién soy|mi nombre|cómo me llamo|who am i|me llamo)\b/i,             types: ['User'] },
-  { pattern: /\b(código|programar|bug|error|función|debug|script|repo|git)\b/i,        types: ['Project', 'Belief'] },
-  { pattern: /\b(ayer|antes|última vez|last time|semana pasada|hace días|dijiste)\b/i, types: ['Episode'] },
-  { pattern: /\b(cómo estoy|cómo me ves|qué piensas de mí|qué sabes de mí|how (?:am i|do you see me)|what do you (?:know|think) (?:about|of) me)\b/i, types: ['User', 'Belief'] },
-  { pattern: /\b(trabajo|empleo|empresa|cliente|reunión|jefe|equipo|meeting)\b/i,      types: ['User', 'Project'] },
+  {
+    pattern: /\b(proyecto|project|trabajando en|working on|construyendo|building)\b/i,
+    types: ['Project'],
+  },
+  {
+    pattern: /\b(recuerdas|recuerda|dijiste|mencionaste|remember|acordar)\b/i,
+    types: ['Episode', 'Belief'],
+  },
+  {
+    pattern: /\b(preferencia|gusta|favorito|like|prefer|odio|hate|detesto)\b/i,
+    types: ['Preference'],
+  },
+  { pattern: /\b(quién soy|mi nombre|cómo me llamo|who am i|me llamo)\b/i, types: ['User'] },
+  {
+    pattern: /\b(código|programar|bug|error|función|debug|script|repo|git)\b/i,
+    types: ['Project', 'Belief'],
+  },
+  {
+    pattern: /\b(ayer|antes|última vez|last time|semana pasada|hace días|dijiste)\b/i,
+    types: ['Episode'],
+  },
+  {
+    pattern:
+      /\b(cómo estoy|cómo me ves|qué piensas de mí|qué sabes de mí|how (?:am i|do you see me)|what do you (?:know|think) (?:about|of) me)\b/i,
+    types: ['User', 'Belief'],
+  },
+  {
+    pattern: /\b(trabajo|empleo|empresa|cliente|reunión|jefe|equipo|meeting)\b/i,
+    types: ['User', 'Project'],
+  },
 ];
 
 const ALWAYS_SEARCH = new Set(['bug', 'api', 'db', 'git', 'ui', 'ux', 'ml', 'ia', 'ai']);
 
 const STOPWORDS = new Set([
-  'para', 'como', 'que', 'esto', 'este', 'esta', 'una', 'uno', 'con', 'por', 'pero',
-  'más', 'muy', 'bien', 'todo', 'algo', 'hace', 'cuando', 'donde', 'quiero', 'puedo',
-  'puedes', 'tengo', 'tienes', 'estar', 'tener', 'hacer', 'decir', 'saber', 'poder',
-  'the', 'and', 'that', 'this', 'with', 'from', 'have', 'what', 'when', 'then',
-  'where', 'there', 'their', 'about', 'would', 'could', 'should', 'been', 'also',
-  'hola', 'oye', 'hey', 'bueno', 'vale', 'okay', 'gracias', 'porfa', 'please',
+  'para',
+  'como',
+  'que',
+  'esto',
+  'este',
+  'esta',
+  'una',
+  'uno',
+  'con',
+  'por',
+  'pero',
+  'más',
+  'muy',
+  'bien',
+  'todo',
+  'algo',
+  'hace',
+  'cuando',
+  'donde',
+  'quiero',
+  'puedo',
+  'puedes',
+  'tengo',
+  'tienes',
+  'estar',
+  'tener',
+  'hacer',
+  'decir',
+  'saber',
+  'poder',
+  'the',
+  'and',
+  'that',
+  'this',
+  'with',
+  'from',
+  'have',
+  'what',
+  'when',
+  'then',
+  'where',
+  'there',
+  'their',
+  'about',
+  'would',
+  'could',
+  'should',
+  'been',
+  'also',
+  'hola',
+  'oye',
+  'hey',
+  'bueno',
+  'vale',
+  'okay',
+  'gracias',
+  'porfa',
+  'please',
 ]);
 
 class RetrievalPlanner {
@@ -66,7 +140,7 @@ class RetrievalPlanner {
    *                                  y el sistema cae al flujo de Fase 2 sin romper nada.
    */
   constructor(stateGraph, intentDetector = null) {
-    this._graph    = stateGraph;
+    this._graph = stateGraph;
     this._detector = intentDetector;
   }
 
@@ -138,16 +212,22 @@ class RetrievalPlanner {
   async plan(userMessage = '', osContext = null) {
     if (!this._graph?.isReady) {
       return {
-        nodes: [], episodeNodes: [],
-        strategy: 'fallback', keywords: [], intents: [],
+        nodes: [],
+        episodeNodes: [],
+        strategy: 'fallback',
+        keywords: [],
+        intents: [],
       };
     }
 
     const nodeIds = new Set();
-    const nodes   = [];
+    const nodes = [];
 
     const addNode = (n) => {
-      if (n && !nodeIds.has(n.id)) { nodeIds.add(n.id); nodes.push(n); }
+      if (n && !nodeIds.has(n.id)) {
+        nodeIds.add(n.id);
+        nodes.push(n);
+      }
     };
     const addAll = (arr) => arr?.forEach(addNode);
 
@@ -171,7 +251,7 @@ class RetrievalPlanner {
       let semantic = [];
       try {
         semantic = await this._graph.queryNodesSemantic(userMessage, { limit: 8 });
-      } catch(e) {
+      } catch (e) {
         console.warn('[retrieval] error en recall semántico, cayendo a keywords:', e.message);
       }
       if (semantic.length > 0) {
@@ -198,25 +278,24 @@ class RetrievalPlanner {
     const episodes = this._graph.getRecentEpisodes(3);
 
     // Ordenar por importancia y recortar
-    const sortedNodes = nodes
-      .sort((a, b) => b.importance - a.importance)
-      .slice(0, 12);
+    const sortedNodes = nodes.sort((a, b) => b.importance - a.importance).slice(0, 12);
 
-    const strategy = intents.length > 0
-      ? `intent:${intents.join(',')}`
-      : keywords.length > 0
-        ? `semantic:${keywords.slice(0, 2).join(',')}`
-        : 'default';
+    const strategy =
+      intents.length > 0
+        ? `intent:${intents.join(',')}`
+        : keywords.length > 0
+          ? `semantic:${keywords.slice(0, 2).join(',')}`
+          : 'default';
 
     console.log(
       `[retrieval] strategy=${strategy}` +
-      ` nodes=${sortedNodes.length}` +
-      ` episodes=${episodes.length}` +
-      ` keywords=[${keywords.slice(0, 3).join(',')}]`
+        ` nodes=${sortedNodes.length}` +
+        ` episodes=${episodes.length}` +
+        ` keywords=[${keywords.slice(0, 3).join(',')}]`
     );
 
     return {
-      nodes:        sortedNodes,
+      nodes: sortedNodes,
       episodeNodes: episodes,
       strategy,
       keywords,
@@ -233,8 +312,11 @@ class RetrievalPlanner {
    */
   async _detectToolIntent(userMessage) {
     const _noDetector = {
-      detected: false, action: null, tool: null,
-      confidence: 0, level: 'none',
+      detected: false,
+      action: null,
+      tool: null,
+      confidence: 0,
+      level: 'none',
       description: 'IntentDetector no disponible (Fase 2)',
       elapsed: 0,
     };
@@ -253,7 +335,7 @@ class RetrievalPlanner {
   _detectGraphIntents(message) {
     const types = new Set();
     for (const { pattern, types: t } of INTENT_PATTERNS) {
-      if (pattern.test(message)) t.forEach(type => types.add(type));
+      if (pattern.test(message)) t.forEach((type) => types.add(type));
     }
     return [...types];
   }
@@ -265,7 +347,7 @@ class RetrievalPlanner {
       .toLowerCase()
       .replace(/[¿?¡!.,;:()"']/g, '')
       .split(/\s+/)
-      .filter(w => {
+      .filter((w) => {
         if (ALWAYS_SEARCH.has(w)) return true;
         return w.length >= 3 && !STOPWORDS.has(w);
       });

@@ -1,12 +1,12 @@
 'use strict';
 
 const C = {
-  green:  (s) => `\x1b[32m${s}\x1b[0m`,
-  red:    (s) => `\x1b[31m${s}\x1b[0m`,
+  green: (s) => `\x1b[32m${s}\x1b[0m`,
+  red: (s) => `\x1b[31m${s}\x1b[0m`,
   yellow: (s) => `\x1b[33m${s}\x1b[0m`,
-  cyan:   (s) => `\x1b[36m${s}\x1b[0m`,
-  bold:   (s) => `\x1b[1m${s}\x1b[0m`,
-  dim:    (s) => `\x1b[2m${s}\x1b[0m`,
+  cyan: (s) => `\x1b[36m${s}\x1b[0m`,
+  bold: (s) => `\x1b[1m${s}\x1b[0m`,
+  dim: (s) => `\x1b[2m${s}\x1b[0m`,
 };
 
 let passed = 0;
@@ -29,15 +29,24 @@ const fs = require('fs');
 const os = require('os');
 
 function makeTool(name, domain, source = 'openclaw') {
-  return { name, domain: Array.isArray(domain) ? domain : [domain], source, description: `${name} tool`, params: [] };
+  return {
+    name,
+    domain: Array.isArray(domain) ? domain : [domain],
+    source,
+    description: `${name} tool`,
+    params: [],
+  };
 }
 
 function makeMCPServer(name, tools) {
   return {
-    listAllTools: () => tools.map(t => ({
-      server: name, tool: t.name, description: t.description || '',
-      inputSchema: { type: 'object', properties: {}, required: [] },
-    })),
+    listAllTools: () =>
+      tools.map((t) => ({
+        server: name,
+        tool: t.name,
+        description: t.description || '',
+        inputSchema: { type: 'object', properties: {}, required: [] },
+      })),
   };
 }
 
@@ -99,12 +108,12 @@ async function testSkillExcludesGeneric() {
   assert(result.matchedSkills.length === 1, '1 skill matcheada');
   assert(result.excluded.length >= 1, 'Al menos 1 herramienta excluida');
 
-  const excludedNames = result.excluded.map(e => e.tool);
+  const excludedNames = result.excluded.map((e) => e.tool);
   assert(excludedNames.includes('read'), 'read excluida (dominio filesystem)');
   assert(excludedNames.includes('write'), 'write excluida (dominio filesystem)');
   assert(!excludedNames.includes('browser'), 'browser NO excluida (dominio web no overlap)');
 
-  const nativeNames = result.nativeToolSchemas.map(s => s.name);
+  const nativeNames = result.nativeToolSchemas.map((s) => s.name);
   assert(!nativeNames.includes('read'), 'read no está en schemas nativos');
   assert(!nativeNames.includes('write'), 'write no está en schemas nativos');
   assert(nativeNames.includes('browser'), 'browser sí está en schemas nativos');
@@ -135,7 +144,7 @@ async function testSkillReplacesSpecificDomain() {
     matchedSkills: skillMatches,
   });
 
-  const excludedNames = result.excluded.map(e => e.tool);
+  const excludedNames = result.excluded.map((e) => e.tool);
   assert(excludedNames.includes('exec'), 'exec excluida (dominio git)');
   assert(!excludedNames.includes('read'), 'read NO excluida (no overlap con git)');
   assert(!excludedNames.includes('write'), 'write NO excluida (no overlap con git)');
@@ -160,7 +169,7 @@ async function testMCPReplacesOpenClaw() {
   });
 
   assert(result.precedence === 'mcp', 'Precedencia es mcp');
-  const excludedNames = result.excluded.map(e => e.tool);
+  const excludedNames = result.excluded.map((e) => e.tool);
   assert(excludedNames.includes('read'), 'read excluida por MCP filesystem');
   assert(excludedNames.includes('write'), 'write excluida por MCP filesystem');
   assert(!excludedNames.includes('exec'), 'exec NO excluida (shell no overlap con filesystem)');
@@ -204,10 +213,7 @@ async function testSkillBeatsMCP() {
 
 // ── Test 6: MCP sin overlap con OpenClaw → ambos coexisten ────────────
 async function testMCPNoOverlap() {
-  const registry = makeRegistry([
-    makeTool('exec', ['shell']),
-    makeTool('web_search', ['web']),
-  ]);
+  const registry = makeRegistry([makeTool('exec', ['shell']), makeTool('web_search', ['web'])]);
 
   const mcpManager = makeMCPServer('memory', [
     { name: 'store_memory', description: 'Store' },
@@ -225,9 +231,7 @@ async function testMCPNoOverlap() {
 
 // ── Test 7: promptCatalog varía según contexto ────────────────────────
 async function testPromptCatalogContent() {
-  const registry = makeRegistry([
-    makeTool('exec', ['shell']),
-  ]);
+  const registry = makeRegistry([makeTool('exec', ['shell'])]);
 
   // Sin skills ni MCP
   const plain = await resolveToolset({ toolRegistry: registry });
@@ -235,9 +239,7 @@ async function testPromptCatalogContent() {
   assert(!plain.promptCatalog.includes('MCP'), 'Catalog base: sin MCP');
 
   // Con MCP
-  const mcpManager = makeMCPServer('filesystem', [
-    { name: 'read', description: 'Read' },
-  ]);
+  const mcpManager = makeMCPServer('filesystem', [{ name: 'read', description: 'Read' }]);
   const withMCP = await resolveToolset({ toolRegistry: registry, mcpManager });
   assert(withMCP.promptCatalog.includes('MCP'), 'Catalog con MCP: menciona MCP');
   assert(withMCP.promptCatalog.includes('filesystem'), 'Catalog con MCP: menciona servidor');
@@ -248,7 +250,11 @@ async function testNoDB() {
   const registry = makeRegistry([makeTool('exec', ['shell'])]);
   const result = await resolveToolset({
     toolRegistry: registry,
-    skillManager: { match: async () => { throw new Error('no db'); } },
+    skillManager: {
+      match: async () => {
+        throw new Error('no db');
+      },
+    },
     db: null,
   });
   assert(result.precedence === 'openclaw', 'Sin DB ni skills: precedencia openclaw');
@@ -259,10 +265,7 @@ async function testNoDB() {
 // ── Test 9: replaces_domains null → no excluye nada ──────────────────
 async function testReplacesDomainsNull() {
   // If a skill has replaces_domains=null, it falls back to its `domains`
-  const registry = makeRegistry([
-    makeTool('exec', ['code']),
-    makeTool('read', ['code']),
-  ]);
+  const registry = makeRegistry([makeTool('exec', ['code']), makeTool('read', ['code'])]);
 
   // Skill with replaces_domains=null (not set) — no tools should be replaced
   const skillMatches = [
@@ -282,7 +285,10 @@ async function testReplacesDomainsNull() {
     matchedSkills: skillMatches,
   });
 
-  assert(result.excluded.length === 0, '0 herramientas excluidas (replaces_domains no está definido)');
+  assert(
+    result.excluded.length === 0,
+    '0 herramientas excluidas (replaces_domains no está definido)'
+  );
 }
 
 // ── Test 10: Múltiples skills matcheadas ──────────────────────────────
@@ -321,7 +327,7 @@ async function testMultipleSkills() {
     matchedSkills: skillMatches,
   });
 
-  const excludedNames = result.excluded.map(e => e.tool);
+  const excludedNames = result.excluded.map((e) => e.tool);
   assert(excludedNames.includes('exec'), 'exec excluida (git)');
   assert(excludedNames.includes('browser'), 'browser excluida (web)');
   assert(excludedNames.includes('web_search'), 'web_search excluida (web)');
@@ -333,22 +339,21 @@ async function testAgentLoopIntegration() {
   const { AgentLoop } = require('../core/planner/AgentLoop.js');
   const mockLLM = async () => 'Respuesta sin tools.';
 
-  const registry = makeRegistry([
-    makeTool('exec', ['shell']),
-    makeTool('read', ['filesystem']),
-  ]);
+  const registry = makeRegistry([makeTool('exec', ['shell']), makeTool('read', ['filesystem'])]);
 
   const loop = new AgentLoop({ maxIterations: 1 });
 
   const result = await loop.run('test', 'System prompt', [], {
     llm: mockLLM,
-    toolResolver: { resolveToolset: async () => ({
-      precedence: 'openclaw',
-      promptCatalog: 'Catalog test',
-      nativeToolSchemas: null,
-      excluded: [],
-      matchedSkills: [],
-    })},
+    toolResolver: {
+      resolveToolset: async () => ({
+        precedence: 'openclaw',
+        promptCatalog: 'Catalog test',
+        nativeToolSchemas: null,
+        excluded: [],
+        matchedSkills: [],
+      }),
+    },
   });
 
   assert(result.response.includes('Respuesta'), 'AgentLoop con ToolResolver funciona');
@@ -388,13 +393,15 @@ async function main() {
   const total = passed + failed;
   console.log(C.bold('\n════════════════════════════════════════════════════════'));
   console.log(
-    C.bold(`  Resultado: ${C.green(passed + ' passed')}  ${failed > 0 ? C.red(failed + ' failed') : C.dim('0 failed')}  ${skipped > 0 ? C.yellow(skipped + ' skipped') : ''}  / ${total + skipped} total`)
+    C.bold(
+      `  Resultado: ${C.green(passed + ' passed')}  ${failed > 0 ? C.red(failed + ' failed') : C.dim('0 failed')}  ${skipped > 0 ? C.yellow(skipped + ' skipped') : ''}  / ${total + skipped} total`
+    )
   );
   console.log(C.bold('════════════════════════════════════════════════════════\n'));
   if (failed > 0) process.exit(1);
 }
 
-main().catch(e => {
+main().catch((e) => {
   console.error(C.red('\nERROR FATAL:'), e.message);
   console.error(e.stack);
   process.exit(1);

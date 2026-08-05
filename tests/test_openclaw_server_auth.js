@@ -1,12 +1,12 @@
 'use strict';
 
 const C = {
-  green:  (s) => `\x1b[32m${s}\x1b[0m`,
-  red:    (s) => `\x1b[31m${s}\x1b[0m`,
+  green: (s) => `\x1b[32m${s}\x1b[0m`,
+  red: (s) => `\x1b[31m${s}\x1b[0m`,
   yellow: (s) => `\x1b[33m${s}\x1b[0m`,
-  cyan:   (s) => `\x1b[36m${s}\x1b[0m`,
-  bold:   (s) => `\x1b[1m${s}\x1b[0m`,
-  dim:    (s) => `\x1b[2m${s}\x1b[0m`,
+  cyan: (s) => `\x1b[36m${s}\x1b[0m`,
+  bold: (s) => `\x1b[1m${s}\x1b[0m`,
+  dim: (s) => `\x1b[2m${s}\x1b[0m`,
 };
 
 let passed = 0;
@@ -47,7 +47,9 @@ function httpRequest(port, method, urlPath, headers, body) {
     const opts = { hostname: '127.0.0.1', port, path: urlPath, method, headers };
     const req = http.request(opts, (res) => {
       let data = '';
-      res.on('data', (c) => { data += c; });
+      res.on('data', (c) => {
+        data += c;
+      });
       res.on('end', () => {
         resolve({ status: res.statusCode, headers: res.headers, body: data });
       });
@@ -86,14 +88,23 @@ function testAuthenticate() {
 
   assert(srv._authenticate({ 'X-Api-Key': TEST_KEY }), 'X-Api-Key válido → true');
   assert(srv._authenticate({ 'x-api-key': TEST_KEY }), 'x-api-key (minúscula) → true');
-  assert(srv._authenticate({ 'Authorization': `Bearer ${TEST_KEY}` }), 'Authorization: Bearer válido → true');
-  assert(srv._authenticate({ 'authorization': `Bearer ${TEST_KEY}` }), 'authorization (minúscula) → true');
+  assert(
+    srv._authenticate({ Authorization: `Bearer ${TEST_KEY}` }),
+    'Authorization: Bearer válido → true'
+  );
+  assert(
+    srv._authenticate({ authorization: `Bearer ${TEST_KEY}` }),
+    'authorization (minúscula) → true'
+  );
   assert(!srv._authenticate({}), 'Sin header de auth → false');
   assert(!srv._authenticate({ 'X-Api-Key': 'wrong-key' }), 'X-Api-Key incorrecto → false');
-  assert(!srv._authenticate({ 'Authorization': 'Bearer wrong-key' }), 'Bearer incorrecto → false');
-  assert(!srv._authenticate({ 'Authorization': 'Basic ' + Buffer.from('user:pass').toString('base64') }), 'Basic auth no Bearer → false');
-  assert(!srv._authenticate({ 'Authorization': 'Bearer' }), 'Bearer sin token → false');
-  assert(!srv._authenticate({ 'Authorization': 'Bearer ' }), 'Bearer con espacio vacío → false');
+  assert(!srv._authenticate({ Authorization: 'Bearer wrong-key' }), 'Bearer incorrecto → false');
+  assert(
+    !srv._authenticate({ Authorization: 'Basic ' + Buffer.from('user:pass').toString('base64') }),
+    'Basic auth no Bearer → false'
+  );
+  assert(!srv._authenticate({ Authorization: 'Bearer' }), 'Bearer sin token → false');
+  assert(!srv._authenticate({ Authorization: 'Bearer ' }), 'Bearer con espacio vacío → false');
 }
 
 // ── Test 2: _isImmutablePath ───────────────────────────────────────────────
@@ -157,7 +168,10 @@ async function testHttpAuth() {
   assertEqual(health.status, 200, 'Health check (sin auth) → 200');
 
   // No auth header
-  const noAuth = await httpRequest(port, 'POST', '/v1/tool',
+  const noAuth = await httpRequest(
+    port,
+    'POST',
+    '/v1/tool',
     { 'Content-Type': 'application/json' },
     { tool: 'read', input: { path: 'test' } }
   );
@@ -166,36 +180,58 @@ async function testHttpAuth() {
   assert(noAuthBody.error && noAuthBody.error.includes('unauthorized'), 'Mensaje de error 401');
 
   // Wrong X-Api-Key
-  const wrongKey = await httpRequest(port, 'POST', '/v1/tool',
+  const wrongKey = await httpRequest(
+    port,
+    'POST',
+    '/v1/tool',
     { 'Content-Type': 'application/json', 'X-Api-Key': 'wrong-key' },
     { tool: 'read', input: { path: 'test' } }
   );
   assertEqual(wrongKey.status, 401, 'X-Api-Key incorrecto → 401');
 
   // Wrong Bearer
-  const wrongBearer = await httpRequest(port, 'POST', '/v1/tool',
-    { 'Content-Type': 'application/json', 'Authorization': 'Bearer wrong-key' },
+  const wrongBearer = await httpRequest(
+    port,
+    'POST',
+    '/v1/tool',
+    { 'Content-Type': 'application/json', Authorization: 'Bearer wrong-key' },
     { tool: 'read', input: { path: 'test' } }
   );
   assertEqual(wrongBearer.status, 401, 'Authorization: Bearer incorrecto → 401');
 
   // Valid X-Api-Key
-  const validKey = await httpRequest(port, 'POST', '/v1/tool',
+  const validKey = await httpRequest(
+    port,
+    'POST',
+    '/v1/tool',
     { 'Content-Type': 'application/json', 'X-Api-Key': TEST_KEY },
     { tool: 'read', input: { path: 'nonexistent' } }
   );
   assertEqual(validKey.status, 400, 'X-Api-Key válido → 400 (auth pasó, error de ruta)');
 
   // Valid Bearer
-  const validBearer = await httpRequest(port, 'POST', '/v1/tool',
-    { 'Content-Type': 'application/json', 'Authorization': `Bearer ${TEST_KEY}` },
+  const validBearer = await httpRequest(
+    port,
+    'POST',
+    '/v1/tool',
+    { 'Content-Type': 'application/json', Authorization: `Bearer ${TEST_KEY}` },
     { tool: 'read', input: { path: 'nonexistent' } }
   );
-  assertEqual(validBearer.status, 400, 'Authorization: Bearer válido → 400 (auth pasó, error de ruta)');
+  assertEqual(
+    validBearer.status,
+    400,
+    'Authorization: Bearer válido → 400 (auth pasó, error de ruta)'
+  );
 
   // Malformed Bearer
-  const malformedBearer = await httpRequest(port, 'POST', '/v1/tool',
-    { 'Content-Type': 'application/json', 'Authorization': 'Basic ' + Buffer.from('test:' + TEST_KEY).toString('base64') },
+  const malformedBearer = await httpRequest(
+    port,
+    'POST',
+    '/v1/tool',
+    {
+      'Content-Type': 'application/json',
+      Authorization: 'Basic ' + Buffer.from('test:' + TEST_KEY).toString('base64'),
+    },
     { tool: 'read', input: { path: 'test' } }
   );
   assertEqual(malformedBearer.status, 401, 'Authorization: Basic (no Bearer) → 401');
@@ -206,42 +242,62 @@ async function testHttpPathValidation() {
   console.log(C.bold('\n── HTTP path validation ────────────────────────────────'));
 
   const port = _testPort;
-  const headers = { 'Content-Type': 'application/json', 'Authorization': `Bearer ${TEST_KEY}` };
+  const headers = { 'Content-Type': 'application/json', Authorization: `Bearer ${TEST_KEY}` };
 
   // Read sensitive path
-  const envRead = await httpRequest(port, 'POST', '/v1/tool', headers,
-    { tool: 'read', input: { path: '.env' } }
-  );
+  const envRead = await httpRequest(port, 'POST', '/v1/tool', headers, {
+    tool: 'read',
+    input: { path: '.env' },
+  });
   const envReadBody = JSON.parse(envRead.body);
-  assert(envReadBody.error && envReadBody.error.includes('outside allowed'), `.env bloqueado server-side`);
+  assert(
+    envReadBody.error && envReadBody.error.includes('outside allowed'),
+    `.env bloqueado server-side`
+  );
 
   // Path traversal
-  const traversal = await httpRequest(port, 'POST', '/v1/tool', headers,
-    { tool: 'read', input: { path: '../../etc/passwd' } }
-  );
+  const traversal = await httpRequest(port, 'POST', '/v1/tool', headers, {
+    tool: 'read',
+    input: { path: '../../etc/passwd' },
+  });
   const travBody = JSON.parse(traversal.body);
-  assert(travBody.error && travBody.error.includes('outside allowed'), 'path traversal bloqueado server-side');
+  assert(
+    travBody.error && travBody.error.includes('outside allowed'),
+    'path traversal bloqueado server-side'
+  );
 
   // Write to sensitive path
-  const writeEnv = await httpRequest(port, 'POST', '/v1/tool', headers,
-    { tool: 'write', input: { path: '.env', content: 'EVIL=1' } }
-  );
+  const writeEnv = await httpRequest(port, 'POST', '/v1/tool', headers, {
+    tool: 'write',
+    input: { path: '.env', content: 'EVIL=1' },
+  });
   const writeBody = JSON.parse(writeEnv.body);
-  assert(writeBody.error && writeBody.error.includes('outside allowed'), 'write a .env bloqueado server-side');
+  assert(
+    writeBody.error && writeBody.error.includes('outside allowed'),
+    'write a .env bloqueado server-side'
+  );
 
   // Exec with blocked command
-  const blockedCmd = await httpRequest(port, 'POST', '/v1/tool', headers,
-    { tool: 'exec', input: { command: 'rm -rf /tmp/test' } }
-  );
+  const blockedCmd = await httpRequest(port, 'POST', '/v1/tool', headers, {
+    tool: 'exec',
+    input: { command: 'rm -rf /tmp/test' },
+  });
   const blockedBody = JSON.parse(blockedCmd.body);
-  assert(blockedBody.error && blockedBody.error.includes('blocked'), 'comando bloqueado server-side');
+  assert(
+    blockedBody.error && blockedBody.error.includes('blocked'),
+    'comando bloqueado server-side'
+  );
 
   // Exec outside allowed path
-  const outsideExec = await httpRequest(port, 'POST', '/v1/tool', headers,
-    { tool: 'exec', input: { command: 'ls', cwd: '/etc' } }
-  );
+  const outsideExec = await httpRequest(port, 'POST', '/v1/tool', headers, {
+    tool: 'exec',
+    input: { command: 'ls', cwd: '/etc' },
+  });
   const outsideBody = JSON.parse(outsideExec.body);
-  assert(outsideBody.error && outsideBody.error.includes('outside allowed'), 'exec cwd fuera del proyecto bloqueado');
+  assert(
+    outsideBody.error && outsideBody.error.includes('outside allowed'),
+    'exec cwd fuera del proyecto bloqueado'
+  );
 
   // Happy path: read/write inside project's temp dir
   const tmpDir = path.join(srv.ALLOWED_PATH(), '__test_auth_' + Date.now());
@@ -249,19 +305,23 @@ async function testHttpPathValidation() {
   const testFile = path.join(tmpDir, 'hello.txt');
   let cleaned = false;
   try {
-    const writeHappy = await httpRequest(port, 'POST', '/v1/tool', headers,
-      { tool: 'write', input: { path: testFile, content: 'hello auth test' } }
-    );
+    const writeHappy = await httpRequest(port, 'POST', '/v1/tool', headers, {
+      tool: 'write',
+      input: { path: testFile, content: 'hello auth test' },
+    });
     assertEqual(writeHappy.status, 200, 'write dentro del proyecto → 200');
     if (writeHappy.status === 200) {
-      const readHappy = await httpRequest(port, 'POST', '/v1/tool', headers,
-        { tool: 'read', input: { path: testFile } }
-      );
+      const readHappy = await httpRequest(port, 'POST', '/v1/tool', headers, {
+        tool: 'read',
+        input: { path: testFile },
+      });
       const readBody = JSON.parse(readHappy.body);
       assert(readBody.result === 'hello auth test', 'read devuelve contenido correcto');
     }
   } finally {
-    try { fs.rmSync(tmpDir, { recursive: true, force: true }); } catch (_) {}
+    try {
+      fs.rmSync(tmpDir, { recursive: true, force: true });
+    } catch (_) {}
     cleaned = true;
   }
 }
@@ -271,13 +331,22 @@ async function testHandleToolEdgeCases() {
   console.log(C.bold('\n── handleTool edge cases ───────────────────────────────'));
 
   const result = await srv.handleTool({ tool: 'read', input: { path: 'nonexistent-12345' } });
-  assert(result.error && result.error.includes('File not found'), 'read de archivo inexistente → error File not found');
+  assert(
+    result.error && result.error.includes('File not found'),
+    'read de archivo inexistente → error File not found'
+  );
 
   const unknownResult = await srv.handleTool({ tool: 'nonexistent_tool', input: {} });
-  assert(unknownResult.error && unknownResult.error.includes('Unknown tool'), 'tool desconocida → error');
+  assert(
+    unknownResult.error && unknownResult.error.includes('Unknown tool'),
+    'tool desconocida → error'
+  );
 
   const noInputResult = await srv.handleTool({ tool: 'exec' });
-  assert(noInputResult.error && noInputResult.error.includes('command required'), 'exec sin command → error');
+  assert(
+    noInputResult.error && noInputResult.error.includes('command required'),
+    'exec sin command → error'
+  );
 }
 
 // ── Run ─────────────────────────────────────────────────────────────────────
@@ -326,9 +395,13 @@ async function main() {
   const color = failed === 0 ? C.green : C.red;
   const skipNote = skipped > 0 ? `  ${C.yellow(`${skipped} skipped`)}` : '';
   if (failed === 0) {
-    console.log(`  ${color('Resultado')}: ${color(`${passed} passed`)}  ${C.dim(`0 failed`)}${skipNote}  / ${total} total`);
+    console.log(
+      `  ${color('Resultado')}: ${color(`${passed} passed`)}  ${C.dim(`0 failed`)}${skipNote}  / ${total} total`
+    );
   } else {
-    console.log(`  Resultado: ${C.green(`${passed} passed`)}  ${C.red(`${failed} failed`)}${skipNote}  / ${total} total`);
+    console.log(
+      `  Resultado: ${C.green(`${passed} passed`)}  ${C.red(`${failed} failed`)}${skipNote}  / ${total} total`
+    );
   }
   console.log(C.bold('════════════════════════════════════════════════════════'));
 

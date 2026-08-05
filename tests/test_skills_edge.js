@@ -1,12 +1,12 @@
 'use strict';
 
 const C = {
-  green:  (s) => `\x1b[32m${s}\x1b[0m`,
-  red:    (s) => `\x1b[31m${s}\x1b[0m`,
+  green: (s) => `\x1b[32m${s}\x1b[0m`,
+  red: (s) => `\x1b[31m${s}\x1b[0m`,
   yellow: (s) => `\x1b[33m${s}\x1b[0m`,
-  cyan:   (s) => `\x1b[36m${s}\x1b[0m`,
-  bold:   (s) => `\x1b[1m${s}\x1b[0m`,
-  dim:    (s) => `\x1b[2m${s}\x1b[0m`,
+  cyan: (s) => `\x1b[36m${s}\x1b[0m`,
+  bold: (s) => `\x1b[1m${s}\x1b[0m`,
+  dim: (s) => `\x1b[2m${s}\x1b[0m`,
 };
 
 let passed = 0;
@@ -43,34 +43,55 @@ async function testScanNonexistentDir() {
 async function testScanBrokenFrontmatter() {
   const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'skills-broken-'));
   fs.mkdirSync(path.join(tmpDir, 'bad-skill'));
-  fs.writeFileSync(path.join(tmpDir, 'bad-skill', 'SKILL.md'), `---
+  fs.writeFileSync(
+    path.join(tmpDir, 'bad-skill', 'SKILL.md'),
+    `---
 description: "Good skill"
 version: "1.0"
 ---
-Body content`);
+Body content`
+  );
 
   fs.mkdirSync(path.join(tmpDir, 'no-frontmatter'));
-  fs.writeFileSync(path.join(tmpDir, 'no-frontmatter', 'SKILL.md'), `---
+  fs.writeFileSync(
+    path.join(tmpDir, 'no-frontmatter', 'SKILL.md'),
+    `---
 Only a dash line, not real frontmatter
 ---
 
-Content`);
+Content`
+  );
 
   fs.mkdirSync(path.join(tmpDir, 'empty-body'));
-  fs.writeFileSync(path.join(tmpDir, 'empty-body', 'SKILL.md'), `---
+  fs.writeFileSync(
+    path.join(tmpDir, 'empty-body', 'SKILL.md'),
+    `---
 description: "Empty body skill"
 ---
-`);
+`
+  );
 
   const sm = new (require('../core/skills/SkillManager.js').SkillManager)({
     skillsDir: tmpDir,
   });
   const skills = await sm.scan(true);
-  assert(skills.length === 2, '2 skills válidas (bad-skill + empty-body, no-frontmatter se ignora por falta de descripción)');
-  assert(skills.some(s => s.name === 'bad-skill'), 'bad-skill incluida');
-  assert(skills.some(s => s.name === 'empty-body'), 'empty-body incluida');
-  const eb = skills.find(s => s.name === 'empty-body');
-  assert(eb.content.includes('Empty body'), 'empty-body tiene content igual a description (fallback)');
+  assert(
+    skills.length === 2,
+    '2 skills válidas (bad-skill + empty-body, no-frontmatter se ignora por falta de descripción)'
+  );
+  assert(
+    skills.some((s) => s.name === 'bad-skill'),
+    'bad-skill incluida'
+  );
+  assert(
+    skills.some((s) => s.name === 'empty-body'),
+    'empty-body incluida'
+  );
+  const eb = skills.find((s) => s.name === 'empty-body');
+  assert(
+    eb.content.includes('Empty body'),
+    'empty-body tiene content igual a description (fallback)'
+  );
 
   fs.rmSync(tmpDir, { recursive: true, force: true });
 }
@@ -79,11 +100,14 @@ description: "Empty body skill"
 async function testScanUnicode() {
   const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'skills-unicode-'));
   fs.mkdirSync(path.join(tmpDir, 'unicode-skill'));
-  fs.writeFileSync(path.join(tmpDir, 'unicode-skill', 'SKILL.md'), `---
+  fs.writeFileSync(
+    path.join(tmpDir, 'unicode-skill', 'SKILL.md'),
+    `---
 description: "Gestión de archivos: ñoño, résumé, 中文, 日本語, українська"
 version: "2.0.0"
 ---
-Body with unicode: ñoño résumé`);
+Body with unicode: ñoño résumé`
+  );
 
   const sm = new (require('../core/skills/SkillManager.js').SkillManager)({
     skillsDir: tmpDir,
@@ -101,10 +125,13 @@ Body with unicode: ñoño résumé`);
 async function testScanDuplicateNames() {
   const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'skills-dup-'));
   fs.mkdirSync(path.join(tmpDir, 'same-name'));
-  fs.writeFileSync(path.join(tmpDir, 'same-name', 'SKILL.md'), `---
+  fs.writeFileSync(
+    path.join(tmpDir, 'same-name', 'SKILL.md'),
+    `---
 description: "First same-name"
 ---
-First body`);
+First body`
+  );
 
   // Can't have two dirs with same name in filesystem, so this is fine
   // This tests that the scan doesn't crash if somehow there are duplicates
@@ -143,8 +170,10 @@ async function testBuildInjectionNoDB() {
     assert(result === null, 'buildInjection sin DB retorna null (no explota)');
   } catch (e) {
     const msg = e.message || '';
-    assert(msg.toLowerCase().includes('db') || msg.toLowerCase().includes('conexion'),
-      `Error menciona DB: "${msg.slice(0, 80)}"`);
+    assert(
+      msg.toLowerCase().includes('db') || msg.toLowerCase().includes('conexion'),
+      `Error menciona DB: "${msg.slice(0, 80)}"`
+    );
   }
 }
 
@@ -181,10 +210,13 @@ async function testAgentLoopEmptySkills() {
 async function testMultipleScans() {
   const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'skills-multi-'));
   fs.mkdirSync(path.join(tmpDir, 'skill-a'));
-  fs.writeFileSync(path.join(tmpDir, 'skill-a', 'SKILL.md'), `---
+  fs.writeFileSync(
+    path.join(tmpDir, 'skill-a', 'SKILL.md'),
+    `---
 description: "Skill A"
 ---
-A body`);
+A body`
+  );
 
   const sm = new (require('../core/skills/SkillManager.js').SkillManager)({
     skillsDir: tmpDir,
@@ -199,10 +231,13 @@ A body`);
 
   // Add a new skill and force re-scan
   fs.mkdirSync(path.join(tmpDir, 'skill-b'));
-  fs.writeFileSync(path.join(tmpDir, 'skill-b', 'SKILL.md'), `---
+  fs.writeFileSync(
+    path.join(tmpDir, 'skill-b', 'SKILL.md'),
+    `---
 description: "Skill B"
 ---
-B body`);
+B body`
+  );
 
   const r3 = await sm.scan(true);
   assert(r3.length === 2, 'Tercer scan (force) encuentra 2 skills');
@@ -216,10 +251,13 @@ async function testLongDescription() {
   const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'skills-long-'));
   fs.mkdirSync(path.join(tmpDir, 'long-skill'));
   const longDesc = 'A '.repeat(500) + 'description';
-  fs.writeFileSync(path.join(tmpDir, 'long-skill', 'SKILL.md'), `---
+  fs.writeFileSync(
+    path.join(tmpDir, 'long-skill', 'SKILL.md'),
+    `---
 description: "${longDesc}"
 ---
-Body`);
+Body`
+  );
 
   const sm = new (require('../core/skills/SkillManager.js').SkillManager)({
     skillsDir: tmpDir,
@@ -235,12 +273,15 @@ Body`);
 async function testSymbolsInFrontmatter() {
   const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'skills-symbols-'));
   fs.mkdirSync(path.join(tmpDir, 'symbol-skill'));
-  fs.writeFileSync(path.join(tmpDir, 'symbol-skill', 'SKILL.md'), `---
+  fs.writeFileSync(
+    path.join(tmpDir, 'symbol-skill', 'SKILL.md'),
+    `---
 description: "Skill with @ symbol and # and $ and % and & and * and ( and ) and ! and ?"
 version: "1.0.0-beta+exp.sha.5114f85"
 domains: ["code", "@special", "test#1"]
 ---
-Body with symbols: @ # $ %`);
+Body with symbols: @ # $ %`
+  );
 
   const sm = new (require('../core/skills/SkillManager.js').SkillManager)({
     skillsDir: tmpDir,
@@ -262,19 +303,27 @@ Body with symbols: @ # $ %`);
 async function testDescriptionOnly() {
   const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'skills-desc-only-'));
   fs.mkdirSync(path.join(tmpDir, 'desc-only'));
-  fs.writeFileSync(path.join(tmpDir, 'desc-only', 'SKILL.md'), `---
+  fs.writeFileSync(
+    path.join(tmpDir, 'desc-only', 'SKILL.md'),
+    `---
 description: "Solo descripción, sin contenido útil"
 ---
-`);
+`
+  );
 
   const sm = new (require('../core/skills/SkillManager.js').SkillManager)({
     skillsDir: tmpDir,
   });
   const skills = await sm.scan(true);
   assert(skills.length === 1, 'Skill con solo frontmatter se escanea');
-  assert(skills[0].content.includes('Solo descripción'),
-    'Content es el description (fallback cuando no hay body)');
-  assert(skills[0].description === 'Solo descripción, sin contenido útil', 'Description preservada');
+  assert(
+    skills[0].content.includes('Solo descripción'),
+    'Content es el description (fallback cuando no hay body)'
+  );
+  assert(
+    skills[0].description === 'Solo descripción, sin contenido útil',
+    'Description preservada'
+  );
 
   fs.rmSync(tmpDir, { recursive: true, force: true });
 }
@@ -285,10 +334,13 @@ async function testFileInSkillsDir() {
   fs.writeFileSync(path.join(tmpDir, 'README.md'), 'not a skill');
   fs.writeFileSync(path.join(tmpDir, '.gitkeep'), '');
   fs.mkdirSync(path.join(tmpDir, 'real-skill'));
-  fs.writeFileSync(path.join(tmpDir, 'real-skill', 'SKILL.md'), `---
+  fs.writeFileSync(
+    path.join(tmpDir, 'real-skill', 'SKILL.md'),
+    `---
 description: "Real skill"
 ---
-Real body`);
+Real body`
+  );
 
   const sm = new (require('../core/skills/SkillManager.js').SkillManager)({
     skillsDir: tmpDir,
@@ -304,11 +356,14 @@ Real body`);
 async function testColonsInValues() {
   const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'skills-colons-'));
   fs.mkdirSync(path.join(tmpDir, 'colon-skill'));
-  fs.writeFileSync(path.join(tmpDir, 'colon-skill', 'SKILL.md'), `---
+  fs.writeFileSync(
+    path.join(tmpDir, 'colon-skill', 'SKILL.md'),
+    `---
 description: "Time: 10:30 AM - Location: Building 7"
 version: "v2:3:4"
 ---
-Body: with: colons`);
+Body: with: colons`
+  );
 
   const sm = new (require('../core/skills/SkillManager.js').SkillManager)({
     skillsDir: tmpDir,
@@ -326,10 +381,13 @@ Body: with: colons`);
 async function testUnclosedFrontmatter() {
   const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'skills-unclosed-'));
   fs.mkdirSync(path.join(tmpDir, 'unclosed'));
-  fs.writeFileSync(path.join(tmpDir, 'unclosed', 'SKILL.md'), `---
+  fs.writeFileSync(
+    path.join(tmpDir, 'unclosed', 'SKILL.md'),
+    `---
 description: "No closing delimiter"
 version: "1.0"
-Body that should be treated as frontmatter`);
+Body that should be treated as frontmatter`
+  );
 
   const sm = new (require('../core/skills/SkillManager.js').SkillManager)({
     skillsDir: tmpDir,
@@ -338,8 +396,14 @@ Body that should be treated as frontmatter`);
   // Without closing `---`, everything is frontmatter, no body
   // The "description" will be parsed from what looks like frontmatter
   assert(skills.length === 1, 'SKILL.md sin cierre de frontmatter se escanea');
-  assert(skills[0].description.includes('closing'), 'Description se extrajo de frontmatter abierto');
-  assert(skills[0].content.includes('closing'), 'Content es el description (fallback cuando no hay body)');
+  assert(
+    skills[0].description.includes('closing'),
+    'Description se extrajo de frontmatter abierto'
+  );
+  assert(
+    skills[0].content.includes('closing'),
+    'Content es el description (fallback cuando no hay body)'
+  );
 
   fs.rmSync(tmpDir, { recursive: true, force: true });
 }
@@ -376,13 +440,15 @@ async function main() {
   const total = passed + failed;
   console.log(C.bold('\n════════════════════════════════════════════════════════'));
   console.log(
-    C.bold(`  Resultado: ${C.green(passed + ' passed')}  ${failed > 0 ? C.red(failed + ' failed') : C.dim('0 failed')}  ${skipped > 0 ? C.yellow(skipped + ' skipped') : ''}  / ${total + skipped} total`)
+    C.bold(
+      `  Resultado: ${C.green(passed + ' passed')}  ${failed > 0 ? C.red(failed + ' failed') : C.dim('0 failed')}  ${skipped > 0 ? C.yellow(skipped + ' skipped') : ''}  / ${total + skipped} total`
+    )
   );
   console.log(C.bold('════════════════════════════════════════════════════════\n'));
   if (failed > 0) process.exit(1);
 }
 
-main().catch(e => {
+main().catch((e) => {
   console.error(C.red('\nERROR FATAL:'), e.message);
   console.error(e.stack);
   process.exit(1);

@@ -17,7 +17,7 @@
  * a un store en memoria (la proactividad sigue funcionando, solo sin memoria).
  */
 
-const fs   = require('fs');
+const fs = require('fs');
 const path = require('path');
 
 const DEFAULT_PATH = path.join(__dirname, '..', '..', 'data', 'proactive_feedback.json');
@@ -38,8 +38,8 @@ function _localDayKey(ts = Date.now()) {
 class ProposalStore {
   constructor({ filePath } = {}) {
     this._filePath = filePath || DEFAULT_PATH;
-    this._data     = { byType: {}, decisions: [], byDay: {} };
-    this._inMem    = false;   // true si el disco falló → solo RAM
+    this._data = { byType: {}, decisions: [], byDay: {} };
+    this._inMem = false; // true si el disco falló → solo RAM
     this._load();
   }
 
@@ -50,7 +50,7 @@ class ProposalStore {
         if (raw && typeof raw === 'object') this._data = raw;
         if (!this._data.byDay) this._data.byDay = {};
       }
-    } catch(e) {
+    } catch (e) {
       console.warn('[proposal-store] no se pudo leer feedback previo:', e.message);
       this._inMem = true;
     }
@@ -61,7 +61,7 @@ class ProposalStore {
     try {
       fs.mkdirSync(path.dirname(this._filePath), { recursive: true });
       fs.writeFileSync(this._filePath, JSON.stringify(this._data, null, 2));
-    } catch(e) {
+    } catch (e) {
       console.warn('[proposal-store] no se pudo persistir feedback:', e.message);
       this._inMem = true;
     }
@@ -73,9 +73,15 @@ class ProposalStore {
    */
   record({ proposalId, type, decision, reason } = {}) {
     if (!proposalId || !type) return null;
-    const d = (decision === 'accepted' || decision === 'ignored') ? decision : 'rejected';
+    const d = decision === 'accepted' || decision === 'ignored' ? decision : 'rejected';
 
-    const t = this._data.byType[type] ||= { accepted: 0, rejected: 0, ignored: 0, rejectsInRow: 0, lastDecision: null };
+    const t = (this._data.byType[type] ||= {
+      accepted: 0,
+      rejected: 0,
+      ignored: 0,
+      rejectsInRow: 0,
+      lastDecision: null,
+    });
     if (d === 'accepted') {
       t.accepted += 1;
       t.rejectsInRow = 0;
@@ -88,8 +94,15 @@ class ProposalStore {
     }
     t.lastDecision = d;
 
-    this._data.decisions.push({ proposalId, type, decision: d, reason: reason || null, ts: Date.now() });
-    if (this._data.decisions.length > 500) this._data.decisions.splice(0, this._data.decisions.length - 500);
+    this._data.decisions.push({
+      proposalId,
+      type,
+      decision: d,
+      reason: reason || null,
+      ts: Date.now(),
+    });
+    if (this._data.decisions.length > 500)
+      this._data.decisions.splice(0, this._data.decisions.length - 500);
 
     this._persist();
     return { ...t };
@@ -138,11 +151,11 @@ class ProposalStore {
 
   getStats() {
     return {
-      byType:        this._data.byType,
-      decisions:     this._data.decisions.slice(-20),
-      byDay:         this._data.byDay,
-      filePath:      this._filePath,
-      inMemoryOnly:  this._inMem,
+      byType: this._data.byType,
+      decisions: this._data.decisions.slice(-20),
+      byDay: this._data.byDay,
+      filePath: this._filePath,
+      inMemoryOnly: this._inMem,
     };
   }
 
@@ -150,7 +163,9 @@ class ProposalStore {
     this._data = { byType: {}, decisions: [], byDay: {} };
     this._inMem = false;
     if (this._filePath) {
-      try { fs.rmSync(this._filePath, { force: true }); } catch {}
+      try {
+        fs.rmSync(this._filePath, { force: true });
+      } catch {}
     }
   }
 }

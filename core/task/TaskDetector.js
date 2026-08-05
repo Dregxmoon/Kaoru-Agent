@@ -3,18 +3,18 @@
 const path = require('path');
 
 const DOMAINS = {
-  CODE:         { id: 'code',         label: 'Código y programación' },
-  FILESYSTEM:   { id: 'filesystem',   label: 'Archivos y directorios' },
-  GIT:          { id: 'git',          label: 'Control de versiones (Git)' },
-  SHELL:        { id: 'shell',        label: 'Comandos de terminal' },
-  WEB:          { id: 'web',          label: 'Navegación y búsqueda web' },
-  SYSTEM:       { id: 'system',       label: 'Sistema operativo' },
-  MULTIMEDIA:   { id: 'multimedia',   label: 'Multimedia (imagen, video, audio)' },
-  MCP:          { id: 'mcp',          label: 'Herramientas MCP externas' },
-  PACKAGE:      { id: 'package',      label: 'Gestión de paquetes' },
-  DOCKER:       { id: 'docker',       label: 'Contenedores Docker' },
-  NETWORK:      { id: 'network',      label: 'Red y conectividad' },
-  DATA:         { id: 'data',         label: 'Datos y archivos de datos' },
+  CODE: { id: 'code', label: 'Código y programación' },
+  FILESYSTEM: { id: 'filesystem', label: 'Archivos y directorios' },
+  GIT: { id: 'git', label: 'Control de versiones (Git)' },
+  SHELL: { id: 'shell', label: 'Comandos de terminal' },
+  WEB: { id: 'web', label: 'Navegación y búsqueda web' },
+  SYSTEM: { id: 'system', label: 'Sistema operativo' },
+  MULTIMEDIA: { id: 'multimedia', label: 'Multimedia (imagen, video, audio)' },
+  MCP: { id: 'mcp', label: 'Herramientas MCP externas' },
+  PACKAGE: { id: 'package', label: 'Gestión de paquetes' },
+  DOCKER: { id: 'docker', label: 'Contenedores Docker' },
+  NETWORK: { id: 'network', label: 'Red y conectividad' },
+  DATA: { id: 'data', label: 'Datos y archivos de datos' },
 };
 
 const ART = '(un|una|el|la|este|esta|los|las)';
@@ -25,18 +25,40 @@ const TASK_PATTERNS = [
     weight: 10,
     patterns: [
       /escrib(e|ir|o|ió)\s+(un|el|este|un)\s+(código|script|función|programa|algoritmo|clase|método)/i,
-      new RegExp('crea(r|)\\s+' + ART + '\\s+(código|script|función|programa|clase|plugin|módulo|api|endpoint)', 'i'),
-      new RegExp('implementa(r|)\\s+' + ART + '\\s+(funció|clase|método|algoritmo|api|endpoint|lógica|integración)', 'i'),
-      new RegExp('refactoriza(r|)\\s+' + ART + '\\s+(código|función|clase|módulo|archivo|componente)', 'i'),
+      new RegExp(
+        'crea(r|)\\s+' +
+          ART +
+          '\\s+(código|script|función|programa|clase|plugin|módulo|api|endpoint)',
+        'i'
+      ),
+      new RegExp(
+        'implementa(r|)\\s+' +
+          ART +
+          '\\s+(funció|clase|método|algoritmo|api|endpoint|lógica|integración)',
+        'i'
+      ),
+      new RegExp(
+        'refactoriza(r|)\\s+' + ART + '\\s+(código|función|clase|módulo|archivo|componente)',
+        'i'
+      ),
       new RegExp('programa(r|)\\s+' + ART + '\\s+(funció|script|algoritmo|solución|programa)', 'i'),
       /traduce\s+(este|el)\s+(código|script|programa|función)\s+(a|de)/i,
       /convierte\s+(este|el)\s+(código|script)\s+(a|de)/i,
       /optimiza(r|)\s+(el|la|este)\s+(código|función|consulta|algoritmo|rendimiento)/i,
-      new RegExp('añade\\s+' + ART + '\\s+(funció|característica|feature|línea|lógica|validación)', 'i'),
-      new RegExp('agrega\\s+' + ART + '\\s+(funció|característica|feature|línea|lógica|validación)', 'i'),
+      new RegExp(
+        'añade\\s+' + ART + '\\s+(funció|característica|feature|línea|lógica|validación)',
+        'i'
+      ),
+      new RegExp(
+        'agrega\\s+' + ART + '\\s+(funció|característica|feature|línea|lógica|validación)',
+        'i'
+      ),
       new RegExp('modifica\\s+' + ART + '\\s+(código|función|clase|comportamiento|lógica)', 'i'),
       new RegExp('actualiza\\s+' + ART + '\\s+(código|función|clase|script|versión)', 'i'),
-      new RegExp('(dame|da\\s*me|pasa\\s*me|muestra)\\s+(el|un)\\s+(c[oó]digo|script|programa)', 'i'),
+      new RegExp(
+        '(dame|da\\s*me|pasa\\s*me|muestra)\\s+(el|un)\\s+(c[oó]digo|script|programa)',
+        'i'
+      ),
     ],
   },
   {
@@ -44,8 +66,16 @@ const TASK_PATTERNS = [
     weight: 9,
     patterns: [
       new RegExp('crea(r|)\\s+' + ART + '\\s+(archivo|fichero|documento|carpeta|directorio)', 'i'),
-      new RegExp('(lee|leer|abr(e|ir)|mostrar|muestra|muéstrame?)\\s+' + ART + '\\s+(archivo|fichero|documento)', 'i'),
-      new RegExp('(escribe|escribir|guarda|guardar|salva)\\s+(en\\s+)?' + ART + '\\s+(archivo|fichero)', 'i'),
+      new RegExp(
+        '(lee|leer|abr(e|ir)|mostrar|muestra|muéstrame?)\\s+' +
+          ART +
+          '\\s+(archivo|fichero|documento)',
+        'i'
+      ),
+      new RegExp(
+        '(escribe|escribir|guarda|guardar|salva)\\s+(en\\s+)?' + ART + '\\s+(archivo|fichero)',
+        'i'
+      ),
       new RegExp('elimina(r|)\\s+' + ART + '\\s+(archivo|fichero|carpeta|directorio)', 'i'),
       new RegExp('borra(r|)\\s+' + ART + '\\s+(archivo|fichero|carpeta|directorio)', 'i'),
       new RegExp('mueve(r|)\\s+' + ART + '\\s+(archivo|fichero|carpeta)\\s+(a|hacia)', 'i'),
@@ -237,8 +267,22 @@ const IDENTITY_QUESTION_PATTERNS = [
 ];
 
 const SIMPLE_CONFIRMATIONS = new Set([
-  'si', 'sí', 'no', 'ok', 'okey', 'okay', 'vale', 'dale', 'de acuerdo', 'claro',
-  'yes', 'yep', 'nope', 'nah', 'thanks', 'gracias',
+  'si',
+  'sí',
+  'no',
+  'ok',
+  'okey',
+  'okay',
+  'vale',
+  'dale',
+  'de acuerdo',
+  'claro',
+  'yes',
+  'yep',
+  'nope',
+  'nah',
+  'thanks',
+  'gracias',
 ]);
 
 function _normalize(text) {
@@ -262,12 +306,41 @@ function _isGreetingOrIdentity(text) {
 
   const lower = normalized.toLowerCase();
   if (lower.length < 8 && !/[áéíóúñü]/.test(lower)) {
-    const actionWords = ['crea', 'haz', 'busca', 'abre', 'ejecuta', 'lee', 'escribe',
-      'instala', 'configura', 'modifica', 'añade', 'agrega', 'elimina', 'borra',
-      'mueve', 'copia', 'renombra', 'sube', 'baja', 'descarga', 'convierte',
-      'analiza', 'genera', 'programa', 'implementa', 'refactoriza', 'traduce',
-      'optimiza', 'actualiza', 'revisa', 'investiga', 'navega'];
-    const hasAction = actionWords.some(w => lower.startsWith(w));
+    const actionWords = [
+      'crea',
+      'haz',
+      'busca',
+      'abre',
+      'ejecuta',
+      'lee',
+      'escribe',
+      'instala',
+      'configura',
+      'modifica',
+      'añade',
+      'agrega',
+      'elimina',
+      'borra',
+      'mueve',
+      'copia',
+      'renombra',
+      'sube',
+      'baja',
+      'descarga',
+      'convierte',
+      'analiza',
+      'genera',
+      'programa',
+      'implementa',
+      'refactoriza',
+      'traduce',
+      'optimiza',
+      'actualiza',
+      'revisa',
+      'investiga',
+      'navega',
+    ];
+    const hasAction = actionWords.some((w) => lower.startsWith(w));
     if (!hasAction) return true;
   }
 
@@ -324,7 +397,7 @@ function _detectDomainAndGoal(text) {
   let goal = null;
   if (matchedDomains.length > 0) {
     const top = matchedDomains[0];
-    const matchExamples = top.matches.slice(0, 3).map(m => m.match);
+    const matchExamples = top.matches.slice(0, 3).map((m) => m.match);
     if (matchExamples.length > 0) {
       goal = matchExamples[0].substring(0, 200);
     }
@@ -334,7 +407,7 @@ function _detectDomainAndGoal(text) {
     domain: bestDomain,
     confidence,
     goal: goal || text.substring(0, 200),
-    matchedDomains: matchedDomains.map(d => ({
+    matchedDomains: matchedDomains.map((d) => ({
       domain: d.domain,
       weight: d.weight,
       matchCount: d.matchCount,
@@ -377,9 +450,18 @@ function detect(text) {
 
   if (result.confidence === 'none') {
     const lower = text.toLowerCase();
-    const hasQuestionWord = /\b(c[oó]mo|qu[eé]|d[oó]nde|cu[aá]ndo|por qu[eé]|cu[aá]l|qui[eé]n|cu[aá]nt[oa])\b/i.test(lower);
-    const hasDirectAction = /^(crea|haz|busca|abre|ejecuta|lee|escribe|instala|configura|modifica|borra|mueve|copia|renombra|sube|baja|descarga|convierte|analiza|genera|programa|necesito|quiero)/i.test(lower.trim());
-    const hasTaskWord = /\b(tarea|trabajo|proyecto|archivo|código|script|programa|comando|función|clase|método|carpeta|directorio|repo|repositorio)\b/i.test(lower);
+    const hasQuestionWord =
+      /\b(c[oó]mo|qu[eé]|d[oó]nde|cu[aá]ndo|por qu[eé]|cu[aá]l|qui[eé]n|cu[aá]nt[oa])\b/i.test(
+        lower
+      );
+    const hasDirectAction =
+      /^(crea|haz|busca|abre|ejecuta|lee|escribe|instala|configura|modifica|borra|mueve|copia|renombra|sube|baja|descarga|convierte|analiza|genera|programa|necesito|quiero)/i.test(
+        lower.trim()
+      );
+    const hasTaskWord =
+      /\b(tarea|trabajo|proyecto|archivo|código|script|programa|comando|función|clase|método|carpeta|directorio|repo|repositorio)\b/i.test(
+        lower
+      );
 
     if (hasQuestionWord && hasTaskWord && !hasDirectAction) {
       return {
@@ -424,8 +506,12 @@ function detect(text) {
     };
   }
 
-  const specificity = result.matchedDomains.length > 2 ? 'specific' :
-    result.matchedDomains.length > 0 ? 'vague' : null;
+  const specificity =
+    result.matchedDomains.length > 2
+      ? 'specific'
+      : result.matchedDomains.length > 0
+        ? 'vague'
+        : null;
 
   return {
     isTask: true,

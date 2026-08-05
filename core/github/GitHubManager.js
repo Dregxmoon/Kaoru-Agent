@@ -88,7 +88,9 @@ class GitHubManager {
   }
 
   get hasToken() {
-    return this._resolveToken().then(Boolean).catch(() => false);
+    return this._resolveToken()
+      .then(Boolean)
+      .catch(() => false);
   }
 
   async _request(method, apiPath, body, expectedStatuses = [200, 201]) {
@@ -160,13 +162,18 @@ class GitHubManager {
     if (!_validRepo(repo)) throw new Error('issue_list requiere un repo en formato "owner/repo".');
     const state = SAFE_ISSUE_STATE.has(opts.state) ? opts.state : 'open';
     const perPage = Math.min(MAX_LIST, Math.max(1, parseInt(opts.limit, 10) || 10));
-    const d = await this._request('GET', `/repos/${repo}/issues?state=${state}&per_page=${perPage}`, null, [200]);
-    const issues = (Array.isArray(d) ? d : []).map(i => ({
+    const d = await this._request(
+      'GET',
+      `/repos/${repo}/issues?state=${state}&per_page=${perPage}`,
+      null,
+      [200]
+    );
+    const issues = (Array.isArray(d) ? d : []).map((i) => ({
       number: i.number,
       title: i.title,
       state: i.state,
       author: i.user?.login,
-      labels: (i.labels || []).map(l => l.name),
+      labels: (i.labels || []).map((l) => l.name),
       comments: i.comments,
       createdAt: i.created_at,
       htmlUrl: i.html_url,
@@ -175,13 +182,12 @@ class GitHubManager {
   }
 
   async issueCreate(repo, opts = {}) {
-    if (!_validRepo(repo)) throw new Error('issue_create requiere un repo en formato "owner/repo".');
+    if (!_validRepo(repo))
+      throw new Error('issue_create requiere un repo en formato "owner/repo".');
     const title = _stripMarkdown(opts.title).trim();
     if (!title) throw new Error('issue_create requiere un título (title).');
     const body = _stripMarkdown(opts.body).slice(0, 20000);
-    const labels = (opts.labels || [])
-      .filter(l => VALID_LABEL_RE.test(l))
-      .slice(0, 10);
+    const labels = (opts.labels || []).filter((l) => VALID_LABEL_RE.test(l)).slice(0, 10);
     const payload = { title, body };
     if (labels.length > 0) payload.labels = labels;
     const d = await this._request('POST', `/repos/${repo}/issues`, payload, [201]);
@@ -195,20 +201,33 @@ class GitHubManager {
   }
 
   async issueComment(repo, opts = {}) {
-    if (!_validRepo(repo)) throw new Error('issue_comment requiere un repo en formato "owner/repo".');
+    if (!_validRepo(repo))
+      throw new Error('issue_comment requiere un repo en formato "owner/repo".');
     const issueNumber = parseInt(opts.issue_number, 10);
-    if (!Number.isInteger(issueNumber) || issueNumber <= 0) throw new Error('issue_comment requiere issue_number válido.');
+    if (!Number.isInteger(issueNumber) || issueNumber <= 0)
+      throw new Error('issue_comment requiere issue_number válido.');
     const body = _stripMarkdown(opts.body).trim();
     if (!body) throw new Error('issue_comment requiere un cuerpo (body).');
-    const d = await this._request('POST', `/repos/${repo}/issues/${issueNumber}/comments`, { body: body.slice(0, 20000) }, [201]);
+    const d = await this._request(
+      'POST',
+      `/repos/${repo}/issues/${issueNumber}/comments`,
+      { body: body.slice(0, 20000) },
+      [201]
+    );
     return { commented: true, issueNumber, id: d.id, htmlUrl: d.html_url };
   }
 
   async issueClose(repo, opts = {}) {
     if (!_validRepo(repo)) throw new Error('issue_close requiere un repo en formato "owner/repo".');
     const issueNumber = parseInt(opts.issue_number, 10);
-    if (!Number.isInteger(issueNumber) || issueNumber <= 0) throw new Error('issue_close requiere issue_number válido.');
-    const d = await this._request('PATCH', `/repos/${repo}/issues/${issueNumber}`, { state: 'closed' }, [200]);
+    if (!Number.isInteger(issueNumber) || issueNumber <= 0)
+      throw new Error('issue_close requiere issue_number válido.');
+    const d = await this._request(
+      'PATCH',
+      `/repos/${repo}/issues/${issueNumber}`,
+      { state: 'closed' },
+      [200]
+    );
     return { closed: true, issueNumber, state: d.state, title: d.title };
   }
 
@@ -217,8 +236,13 @@ class GitHubManager {
     if (!_validRepo(repo)) throw new Error('pr_list requiere un repo en formato "owner/repo".');
     const state = SAFE_PR_STATE.has(opts.state) ? opts.state : 'open';
     const perPage = Math.min(MAX_LIST, Math.max(1, parseInt(opts.limit, 10) || 10));
-    const d = await this._request('GET', `/repos/${repo}/pulls?state=${state}&per_page=${perPage}`, null, [200]);
-    const prs = (Array.isArray(d) ? d : []).map(p => ({
+    const d = await this._request(
+      'GET',
+      `/repos/${repo}/pulls?state=${state}&per_page=${perPage}`,
+      null,
+      [200]
+    );
+    const prs = (Array.isArray(d) ? d : []).map((p) => ({
       number: p.number,
       title: p.title,
       state: p.state,
@@ -262,24 +286,38 @@ class GitHubManager {
   async prReview(repo, opts = {}) {
     if (!_validRepo(repo)) throw new Error('pr_review requiere un repo en formato "owner/repo".');
     const pullNumber = parseInt(opts.pull_number, 10);
-    if (!Number.isInteger(pullNumber) || pullNumber <= 0) throw new Error('pr_review requiere pull_number válido.');
+    if (!Number.isInteger(pullNumber) || pullNumber <= 0)
+      throw new Error('pr_review requiere pull_number válido.');
     const event = String(opts.event || 'COMMENT').toUpperCase();
     if (!SAFE_REVIEW_EVENTS.has(event)) {
-      throw new Error(`pr_review event inválido: ${event}. Válidos: ${[...SAFE_REVIEW_EVENTS].join(', ')}.`);
+      throw new Error(
+        `pr_review event inválido: ${event}. Válidos: ${[...SAFE_REVIEW_EVENTS].join(', ')}.`
+      );
     }
     const body = _stripMarkdown(opts.body).trim();
     if (!body) throw new Error('pr_review requiere un cuerpo (body).');
     const payload = { body: body.slice(0, 20000), event };
-    const d = await this._request('POST', `/repos/${repo}/pulls/${pullNumber}/reviews`, payload, [201]);
+    const d = await this._request(
+      'POST',
+      `/repos/${repo}/pulls/${pullNumber}/reviews`,
+      payload,
+      [201]
+    );
     return { reviewed: true, pullNumber, state: d.state, id: d.id, htmlUrl: d.html_url };
   }
 
   // ── actions_status ───────────────────────────────────────────────────────────
   async actionsStatus(repo, opts = {}) {
-    if (!_validRepo(repo)) throw new Error('actions_status requiere un repo en formato "owner/repo".');
+    if (!_validRepo(repo))
+      throw new Error('actions_status requiere un repo en formato "owner/repo".');
     const perPage = Math.min(MAX_LIST, Math.max(1, parseInt(opts.limit, 10) || 10));
-    const d = await this._request('GET', `/repos/${repo}/actions/runs?per_page=${perPage}`, null, [200]);
-    const runs = (d.workflow_runs || []).map(r => ({
+    const d = await this._request(
+      'GET',
+      `/repos/${repo}/actions/runs?per_page=${perPage}`,
+      null,
+      [200]
+    );
+    const runs = (d.workflow_runs || []).map((r) => ({
       id: r.id,
       name: r.name,
       headBranch: r.head_branch,

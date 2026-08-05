@@ -20,29 +20,30 @@
 const { getEventBus } = require('../../infrastructure/event-bus/EventBus.js');
 
 const DEFAULT_POLL_MS = 5 * 1000;
-const MAX_SNIPPET     = 200;
+const MAX_SNIPPET = 200;
 
-const STACKTRACE_RE = /(\bError|Exception|Traceback|fatal:|panic:)\b|at\s+[\w.$<>[\],?]+\s+\(.+:\d+:\d+\)/i;
-const URL_RE        = /^https?:\/\/|^www\./i;
+const STACKTRACE_RE =
+  /(\bError|Exception|Traceback|fatal:|panic:)\b|at\s+[\w.$<>[\],?]+\s+\(.+:\d+:\d+\)/i;
+const URL_RE = /^https?:\/\/|^www\./i;
 
 function _defaultReader() {
   try {
     const { clipboard } = require('electron');
     return clipboard ? clipboard.readText() : '';
-  } catch(_) {
+  } catch (_) {
     return '';
   }
 }
 
 class ClipboardWatcher {
   constructor({ pollMs = DEFAULT_POLL_MS, reader = _defaultReader, bus = getEventBus() } = {}) {
-    this._bus    = bus;
+    this._bus = bus;
     this._pollMs = pollMs;
     this._reader = reader;
-    this._timer  = null;
+    this._timer = null;
     this._running = false;
-    this._last   = null;
-    this._count  = 0;
+    this._last = null;
+    this._count = 0;
   }
 
   start() {
@@ -53,7 +54,10 @@ class ClipboardWatcher {
   }
 
   stop() {
-    if (this._timer) { clearInterval(this._timer); this._timer = null; }
+    if (this._timer) {
+      clearInterval(this._timer);
+      this._timer = null;
+    }
     this._running = false;
   }
 
@@ -61,7 +65,7 @@ class ClipboardWatcher {
     let text;
     try {
       text = String(this._reader() || '').trim();
-    } catch(_) {
+    } catch (_) {
       return;
     }
     if (!text || text === this._last) return;
@@ -84,7 +88,11 @@ class ClipboardWatcher {
   }
 
   getStats() {
-    return { running: this._running, emitted: this._count, lastKind: this._classify(this._last || '') };
+    return {
+      running: this._running,
+      emitted: this._count,
+      lastKind: this._classify(this._last || ''),
+    };
   }
 }
 

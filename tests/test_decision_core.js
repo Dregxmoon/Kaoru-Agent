@@ -26,11 +26,11 @@ const {
 } = require('../core/decision/DecisionCore.js');
 
 const C = {
-  green:  (s) => `\x1b[32m${s}\x1b[0m`,
-  red:    (s) => `\x1b[31m${s}\x1b[0m`,
-  cyan:   (s) => `\x1b[36m${s}\x1b[0m`,
-  bold:   (s) => `\x1b[1m${s}\x1b[0m`,
-  dim:    (s) => `\x1b[2m${s}\x1b[0m`,
+  green: (s) => `\x1b[32m${s}\x1b[0m`,
+  red: (s) => `\x1b[31m${s}\x1b[0m`,
+  cyan: (s) => `\x1b[36m${s}\x1b[0m`,
+  bold: (s) => `\x1b[1m${s}\x1b[0m`,
+  dim: (s) => `\x1b[2m${s}\x1b[0m`,
 };
 
 let passed = 0;
@@ -46,7 +46,9 @@ function assert(condition, label, detail = '') {
   }
 }
 
-function near(a, b, tol = 1e-9) { return Math.abs(a - b) <= tol; }
+function near(a, b, tol = 1e-9) {
+  return Math.abs(a - b) <= tol;
+}
 
 // ── Test 1: scoreRelevancia ──────────────────────────────────────────────────
 
@@ -63,26 +65,59 @@ function testScore() {
 
   // Ruido: severidad alta pero sin accionabilidad/saliencia → R bajo.
   const noise = scoreRelevancia({ severity: 1, actionability: 0, salience: 0, costOfIgnore: 0 });
-  assert(near(noise, DEFAULT_POLICY.weights.severity), 'ruido (severidad sola) → R = w_severity', `got=${noise}`);
+  assert(
+    near(noise, DEFAULT_POLICY.weights.severity),
+    'ruido (severidad sola) → R = w_severity',
+    `got=${noise}`
+  );
 
   // Saliencia pesa: mismo error, archivo enfocado vs. no enfocado.
-  const focused = scoreRelevancia({ severity: 0.8, actionability: 0.9, salience: 1, costOfIgnore: 0 });
-  const unfocused = scoreRelevancia({ severity: 0.8, actionability: 0.9, salience: 0, costOfIgnore: 0 });
-  assert(focused > unfocused, 'archivo enfocado → R mayor', `focused=${focused} unfocused=${unfocused}`);
+  const focused = scoreRelevancia({
+    severity: 0.8,
+    actionability: 0.9,
+    salience: 1,
+    costOfIgnore: 0,
+  });
+  const unfocused = scoreRelevancia({
+    severity: 0.8,
+    actionability: 0.9,
+    salience: 0,
+    costOfIgnore: 0,
+  });
+  assert(
+    focused > unfocused,
+    'archivo enfocado → R mayor',
+    `focused=${focused} unfocused=${unfocused}`
+  );
 
   // Coste de ignorar suma (un secreto expuesto no se puede ignorar).
   const secret = scoreRelevancia({ severity: 1, actionability: 1, salience: 0.3, costOfIgnore: 1 });
-  const ordinary = scoreRelevancia({ severity: 1, actionability: 1, salience: 0.3, costOfIgnore: 0 });
-  assert(secret > ordinary, 'coste de ignorar alto → R mayor', `secret=${secret} ordinary=${ordinary}`);
+  const ordinary = scoreRelevancia({
+    severity: 1,
+    actionability: 1,
+    salience: 0.3,
+    costOfIgnore: 0,
+  });
+  assert(
+    secret > ordinary,
+    'coste de ignorar alto → R mayor',
+    `secret=${secret} ordinary=${ordinary}`
+  );
 
   // R siempre en [0,1] y cada término se clamp (severity -5→0, salience 99→1).
   const out = scoreRelevancia({ severity: -5, salience: 99 });
   assert(out >= 0 && out <= 1, 'outliers → R dentro de [0,1]', `got=${out}`);
-  assert(near(out, DEFAULT_POLICY.weights.salience), 'términos clampados (salience 99 → 1)', `got=${out}`);
+  assert(
+    near(out, DEFAULT_POLICY.weights.salience),
+    'términos clampados (salience 99 → 1)',
+    `got=${out}`
+  );
 
   // Override parcial de pesos.
-  const heavy = scoreRelevancia({ severity: 1, actionability: 0, salience: 0, costOfIgnore: 0 },
-    { weights: { severity: 0.8 } });
+  const heavy = scoreRelevancia(
+    { severity: 1, actionability: 0, salience: 0, costOfIgnore: 0 },
+    { weights: { severity: 0.8 } }
+  );
   assert(near(heavy, 0.8), 'override de pesos funciona', `got=${heavy}`);
 }
 
@@ -104,8 +139,11 @@ function testReceptivity() {
 
   // Ignorar baja, pero menos que rechazar.
   const afterIgnore = receptividad(0, { ignored: true });
-  assert(afterIgnore < 0 && afterIgnore > afterReject, 'ignorar baja menos que rechazar',
-    `ignore=${afterIgnore} reject=${afterReject}`);
+  assert(
+    afterIgnore < 0 && afterIgnore > afterReject,
+    'ignorar baja menos que rechazar',
+    `ignore=${afterIgnore} reject=${afterReject}`
+  );
 
   // EMA: sucesivos aceptados se acercan a 1 pero no lo saltan.
   let rec = 0;
@@ -131,7 +169,11 @@ function testBudget() {
   console.log(C.bold('\nTest 3: presupuesto — dinámico según receptividad'));
 
   const neutral = presupuesto(0);
-  assert(neutral === DEFAULT_POLICY.budget.base, 'receptividad neutra → base (12)', `got=${neutral}`);
+  assert(
+    neutral === DEFAULT_POLICY.budget.base,
+    'receptividad neutra → base (12)',
+    `got=${neutral}`
+  );
 
   const receptive = presupuesto(1);
   assert(receptive > neutral, 'receptivo → presupuesto mayor', `got=${receptive}`);
@@ -171,28 +213,57 @@ function testDecide() {
   // Relevancia baja → DROP.
   const dropped = decide({ relevance: 0.1, goodMoment: true, userPresent: true });
   assert(dropped.verdict === 'DROP', 'R baja → DROP', dropped.reason);
-  assert(dropped.reason === REASON.DROP_LOW_RELEVANCE, 'reason = DROP_LOW_RELEVANCE', dropped.reason);
+  assert(
+    dropped.reason === REASON.DROP_LOW_RELEVANCE,
+    'reason = DROP_LOW_RELEVANCE',
+    dropped.reason
+  );
 
   // Presupuesto agotado → DROP (aunque R alta).
-  const noBudget = decide({ relevance: 0.9, goodMoment: true, userPresent: true, budgetUsed: 12, budgetLimit: 12 });
-  assert(noBudget.verdict === 'DROP' && noBudget.reason === REASON.DROP_BUDGET_EXHAUSTED,
-    'presupuesto agotado → DROP_BUDGET_EXHAUSTED', noBudget.reason);
+  const noBudget = decide({
+    relevance: 0.9,
+    goodMoment: true,
+    userPresent: true,
+    budgetUsed: 12,
+    budgetLimit: 12,
+  });
+  assert(
+    noBudget.verdict === 'DROP' && noBudget.reason === REASON.DROP_BUDGET_EXHAUSTED,
+    'presupuesto agotado → DROP_BUDGET_EXHAUSTED',
+    noBudget.reason
+  );
 
   // Histéresis: tipo degradado con R=0.65 (por debajo de 0.6+0.15) → QUEUE/DROP, no ACT.
   const degraded = decide({ relevance: 0.65, goodMoment: true, userPresent: true, degraded: true });
-  assert(degraded.verdict !== 'ACT', 'degradado → NO actúa con R media (histéresis)', degraded.reason);
+  assert(
+    degraded.verdict !== 'ACT',
+    'degradado → NO actúa con R media (histéresis)',
+    degraded.reason
+  );
 
   // No degradado, misma R → ACT.
   const normal = decide({ relevance: 0.65, goodMoment: true, userPresent: true });
   assert(normal.verdict === 'ACT', 'no degradado → ACT con la misma R', normal.reason);
 
   // Crítica + presente + R alta → ESCALATE (salta presupuesto).
-  const esc = decide({ relevance: 0.95, isCritical: true, userPresent: true, budgetUsed: 999, budgetLimit: 12 });
+  const esc = decide({
+    relevance: 0.95,
+    isCritical: true,
+    userPresent: true,
+    budgetUsed: 999,
+    budgetLimit: 12,
+  });
   assert(esc.verdict === 'ESCALATE', 'crítica → ESCALATE incluso sin presupuesto', esc.reason);
   assert(esc.reason === REASON.ESCALATE_CRITICAL, 'reason = ESCALATE_CRITICAL', esc.reason);
 
   // Crítica pero usuario ausente → QUEUE (jamás molesta a quien no está).
-  const away = decide({ relevance: 0.95, isCritical: true, userPresent: false, budgetUsed: 999, budgetLimit: 12 });
+  const away = decide({
+    relevance: 0.95,
+    isCritical: true,
+    userPresent: false,
+    budgetUsed: 999,
+    budgetLimit: 12,
+  });
   assert(away.verdict === 'QUEUE', 'crítica sin usuario → QUEUE', away.reason);
 
   // Cada decisión trae id traceable.
@@ -205,8 +276,22 @@ function testAudit() {
   console.log(C.bold('\nTest 5: AuditLog — trazabilidad de cada decisión'));
 
   const log = new AuditLog();
-  log.push({ sensor: 'lsp', type: 'lsp_error', signal: { severity: 0.9 }, verdict: 'ACT', reason: REASON.HIGH_VALUE_GOOD_MOMENT, decisionId: 'x1' });
-  log.push({ sensor: 'git', type: 'git_redflag', signal: { severity: 0.4 }, verdict: 'DROP', reason: REASON.DROP_LOW_RELEVANCE, decisionId: 'x2' });
+  log.push({
+    sensor: 'lsp',
+    type: 'lsp_error',
+    signal: { severity: 0.9 },
+    verdict: 'ACT',
+    reason: REASON.HIGH_VALUE_GOOD_MOMENT,
+    decisionId: 'x1',
+  });
+  log.push({
+    sensor: 'git',
+    type: 'git_redflag',
+    signal: { severity: 0.4 },
+    verdict: 'DROP',
+    reason: REASON.DROP_LOW_RELEVANCE,
+    decisionId: 'x2',
+  });
 
   const all = log.getEntries();
   assert(all.length === 2, 'guarda las decisiones');

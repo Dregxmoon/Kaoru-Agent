@@ -24,16 +24,28 @@
 
 const { getEventBus } = require('../../infrastructure/event-bus/EventBus.js');
 
-const LOOKAHEAD_MS     = 45 * 60 * 1000;
-const DEFAULT_POLL_MS  = 5 * 60 * 1000;
+const LOOKAHEAD_MS = 45 * 60 * 1000;
+const DEFAULT_POLL_MS = 5 * 60 * 1000;
 
 const MONTHS = {
-  enero: 0, febrero: 1, marzo: 2, abril: 3, mayo: 4, junio: 5,
-  julio: 6, agosto: 7, septiembre: 8, octubre: 9, noviembre: 10, diciembre: 11,
+  enero: 0,
+  febrero: 1,
+  marzo: 2,
+  abril: 3,
+  mayo: 4,
+  junio: 5,
+  julio: 6,
+  agosto: 7,
+  septiembre: 8,
+  octubre: 9,
+  noviembre: 10,
+  diciembre: 11,
 };
 
 function _parseEventTime(content, now) {
-  const text = String(content || '').replace(/^pidió recordar:\s*/i, '').trim();
+  const text = String(content || '')
+    .replace(/^pidió recordar:\s*/i, '')
+    .trim();
   if (!text) return null;
   const nowDate = new Date(now);
 
@@ -58,7 +70,9 @@ function _parseEventTime(content, now) {
 
   // día: "el D de MES" | "mañana" | "hoy"
   let day = null;
-  m = text.match(/(\d{1,2})\s+de\s+(enero|febrero|marzo|abril|mayo|junio|julio|agosto|septiembre|octubre|noviembre|diciembre)/i);
+  m = text.match(
+    /(\d{1,2})\s+de\s+(enero|febrero|marzo|abril|mayo|junio|julio|agosto|septiembre|octubre|noviembre|diciembre)/i
+  );
   if (m) {
     const month = MONTHS[m[2].toLowerCase()];
     const d = parseInt(m[1], 10);
@@ -93,10 +107,23 @@ function _parseEventTime(content, now) {
  * 17:00 — se suma 12h. Con am/pm explícito no se toca.
  */
 function _buildTimeTs(now, day, time) {
-  const base = day || new Date(new Date(now).getFullYear(), new Date(now).getMonth(), new Date(now).getDate());
-  let ts = new Date(base.getFullYear(), base.getMonth(), base.getDate(), time.hour, time.minute).getTime();
+  const base =
+    day || new Date(new Date(now).getFullYear(), new Date(now).getMonth(), new Date(now).getDate());
+  let ts = new Date(
+    base.getFullYear(),
+    base.getMonth(),
+    base.getDate(),
+    time.hour,
+    time.minute
+  ).getTime();
   if (!time.ampm && time.hour < 12 && ts < now) {
-    ts = new Date(base.getFullYear(), base.getMonth(), base.getDate(), time.hour + 12, time.minute).getTime();
+    ts = new Date(
+      base.getFullYear(),
+      base.getMonth(),
+      base.getDate(),
+      time.hour + 12,
+      time.minute
+    ).getTime();
   }
   return ts;
 }
@@ -108,13 +135,13 @@ function _localDayString(ts) {
 
 class UpcomingEventsWatcher {
   constructor({ graph, pollMs = DEFAULT_POLL_MS, bus = getEventBus() } = {}) {
-    this._graph  = graph;
-    this._bus    = bus;
+    this._graph = graph;
+    this._bus = bus;
     this._pollMs = pollMs;
-    this._timer  = null;
+    this._timer = null;
     this._running = false;
-    this._emittedTime = {};  // nodeId → ts ya anunciado
-    this._emittedDay   = {}; // nodeId → día calendario ya anunciado
+    this._emittedTime = {}; // nodeId → ts ya anunciado
+    this._emittedDay = {}; // nodeId → día calendario ya anunciado
   }
 
   start() {
@@ -125,7 +152,10 @@ class UpcomingEventsWatcher {
   }
 
   stop() {
-    if (this._timer) { clearInterval(this._timer); this._timer = null; }
+    if (this._timer) {
+      clearInterval(this._timer);
+      this._timer = null;
+    }
     this._running = false;
   }
 
@@ -134,7 +164,7 @@ class UpcomingEventsWatcher {
     let nodes = [];
     try {
       nodes = this._graph.queryNodes({ type: 'Belief' }) || [];
-    } catch(_) {
+    } catch (_) {
       return;
     }
 
@@ -146,12 +176,18 @@ class UpcomingEventsWatcher {
       if (!parsed) continue;
 
       if (parsed.kind === 'time_event') {
-        if (parsed.ts < now) { delete this._emittedTime[node.id]; continue; }
+        if (parsed.ts < now) {
+          delete this._emittedTime[node.id];
+          continue;
+        }
         if (parsed.ts - now > LOOKAHEAD_MS) continue;
         if (this._emittedTime[node.id] === parsed.ts) continue;
         this._emittedTime[node.id] = parsed.ts;
         this._bus.emit('memory:upcoming-event', {
-          nodeId: node.id, content: node.content, when: parsed.ts, kind: 'time_event',
+          nodeId: node.id,
+          content: node.content,
+          when: parsed.ts,
+          kind: 'time_event',
         });
       } else {
         // day_event: solo el día calendario del evento (no "cualquier día").
@@ -161,7 +197,10 @@ class UpcomingEventsWatcher {
         if (this._emittedDay[node.id] === todayStr) continue;
         this._emittedDay[node.id] = todayStr;
         this._bus.emit('memory:upcoming-event', {
-          nodeId: node.id, content: node.content, when: parsed.ts, kind: 'day_event',
+          nodeId: node.id,
+          content: node.content,
+          when: parsed.ts,
+          kind: 'day_event',
         });
       }
     }
@@ -169,9 +208,9 @@ class UpcomingEventsWatcher {
 
   getStats() {
     return {
-      running:      this._running,
-      emittedTime:  Object.keys(this._emittedTime).length,
-      emittedDays:  Object.keys(this._emittedDay).length,
+      running: this._running,
+      emittedTime: Object.keys(this._emittedTime).length,
+      emittedDays: Object.keys(this._emittedDay).length,
     };
   }
 }

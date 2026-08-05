@@ -17,9 +17,9 @@
 'use strict';
 
 let _playwright = null;
-let _browser    = null;
-let _page       = null;
-let _launching  = null; // promesa en curso, evita lanzar 2 navegadores en paralelo
+let _browser = null;
+let _page = null;
+let _launching = null; // promesa en curso, evita lanzar 2 navegadores en paralelo
 
 /**
  * Lanza el navegador headless si no está corriendo ya.
@@ -36,15 +36,16 @@ async function _ensureBrowser() {
     } catch (e) {
       throw new Error(
         'Playwright no está instalado. Ejecuta:\n' +
-        '  npm install playwright\n' +
-        '  npx playwright install chromium'
+          '  npm install playwright\n' +
+          '  npx playwright install chromium'
       );
     }
 
     console.log('[browser-bridge] lanzando Chromium headless...');
     _browser = await _playwright.chromium.launch({ headless: true });
-    _page    = await _browser.newPage({
-      userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36',
+    _page = await _browser.newPage({
+      userAgent:
+        'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36',
     });
     console.log('[browser-bridge] navegador listo');
     return _page;
@@ -64,7 +65,7 @@ async function closeBrowser() {
   if (_browser) {
     await _browser.close().catch(() => {});
     _browser = null;
-    _page    = null;
+    _page = null;
     console.log('[browser-bridge] navegador cerrado');
   }
 }
@@ -148,14 +149,14 @@ async function executeWebSearch(input) {
     for (const block of blocks) {
       if (items.length >= max) break;
 
-      const titleEl   = block.querySelector('h3');
-      const linkEl    = block.querySelector('a');
+      const titleEl = block.querySelector('h3');
+      const linkEl = block.querySelector('a');
       const snippetEl = block.querySelector('div[data-sncf], div.VwiC3b, span.aCOpRe');
 
       if (titleEl && linkEl?.href) {
         items.push({
-          title:   titleEl.innerText.trim(),
-          url:     linkEl.href,
+          title: titleEl.innerText.trim(),
+          url: linkEl.href,
           snippet: snippetEl ? snippetEl.innerText.trim() : '',
         });
       }
@@ -164,7 +165,11 @@ async function executeWebSearch(input) {
   }, max_results);
 
   if (!results.length) {
-    return { result: [], error: 'No se encontraron resultados (Google pudo haber cambiado su HTML, o hay un captcha bloqueando)' };
+    return {
+      result: [],
+      error:
+        'No se encontraron resultados (Google pudo haber cambiado su HTML, o hay un captcha bloqueando)',
+    };
   }
 
   console.log(`[browser-bridge] web_search: ${results.length} resultados`);

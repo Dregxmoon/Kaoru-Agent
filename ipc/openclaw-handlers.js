@@ -43,10 +43,10 @@ function register(ctx) {
         onStepStart: (step) => {
           if (S.chatWindow && !S.chatWindow.isDestroyed()) {
             S.chatWindow.webContents.send('plan-step-start', {
-              planId:      plan.id,
-              stepId:      step.id,
+              planId: plan.id,
+              stepId: step.id,
               description: step.description,
-              tool:        step.tool,
+              tool: step.tool,
             });
           }
         },
@@ -54,13 +54,13 @@ function register(ctx) {
         onStepDone: (step, result) => {
           if (S.chatWindow && !S.chatWindow.isDestroyed()) {
             S.chatWindow.webContents.send('plan-step-done', {
-              planId:      plan.id,
-              stepId:      step.id,
+              planId: plan.id,
+              stepId: step.id,
               description: step.description,
-              tool:        step.tool,
-              status:      step.status,
-              result:      serializeResult(result),
-              error:       step.error,
+              tool: step.tool,
+              status: step.status,
+              result: serializeResult(result),
+              error: step.error,
             });
           }
         },
@@ -73,11 +73,11 @@ function register(ctx) {
             }
 
             S.chatWindow.webContents.send('plan-approval-needed', {
-              planId:      plan.id,
-              stepId:      step.id,
+              planId: plan.id,
+              stepId: step.id,
               description: step.description,
-              tool:        step.tool,
-              params:      step.params,
+              tool: step.tool,
+              params: step.params,
             });
 
             const handler = (e2, { stepId, approved }) => {
@@ -97,12 +97,11 @@ function register(ctx) {
       });
 
       return {
-        ok:     executedPlan.status === 'done',
-        plan:   executedPlan,
+        ok: executedPlan.status === 'done',
+        plan: executedPlan,
         result: serializeResult(executedPlan.result),
-        error:  executedPlan.error,
+        error: executedPlan.error,
       };
-
     } catch (err) {
       console.error('[main] error ejecutando plan:', err.message);
       return { ok: false, error: err.message, plan };
@@ -111,7 +110,8 @@ function register(ctx) {
 
   ipcMain.handle('agent-run', async (e, { text }) => {
     console.log(`[main] agent-run: text="${text?.slice(0, 80)}"`);
-    const _t = (l) => console.log(`[agent-timing] ${Date.now() - _t0}ms ${l}`); const _t0 = Date.now();
+    const _t = (l) => console.log(`[agent-timing] ${Date.now() - _t0}ms ${l}`);
+    const _t0 = Date.now();
 
     if (!text || !text.trim()) {
       return { response: null, iterations: 0, toolResults: [], error: 'texto vacío' };
@@ -131,7 +131,9 @@ function register(ctx) {
               actionId,
               tool: action.tool,
               params: action.params,
-              description: action.description || `${action.tool}: ${JSON.stringify(action.params).slice(0, 100)}`,
+              description:
+                action.description ||
+                `${action.tool}: ${JSON.stringify(action.params).slice(0, 100)}`,
             });
 
             const handler = (e2, { id, approved }) => {

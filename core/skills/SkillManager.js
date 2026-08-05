@@ -58,13 +58,21 @@ function _parseFrontmatter(raw) {
         try {
           meta.replaces_domains = JSON.parse(value.replace(/'/g, '"'));
         } catch {
-          meta.replaces_domains = value.replace(/[[\]']/g, '').split(',').map(s => s.trim()).filter(Boolean);
+          meta.replaces_domains = value
+            .replace(/[[\]']/g, '')
+            .split(',')
+            .map((s) => s.trim())
+            .filter(Boolean);
         }
       } else if (key === 'domains') {
         try {
           meta.domains = JSON.parse(value.replace(/'/g, '"'));
         } catch {
-          meta.domains = value.replace(/[[\]']/g, '').split(',').map(s => s.trim()).filter(Boolean);
+          meta.domains = value
+            .replace(/[[\]']/g, '')
+            .split(',')
+            .map((s) => s.trim())
+            .filter(Boolean);
         }
       }
     }
@@ -110,7 +118,9 @@ class SkillManager {
         const raw = fs.readFileSync(skillFile, 'utf-8');
         const { meta, body } = _parseFrontmatter(raw);
         if (!meta.description) {
-          console.warn(`[skills] SKILL.md en "${entry.name}" no tiene description en frontmatter, ignorando`);
+          console.warn(
+            `[skills] SKILL.md en "${entry.name}" no tiene description en frontmatter, ignorando`
+          );
           continue;
         }
         skills.push({
@@ -157,15 +167,16 @@ class SkillManager {
     const insertMeta = db.prepare(
       `INSERT OR IGNORE INTO ${SKILL_TABLE} (name, description, version, domains, content) VALUES (?, ?, ?, ?, ?)`
     );
-    const insertVec = db.prepare(
-      `INSERT INTO ${VECTOR_TABLE} (rowid, embedding) VALUES (?, ?)`
-    );
+    const insertVec = db.prepare(`INSERT INTO ${VECTOR_TABLE} (rowid, embedding) VALUES (?, ?)`);
 
     const tx = db.transaction(() => {
       for (const skill of skills) {
         const info = insertMeta.run(
-          skill.name, skill.description, skill.version,
-          JSON.stringify(skill.domains), skill.content
+          skill.name,
+          skill.description,
+          skill.version,
+          JSON.stringify(skill.domains),
+          skill.content
         );
         if (info.changes > 0) {
           const rowid = info.lastInsertRowid;
@@ -208,15 +219,14 @@ class SkillManager {
       return [];
     }
 
-    const merged = rows
-      .filter(r => distanceToSimilarity(r.distance) >= this.threshold);
+    const merged = rows.filter((r) => distanceToSimilarity(r.distance) >= this.threshold);
 
     if (merged.length === 0) return [];
 
     // Merge replaces_domains from scan cache (not stored in DB)
     const cache = this._skillsCache || [];
-    return merged.map(r => {
-      const cached = cache.find(c => c.name === r.name);
+    return merged.map((r) => {
+      const cached = cache.find((c) => c.name === r.name);
       return {
         name: r.name,
         description: r.description,
@@ -236,28 +246,26 @@ class SkillManager {
     const matches = await this.match(userMessage, db);
     if (matches.length === 0) return null;
 
-    const blocks = matches.map(skill => {
+    const blocks = matches.map((skill) => {
       return `## Skill: ${skill.name}\n${skill.description}\n\n${skill.content}`;
     });
 
-    return [
-      '---',
-      '**Skills activas para esta tarea:**',
-      ...blocks,
-      '---',
-    ].join('\n\n');
+    return ['---', '**Skills activas para esta tarea:**', ...blocks, '---'].join('\n\n');
   }
 
   // ── Get skill content by name ────────────────────────────────────────
   getSkill(name) {
     if (!this._skillsCache) return null;
-    return this._skillsCache.find(s => s.name === name) || null;
+    return this._skillsCache.find((s) => s.name === name) || null;
   }
 
   getAllSkills() {
     if (!this._skillsCache) return [];
-    return this._skillsCache.map(s => ({
-      name: s.name, description: s.description, version: s.version, domains: s.domains,
+    return this._skillsCache.map((s) => ({
+      name: s.name,
+      description: s.description,
+      version: s.version,
+      domains: s.domains,
     }));
   }
 
@@ -300,7 +308,11 @@ function float32ToBuffer(arr) {
 }
 
 function safeParseJSON(str, fallback) {
-  try { return JSON.parse(str); } catch { return fallback; }
+  try {
+    return JSON.parse(str);
+  } catch {
+    return fallback;
+  }
 }
 
 module.exports = { SkillManager, _parseFrontmatter, float32ToBuffer, _getEmbedder };

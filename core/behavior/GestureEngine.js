@@ -11,9 +11,9 @@
 // Cooldowns: mismo mood dentro de `cooldownMs` → se ignora; cualquier gesto
 // dentro de `minIntervalMs` → se ignora (ambos se saltan con force).
 
-const ModelAugmenter  = require('./ModelAugmenter.js');
+const ModelAugmenter = require('./ModelAugmenter.js');
 const GestureHeuristic = require('./GestureHeuristic.js');
-const Lexicon          = require('./GestureLexicon.js');
+const Lexicon = require('./GestureLexicon.js');
 
 const DEFAULTS = {
   enabled: true,
@@ -43,13 +43,20 @@ class GestureEngine {
     this._stats = { plays: 0, byMood: {}, skipped: {}, errors: 0 };
   }
 
-  get enabled() { return this._enabled; }
+  get enabled() {
+    return this._enabled;
+  }
   set enabled(v) {
     this._enabled = !!v;
-    if (!this._enabled) { this.stopAmbient(); this.flush(); }
+    if (!this._enabled) {
+      this.stopAmbient();
+      this.flush();
+    }
   }
 
-  get gestures() { return this._gestures; }
+  get gestures() {
+    return this._gestures;
+  }
 
   attach(model, { model3Path, gestures, mappings } = {}) {
     this._model = model || null;
@@ -89,7 +96,12 @@ class GestureEngine {
 
     const resolved = GestureHeuristic.resolveMood(m, this._gestures, { mappings: this._mappings });
     if (!resolved.ok || !resolved.gesture) {
-      if (forced && !_forcedFallback && this._config.forcedMoodFallback && Lexicon.hasMood(this._config.forcedMoodFallback)) {
+      if (
+        forced &&
+        !_forcedFallback &&
+        this._config.forcedMoodFallback &&
+        Lexicon.hasMood(this._config.forcedMoodFallback)
+      ) {
         return this.play(this._config.forcedMoodFallback, { priority: 'force' }, true);
       }
       this._skip('sin-coincidencia');
@@ -145,11 +157,17 @@ class GestureEngine {
   }
 
   _scheduleRevert(gesture, duration) {
-    if (this._revertTimer) { clearTimeout(this._revertTimer); this._revertTimer = null; }
+    if (this._revertTimer) {
+      clearTimeout(this._revertTimer);
+      this._revertTimer = null;
+    }
     const isMotion = !!(gesture && (gesture.kind === 'motion' || gesture.type === 'motion'));
-    const dur = typeof duration === 'number'
-      ? duration
-      : (typeof this._config.durationMs === 'number' ? this._config.durationMs : DEFAULTS.durationMs);
+    const dur =
+      typeof duration === 'number'
+        ? duration
+        : typeof this._config.durationMs === 'number'
+          ? this._config.durationMs
+          : DEFAULTS.durationMs;
     this._revertTimer = setTimeout(() => {
       this._revertTimer = null;
       this._resetPose(isMotion);
@@ -168,19 +186,27 @@ class GestureEngine {
     const mm = im.motionManager;
     if (mm) {
       if (wasMotion && typeof mm.stopAllMotions === 'function') {
-        try { mm.stopAllMotions(); } catch {}
+        try {
+          mm.stopAllMotions();
+        } catch {}
       }
       if (mm.expressionManager && typeof mm.expressionManager.resetExpression === 'function') {
-        try { mm.expressionManager.resetExpression(); } catch {}
+        try {
+          mm.expressionManager.resetExpression();
+        } catch {}
       }
     }
     // La API de parámetros vive en im.coreModel (wrapper del Live2DCubismCore),
     // no en im: getParameterCount/getParameterDefaultValue/setParameterValueByIndex.
     // Restaurar todos a su default del moc3 devuelve la pose neutra de carga.
     const cm = im.coreModel;
-    if (!cm || typeof cm.getParameterCount !== 'function' ||
-        typeof cm.setParameterValueByIndex !== 'function' ||
-        typeof cm.getParameterDefaultValue !== 'function') return;
+    if (
+      !cm ||
+      typeof cm.getParameterCount !== 'function' ||
+      typeof cm.setParameterValueByIndex !== 'function' ||
+      typeof cm.getParameterDefaultValue !== 'function'
+    )
+      return;
     try {
       const n = cm.getParameterCount();
       for (let i = 0; i < n; i++) {
@@ -191,19 +217,22 @@ class GestureEngine {
 
   // Revertir a neutro ya mismo (p. ej. al cambiar de modelo).
   flush() {
-    if (this._revertTimer) { clearTimeout(this._revertTimer); this._revertTimer = null; }
+    if (this._revertTimer) {
+      clearTimeout(this._revertTimer);
+      this._revertTimer = null;
+    }
     this._resetPose(true);
   }
 
   // Mapeo declarativo de eventos del flujo del asistente → moods.
   onEvent(type, payload = {}) {
     const map = {
-      'initiative': 'excited',
+      initiative: 'excited',
       'plan:started': 'think',
       'plan:finished': 'happy',
       'proposal-result': payload.ok ? 'happy' : 'sad',
-      'command_ok': 'happy',
-      'command_error': 'sad',
+      command_ok: 'happy',
+      command_error: 'sad',
       'agent-progress': payload.status === 'ok' ? 'excited' : 'think',
       'workspace:changed': 'think',
       'openclaw:available': payload && payload.available === false ? 'sad' : 'default',
@@ -216,7 +245,9 @@ class GestureEngine {
   onChat(role, text, analyzer) {
     if (role !== 'user' || !text || typeof analyzer !== 'function') return;
     let mood;
-    try { mood = analyzer(text); } catch {}
+    try {
+      mood = analyzer(text);
+    } catch {}
     if (mood) this.setEmotion(mood);
   }
 
@@ -232,10 +263,15 @@ class GestureEngine {
   }
 
   stopAmbient() {
-    if (this._ambientTimer) { clearInterval(this._ambientTimer); this._ambientTimer = null; }
+    if (this._ambientTimer) {
+      clearInterval(this._ambientTimer);
+      this._ambientTimer = null;
+    }
   }
 
-  getStats() { return this._stats; }
+  getStats() {
+    return this._stats;
+  }
 
   _skip(reason) {
     this._stats.skipped[reason] = (this._stats.skipped[reason] || 0) + 1;

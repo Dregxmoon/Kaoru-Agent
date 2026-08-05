@@ -1,12 +1,12 @@
 'use strict';
 
 const C = {
-  green:  (s) => `\x1b[32m${s}\x1b[0m`,
-  red:    (s) => `\x1b[31m${s}\x1b[0m`,
+  green: (s) => `\x1b[32m${s}\x1b[0m`,
+  red: (s) => `\x1b[31m${s}\x1b[0m`,
   yellow: (s) => `\x1b[33m${s}\x1b[0m`,
-  cyan:   (s) => `\x1b[36m${s}\x1b[0m`,
-  bold:   (s) => `\x1b[1m${s}\x1b[0m`,
-  dim:    (s) => `\x1b[2m${s}\x1b[0m`,
+  cyan: (s) => `\x1b[36m${s}\x1b[0m`,
+  bold: (s) => `\x1b[1m${s}\x1b[0m`,
+  dim: (s) => `\x1b[2m${s}\x1b[0m`,
 };
 
 let passed = 0;
@@ -23,7 +23,13 @@ function assert(condition, label, detail = '') {
   }
 }
 
-const { _parse, execute, getHelp, getNames, register } = require('../core/commands/CommandRegistry.js');
+const {
+  _parse,
+  execute,
+  getHelp,
+  getNames,
+  register,
+} = require('../core/commands/CommandRegistry.js');
 
 // ── Test 1: _parse ──────────────────────────────────────────────────────────
 
@@ -81,7 +87,7 @@ function testHelp() {
   console.log(C.bold('\n── Test 3: /help ───────────────────────────────────────────'));
 
   const result = execute('/help', {});
-  return result.then(r => {
+  return result.then((r) => {
     assert(!r.error, 'help sin error');
     assert(r.result.includes('Comandos disponibles'), 'help lista comandos');
     assert(r.result.includes('/clear'), 'help menciona /clear');
@@ -96,11 +102,14 @@ function testHelp() {
 function testClear() {
   console.log(C.bold('\n── Test 4: /clear ──────────────────────────────────────────'));
 
-  const history = [{ role: 'user', content: 'hola' }, { role: 'assistant', content: 'adiós' }];
+  const history = [
+    { role: 'user', content: 'hola' },
+    { role: 'assistant', content: 'adiós' },
+  ];
   const ctx = { sessionHistory: history };
 
   const result = execute('/clear', ctx);
-  return result.then(r => {
+  return result.then((r) => {
     assert(!r.error, 'clear sin error');
     assert(r.result.includes('borrado'), 'clear confirma borrado');
     assert(history.length === 0, 'sessionHistory se vació');
@@ -119,22 +128,27 @@ function testModel() {
   ];
   const mockLLMProvider = {
     getActiveProvider: () => configured || 'groq',
-    configure: (cfg) => { configured = cfg.llm.primary; },
+    configure: (cfg) => {
+      configured = cfg.llm.primary;
+    },
     getAvailableProviders: () => mockProviders,
   };
 
   const ctx = { LLMProvider: mockLLMProvider };
 
-  return execute('/model gemini', ctx).then(r => {
-    assert(!r.error, 'model gemini sin error');
-    assert(configured === 'gemini', 'configure llamado con gemini');
-    assert(r.result.includes('gemini'), 'respuesta menciona gemini');
-  }).then(() => {
-    return execute('/model', ctx);
-  }).then(r => {
-    assert(!r.error, 'model sin args no es error');
-    assert(r.result.includes('groq'), 'model sin args muestra activo');
-  });
+  return execute('/model gemini', ctx)
+    .then((r) => {
+      assert(!r.error, 'model gemini sin error');
+      assert(configured === 'gemini', 'configure llamado con gemini');
+      assert(r.result.includes('gemini'), 'respuesta menciona gemini');
+    })
+    .then(() => {
+      return execute('/model', ctx);
+    })
+    .then((r) => {
+      assert(!r.error, 'model sin args no es error');
+      assert(r.result.includes('groq'), 'model sin args muestra activo');
+    });
 }
 
 // ── Test 7: /memory ────────────────────────────────────────────────────────
@@ -143,22 +157,25 @@ function testMemory() {
   console.log(C.bold('\n── Test 7: /memory ─────────────────────────────────────────'));
 
   const ctx1 = { sessionHistory: [] };
-  return execute('/memory', ctx1).then(r => {
-    assert(!r.error, 'memory vacío sin error');
-    assert(r.result.includes('No hay mensajes'), 'memory vacío muestra aviso');
-  }).then(() => {
-    const ctx2 = {
-      sessionHistory: [
-        { role: 'user', content: 'hola' },
-        { role: 'assistant', content: 'mundo' },
-      ],
-    };
-    return execute('/memory', ctx2);
-  }).then(r => {
-    assert(!r.error, 'memory con datos sin error');
-    assert(r.result.includes('2 mensajes'), 'memory muestra cantidad');
-    assert(r.result.includes('hola'), 'memory muestra contenido');
-  });
+  return execute('/memory', ctx1)
+    .then((r) => {
+      assert(!r.error, 'memory vacío sin error');
+      assert(r.result.includes('No hay mensajes'), 'memory vacío muestra aviso');
+    })
+    .then(() => {
+      const ctx2 = {
+        sessionHistory: [
+          { role: 'user', content: 'hola' },
+          { role: 'assistant', content: 'mundo' },
+        ],
+      };
+      return execute('/memory', ctx2);
+    })
+    .then((r) => {
+      assert(!r.error, 'memory con datos sin error');
+      assert(r.result.includes('2 mensajes'), 'memory muestra cantidad');
+      assert(r.result.includes('hola'), 'memory muestra contenido');
+    });
 }
 
 // ── Test 8: /export ────────────────────────────────────────────────────────
@@ -176,7 +193,7 @@ function testExport() {
     process: { cwd: () => process.cwd() },
   };
 
-  return execute('/export', ctx).then(r => {
+  return execute('/export', ctx).then((r) => {
     assert(!r.error, 'export sin error');
     assert(r.result.includes('exports/'), 'export menciona ruta');
     assert(r.result.includes('.md'), 'export es .md');
@@ -190,7 +207,7 @@ function testUnknownCommand() {
   console.log(C.bold('\n── Test 9: Comando desconocido ───────────────────────────────'));
 
   const result = execute('/xyzzy', {});
-  return result.then(r => {
+  return result.then((r) => {
     assert(r.error, 'comando desconocido tiene error');
     assert(r.error.includes('desconocido'), 'error menciona "desconocido"');
     assert(r.error.includes('/help'), 'error sugiere /help');
@@ -203,10 +220,19 @@ let _agentManagerMode = null;
 const mockAgentManager = {
   getActive: () => ({ name: 'conversation', label: 'Conversación', description: 'default' }),
   setActive: (name) => {
-    if (name === 'coder') return { name: 'coder', label: 'Programación', description: 'coder', mode: 'task' };
-    if (name === 'reviewer') return { name: 'reviewer', label: 'Review', description: 'reviewer', mode: 'task' };
-    if (name === 'planner') return { name: 'planner', label: 'Planner', description: 'planner', mode: 'task' };
-    if (name === 'conversation') return { name: 'conversation', label: 'Conversación', description: 'default', mode: 'conversational' };
+    if (name === 'coder')
+      return { name: 'coder', label: 'Programación', description: 'coder', mode: 'task' };
+    if (name === 'reviewer')
+      return { name: 'reviewer', label: 'Review', description: 'reviewer', mode: 'task' };
+    if (name === 'planner')
+      return { name: 'planner', label: 'Planner', description: 'planner', mode: 'task' };
+    if (name === 'conversation')
+      return {
+        name: 'conversation',
+        label: 'Conversación',
+        description: 'default',
+        mode: 'conversational',
+      };
     return null;
   },
   getAll: () => [
@@ -215,7 +241,8 @@ const mockAgentManager = {
     { name: 'reviewer', label: 'Review', description: 'reviewer' },
     { name: 'planner', label: 'Planner', description: 'planner' },
   ],
-  getMode: (name) => name === 'coder' || name === 'reviewer' || name === 'planner' ? 'task' : 'conversational',
+  getMode: (name) =>
+    name === 'coder' || name === 'reviewer' || name === 'planner' ? 'task' : 'conversational',
   getSystemPrompt: (name) => '',
 };
 
@@ -231,32 +258,39 @@ function testAgentCommand() {
   };
 
   // We need to test with real AgentManager
-  return execute('/agent', ctx).then(r => {
-    assert(!r.error, 'agent sin args no es error');
-    assert(r.result.includes('Agente activo'), 'agent sin args muestra estado');
-    assert(r.result.includes('conversation'), 'agent muestra agente actual');
-  }).then(() => {
-    return execute('/agent coder', ctx);
-  }).then(r => {
-    assert(!r.error, 'agent coder sin error');
-    assert(r.result.includes('Programación'), 'agent coder menciona label');
-  }).then(() => {
-    return execute('/agent coder', ctx);
-  }).then(r => {
-    // Después de cambiar a coder, verificar que funciona
-    assert(r.result.includes('Programación'), 'agent coder (segunda vez) funciona');
-  }).then(() => {
-    return execute('/agent conversation', ctx);
-  }).then(r => {
-    assert(!r.error, 'agent conversation sin error');
-  });
+  return execute('/agent', ctx)
+    .then((r) => {
+      assert(!r.error, 'agent sin args no es error');
+      assert(r.result.includes('Agente activo'), 'agent sin args muestra estado');
+      assert(r.result.includes('conversation'), 'agent muestra agente actual');
+    })
+    .then(() => {
+      return execute('/agent coder', ctx);
+    })
+    .then((r) => {
+      assert(!r.error, 'agent coder sin error');
+      assert(r.result.includes('Programación'), 'agent coder menciona label');
+    })
+    .then(() => {
+      return execute('/agent coder', ctx);
+    })
+    .then((r) => {
+      // Después de cambiar a coder, verificar que funciona
+      assert(r.result.includes('Programación'), 'agent coder (segunda vez) funciona');
+    })
+    .then(() => {
+      return execute('/agent conversation', ctx);
+    })
+    .then((r) => {
+      assert(!r.error, 'agent conversation sin error');
+    });
 }
 
 // ── Test 11: /agent inválido ─────────────────────────────────────────────────
 function testAgentInvalid() {
   console.log(C.bold('\n── Test 11: /agent inválido ─────────────────────────────────'));
 
-  return execute('/agent noexiste', {}).then(r => {
+  return execute('/agent noexiste', {}).then((r) => {
     assert(!r.error, 'agent inválido no rompe');
     assert(r.result.includes('desconocido'), 'agent inválido muestra error amigable');
   });
@@ -272,7 +306,7 @@ function testInit() {
     process: { cwd: () => process.cwd() },
   };
 
-  return execute('/init', ctx).then(r => {
+  return execute('/init', ctx).then((r) => {
     assert(!r.error, 'init sin error');
     assert(r.result.includes('Resumen del proyecto'), 'init muestra resumen');
     assert(r.result.includes('archivos'), 'init menciona archivos');
@@ -289,37 +323,44 @@ function testReview() {
     process: { cwd: () => process.cwd() },
   };
 
-  return execute('/review', ctx).then(r => {
-    assert(!r.error, 'review sin args no rompe');
-    assert(r.result.includes('archivo'), 'review sin args pide archivo');
-  }).then(() => {
-    return execute('/review inexistente.js', ctx);
-  }).then(r => {
-    assert(!r.error, 'review archivo inexistente no rompe');
-    assert(r.result.includes('no encontrado'), 'review archivo inexistente avisa');
-  }).then(() => {
-    // Review con archivo existente (el mismo test file)
-    return execute('/review tests/test_commands.js', ctx);
-  }).then(r => {
-    assert(!r.error, 'review archivo existente sin error');
-    assert(r.result.includes('Revisión solicitada'), 'review confirma archivo');
-  });
+  return execute('/review', ctx)
+    .then((r) => {
+      assert(!r.error, 'review sin args no rompe');
+      assert(r.result.includes('archivo'), 'review sin args pide archivo');
+    })
+    .then(() => {
+      return execute('/review inexistente.js', ctx);
+    })
+    .then((r) => {
+      assert(!r.error, 'review archivo inexistente no rompe');
+      assert(r.result.includes('no encontrado'), 'review archivo inexistente avisa');
+    })
+    .then(() => {
+      // Review con archivo existente (el mismo test file)
+      return execute('/review tests/test_commands.js', ctx);
+    })
+    .then((r) => {
+      assert(!r.error, 'review archivo existente sin error');
+      assert(r.result.includes('Revisión solicitada'), 'review confirma archivo');
+    });
 }
 
 // ── Test 14: /plan ───────────────────────────────────────────────────────────
 function testPlan() {
   console.log(C.bold('\n── Test 14: /plan ───────────────────────────────────────────'));
 
-  return execute('/plan', {}).then(r => {
-    assert(!r.error, 'plan sin args no rompe');
-    assert(r.result.includes('Planificador'), 'plan sin args muestra ayuda');
-  }).then(() => {
-    return execute('/plan Implementar login', {}).then(r => {
-      assert(!r.error, 'plan con args no rompe');
-      assert(r.result.includes('Plan solicitado'), 'plan con args confirma');
-      assert(r.result.includes('Implementar login'), 'plan preserva texto');
+  return execute('/plan', {})
+    .then((r) => {
+      assert(!r.error, 'plan sin args no rompe');
+      assert(r.result.includes('Planificador'), 'plan sin args muestra ayuda');
+    })
+    .then(() => {
+      return execute('/plan Implementar login', {}).then((r) => {
+        assert(!r.error, 'plan con args no rompe');
+        assert(r.result.includes('Plan solicitado'), 'plan con args confirma');
+        assert(r.result.includes('Implementar login'), 'plan preserva texto');
+      });
     });
-  });
 }
 
 // ── Test 15: /undo ───────────────────────────────────────────────────────────
@@ -327,7 +368,7 @@ function testUndo() {
   console.log(C.bold('\n── Test 15: /undo ───────────────────────────────────────────'));
 
   // Sin ipcRenderer — handler returns string, execute wraps as { result }
-  return execute('/undo', {}).then(r => {
+  return execute('/undo', {}).then((r) => {
     assert(!r.error, 'undo sin IPC no da error del sistema');
     assert(r.result && r.result.includes('IPC'), 'resultado menciona IPC');
   });
@@ -338,7 +379,7 @@ function testFix() {
   console.log(C.bold('\n── Test 16: /fix ────────────────────────────────────────────'));
 
   // Sin ipcRenderer — handler returns string, execute wraps as { result }
-  return execute('/fix', {}).then(r => {
+  return execute('/fix', {}).then((r) => {
     assert(!r.error, 'fix sin IPC no da error del sistema');
     assert(r.result && r.result.includes('IPC'), 'resultado menciona IPC');
   });
@@ -355,7 +396,7 @@ function testCode() {
     process: { cwd: () => process.cwd() },
   };
 
-  return execute('/code', ctx).then(r => {
+  return execute('/code', ctx).then((r) => {
     assert(!r.error, 'code sin error');
     assert(r.result.includes('Programación'), 'code cambia a coder');
     assert(r.result.includes('@archivo'), 'code menciona @archivo');
@@ -379,18 +420,25 @@ function testCambioModelo() {
     },
   };
 
-  return execute('/cambio-modelo', { ipcRenderer: mockIPC }).then(r => {
-    assert(!r.error, 'cambio-modelo sin error');
-    assert(r.result.includes('March 7th'), 'lista el modelo activo');
-    assert(r.result.includes('Otro'), 'lista los modelos disponibles');
-  }).then(() => execute('/cambio-modelo Otro', { ipcRenderer: mockIPC })).then(r => {
-    assert(!r.error, 'cambio-modelo con argumento no da error');
-    assert(r.result.includes('Otro'), 'cambia al modelo pedido');
-  }).then(() => execute('/cambio-modelo inexistente', { ipcRenderer: mockIPC })).then(r => {
-    assert(r.result && r.result.includes('no encontrado'), 'modelo inexistente se reporta');
-  }).then(() => execute('/cambio-modelo', {})).then(r => {
-    assert(r.result && r.result.includes('IPC'), 'sin IPC menciona IPC');
-  });
+  return execute('/cambio-modelo', { ipcRenderer: mockIPC })
+    .then((r) => {
+      assert(!r.error, 'cambio-modelo sin error');
+      assert(r.result.includes('March 7th'), 'lista el modelo activo');
+      assert(r.result.includes('Otro'), 'lista los modelos disponibles');
+    })
+    .then(() => execute('/cambio-modelo Otro', { ipcRenderer: mockIPC }))
+    .then((r) => {
+      assert(!r.error, 'cambio-modelo con argumento no da error');
+      assert(r.result.includes('Otro'), 'cambia al modelo pedido');
+    })
+    .then(() => execute('/cambio-modelo inexistente', { ipcRenderer: mockIPC }))
+    .then((r) => {
+      assert(r.result && r.result.includes('no encontrado'), 'modelo inexistente se reporta');
+    })
+    .then(() => execute('/cambio-modelo', {}))
+    .then((r) => {
+      assert(r.result && r.result.includes('IPC'), 'sin IPC menciona IPC');
+    });
 }
 
 // ── Test 19: /modelo-vistas ───────────────────────────────────────────────────
@@ -400,27 +448,42 @@ function testModeloVistas() {
   const mockIPC = {
     invoke: async (ch, payload) => {
       if (ch === 'views-get') return { modelId: 'March 7th', mode: 'random', activeView: 'full' };
-      if (ch === 'views-set') return { ok: true, modelId: 'March 7th', mode: payload.mode, activeView: payload.mode === 'random' ? 'full' : payload.mode };
+      if (ch === 'views-set')
+        return {
+          ok: true,
+          modelId: 'March 7th',
+          mode: payload.mode,
+          activeView: payload.mode === 'random' ? 'full' : payload.mode,
+        };
       return null;
     },
   };
 
-  return execute('/modelo-vistas', { ipcRenderer: mockIPC }).then(r => {
-    assert(!r.error, 'modelo-vistas sin error');
-    assert(r.result.includes('Cuerpo completo'), 'menú muestra cuerpo completo');
-    assert(r.result.includes('Aleatorio'), 'menú muestra aleatorio');
-    assert(r.result.includes('view-toggle-group'), 'menú renderiza botones de toggle');
-  }).then(() => execute('/modelo-vistas full', { ipcRenderer: mockIPC })).then(r => {
-    assert(!r.error, 'fijar full no da error');
-    assert(r.result.includes('queda fijo'), 'confirma vista fija');
-  }).then(() => execute('/modelo-vistas random', { ipcRenderer: mockIPC })).then(r => {
-    assert(!r.error, 'aleatorio no da error');
-    assert(r.result.includes('rotará'), 'confirma modo aleatorio');
-  }).then(() => execute('/modelo-vistas foo', { ipcRenderer: mockIPC })).then(r => {
-    assert(r.result && r.result.includes('Modo desconocido'), 'modo inválido se reporta');
-  }).then(() => execute('/modelo-vistas', {})).then(r => {
-    assert(r.result && r.result.includes('IPC'), 'sin IPC menciona IPC');
-  });
+  return execute('/modelo-vistas', { ipcRenderer: mockIPC })
+    .then((r) => {
+      assert(!r.error, 'modelo-vistas sin error');
+      assert(r.result.includes('Cuerpo completo'), 'menú muestra cuerpo completo');
+      assert(r.result.includes('Aleatorio'), 'menú muestra aleatorio');
+      assert(r.result.includes('view-toggle-group'), 'menú renderiza botones de toggle');
+    })
+    .then(() => execute('/modelo-vistas full', { ipcRenderer: mockIPC }))
+    .then((r) => {
+      assert(!r.error, 'fijar full no da error');
+      assert(r.result.includes('queda fijo'), 'confirma vista fija');
+    })
+    .then(() => execute('/modelo-vistas random', { ipcRenderer: mockIPC }))
+    .then((r) => {
+      assert(!r.error, 'aleatorio no da error');
+      assert(r.result.includes('rotará'), 'confirma modo aleatorio');
+    })
+    .then(() => execute('/modelo-vistas foo', { ipcRenderer: mockIPC }))
+    .then((r) => {
+      assert(r.result && r.result.includes('Modo desconocido'), 'modo inválido se reporta');
+    })
+    .then(() => execute('/modelo-vistas', {}))
+    .then((r) => {
+      assert(r.result && r.result.includes('IPC'), 'sin IPC menciona IPC');
+    });
 }
 
 // ── Test 20: Nuevos comandos en getNames ─────────────────────────────────────
@@ -445,25 +508,34 @@ function testEdgeCases() {
   console.log(C.bold('\n── Test 10: Casos borde ─────────────────────────────────────'));
 
   const r1 = execute('', {});
-  return r1.then(r => {
-    assert(r.error, 'texto vacío produce error');
-  }).then(() => {
-    const r2 = execute('/', {});
-    return r2;
-  }).then(r => {
-    assert(r.error, 'solo "/" produce error');
-  }).then(() => {
-    const r3 = execute('/help extra args here', {});
-    return r3;
-  }).then(r => {
-    assert(!r.error, 'help con args extra no rompe');
-    assert(r.result.includes('Comandos disponibles'), 'help con args extra funciona');
-  }).then(() => {
-    const r4 = execute('/clear --malicious-option', { sessionHistory: [{ role: 'user', content: 'test' }] });
-    return r4;
-  }).then(r => {
-    assert(!r.error, 'clear con args extra no rompe');
-  });
+  return r1
+    .then((r) => {
+      assert(r.error, 'texto vacío produce error');
+    })
+    .then(() => {
+      const r2 = execute('/', {});
+      return r2;
+    })
+    .then((r) => {
+      assert(r.error, 'solo "/" produce error');
+    })
+    .then(() => {
+      const r3 = execute('/help extra args here', {});
+      return r3;
+    })
+    .then((r) => {
+      assert(!r.error, 'help con args extra no rompe');
+      assert(r.result.includes('Comandos disponibles'), 'help con args extra funciona');
+    })
+    .then(() => {
+      const r4 = execute('/clear --malicious-option', {
+        sessionHistory: [{ role: 'user', content: 'test' }],
+      });
+      return r4;
+    })
+    .then((r) => {
+      assert(!r.error, 'clear con args extra no rompe');
+    });
 }
 
 // ── Main ────────────────────────────────────────────────────────────────────
@@ -497,7 +569,9 @@ async function main() {
   console.log(C.bold('\n════════════════════════════════════════════════════════'));
   const total = passed + failed;
   console.log(
-    C.bold(`  Resultado: ${C.green(passed + ' passed')}  ${failed > 0 ? C.red(failed + ' failed') : C.dim('0 failed')}  / ${total} total`)
+    C.bold(
+      `  Resultado: ${C.green(passed + ' passed')}  ${failed > 0 ? C.red(failed + ' failed') : C.dim('0 failed')}  / ${total} total`
+    )
   );
   console.log(C.bold('════════════════════════════════════════════════════════\n'));
 

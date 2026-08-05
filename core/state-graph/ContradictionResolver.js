@@ -19,20 +19,20 @@
 // Define cómo manejar cada tipo de dato cuando llega info nueva.
 const RECONCILIATION_POLICY = {
   // Hechos únicos — siempre overwrite con el valor más reciente
-  nombre_usuario:       'overwrite',
-  edad_usuario:         'overwrite',
-  cumpleanos_usuario:   'overwrite',
-  ubicacion_usuario:    'overwrite',
-  trabajo_usuario:      'overwrite',
-  proyecto_principal:   'overwrite',
+  nombre_usuario: 'overwrite',
+  edad_usuario: 'overwrite',
+  cumpleanos_usuario: 'overwrite',
+  ubicacion_usuario: 'overwrite',
+  trabajo_usuario: 'overwrite',
+  proyecto_principal: 'overwrite',
 
   // Preferencias — pueden cambiar, archivar el viejo y activar el nuevo
-  color_favorito:       'archive_and_replace',
-  musica_favorita:      'archive_and_replace',
-  comida_favorita:      'archive_and_replace',
+  color_favorito: 'archive_and_replace',
+  musica_favorita: 'archive_and_replace',
+  comida_favorita: 'archive_and_replace',
 
   // Todo lo demás — append por defecto (no destruir info)
-  default:              'append',
+  default: 'append',
 };
 
 // ── Detección de comandos técnicos ──────────────────────────────────────────
@@ -52,7 +52,7 @@ const COMMAND_PATTERNS = [
 ];
 
 function _isCommandContent(text) {
-  return COMMAND_PATTERNS.some(p => p.test(text.trim()));
+  return COMMAND_PATTERNS.some((p) => p.test(text.trim()));
 }
 
 // ── Cap para la política append ───────────────────────────────────────────────
@@ -60,8 +60,8 @@ function _isCommandContent(text) {
 // a lo largo de meses de "Actualizado: X | Actualizado: Y | ...". Se conserva
 // solo lo más reciente — esto NO afecta al mensaje del usuario ni al historial
 // de sesión, solo a los nodos de memoria persistente.
-const APPEND_SEPARATOR     = ' | Actualizado: ';
-const MAX_APPEND_SEGMENTS  = 3;
+const APPEND_SEPARATOR = ' | Actualizado: ';
+const MAX_APPEND_SEGMENTS = 3;
 
 class ContradictionResolver {
   constructor(stateGraph) {
@@ -107,7 +107,6 @@ class ContradictionResolver {
     const { label, content, importance = 0.7, tags = [], type } = newNode;
 
     switch (policy) {
-
       case 'overwrite': {
         // FIX: antes esto era SQL directo a la tabla — funcionaba para
         // actualizar el contenido, pero se saltaba updateNode() por
@@ -137,7 +136,9 @@ class ContradictionResolver {
         // Si el contenido nuevo parece un comando técnico, descartarlo —
         // esos son artefactos del agente, no memoria del usuario
         if (_isCommandContent(content)) {
-          console.log(`[resolver] append ignorado — contenido parece comando: "${content.slice(0, 60)}"`);
+          console.log(
+            `[resolver] append ignorado — contenido parece comando: "${content.slice(0, 60)}"`
+          );
           return existing.id;
         }
 
@@ -148,13 +149,15 @@ class ContradictionResolver {
         const segments = existing.content.split(APPEND_SEPARATOR);
         segments.push(content);
         const trimmed = segments.slice(-MAX_APPEND_SEGMENTS);
-        const merged  = trimmed.join(APPEND_SEPARATOR);
+        const merged = trimmed.join(APPEND_SEPARATOR);
 
         this._graph.updateNode(existing.id, {
           content: merged,
           importance: Math.max(importance, existing.importance),
         });
-        console.log(`[resolver] append: ${label} (${trimmed.length}/${segments.length} fragmentos conservados)`);
+        console.log(
+          `[resolver] append: ${label} (${trimmed.length}/${segments.length} fragmentos conservados)`
+        );
         return existing.id;
       }
 
@@ -183,10 +186,12 @@ class ContradictionResolver {
         }
 
         if (toArchive.length > 0) {
-          console.log(`[resolver] dedup: ${label} — ${toArchive.length} nodo(s) duplicado(s) archivado(s)`);
+          console.log(
+            `[resolver] dedup: ${label} — ${toArchive.length} nodo(s) duplicado(s) archivado(s)`
+          );
         }
       }
-    } catch(e) {
+    } catch (e) {
       console.warn('[resolver] error en dedup:', e.message);
     }
   }

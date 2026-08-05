@@ -21,10 +21,10 @@ const { ProactiveEngine } = require('../core/behavior/ProactiveEngine.js');
 
 const C = {
   green: (s) => `\x1b[32m${s}\x1b[0m`,
-  red:   (s) => `\x1b[31m${s}\x1b[0m`,
-  cyan:  (s) => `\x1b[36m${s}\x1b[0m`,
-  bold:  (s) => `\x1b[1m${s}\x1b[0m`,
-  dim:   (s) => `\x1b[2m${s}\x1b[0m`,
+  red: (s) => `\x1b[31m${s}\x1b[0m`,
+  cyan: (s) => `\x1b[36m${s}\x1b[0m`,
+  bold: (s) => `\x1b[1m${s}\x1b[0m`,
+  dim: (s) => `\x1b[2m${s}\x1b[0m`,
 };
 
 let passed = 0;
@@ -40,7 +40,9 @@ function assert(condition, label, detail = '') {
   }
 }
 
-function near(a, b, tol = 1e-6) { return Math.abs(a - b) <= tol; }
+function near(a, b, tol = 1e-6) {
+  return Math.abs(a - b) <= tol;
+}
 
 function fakeGraph() {
   return { _ready: true, queryNodes: () => [], getWorldModel: () => [], queryAll: () => [] };
@@ -58,7 +60,11 @@ function testAssess() {
   assert(t.total === 10, 'total = enviadas', `got=${t.total}`);
   assert(near(t.acceptanceRate, 6 / 8), 'acceptanceRate = 6/(6+2)', `got=${t.acceptanceRate}`);
   assert(near(t.ignoreRate, 2 / 10), 'ignoreRate = 2/10', `got=${t.ignoreRate}`);
-  assert(near(t.nonNuisanceRate, 0.8), 'nonNuisanceRate = 1 - ignoreRate', `got=${t.nonNuisanceRate}`);
+  assert(
+    near(t.nonNuisanceRate, 0.8),
+    'nonNuisanceRate = 1 - ignoreRate',
+    `got=${t.nonNuisanceRate}`
+  );
 
   // git_redflag: minAccept 0.6 → 0.75 OK → no degrada.
   assert(t.degraded === false, 'acceptance 0.75 ≥ 0.6 → no degrada');
@@ -66,7 +72,11 @@ function testAssess() {
   // Sin muestra → sampleOk false, nunca degrada.
   const empty = assess({ git_redflag: { accepted: 1, rejected: 0 } }).porTipo.git_redflag;
   assert(empty.sampleOk === false && empty.degraded === false, 'muestra < mínima → no degrada');
-  assert(empty.acceptanceRate === 1, '…pero la tasa se calcula igual', `got=${empty.acceptanceRate}`);
+  assert(
+    empty.acceptanceRate === 1,
+    '…pero la tasa se calcula igual',
+    `got=${empty.acceptanceRate}`
+  );
 
   // Sin datos → todo null.
   const none = assess({}).global;
@@ -83,14 +93,15 @@ function testDegradation() {
   assert(bad.degraded === true, 'acceptance 0.2 < 0.4 con muestra suficiente → degrada');
 
   // Ignorados en exceso: clipboard maxIgnore 0.5. 6 enviadas, 4 ignoradas → 0.67 > 0.5 → degrada.
-  const noisy = assess({ clipboard_context: { accepted: 2, rejected: 0, ignored: 4 } }).porTipo.clipboard_context;
+  const noisy = assess({ clipboard_context: { accepted: 2, rejected: 0, ignored: 4 } }).porTipo
+    .clipboard_context;
   assert(noisy.degraded === true, 'ignore 0.67 > 0.5 → degrada');
 
   // degradedTypes devuelve solo los degradados.
   const set = degradedTypes({
-    error_title:        { accepted: 1, rejected: 4 },
-    git_redflag:        { accepted: 8, rejected: 2 },
-    clipboard_context:  { accepted: 2, rejected: 0, ignored: 4 },
+    error_title: { accepted: 1, rejected: 4 },
+    git_redflag: { accepted: 8, rejected: 2 },
+    clipboard_context: { accepted: 2, rejected: 0, ignored: 4 },
   });
   assert(set.has('error_title'), 'degradedTypes incluye error_title');
   assert(set.has('clipboard_context'), 'degradedTypes incluye clipboard_context');
@@ -104,8 +115,14 @@ function testGateUsesDegradation() {
 
   const cand = (score) => ({ tipo: 'error_title', kind: 'default', score, isCritical: false });
   const ctx = {
-    now: 1000000, chatOpen: false, lastUserMsg: 0, idleSecs: 0,
-    appElapsedSec: 60, recentSwitches: [], budgetUsed: 0, receptivity: 0,
+    now: 1000000,
+    chatOpen: false,
+    lastUserMsg: 0,
+    idleSecs: 0,
+    appElapsedSec: 60,
+    recentSwitches: [],
+    budgetUsed: 0,
+    receptivity: 0,
   };
 
   // Sin degradación: R=0.65 ≥ 0.60 → ACT.
@@ -116,7 +133,11 @@ function testGateUsesDegradation() {
   const degradedCtx = { ...ctx, degradedTypes: new Set(['error_title']) };
   const degraded = evaluateGate(cand(0.65), degradedCtx);
   assert(degraded.admit === false, 'tipo degradado, R 0.65 → NO ACT');
-  assert(degraded.decision.verdict === 'QUEUE', '…se difiere, no se descarta', degraded.decision.verdict);
+  assert(
+    degraded.decision.verdict === 'QUEUE',
+    '…se difiere, no se descarta',
+    degraded.decision.verdict
+  );
 
   // R alta sí pasa.
   const strong = evaluateGate(cand(0.85), degradedCtx);
@@ -134,7 +155,11 @@ function testStoreIgnored() {
   store.record({ proposalId: 'c', type: 'error_title', decision: 'ignored' });
 
   const byType = store.getStats().byType.error_title;
-  assert(byType.accepted === 1 && byType.rejected === 1 && byType.ignored === 1, 'contadores por tipo', JSON.stringify(byType));
+  assert(
+    byType.accepted === 1 && byType.rejected === 1 && byType.ignored === 1,
+    'contadores por tipo',
+    JSON.stringify(byType)
+  );
 
   const slo = assess({ error_title: byType }).porTipo.error_title;
   assert(near(slo.ignoreRate, 1 / 3, 0.001), 'ignoreRate = 1/3', `got=${slo.ignoreRate}`);
@@ -156,7 +181,11 @@ function testEngineIgnored() {
   engine._markIgnoredStale();
 
   const byType = store.getStats().byType.error_title;
-  assert(byType && byType.ignored === 1, 'propuesta vieja sin respuesta → ignored', JSON.stringify(byType));
+  assert(
+    byType && byType.ignored === 1,
+    'propuesta vieja sin respuesta → ignored',
+    JSON.stringify(byType)
+  );
   assert(!engine._sentFeedback.has('p-old'), '…y sale del seguimiento');
 
   // Una propuesta reciente NO se marca.

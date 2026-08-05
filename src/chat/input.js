@@ -1,12 +1,12 @@
 // Input
-const input     = document.getElementById('msg-input');
-const sendBtn   = document.getElementById('send-btn');
-const hintEl    = document.getElementById('input-hint-text');
+const input = document.getElementById('msg-input');
+const sendBtn = document.getElementById('send-btn');
+const hintEl = document.getElementById('input-hint-text');
 
 function updateLlmHint() {
   const active = LLMProvider.getActiveProvider();
   const all = LLMProvider.getAvailableProviders();
-  const p = all.find(x => x.id === active);
+  const p = all.find((x) => x.id === active);
   if (p) {
     const cost = p.free ? 'gratis' : 'pago';
     hintEl.textContent = `${p.name} (${cost}) · /help`;
@@ -23,22 +23,29 @@ const _cmdNames = [
   ...CommandRegistry.getNames(),
   // Atajos de proveedor (/groq, /gemini, /nvidia, ...) — se resuelven en
   // CommandRegistry.execute() como fallback, así que deben autocompletarse.
-  ...LLMProvider.getAvailableProviders().map(p => p.id),
+  ...LLMProvider.getAvailableProviders().map((p) => p.id),
 ];
 let _skillNames = [];
 let _providerNames = [];
-ipcRenderer.invoke('list-skills').then(skills => {
-  _skillNames = skills.map(s => s.name);
-}).catch(() => {});
+ipcRenderer
+  .invoke('list-skills')
+  .then((skills) => {
+    _skillNames = skills.map((s) => s.name);
+  })
+  .catch(() => {});
 try {
-  _providerNames = LLMProvider.getAvailableProviders().filter(p => p.hasKey).map(p => p.id);
+  _providerNames = LLMProvider.getAvailableProviders()
+    .filter((p) => p.hasKey)
+    .map((p) => p.id);
 } catch {}
 
 function _getProjectFiles() {
   if (_atProjectFiles) return _atProjectFiles;
   try {
     _atProjectFiles = FileResolver.listProjectFiles(_workspacePath || assistant.cwd());
-  } catch { _atProjectFiles = []; }
+  } catch {
+    _atProjectFiles = [];
+  }
   return _atProjectFiles;
 }
 
@@ -46,19 +53,25 @@ function _showAtSuggestions(query) {
   _atQuery = query;
   const el = document.getElementById('at-suggestions');
 
-  const files = _getProjectFiles().filter(f =>
-    f.path.toLowerCase().includes(query.toLowerCase())
-  ).slice(0, 20);
+  const files = _getProjectFiles()
+    .filter((f) => f.path.toLowerCase().includes(query.toLowerCase()))
+    .slice(0, 20);
 
-  if (files.length === 0) { el.style.display = 'none'; return; }
+  if (files.length === 0) {
+    el.style.display = 'none';
+    return;
+  }
 
-  el.innerHTML = files.map((f, i) =>
-    `<div class="at-suggestion-item" data-index="${i}" data-path="${escapeHtml(f.path)}">
+  el.innerHTML = files
+    .map(
+      (f, i) =>
+        `<div class="at-suggestion-item" data-index="${i}" data-path="${escapeHtml(f.path)}">
       <span class="file-icon">${f.type === 'directory' ? '[DIR]' : '[FILE]'}</span>
       <span>${_highlightMatch(f.name, query)}</span>
       <span class="file-path">${escapeHtml(f.path.split('/').slice(0, -1).join('/') || '.')}</span>
     </div>`
-  ).join('');
+    )
+    .join('');
   el.style.display = 'block';
   _atSelectedIdx = -1;
 }
@@ -103,18 +116,24 @@ function _showCmdSuggestions(query) {
   _atQuery = query;
   const el = document.getElementById('at-suggestions');
 
-  const cmds = _cmdNames.filter(c =>
-    c.toLowerCase().startsWith(query.toLowerCase())
-  ).slice(0, 15);
+  const cmds = _cmdNames
+    .filter((c) => c.toLowerCase().startsWith(query.toLowerCase()))
+    .slice(0, 15);
 
-  if (cmds.length === 0) { el.style.display = 'none'; return; }
+  if (cmds.length === 0) {
+    el.style.display = 'none';
+    return;
+  }
 
-  el.innerHTML = cmds.map((c, i) =>
-    `<div class="at-suggestion-item" data-index="${i}" data-cmd="${c}">
+  el.innerHTML = cmds
+    .map(
+      (c, i) =>
+        `<div class="at-suggestion-item" data-index="${i}" data-cmd="${c}">
       <span style="color:var(--accent);font-weight:600">/${c}</span>
       <span style="opacity:.5;margin-left:auto;font-size:10px">cmd</span>
     </div>`
-  ).join('');
+    )
+    .join('');
   el.style.display = 'block';
   _atSelectedIdx = -1;
 }
@@ -143,21 +162,30 @@ function _cmdArgCompletions(cmdName) {
 
 function _showArgSuggestions(cmdName, partialArg) {
   const completions = _cmdArgCompletions(cmdName);
-  if (!completions) { document.getElementById('at-suggestions').style.display = 'none'; return; }
+  if (!completions) {
+    document.getElementById('at-suggestions').style.display = 'none';
+    return;
+  }
 
-  const filtered = completions.filter(c =>
-    c.toLowerCase().startsWith(partialArg.toLowerCase())
-  ).slice(0, 15);
+  const filtered = completions
+    .filter((c) => c.toLowerCase().startsWith(partialArg.toLowerCase()))
+    .slice(0, 15);
 
   const el = document.getElementById('at-suggestions');
-  if (filtered.length === 0) { el.style.display = 'none'; return; }
+  if (filtered.length === 0) {
+    el.style.display = 'none';
+    return;
+  }
 
-  el.innerHTML = filtered.map((c, i) =>
-    `<div class="at-suggestion-item" data-index="${i}" data-cmd-arg="${c}">
+  el.innerHTML = filtered
+    .map(
+      (c, i) =>
+        `<div class="at-suggestion-item" data-index="${i}" data-cmd-arg="${c}">
       <span style="color:var(--accent)">${c}</span>
       <span style="opacity:.5;margin-left:auto;font-size:10px">/${cmdName}</span>
     </div>`
-  ).join('');
+    )
+    .join('');
   el.style.display = 'block';
   _atSelectedIdx = -1;
 }
@@ -236,7 +264,8 @@ input.addEventListener('keydown', (e) => {
     _cmdSuggested = false;
     e.preventDefault();
     const text = input.value;
-    input.value = ''; input.style.height = 'auto';
+    input.value = '';
+    input.style.height = 'auto';
     document.getElementById('at-suggestions').style.display = 'none';
     sendMessage(text);
   }
@@ -274,7 +303,8 @@ document.getElementById('at-suggestions').addEventListener('mousedown', (e) => {
 });
 sendBtn.addEventListener('click', () => {
   const text = input.value;
-  input.value = ''; input.style.height = 'auto';
+  input.value = '';
+  input.style.height = 'auto';
   sendMessage(text);
 });
 
@@ -293,46 +323,79 @@ attachBtn.addEventListener('click', () => fileInput.click());
 fileInput.addEventListener('change', (e) => addFiles(Array.from(e.target.files)));
 
 function addFiles(files) {
-  files.forEach(f => { if (!pendingFiles.find(p => p.name === f.name && p.size === f.size)) pendingFiles.push(f); });
-  renderAttachBar(); fileInput.value = '';
+  files.forEach((f) => {
+    if (!pendingFiles.find((p) => p.name === f.name && p.size === f.size)) pendingFiles.push(f);
+  });
+  renderAttachBar();
+  fileInput.value = '';
 }
 function renderAttachBar() {
   attachBar.innerHTML = '';
-  if (!pendingFiles.length) { attachBar.classList.remove('has-files'); return; }
+  if (!pendingFiles.length) {
+    attachBar.classList.remove('has-files');
+    return;
+  }
   attachBar.classList.add('has-files');
   pendingFiles.forEach((f, i) => {
-    const chip = document.createElement('div'); chip.className = 'attach-chip';
+    const chip = document.createElement('div');
+    chip.className = 'attach-chip';
     chip.innerHTML = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21.44 11.05l-9.19 9.19a6 6 0 01-8.49-8.49l9.19-9.19a4 4 0 015.66 5.66L9.41 17.41a2 2 0 01-2.83-2.83l8.49-8.48"/></svg><span class="chip-name">${f.name}</span><div class="chip-del" data-idx="${i}">X</div>`;
     attachBar.appendChild(chip);
   });
-  attachBar.querySelectorAll('.chip-del').forEach(btn =>
-    btn.addEventListener('click', () => { pendingFiles.splice(Number(btn.dataset.idx), 1); renderAttachBar(); })
+  attachBar.querySelectorAll('.chip-del').forEach((btn) =>
+    btn.addEventListener('click', () => {
+      pendingFiles.splice(Number(btn.dataset.idx), 1);
+      renderAttachBar();
+    })
   );
 }
-function clearAttachments() { pendingFiles = []; renderAttachBar(); }
+function clearAttachments() {
+  pendingFiles = [];
+  renderAttachBar();
+}
 
-const chatPanel   = document.getElementById('chat-panel');
+const chatPanel = document.getElementById('chat-panel');
 const dropOverlay = document.getElementById('drop-overlay');
-let dragCounter   = 0;
-chatPanel.addEventListener('dragenter', (e) => { e.preventDefault(); dragCounter++; if (e.dataTransfer.types.includes('Files')) dropOverlay.classList.add('visible'); });
-chatPanel.addEventListener('dragleave', () => { dragCounter--; if (dragCounter <= 0) { dragCounter = 0; dropOverlay.classList.remove('visible'); } });
+let dragCounter = 0;
+chatPanel.addEventListener('dragenter', (e) => {
+  e.preventDefault();
+  dragCounter++;
+  if (e.dataTransfer.types.includes('Files')) dropOverlay.classList.add('visible');
+});
+chatPanel.addEventListener('dragleave', () => {
+  dragCounter--;
+  if (dragCounter <= 0) {
+    dragCounter = 0;
+    dropOverlay.classList.remove('visible');
+  }
+});
 chatPanel.addEventListener('dragover', (e) => e.preventDefault());
 chatPanel.addEventListener('drop', (e) => {
-  e.preventDefault(); dragCounter = 0; dropOverlay.classList.remove('visible');
+  e.preventDefault();
+  dragCounter = 0;
+  dropOverlay.classList.remove('visible');
   const files = Array.from(e.dataTransfer.files);
   if (!files.length) return;
-  const folder = files.find(f => {
+  const folder = files.find((f) => {
     if (!f.path) return false;
     let isDir = false;
-    try { isDir = assistant.statIsDir(f.path); } catch {}
+    try {
+      isDir = assistant.statIsDir(f.path);
+    } catch {}
     return isDir;
   });
-  if (folder) { importModelFromFolder(folder.path); return; }
+  if (folder) {
+    importModelFromFolder(folder.path);
+    return;
+  }
   addFiles(files);
 });
 
 async function importModelFromFolder(folderPath) {
   const res = await ipcRenderer.invoke('model-import', { folderPath });
-  if (res.error) { addMessage('assistant', `Error al importar modelo: ${res.error}`); return; }
+  if (res.error) {
+    addMessage('assistant', `Error al importar modelo: ${res.error}`);
+    return;
+  }
   addMessage('assistant', `Modelo importado y activado: **${res.info.name}**`);
 }

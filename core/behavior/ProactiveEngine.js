@@ -45,11 +45,11 @@
  * ─────────────────────────────────────────────────────────────────────────────
  */
 
-const crypto          = require('crypto');
-const path            = require('path');
+const crypto = require('crypto');
+const path = require('path');
 
 const { getEventBus } = require('../../infrastructure/event-bus/EventBus.js');
-const LLMProvider     = require('../llm/LLMProvider.js');
+const LLMProvider = require('../llm/LLMProvider.js');
 const { getIdentity } = require('../grounding/GroundingEngine.js');
 const { ProposalStore } = require('./ProposalStore.js');
 const { _parseEventTime } = require('../../infrastructure/sensors/UpcomingEventsWatcher.js');
@@ -63,34 +63,66 @@ const { assess: assessSlo } = require('../decision/SloMonitor.js');
 
 // ── Configuración general ───────────────────────────────────────────────────
 
-const EVAL_INTERVAL_MS      = 5 * 60 * 1000;        // heartbeat para triggers temporales
-const GLOBAL_MIN_GAP_MS     = 25 * 60 * 1000;        // colchón mínimo entre CUALQUIER mensaje autónomo
-const SILENCE_THRESHOLD_MS  = 3 * 60 * 60 * 1000;
-const LATE_NIGHT_START      = 0;
-const LATE_NIGHT_END        = 5;
-const MAX_IDLE_TO_INTERRUPT = 30 * 60;               // segundos — no interrumpir si lleva más de esto AFK
-const RECENT_CHAT_MS        = 2 * 60 * 1000;          // no interrumpir si el usuario conversó hace < 2 min
-const FOLLOWUP_MULTIPLIER   = 3;                      // cuántas veces el minSec antes de un follow-up
-const SESSION_END_MIN_SEC   = 20 * 60;                // mínimo de racha para trigger "fin de sesión"
+const EVAL_INTERVAL_MS = 5 * 60 * 1000; // heartbeat para triggers temporales
+const GLOBAL_MIN_GAP_MS = 25 * 60 * 1000; // colchón mínimo entre CUALQUIER mensaje autónomo
+const SILENCE_THRESHOLD_MS = 3 * 60 * 60 * 1000;
+const LATE_NIGHT_START = 0;
+const LATE_NIGHT_END = 5;
+const MAX_IDLE_TO_INTERRUPT = 30 * 60; // segundos — no interrumpir si lleva más de esto AFK
+const RECENT_CHAT_MS = 2 * 60 * 1000; // no interrumpir si el usuario conversó hace < 2 min
+const FOLLOWUP_MULTIPLIER = 3; // cuántas veces el minSec antes de un follow-up
+const SESSION_END_MIN_SEC = 20 * 60; // mínimo de racha para trigger "fin de sesión"
 
 // Fase C: presupuesto diario duro de iniciativas proactivas ENVIADAS. Es el
 // freno macro ("conocer sin hartar"); el cooldown por tipo es el freno fino.
-const DAILY_BUDGET           = 12;
-const PENDING_LOOKAHEAD_MS   = 45 * 60 * 1000;        // pendientes a <45 min para el recap de arranque
+const DAILY_BUDGET = 12;
+const PENDING_LOOKAHEAD_MS = 45 * 60 * 1000; // pendientes a <45 min para el recap de arranque
 
 // G.1: proactividad de alta calidad. Mensajes "relleno" que no aportan nada
 // (saludos vacíos, check-ins genéricos) se descartan en modo producción (gate
 // admitió). El gate ya validó relevancia; el mensaje debe tener sustancia.
 const LOW_VALUE_MSGS = new Set([
-  'hola', 'hey', 'hi', 'holi', 'saludos', 'buenas', 'buenas tardes', 'buenos dias',
-  'cómo estas', 'como estas', 'cómo va', 'como va', 'cómo va el proyecto', 'como va el proyecto',
-  'cómo va todo', 'como va todo', 'cómo va tu dia', 'como va tu dia', 'todo bien', 'todo bien?',
-  'que tal', 'qué tal', 'que haces', 'qué haces', 'sigues ahi', 'sigues ahí', 'estas ahi',
-  'estás ahí', 'ya atorada', 'ya atorado', 'en qué puedo ayudarte', 'en que puedo ayudarte',
+  'hola',
+  'hey',
+  'hi',
+  'holi',
+  'saludos',
+  'buenas',
+  'buenas tardes',
+  'buenos dias',
+  'cómo estas',
+  'como estas',
+  'cómo va',
+  'como va',
+  'cómo va el proyecto',
+  'como va el proyecto',
+  'cómo va todo',
+  'como va todo',
+  'cómo va tu dia',
+  'como va tu dia',
+  'todo bien',
+  'todo bien?',
+  'que tal',
+  'qué tal',
+  'que haces',
+  'qué haces',
+  'sigues ahi',
+  'sigues ahí',
+  'estas ahi',
+  'estás ahí',
+  'ya atorada',
+  'ya atorado',
+  'en qué puedo ayudarte',
+  'en que puedo ayudarte',
 ]);
 
 function _isLowValueMessage(msg) {
-  const norm = msg.toLowerCase().trim().replace(/[¿?¡!.,:;]/g, '').replace(/\s+/g, ' ').trim();
+  const norm = msg
+    .toLowerCase()
+    .trim()
+    .replace(/[¿?¡!.,:;]/g, '')
+    .replace(/\s+/g, ' ')
+    .trim();
   if (LOW_VALUE_MSGS.has(norm)) return true;
   if (norm.length < 8) return true; // filler demasiado corto para tener sustancia
   return false;
@@ -101,24 +133,24 @@ function _isLowValueMessage(msg) {
 // categoría, pero aquí solo decide si vale la pena PREGUNTARLE al LLM, no
 // qué decir)
 const FOCUS_RULES = {
-  code:     { minSec: 5  * 60, label: 'programando' },
-  terminal: { minSec: 3  * 60, label: 'en la terminal' },
-  docs:     { minSec: 10 * 60, label: 'metido en documentos' },
-  design:   { minSec: 10 * 60, label: 'diseñando' },
-  browser:  { minSec: 15 * 60, label: 'navegando' },
+  code: { minSec: 5 * 60, label: 'programando' },
+  terminal: { minSec: 3 * 60, label: 'en la terminal' },
+  docs: { minSec: 10 * 60, label: 'metido en documentos' },
+  design: { minSec: 10 * 60, label: 'diseñando' },
+  browser: { minSec: 15 * 60, label: 'navegando' },
   // Antes 'game' ni existía como categoría (ver fix en OSSensor.js) — sin
   // esto, jugar era invisible para toda la proactividad sin importar
   // cuánto tiempo llevaras. 40 min porque una sesión de juego típica es
   // más larga que una racha de código antes de que valga la pena comentar.
-  game:     { minSec: 40 * 60, label: 'jugando' },
+  game: { minSec: 40 * 60, label: 'jugando' },
 };
 
-const THRASH_WINDOW_MS             = 10 * 60 * 1000; // ventana para detectar "salto entre apps"
-const THRASH_MIN_SWITCHES          = 6;               // mínimo de cambios de app en la ventana
-const THRASH_MIN_DISTINCT_CATEGORY = 3;                // mínimo de categorías distintas involucradas
+const THRASH_WINDOW_MS = 10 * 60 * 1000; // ventana para detectar "salto entre apps"
+const THRASH_MIN_SWITCHES = 6; // mínimo de cambios de app en la ventana
+const THRASH_MIN_DISTINCT_CATEGORY = 3; // mínimo de categorías distintas involucradas
 
-const RETURN_MIN_GAP_SEC = 15 * 60;      // mínimo de ausencia para que valga la pena comentar
-const RETURN_MAX_GAP_SEC = 3 * 60 * 60;  // más que esto ya es más parecido a "long_silence"
+const RETURN_MIN_GAP_SEC = 15 * 60; // mínimo de ausencia para que valga la pena comentar
+const RETURN_MAX_GAP_SEC = 3 * 60 * 60; // más que esto ya es más parecido a "long_silence"
 
 const WORK_CATEGORIES = new Set(['code', 'terminal', 'docs', 'design']);
 
@@ -142,84 +174,85 @@ const AUTONOMY_MODES = ['observe', 'suggest', 'act'];
 const PROPOSAL_HINTS = {
   git_redflag: {
     env_unignored: {
-      title:   'Añadir el archivo sensible a .gitignore',
-      preview: 'Añadir a .gitignore el archivo que parece contener secretos, para que no se suba por accidente.',
-      kind:    'action',
-      action:  { tool: 'gitignore_add', params: {} },
+      title: 'Añadir el archivo sensible a .gitignore',
+      preview:
+        'Añadir a .gitignore el archivo que parece contener secretos, para que no se suba por accidente.',
+      kind: 'action',
+      action: { tool: 'gitignore_add', params: {} },
     },
     merge_conflict: {
-      title:   'Ver los archivos en conflicto',
+      title: 'Ver los archivos en conflicto',
       preview: 'Ejecutar git status para listar los archivos que quedaron en conflicto.',
-      kind:    'action',
-      action:  { tool: 'git_status', params: {} },
+      kind: 'action',
+      action: { tool: 'git_status', params: {} },
     },
     uncommitted: {
-      title:   'Ver qué hay sin commitear',
+      title: 'Ver qué hay sin commitear',
       preview: 'Ejecutar git status para revisar los cambios pendientes.',
-      kind:    'action',
-      action:  { tool: 'git_status', params: {} },
+      kind: 'action',
+      action: { tool: 'git_status', params: {} },
     },
     default: {
-      title:   'Ver el estado del repositorio',
+      title: 'Ver el estado del repositorio',
       preview: 'Revisar el estado actual de git en tu workspace.',
-      kind:    'action',
-      action:  { tool: 'git_status', params: {} },
+      kind: 'action',
+      action: { tool: 'git_status', params: {} },
     },
   },
   system_warning: {
     default: {
-      title:   'Ver el detalle de la advertencia',
+      title: 'Ver el detalle de la advertencia',
       preview: 'Revisar qué recurso del sistema está al límite y qué puedes hacer.',
-      kind:    'info',
-      action:  null,
+      kind: 'info',
+      action: null,
     },
   },
   error_title: {
     default: {
-      title:   'Abrir el chat y verlo juntos',
+      title: 'Abrir el chat y verlo juntos',
       preview: 'Te cuento lo que se ve en tu pantalla y vemos si puedo ayudar con el error.',
-      kind:    'info',
-      action:  null,
+      kind: 'info',
+      action: null,
     },
   },
   clipboard_context: {
     default: {
-      title:   'Trabajar sobre lo que copiaste',
+      title: 'Trabajar sobre lo que copiaste',
       preview: 'Si es un error o una URL, seguimos desde ahí en el chat.',
-      kind:    'info',
-      action:  null,
+      kind: 'info',
+      action: null,
     },
   },
   upcoming_event: {
     default: {
-      title:   'Confirmar que lo tengo presente',
+      title: 'Confirmar que lo tengo presente',
       preview: 'Anotado — te lo recuerdo cuando toque.',
-      kind:    'info',
-      action:  null,
+      kind: 'info',
+      action: null,
     },
   },
   pending_recap: {
     default: {
-      title:   'Retomar lo pendiente',
+      title: 'Retomar lo pendiente',
       preview: 'Recordarte lo que me pediste tener presente al arrancar.',
-      kind:    'info',
-      action:  null,
+      kind: 'info',
+      action: null,
     },
   },
   // Fase D: error de código detectado por el LSP. La propuesta pide un parche;
   // si el LLM no logra generar uno válido, cae a informativa (ver el error).
   lsp_error: {
     default: {
-      title:   'Proponer un parche para el error',
+      title: 'Proponer un parche para el error',
       preview: 'Generar y proponer un parche que corrija el error detectado por el LSP.',
-      kind:    'action',
-      action:  { tool: 'apply_patch', params: {} },
+      kind: 'action',
+      action: { tool: 'apply_patch', params: {} },
     },
     no_patch: {
-      title:   'Ver el error de código',
+      title: 'Ver el error de código',
       preview: 'Te enseño dónde está el error en tu código y vemos cómo resolverlo.',
-      kind:    'info',
-      action:  null,
+      kind: 'info',
+      action: null,
     },
   },
 };
@@ -229,49 +262,49 @@ const DEFAULT_AUTONOMY_MODE = 'suggest';
 // Cooldown por TIPO de trigger — tanto para intentos (se le preguntó al LLM,
 // haya dicho sí o no) como, en la práctica, para envíos exitosos.
 const TRIGGER_COOLDOWN_MS = {
-  special_date:          20 * 60 * 60 * 1000,
-  late_night:             2 * 60 * 60 * 1000,
-  long_silence:           3 * 60 * 60 * 1000,
-  sustained_focus:       45 * 60 * 1000,
+  special_date: 20 * 60 * 60 * 1000,
+  late_night: 2 * 60 * 60 * 1000,
+  long_silence: 3 * 60 * 60 * 1000,
+  sustained_focus: 45 * 60 * 1000,
   context_switch_thrash: 60 * 60 * 1000,
-  return_from_break:     45 * 60 * 1000,
-  session_end:           60 * 60 * 1000,
+  return_from_break: 45 * 60 * 1000,
+  session_end: 60 * 60 * 1000,
   // Señales de sensores — la frecuencia real la marca cada sensor (re-emiten
   // mientras la condición persista); aquí solo se evita consultar al LLM en
   // exceso para el mismo tipo de señal.
-  git_redflag:            6 * 60 * 60 * 1000,
-  system_warning:         60 * 60 * 1000,
-  error_title:            30 * 60 * 1000,
-  clipboard_context:      30 * 60 * 1000,
-  upcoming_event:         30 * 60 * 1000,
-  pending_recap:          60 * 60 * 1000,
-  lsp_error:              45 * 60 * 1000,
+  git_redflag: 6 * 60 * 60 * 1000,
+  system_warning: 60 * 60 * 1000,
+  error_title: 30 * 60 * 1000,
+  clipboard_context: 30 * 60 * 1000,
+  upcoming_event: 30 * 60 * 1000,
+  pending_recap: 60 * 60 * 1000,
+  lsp_error: 45 * 60 * 1000,
 };
 
 // ── ProactiveEngine ───────────────────────────────────────────────────────────
 
 class ProactiveEngine {
   constructor(stateGraph, opts = {}) {
-    this._graph          = stateGraph;
-    this._bus            = getEventBus();
-    this._osSensor       = null;
-    this._chatOpen       = false;
-    this._lastProactive  = 0;     // último mensaje autónomo ENVIADO (cualquier tipo)
-    this._lastUserMsg    = 0;     // 0 = el usuario aún no ha conversado en esta sesión
-    this._startedAt      = Date.now();
-    this._timer          = null;
-    this._running        = false;
-    this._deciding       = false; // lock — solo una consulta al LLM a la vez
+    this._graph = stateGraph;
+    this._bus = getEventBus();
+    this._osSensor = null;
+    this._chatOpen = false;
+    this._lastProactive = 0; // último mensaje autónomo ENVIADO (cualquier tipo)
+    this._lastUserMsg = 0; // 0 = el usuario aún no ha conversado en esta sesión
+    this._startedAt = Date.now();
+    this._timer = null;
+    this._running = false;
+    this._deciding = false; // lock — solo una consulta al LLM a la vez
 
     // Fase A: feedback persistido de propuestas + slider de autonomía.
     // El store es opcional — si no se pasa (tests), todo degrada a no-op.
-    this._store          = opts.store || null;
-    this._autonomyMode   = DEFAULT_AUTONOMY_MODE;
+    this._store = opts.store || null;
+    this._autonomyMode = DEFAULT_AUTONOMY_MODE;
 
     // Fase B: executor whitelisted de acciones. Opcional — sin él las
     // propuestas solo informan (el botón "Sí, hazlo" solo registra feedback).
-    this._executor        = opts.executor || null;
-    this._pendingActions  = new Map(); // proposalId → { action, type, at }
+    this._executor = opts.executor || null;
+    this._pendingActions = new Map(); // proposalId → { action, type, at }
 
     this._lastAttemptByType = {}; // último intento (haya dicho sí o no el LLM) por tipo
 
@@ -279,15 +312,15 @@ class ProactiveEngine {
     this._lastProactiveTrigger = null;
 
     // ── Estado para análisis de actividad en tiempo real ──────────────────
-    this._currentCategory       = null;
-    this._prevCategory          = null;
+    this._currentCategory = null;
+    this._prevCategory = null;
     this._prevCategoryStreakSec = 0;
-    this._categoryStreakStart   = 0;
-    this._categoryStreakFired   = false;
+    this._categoryStreakStart = 0;
+    this._categoryStreakFired = false;
     this._categoryStreakFiredAt = 0;
     this._categoryStreakFollowupFired = false;
-    this._recentSwitches        = [];    // [{ts, category, app}] — ventana de thrash
-    this._idleStartedAt         = null;  // marca de cuándo empezó el AFK actual
+    this._recentSwitches = []; // [{ts, category, app}] — ventana de thrash
+    this._idleStartedAt = null; // marca de cuándo empezó el AFK actual
 
     this._currentProactiveScore = 0.5;
     this._setupListeners();
@@ -295,12 +328,12 @@ class ProactiveEngine {
     // ── Fase F: gate de contexto + audit + cola de diferidos ───────────────
     // Determinista, sin LLM. Si `shadowMode` está activo, el gate y el audit
     // corren completos pero NADA se envía al usuario (dry-run para calibrar).
-    this._shadowMode      = !!opts.shadowMode;
-    this._audit           = opts.audit || new AuditLog();
-    this._queue           = opts.queue || new QueueStore();
-    this._receptivity     = 0; // Rec acumulada (EMA) — actualizada por handleDecision
-    this._sentFeedback    = new Map(); // proposalId → { type, at } para marcar ignored
-    this._ignoredAfterMs  = opts.ignoredAfterMs || 12 * 60 * 60 * 1000; // 12h sin respuesta = ignored
+    this._shadowMode = !!opts.shadowMode;
+    this._audit = opts.audit || new AuditLog();
+    this._queue = opts.queue || new QueueStore();
+    this._receptivity = 0; // Rec acumulada (EMA) — actualizada por handleDecision
+    this._sentFeedback = new Map(); // proposalId → { type, at } para marcar ignored
+    this._ignoredAfterMs = opts.ignoredAfterMs || 12 * 60 * 60 * 1000; // 12h sin respuesta = ignored
   }
 
   setOSSensor(osSensor) {
@@ -332,19 +365,22 @@ class ProactiveEngine {
   }
 
   stop() {
-    if (this._timer) { clearInterval(this._timer); this._timer = null; }
-    this._bus.off('memory:turn-added',  this._boundOnTurnAdded);
-    this._bus.off('os:app-changed',     this._boundOnAppChanged);
-    this._bus.off('os:app-tick',        this._boundOnAppTick);
-    this._bus.off('os:idle-changed',    this._boundOnIdleChanged);
+    if (this._timer) {
+      clearInterval(this._timer);
+      this._timer = null;
+    }
+    this._bus.off('memory:turn-added', this._boundOnTurnAdded);
+    this._bus.off('os:app-changed', this._boundOnAppChanged);
+    this._bus.off('os:app-tick', this._boundOnAppTick);
+    this._bus.off('os:idle-changed', this._boundOnIdleChanged);
     this._bus.off('behavior:evaluated', this._boundOnBehaviorEval);
-    this._bus.off('git:redflag',           this._boundOnGitRedflag);
-    this._bus.off('system:warning',        this._boundOnSystemWarn);
-    this._bus.off('os:error-title',        this._boundOnErrorTitle);
-    this._bus.off('clipboard:copied',      this._boundOnClipboard);
+    this._bus.off('git:redflag', this._boundOnGitRedflag);
+    this._bus.off('system:warning', this._boundOnSystemWarn);
+    this._bus.off('os:error-title', this._boundOnErrorTitle);
+    this._bus.off('clipboard:copied', this._boundOnClipboard);
     this._bus.off('memory:upcoming-event', this._boundOnUpcoming);
-    this._bus.off('lsp:error',             this._boundOnLspError);
-    this._bus.off('initiative:decision',   this._boundOnDecision);
+    this._bus.off('lsp:error', this._boundOnLspError);
+    this._bus.off('initiative:decision', this._boundOnDecision);
     this._running = false;
     console.log('[proactive] detenido');
   }
@@ -352,31 +388,35 @@ class ProactiveEngine {
   // ── Listeners de eventos del OS (análisis en vivo, sin esperar timer) ──────
 
   _setupListeners() {
-    this._boundOnTurnAdded    = ({ role }) => { if (role === 'user') this._lastUserMsg = Date.now(); };
-    this._boundOnAppChanged   = (p) => this._onAppChanged(p);
-    this._boundOnAppTick      = (p) => this._onAppTick(p);
-    this._boundOnIdleChanged  = (p) => this._onIdleChanged(p);
-    this._boundOnBehaviorEval = (ctx) => { this._currentProactiveScore = ctx.proactiveScore ?? 0.5; };
-    this._boundOnGitRedflag   = (p) => this._onGitRedflag(p);
-    this._boundOnSystemWarn   = (p) => this._onSystemWarning(p);
-    this._boundOnErrorTitle   = (p) => this._onErrorTitle(p);
-    this._boundOnClipboard    = (p) => this._onClipboard(p);
-    this._boundOnUpcoming     = (p) => this._onUpcomingEvent(p);
-    this._boundOnLspError     = (p) => this._onLspError(p);
-    this._boundOnDecision     = (d) => this.handleDecision(d);
+    this._boundOnTurnAdded = ({ role }) => {
+      if (role === 'user') this._lastUserMsg = Date.now();
+    };
+    this._boundOnAppChanged = (p) => this._onAppChanged(p);
+    this._boundOnAppTick = (p) => this._onAppTick(p);
+    this._boundOnIdleChanged = (p) => this._onIdleChanged(p);
+    this._boundOnBehaviorEval = (ctx) => {
+      this._currentProactiveScore = ctx.proactiveScore ?? 0.5;
+    };
+    this._boundOnGitRedflag = (p) => this._onGitRedflag(p);
+    this._boundOnSystemWarn = (p) => this._onSystemWarning(p);
+    this._boundOnErrorTitle = (p) => this._onErrorTitle(p);
+    this._boundOnClipboard = (p) => this._onClipboard(p);
+    this._boundOnUpcoming = (p) => this._onUpcomingEvent(p);
+    this._boundOnLspError = (p) => this._onLspError(p);
+    this._boundOnDecision = (d) => this.handleDecision(d);
 
-    this._bus.on('memory:turn-added',  this._boundOnTurnAdded);
-    this._bus.on('os:app-changed',     this._boundOnAppChanged);
-    this._bus.on('os:app-tick',        this._boundOnAppTick);
-    this._bus.on('os:idle-changed',    this._boundOnIdleChanged);
+    this._bus.on('memory:turn-added', this._boundOnTurnAdded);
+    this._bus.on('os:app-changed', this._boundOnAppChanged);
+    this._bus.on('os:app-tick', this._boundOnAppTick);
+    this._bus.on('os:idle-changed', this._boundOnIdleChanged);
     this._bus.on('behavior:evaluated', this._boundOnBehaviorEval);
-    this._bus.on('git:redflag',           this._boundOnGitRedflag);
-    this._bus.on('system:warning',        this._boundOnSystemWarn);
-    this._bus.on('os:error-title',        this._boundOnErrorTitle);
-    this._bus.on('clipboard:copied',      this._boundOnClipboard);
+    this._bus.on('git:redflag', this._boundOnGitRedflag);
+    this._bus.on('system:warning', this._boundOnSystemWarn);
+    this._bus.on('os:error-title', this._boundOnErrorTitle);
+    this._bus.on('clipboard:copied', this._boundOnClipboard);
     this._bus.on('memory:upcoming-event', this._boundOnUpcoming);
-    this._bus.on('lsp:error',             this._boundOnLspError);
-    this._bus.on('initiative:decision',   this._boundOnDecision);
+    this._bus.on('lsp:error', this._boundOnLspError);
+    this._bus.on('initiative:decision', this._boundOnDecision);
   }
 
   /** El usuario cambió de app — actualiza racha de enfoque y detecta "thrashing". */
@@ -384,7 +424,7 @@ class ProactiveEngine {
     const now = Date.now();
 
     this._recentSwitches.push({ ts: now, category, app });
-    this._recentSwitches = this._recentSwitches.filter(s => now - s.ts <= THRASH_WINDOW_MS);
+    this._recentSwitches = this._recentSwitches.filter((s) => now - s.ts <= THRASH_WINDOW_MS);
 
     const categoryChanged = category !== this._currentCategory;
 
@@ -405,33 +445,33 @@ class ProactiveEngine {
       ) {
         const streakMinutes = Math.round(this._prevCategoryStreakSec / 60);
         this._tryTrigger({
-          type:        'session_end',
+          type: 'session_end',
           prevCategory: this._prevCategory,
-          streakSec:   this._prevCategoryStreakSec,
-          context:     `El usuario pasó ${streakMinutes} minutos ${FOCUS_RULES[this._prevCategory]?.label || 'trabajando'} y acaba de cambiar a ${category || 'otra cosa'}.`,
-        }).catch(e => console.warn('[proactive] error en trigger de session-end:', e.message));
+          streakSec: this._prevCategoryStreakSec,
+          context: `El usuario pasó ${streakMinutes} minutos ${FOCUS_RULES[this._prevCategory]?.label || 'trabajando'} y acaba de cambiar a ${category || 'otra cosa'}.`,
+        }).catch((e) => console.warn('[proactive] error en trigger de session-end:', e.message));
       }
 
       // Nueva racha de enfoque (solo cuando cambia la categoría)
-      this._currentCategory     = category;
+      this._currentCategory = category;
       this._categoryStreakStart = now;
       this._categoryStreakFired = false;
       this._categoryStreakFiredAt = 0;
       this._categoryStreakFollowupFired = false;
     }
 
-    const distinctCategories = [...new Set(this._recentSwitches.map(s => s.category))];
+    const distinctCategories = [...new Set(this._recentSwitches.map((s) => s.category))];
     if (
       this._recentSwitches.length >= THRASH_MIN_SWITCHES &&
-      distinctCategories.length   >= THRASH_MIN_DISTINCT_CATEGORY
+      distinctCategories.length >= THRASH_MIN_DISTINCT_CATEGORY
     ) {
       const windowMin = Math.round(THRASH_WINDOW_MS / 60000);
       this._tryTrigger({
-        type:        'context_switch_thrash',
+        type: 'context_switch_thrash',
         switchCount: this._recentSwitches.length,
-        categories:  distinctCategories,
-        context:     `El usuario cambió de aplicación ${this._recentSwitches.length} veces en los últimos ${windowMin} minutos, saltando entre: ${distinctCategories.join(', ')}.`,
-      }).catch(e => console.warn('[proactive] error en trigger de thrash:', e.message));
+        categories: distinctCategories,
+        context: `El usuario cambió de aplicación ${this._recentSwitches.length} veces en los últimos ${windowMin} minutos, saltando entre: ${distinctCategories.join(', ')}.`,
+      }).catch((e) => console.warn('[proactive] error en trigger de thrash:', e.message));
     }
   }
 
@@ -449,16 +489,16 @@ class ProactiveEngine {
       let outcome = null;
       try {
         outcome = await this._tryTrigger({
-          type:             'sustained_focus',
+          type: 'sustained_focus',
           category,
-          label:            rule.label,
+          label: rule.label,
           friendlyName,
           title,
-          elapsedSec:       elapsed,
+          elapsedSec: elapsed,
           elapsedFormatted,
-          context:          `El usuario lleva ${elapsedFormatted} ${rule.label} en ${friendlyName}${title ? ` ("${title.slice(0, 80)}")` : ''}.`,
+          context: `El usuario lleva ${elapsedFormatted} ${rule.label} en ${friendlyName}${title ? ` ("${title.slice(0, 80)}")` : ''}.`,
         });
-      } catch(e) {
+      } catch (e) {
         console.warn('[proactive] error en trigger de enfoque sostenido:', e.message);
       }
       if (outcome && outcome.blocked) return;
@@ -475,17 +515,17 @@ class ProactiveEngine {
     let outcome = null;
     try {
       outcome = await this._tryTrigger({
-        type:             'sustained_focus',
-        subtype:          'followup',
+        type: 'sustained_focus',
+        subtype: 'followup',
         category,
-        label:            rule.label,
+        label: rule.label,
         friendlyName,
         title,
-        elapsedSec:       elapsed,
+        elapsedSec: elapsed,
         elapsedFormatted,
-        context:          `El usuario sigue concentrado después de ${elapsedFormatted} ${rule.label} en ${friendlyName}${title ? ` ("${title.slice(0, 80)}")` : ''}.`,
+        context: `El usuario sigue concentrado después de ${elapsedFormatted} ${rule.label} en ${friendlyName}${title ? ` ("${title.slice(0, 80)}")` : ''}.`,
       });
-    } catch(e) {
+    } catch (e) {
       console.warn('[proactive] error en trigger de enfoque sostenido (follow-up):', e.message);
     }
     if (outcome && outcome.blocked) return;
@@ -498,7 +538,7 @@ class ProactiveEngine {
 
     if (idle) {
       // Se acaba de cruzar el umbral de idle — estima cuándo empezó realmente
-      this._idleStartedAt = now - (idleSecs * 1000);
+      this._idleStartedAt = now - idleSecs * 1000;
       return;
     }
 
@@ -519,10 +559,10 @@ class ProactiveEngine {
 
     const minutes = Math.round(gapSec / 60);
     this._tryTrigger({
-      type:   'return_from_break',
+      type: 'return_from_break',
       gapSec,
       context: `El usuario estuvo alejado de la PC unos ${minutes} minutos y acaba de volver a estar activo.`,
-    }).catch(e => console.warn('[proactive] error en trigger de regreso:', e.message));
+    }).catch((e) => console.warn('[proactive] error en trigger de regreso:', e.message));
   }
 
   /**
@@ -535,11 +575,11 @@ class ProactiveEngine {
     console.log(`[proactive] reintentando ${ready.length} diferido(s) de la cola...`);
     for (const { candidate, decision } of ready) {
       this._tryTrigger({
-        type:   candidate.tipo,
-        kind:   candidate.kind,
+        type: candidate.tipo,
+        kind: candidate.kind,
         ...candidate.payload,
         context: candidate.payload.message || candidate.payload.title || '',
-      }).catch(e => console.warn('[proactive] error reintentando diferido:', e.message));
+      }).catch((e) => console.warn('[proactive] error reintentando diferido:', e.message));
     }
   }
 
@@ -553,7 +593,13 @@ class ProactiveEngine {
     for (const [proposalId, info] of this._sentFeedback) {
       if (now - info.at >= this._ignoredAfterMs) {
         this._store.record({ proposalId, type: info.type, decision: 'ignored' });
-        this._audit.push({ type: info.type, proposalId, outcome: 'ignored', reason: 'no_response', at: now });
+        this._audit.push({
+          type: info.type,
+          proposalId,
+          outcome: 'ignored',
+          reason: 'no_response',
+          at: now,
+        });
         this._sentFeedback.delete(proposalId);
       }
     }
@@ -576,44 +622,55 @@ class ProactiveEngine {
   _onGitRedflag({ kind, message, branch, count, file } = {}) {
     if (!message) return;
     this._tryTrigger({
-      type: 'git_redflag', kind, branch, count, file,
+      type: 'git_redflag',
+      kind,
+      branch,
+      count,
+      file,
       context: message,
-    }).catch(e => console.warn('[proactive] error en trigger git_redflag:', e.message));
+    }).catch((e) => console.warn('[proactive] error en trigger git_redflag:', e.message));
   }
 
   _onSystemWarning({ kind, message } = {}) {
     if (!message) return;
     this._tryTrigger({
-      type: 'system_warning', kind,
+      type: 'system_warning',
+      kind,
       context: message,
-    }).catch(e => console.warn('[proactive] error en trigger system_warning:', e.message));
+    }).catch((e) => console.warn('[proactive] error en trigger system_warning:', e.message));
   }
 
   _onErrorTitle({ title, app, category } = {}) {
     if (!title) return;
     this._tryTrigger({
-      type: 'error_title', app, category,
+      type: 'error_title',
+      app,
+      category,
       context: `La ventana activa parece mostrar un error: "${title.slice(0, 120)}".`,
-    }).catch(e => console.warn('[proactive] error en trigger error_title:', e.message));
+    }).catch((e) => console.warn('[proactive] error en trigger error_title:', e.message));
   }
 
   _onClipboard({ kind, snippet } = {}) {
     if (!kind || !snippet) return;
     this._tryTrigger({
-      type: 'clipboard_context', kind,
-      context: kind === 'stacktrace'
-        ? `El usuario acaba de copiar un stacktrace de error: "${snippet.slice(0, 120)}".`
-        : `El usuario acaba de copiar una URL: "${snippet.slice(0, 120)}".`,
-    }).catch(e => console.warn('[proactive] error en trigger clipboard_context:', e.message));
+      type: 'clipboard_context',
+      kind,
+      context:
+        kind === 'stacktrace'
+          ? `El usuario acaba de copiar un stacktrace de error: "${snippet.slice(0, 120)}".`
+          : `El usuario acaba de copiar una URL: "${snippet.slice(0, 120)}".`,
+    }).catch((e) => console.warn('[proactive] error en trigger clipboard_context:', e.message));
   }
 
   _onUpcomingEvent({ content, when } = {}) {
     if (!content) return;
-    const timeStr = when ? new Date(when).toLocaleTimeString('es-MX', { hour: '2-digit', minute: '2-digit' }) : '';
+    const timeStr = when
+      ? new Date(when).toLocaleTimeString('es-MX', { hour: '2-digit', minute: '2-digit' })
+      : '';
     this._tryTrigger({
       type: 'upcoming_event',
       context: `El usuario pidió que recordaras: "${content}".${timeStr ? ` Es alrededor de las ${timeStr}.` : ''}`,
-    }).catch(e => console.warn('[proactive] error en trigger upcoming_event:', e.message));
+    }).catch((e) => console.warn('[proactive] error en trigger upcoming_event:', e.message));
   }
 
   // ── Fase D: errores del LSP como señal proactiva ──────────────────────────
@@ -626,10 +683,16 @@ class ProactiveEngine {
     const first = errors[0];
     this._tryTrigger({
       type: 'lsp_error',
-      file, absPath, workspace, errors, symbols, focused,
-      languageId, fileType,
+      file,
+      absPath,
+      workspace,
+      errors,
+      symbols,
+      focused,
+      languageId,
+      fileType,
       context: `Hay ${errors.length} error(es) de código en "${file}"${focused ? ' — es el archivo que estás viendo' : ''}. El primero: "${first.message.slice(0, 120)}" (línea ${(first.line ?? 0) + 1}).`,
-    }).catch(e => console.warn('[proactive] error en trigger lsp_error:', e.message));
+    }).catch((e) => console.warn('[proactive] error en trigger lsp_error:', e.message));
   }
 
   /**
@@ -642,31 +705,38 @@ class ProactiveEngine {
     if (!trigger?.absPath) return null;
     const fs = require('fs');
     let content;
-    try { content = fs.readFileSync(trigger.absPath, 'utf-8'); }
-    catch(e) { return null; }
+    try {
+      content = fs.readFileSync(trigger.absPath, 'utf-8');
+    } catch (e) {
+      return null;
+    }
 
     const firstErr = trigger.errors?.[0] || {};
-    const errLine  = (firstErr.line ?? 0);
+    const errLine = firstErr.line ?? 0;
 
     // Contexto: el fragmento del archivo alrededor del error (texto EXACTO),
     // el/los errores y el símbolo (función) donde está.
-    const lines   = content.split('\n');
-    const from    = Math.max(0, errLine - 30);
-    const to      = Math.min(lines.length, errLine + 40);
-    const slice   = lines.slice(from, to).join('\n');
+    const lines = content.split('\n');
+    const from = Math.max(0, errLine - 30);
+    const to = Math.min(lines.length, errLine + 40);
+    const slice = lines.slice(from, to).join('\n');
 
     let symbolsCtx = '';
     if (Array.isArray(trigger.symbols) && trigger.symbols.length) {
-      const enclosing = [...trigger.symbols].reverse().find(s => s.line <= errLine) || trigger.symbols[0];
+      const enclosing =
+        [...trigger.symbols].reverse().find((s) => s.line <= errLine) || trigger.symbols[0];
       const near = trigger.symbols
-        .filter(s => Math.abs(s.line - errLine) <= 12)
+        .filter((s) => Math.abs(s.line - errLine) <= 12)
         .slice(0, 5)
-        .map(s => `${s.kindName} ${s.name} (línea ${s.line + 1})`);
+        .map((s) => `${s.kindName} ${s.name} (línea ${s.line + 1})`);
       symbolsCtx = `Símbolos del archivo:\n${near.join('\n') || '(sin símbolos cercanos)'}`;
-      if (enclosing) symbolsCtx += `\nEl error está dentro de: ${enclosing.kindName} ${enclosing.name}.`;
+      if (enclosing)
+        symbolsCtx += `\nEl error está dentro de: ${enclosing.kindName} ${enclosing.name}.`;
     }
 
-    const errsCtx = trigger.errors.map(e => `- [línea ${(e.line ?? 0) + 1}] ${e.message}${e.code ? ` (${e.code})` : ''}`).join('\n');
+    const errsCtx = trigger.errors
+      .map((e) => `- [línea ${(e.line ?? 0) + 1}] ${e.message}${e.code ? ` (${e.code})` : ''}`)
+      .join('\n');
 
     // Lenguaje del archivo (viene del sensor / extensión): el LLM debe parchear
     // en el idioma REAL del archivo. Sin esto, ante `implicit any` (7006) que
@@ -699,11 +769,11 @@ Genera el parche JSON.`;
       const parsed = _extractPatch(response);
       if (!parsed || !Array.isArray(parsed.changes) || !parsed.changes.length) return null;
       const changes = parsed.changes
-        .filter(c => c && typeof c.old === 'string' && c.old.trim() && typeof c.new === 'string')
+        .filter((c) => c && typeof c.old === 'string' && c.old.trim() && typeof c.new === 'string')
         .slice(0, 6);
       if (!changes.length) return null;
       return { changes };
-    } catch(e) {
+    } catch (e) {
       console.warn('[proactive] error generando parche:', e.message);
       return null;
     }
@@ -717,14 +787,17 @@ Genera el parche JSON.`;
     const now = new Date();
 
     const specialDate = this._checkSpecialDate(now);
-    if (specialDate) { await this._tryTrigger(specialDate); return; }
+    if (specialDate) {
+      await this._tryTrigger(specialDate);
+      return;
+    }
 
-    const hour      = now.getHours();
-    const idleSecs  = this._osSensor?.getCurrentContext()?.idleSecs ?? 0;
+    const hour = now.getHours();
+    const idleSecs = this._osSensor?.getCurrentContext()?.idleSecs ?? 0;
 
     if (hour >= LATE_NIGHT_START && hour < LATE_NIGHT_END && idleSecs < 300) {
       await this._tryTrigger({
-        type:    'late_night',
+        type: 'late_night',
         hour,
         context: `Son las ${now.toLocaleTimeString('es-MX', { hour: '2-digit', minute: '2-digit' })} de la madrugada y el usuario sigue activo frente al PC.`,
       });
@@ -736,8 +809,8 @@ Genera el parche JSON.`;
     if (silenceMs > SILENCE_THRESHOLD_MS) {
       const silenceHours = Math.round(silenceMs / (1000 * 60 * 60));
       await this._tryTrigger({
-        type:    'long_silence',
-        hours:   silenceHours,
+        type: 'long_silence',
+        hours: silenceHours,
         context: `Han pasado ${silenceHours} horas desde la última conversación con el usuario.`,
       });
     }
@@ -760,7 +833,7 @@ Genera el parche JSON.`;
     try {
       const userNodes = this._graph.queryNodes({ type: 'User', limit: 20 });
 
-      const day   = now.getDate();
+      const day = now.getDate();
       const month = now.getMonth() + 1;
 
       const dateVariants = [
@@ -777,42 +850,41 @@ Genera el parche JSON.`;
       for (const node of userNodes) {
         const content = node.content?.toLowerCase() || '';
 
-        const matchesToday = dateVariants.some(v => content.includes(v.toLowerCase()));
+        const matchesToday = dateVariants.some((v) => content.includes(v.toLowerCase()));
 
-        const hasDateKeyword = (
+        const hasDateKeyword =
           content.includes('cumpleaños') ||
-          content.includes('birthday')   ||
-          content.includes('nació')       ||
+          content.includes('birthday') ||
+          content.includes('nació') ||
           content.includes('aniversario') ||
           content.includes('recordatorio') ||
-          content.includes('importante')   ||
-          content.includes('fecha especial')
-        );
+          content.includes('importante') ||
+          content.includes('fecha especial');
 
         if (hasDateKeyword && matchesToday) {
-          const subtype = content.includes('cumpleaños') || content.includes('birthday')
-            ? 'birthday' : 'other';
+          const subtype =
+            content.includes('cumpleaños') || content.includes('birthday') ? 'birthday' : 'other';
           return {
-            type:    'special_date',
+            type: 'special_date',
             subtype,
-            node:    node.content,
+            node: node.content,
             context: `Hoy es una fecha especial para el usuario: ${node.content}`,
           };
         }
 
         // También detectar fechas en formato ISO guardadas en contenido
         if (content.includes(todayStr) && hasDateKeyword) {
-          const subtype = content.includes('cumpleaños') || content.includes('birthday')
-            ? 'birthday' : 'other';
+          const subtype =
+            content.includes('cumpleaños') || content.includes('birthday') ? 'birthday' : 'other';
           return {
-            type:    'special_date',
+            type: 'special_date',
             subtype,
-            node:    node.content,
+            node: node.content,
             context: `Hoy es una fecha especial para el usuario: ${node.content}`,
           };
         }
       }
-    } catch(e) {
+    } catch (e) {
       console.warn('[proactive] error revisando fechas especiales:', e.message);
     }
 
@@ -836,25 +908,25 @@ Genera el parche JSON.`;
     const candidate = candidateFromTrigger(trigger);
     if (!candidate) return null;
 
-    const now  = Date.now();
-    const ctx  = this._buildGateContext(now);
+    const now = Date.now();
+    const ctx = this._buildGateContext(now);
     const score = scoreRelevancia(candidate.signal);
     candidate.score = score;
 
     const result = evaluateGate(candidate, ctx);
     const auditEntry = {
-      sensor:      candidate.source.sensor,
-      type:        candidate.tipo,
-      kind:        candidate.kind,
-      signal:      candidate.signal,
+      sensor: candidate.source.sensor,
+      type: candidate.tipo,
+      kind: candidate.kind,
+      signal: candidate.signal,
       score,
-      verdict:     result.decision.verdict,
-      reason:      result.decision.reason,
-      decisionId:  result.decision.decisionId,
-      flow:        result.flow,
+      verdict: result.decision.verdict,
+      reason: result.decision.reason,
+      decisionId: result.decision.decisionId,
+      flow: result.flow,
       budgetLimit: result.budgetLimit,
-      shadow:      this._shadowMode,
-      at:          now,
+      shadow: this._shadowMode,
+      at: now,
     };
     this._audit.push(auditEntry);
 
@@ -869,23 +941,27 @@ Genera el parche JSON.`;
     const osCtx = this._osSensor?.getCurrentContext?.() ?? {};
     return {
       now,
-      chatOpen:        this._chatOpen,
-      lastUserMsg:     this._lastUserMsg || 0,
-      idleSecs:        osCtx.idleSecs ?? 0,
-      appElapsedSec:   this._categoryStreakStart
+      chatOpen: this._chatOpen,
+      lastUserMsg: this._lastUserMsg || 0,
+      idleSecs: osCtx.idleSecs ?? 0,
+      appElapsedSec: this._categoryStreakStart
         ? Math.round((now - this._categoryStreakStart) / 1000)
         : 0,
-      recentSwitches:  this._recentSwitches,
-      budgetUsed:      this._store?.dailyCount() ?? 0,
-      receptivity:     this._receptivity,
+      recentSwitches: this._recentSwitches,
+      budgetUsed: this._store?.dailyCount() ?? 0,
+      receptivity: this._receptivity,
       // F-5: tipos degradados por SLO → el gate les sube el umbral de ACT.
-      degradedTypes:   this._store ? this._degradedTypes() : undefined,
+      degradedTypes: this._store ? this._degradedTypes() : undefined,
     };
   }
 
   _degradedTypes() {
     const { porTipo } = this._sloStats();
-    return new Set(Object.values(porTipo).filter(t => t.degraded).map(t => t.type));
+    return new Set(
+      Object.values(porTipo)
+        .filter((t) => t.degraded)
+        .map((t) => t.type)
+    );
   }
 
   /**
@@ -903,9 +979,9 @@ Genera el parche JSON.`;
    *   - message (string)   → mensaje enviado.
    */
   async _tryTrigger(trigger) {
-    if (!this._running) return { blocked: true };         // aún no arrancado (workspace/MCP en init)
+    if (!this._running) return { blocked: true }; // aún no arrancado (workspace/MCP en init)
     if (this._autonomyMode === 'observe') return { blocked: true }; // slider: solo observar
-    if (this._deciding) return { blocked: true };          // ya hay una decisión en curso
+    if (this._deciding) return { blocked: true }; // ya hay una decisión en curso
     if (!LLMProvider.getActiveProvider()) return { blocked: true };
 
     const now = Date.now();
@@ -915,11 +991,15 @@ Genera el parche JSON.`;
     const gate = this._evaluateTrigger(trigger);
     if (gate) {
       if (this._shadowMode) {
-        console.log(`[proactive][shadow] gate: ${gate.verdict} (${gate.reason}) score=${gate.score?.toFixed(3)} — sin enviar`);
+        console.log(
+          `[proactive][shadow] gate: ${gate.verdict} (${gate.reason}) score=${gate.score?.toFixed(3)} — sin enviar`
+        );
         return { blocked: true, shadow: true, gate };
       }
       if (gate.verdict === 'DROP' || gate.verdict === 'QUEUE') {
-        console.log(`[proactive] gate: ${gate.verdict} (${gate.reason}) score=${gate.score?.toFixed(3)} — ${gate.verdict === 'QUEUE' ? 'diferido' : 'silencio'}`);
+        console.log(
+          `[proactive] gate: ${gate.verdict} (${gate.reason}) score=${gate.score?.toFixed(3)} — ${gate.verdict === 'QUEUE' ? 'diferido' : 'silencio'}`
+        );
         return { blocked: true, gate };
       }
       // ACT / ESCALATE → el LLM produce el mensaje (no decide si intervenir).
@@ -932,22 +1012,26 @@ Genera el parche JSON.`;
     if (this._lastUserMsg && now - this._lastUserMsg < RECENT_CHAT_MS) return { blocked: true };
 
     // Ajusta el gap mínimo según qué tan receptivo esté el usuario
-    const adjustedGap = Math.round(GLOBAL_MIN_GAP_MS * (1 - (this._currentProactiveScore - 0.3) * 0.5));
+    const adjustedGap = Math.round(
+      GLOBAL_MIN_GAP_MS * (1 - (this._currentProactiveScore - 0.3) * 0.5)
+    );
     if (now - this._lastProactive < adjustedGap) return { blocked: true };
 
     // Fase C: presupuesto diario duro — si ya se gastaron todas las
     // iniciativas de hoy, se frena ANTES de consultar al LLM (el silencio es
     // respeto). El recuento se hace solo sobre envíos reales.
     if (this._store && this._store.dailyCount() >= DAILY_BUDGET) {
-      console.log(`[proactive] presupuesto diario agotado (${this._store.dailyCount()}/${DAILY_BUDGET})`);
+      console.log(
+        `[proactive] presupuesto diario agotado (${this._store.dailyCount()}/${DAILY_BUDGET})`
+      );
       return { blocked: true };
     }
 
     // Cooldown efectivo por tipo — crece si el usuario ha descartado este
     // tipo varias veces seguidas (Fase A: el rechazo enseña).
     const baseCooldown = TRIGGER_COOLDOWN_MS[trigger.type] ?? GLOBAL_MIN_GAP_MS;
-    const cooldown     = this._effectiveCooldownMs(trigger.type, baseCooldown);
-    const lastAttempt  = this._lastAttemptByType[trigger.type] || 0;
+    const cooldown = this._effectiveCooldownMs(trigger.type, baseCooldown);
+    const lastAttempt = this._lastAttemptByType[trigger.type] || 0;
     if (now - lastAttempt < cooldown) return { blocked: true };
 
     // No interrumpir si lleva mucho AFK — excepto el trigger que ES,
@@ -968,7 +1052,7 @@ Genera el parche JSON.`;
         return null;
       }
 
-      this._lastProactive        = Date.now();
+      this._lastProactive = Date.now();
       this._lastProactiveMessage = message;
       this._lastProactiveTrigger = trigger.type;
 
@@ -989,7 +1073,6 @@ Genera el parche JSON.`;
       }
 
       return message;
-
     } finally {
       this._deciding = false;
     }
@@ -1004,7 +1087,9 @@ Genera el parche JSON.`;
   _collectPendingReminders() {
     if (!this._graph?.queryNodes) return [];
     let nodes = [];
-    try { nodes = this._graph.queryNodes({ type: 'Belief', limit: 50 }) || []; } catch(e) {
+    try {
+      nodes = this._graph.queryNodes({ type: 'Belief', limit: 50 }) || [];
+    } catch (e) {
       console.warn('[proactive] error leyendo recordatorios:', e.message);
       return [];
     }
@@ -1036,7 +1121,7 @@ Genera el parche JSON.`;
     if (!pendings.length) return null;
 
     const list = pendings
-      .map(p => `${p.content.replace(/^pidió recordar:\s*/i, '')} (${_friendlyWhen(p.when)})`)
+      .map((p) => `${p.content.replace(/^pidió recordar:\s*/i, '')} (${_friendlyWhen(p.when)})`)
       .slice(0, 3)
       .join('; ');
     return this._tryTrigger({
@@ -1058,12 +1143,12 @@ Genera el parche JSON.`;
   async _buildPayload(trigger, message) {
     const proposal = await this._buildProposal(trigger);
     return {
-      reason:     trigger.type,
+      reason: trigger.type,
       suggestion: message,
       actionType: 'proactive',
-      canHelp:    true,
-      utility:    1.0,
-      openChat:   true,
+      canHelp: true,
+      utility: 1.0,
+      openChat: true,
       proposalId: proposal ? proposal.id : null,
       proposal,
     };
@@ -1086,8 +1171,8 @@ Genera el parche JSON.`;
         action = {
           tool: 'apply_patch',
           params: {
-            file:         trigger.file,
-            changes:      patch.changes,
+            file: trigger.file,
+            changes: patch.changes,
             targetErrors: trigger.errors || [],
           },
         };
@@ -1098,33 +1183,36 @@ Genera el parche JSON.`;
     } else if (hint.action) {
       // Fase B: la acción se resuelve en el backend (whitelist), nunca confía
       // en lo que devuelva el renderer. Los params se derivan del trigger.
-      action = { tool: hint.action.tool, params: this._resolveActionParams(hint.action.tool, trigger) };
+      action = {
+        tool: hint.action.tool,
+        params: this._resolveActionParams(hint.action.tool, trigger),
+      };
     }
 
     let preview = hint.preview;
-    let diff    = null;
+    let diff = null;
     if (action && this._executor) {
       try {
         const p = await this._executor.preview(action);
         if (p && p.ok) {
           if (p.preview) preview = p.preview;
-          if (p.diff)    diff    = p.diff;
+          if (p.diff) diff = p.diff;
         }
-      } catch(e) {
+      } catch (e) {
         console.warn('[proactive] error generando preview de acción:', e.message);
       }
     }
 
     const proposal = {
-      id:               crypto.randomUUID(),
-      type:             trigger.type,
-      kind:             hint.kind || 'info',
-      title:            hint.title,
+      id: crypto.randomUUID(),
+      type: trigger.type,
+      kind: hint.kind || 'info',
+      title: hint.title,
       preview,
       diff,
       action,
-      requiresConsent:  action ? 'confirm' : null,
-      createdAt:        Date.now(),
+      requiresConsent: action ? 'confirm' : null,
+      createdAt: Date.now(),
     };
 
     if (action) {
@@ -1154,7 +1242,11 @@ Genera el parche JSON.`;
 
   getCooldownFor(type) {
     const base = TRIGGER_COOLDOWN_MS[type] ?? GLOBAL_MIN_GAP_MS;
-    return { base, effective: this._effectiveCooldownMs(type, base), factor: this._effectiveCooldownMs(type, base) / base };
+    return {
+      base,
+      effective: this._effectiveCooldownMs(type, base),
+      factor: this._effectiveCooldownMs(type, base) / base,
+    };
   }
 
   /**
@@ -1183,8 +1275,10 @@ Genera el parche JSON.`;
     if (this._store) {
       try {
         state = this._store.record({ proposalId, type, decision, reason });
-        console.log(`[proactive] feedback ${decision} para "${type}" (factor cooldown ahora ×${this._store.cooldownMultiplier(type)})`);
-      } catch(e) {
+        console.log(
+          `[proactive] feedback ${decision} para "${type}" (factor cooldown ahora ×${this._store.cooldownMultiplier(type)})`
+        );
+      } catch (e) {
         console.warn('[proactive] error registrando decisión:', e.message);
       }
     }
@@ -1193,7 +1287,7 @@ Genera el parche JSON.`;
       const pending = this._pendingActions.get(proposalId);
       if (pending && this._executor) {
         this._pendingActions.delete(proposalId);
-        this._executeProposal(pending, proposalId, type).catch(e =>
+        this._executeProposal(pending, proposalId, type).catch((e) =>
           console.warn('[proactive] error ejecutando propuesta:', e.message)
         );
       }
@@ -1211,7 +1305,13 @@ Genera el parche JSON.`;
    */
   async _executeProposal(pending, proposalId, type) {
     if (this._executor.isDone(proposalId)) {
-      this._bus.emit('proposal:executed', { proposalId, type, ok: true, skipped: true, detail: 'Ya estaba ejecutada.' });
+      this._bus.emit('proposal:executed', {
+        proposalId,
+        type,
+        ok: true,
+        skipped: true,
+        detail: 'Ya estaba ejecutada.',
+      });
       return;
     }
     try {
@@ -1219,11 +1319,11 @@ Genera el parche JSON.`;
       this._bus.emit('proposal:executed', {
         proposalId,
         type,
-        ok:      !!result.ok,
+        ok: !!result.ok,
         skipped: !!result.skipped,
-        detail:  result.detail || result.reason || null,
+        detail: result.detail || result.reason || null,
       });
-    } catch(e) {
+    } catch (e) {
       this._bus.emit('proposal:executed', { proposalId, type, ok: false, detail: e.message });
     }
   }
@@ -1231,10 +1331,10 @@ Genera el parche JSON.`;
   // ── Generación con LLM ──────────────────────────────────────────────────────
 
   async _generateMessage(trigger) {
-    const osCtx    = this._osSensor?.getCurrentContext() ?? null;
-    const memory   = this._buildMemoryContext();
-    const now      = new Date();
-    const timeStr  = now.toLocaleTimeString('es-MX', { hour: '2-digit', minute: '2-digit' });
+    const osCtx = this._osSensor?.getCurrentContext() ?? null;
+    const memory = this._buildMemoryContext();
+    const now = new Date();
+    const timeStr = now.toLocaleTimeString('es-MX', { hour: '2-digit', minute: '2-digit' });
     const identity = _safeGetIdentity();
 
     const systemPrompt = `${identity.core || 'Eres la asistente personal de esta computadora.'}
@@ -1277,11 +1377,14 @@ ${antiRepeat}
 ${productionMode}
 
 INSTRUCCIÓN CRÍTICA:
-${productionMode ? 'Escribe UN mensaje corto (1-3 oraciones máximo) en tu voz natural como asistente personal. No expliques por qué escribes. No anuncies que eres proactiva. Solo di lo que dirías.'
-  : `Decide si hay algo genuino y relevante que decirle al usuario AHORA.
+${
+  productionMode
+    ? 'Escribe UN mensaje corto (1-3 oraciones máximo) en tu voz natural como asistente personal. No expliques por qué escribes. No anuncies que eres proactiva. Solo di lo que dirías.'
+    : `Decide si hay algo genuino y relevante que decirle al usuario AHORA.
 Si no hay nada genuino que decir, responde exactamente: NO
 Si sí hay algo, escribe UN mensaje corto (1-3 oraciones máximo) en tu voz natural como asistente personal.
-No expliques por qué escribes. No anuncies que eres proactiva. Solo di lo que dirías.`}`;
+No expliques por qué escribes. No anuncies que eres proactiva. Solo di lo que dirías.`
+}`;
 
     try {
       const response = await LLMProvider.complete(
@@ -1298,13 +1401,15 @@ No expliques por qué escribes. No anuncies que eres proactiva. Solo di lo que d
       // genérico que degrada la experiencia (el LLM a veces "saluda" en vez de
       // decir algo con sustancia).
       if (productionMode && _isLowValueMessage(trimmed)) {
-        console.log('[proactive] mensaje descartado por relleno (producción):', JSON.stringify(trimmed));
+        console.log(
+          '[proactive] mensaje descartado por relleno (producción):',
+          JSON.stringify(trimmed)
+        );
         return null;
       }
 
       return trimmed;
-
-    } catch(e) {
+    } catch (e) {
       console.warn('[proactive] error generando mensaje:', e.message);
       return null;
     }
@@ -1326,38 +1431,42 @@ No expliques por qué escribes. No anuncies que eres proactiva. Solo di lo que d
         const MAX_PER_TYPE = 3;
         if (byType.User.length) {
           lines.push('Lo que sabes del usuario:');
-          byType.User.slice(-MAX_PER_TYPE).forEach(c => lines.push(`- ${c}`));
+          byType.User.slice(-MAX_PER_TYPE).forEach((c) => lines.push(`- ${c}`));
         }
         if (byType.Project.length) {
           lines.push('Proyectos activos:');
-          byType.Project.slice(-MAX_PER_TYPE).forEach(c => lines.push(`- ${c}`));
+          byType.Project.slice(-MAX_PER_TYPE).forEach((c) => lines.push(`- ${c}`));
         }
         if (byType.Preference.length) {
           lines.push('Preferencias observadas:');
-          byType.Preference.slice(-MAX_PER_TYPE).forEach(c => lines.push(`- ${c}`));
+          byType.Preference.slice(-MAX_PER_TYPE).forEach((c) => lines.push(`- ${c}`));
         }
         if (byType.Belief.length) {
           lines.push('Cosas que crees sobre el usuario:');
-          byType.Belief.slice(-MAX_PER_TYPE).forEach(c => lines.push(`- ${c}`));
+          byType.Belief.slice(-MAX_PER_TYPE).forEach((c) => lines.push(`- ${c}`));
         }
       }
 
       const episodes = this._graph.getRecentEpisodes?.(5) ?? [];
       if (episodes.length) {
         lines.push('Sesiones recientes (episodios):');
-        episodes.slice(-3).forEach(e => lines.push(`- ${e.content.slice(0, 160)}`));
+        episodes.slice(-3).forEach((e) => lines.push(`- ${e.content.slice(0, 160)}`));
       }
 
       const lastSessions = this._graph.getLastSessions?.(3) ?? [];
-      const withSummary  = lastSessions.filter(s => s.summary);
+      const withSummary = lastSessions.filter((s) => s.summary);
       if (withSummary.length) {
         lines.push('Resumen de las últimas sesiones de chat:');
-        withSummary.slice(-2).forEach(s => {
-          const when = new Date(s.started_at).toLocaleString('es-MX', { weekday: 'short', hour: '2-digit', minute: '2-digit' });
+        withSummary.slice(-2).forEach((s) => {
+          const when = new Date(s.started_at).toLocaleString('es-MX', {
+            weekday: 'short',
+            hour: '2-digit',
+            minute: '2-digit',
+          });
           lines.push(`- [${when}] ${s.summary}`);
         });
       }
-    } catch(e) {
+    } catch (e) {
       console.warn('[proactive] error leyendo memoria:', e.message);
     }
 
@@ -1369,7 +1478,7 @@ No expliques por qué escribes. No anuncies que eres proactiva. Solo di lo que d
   // sigue teniendo la última palabra — puede seguir respondiendo NO.
 
   async forceEvaluate(triggerType = 'long_silence') {
-    const now  = new Date();
+    const now = new Date();
     const hour = now.getHours();
     let trigger;
 
@@ -1389,9 +1498,9 @@ No expliques por qué escribes. No anuncies que eres proactiva. Solo di lo que d
       }
       case 'long_silence': {
         const silenceBase = this._lastUserMsg || this._startedAt;
-        const silenceMs    = Date.now() - silenceBase;
+        const silenceMs = Date.now() - silenceBase;
         const silenceHours = Math.max(1, Math.round(silenceMs / (1000 * 60 * 60)));
-        const realSilence  = silenceMs > SILENCE_THRESHOLD_MS;
+        const realSilence = silenceMs > SILENCE_THRESHOLD_MS;
         trigger = {
           type: 'long_silence',
           hours: silenceHours,
@@ -1415,16 +1524,16 @@ No expliques por qué escribes. No anuncies que eres proactiva. Solo di lo que d
       }
       case 'sustained_focus': {
         const osCtx = this._osSensor?.getCurrentContext();
-        const rule  = osCtx?.category ? FOCUS_RULES[osCtx.category] : null;
-        const real  = !!(rule && osCtx.elapsed >= rule.minSec);
+        const rule = osCtx?.category ? FOCUS_RULES[osCtx.category] : null;
+        const real = !!(rule && osCtx.elapsed >= rule.minSec);
         const effectiveRule = rule || FOCUS_RULES.code;
         trigger = {
           type: 'sustained_focus',
-          category:    osCtx?.category || 'code',
-          label:       effectiveRule.label,
+          category: osCtx?.category || 'code',
+          label: effectiveRule.label,
           friendlyName: osCtx?.friendlyName || 'la app actual',
-          title:       osCtx?.title || '',
-          elapsedSec:  osCtx?.elapsed || 0,
+          title: osCtx?.title || '',
+          elapsedSec: osCtx?.elapsed || 0,
           forced: true,
           forcedMismatch: !real,
           context: real
@@ -1434,12 +1543,14 @@ No expliques por qué escribes. No anuncies que eres proactiva. Solo di lo que d
         break;
       }
       case 'context_switch_thrash': {
-        const distinctCategories = [...new Set(this._recentSwitches.map(s => s.category))];
-        const real = this._recentSwitches.length >= THRASH_MIN_SWITCHES && distinctCategories.length >= THRASH_MIN_DISTINCT_CATEGORY;
+        const distinctCategories = [...new Set(this._recentSwitches.map((s) => s.category))];
+        const real =
+          this._recentSwitches.length >= THRASH_MIN_SWITCHES &&
+          distinctCategories.length >= THRASH_MIN_DISTINCT_CATEGORY;
         trigger = {
           type: 'context_switch_thrash',
           switchCount: this._recentSwitches.length,
-          categories:  distinctCategories,
+          categories: distinctCategories,
           forced: true,
           forcedMismatch: !real,
           context: real
@@ -1484,14 +1595,20 @@ No expliques por qué escribes. No anuncies que eres proactiva. Solo di lo que d
         };
     }
 
-    console.log('[proactive] evaluación forzada:', triggerType, trigger.forcedMismatch ? '(sin correspondencia con la realidad)' : '(coincide con la realidad)');
+    console.log(
+      '[proactive] evaluación forzada:',
+      triggerType,
+      trigger.forcedMismatch
+        ? '(sin correspondencia con la realidad)'
+        : '(coincide con la realidad)'
+    );
     const message = await this._generateMessage(trigger);
     if (message) {
       const firedAt = Date.now();
-      this._lastProactive             = firedAt;
+      this._lastProactive = firedAt;
       this._lastAttemptByType[trigger.type] = firedAt;
-      this._lastProactiveMessage      = message;
-      this._lastProactiveTrigger      = trigger.type;
+      this._lastProactiveMessage = message;
+      this._lastProactiveTrigger = trigger.type;
       this._bus.emit('initiative:trigger', await this._buildPayload(trigger, message));
     } else {
       console.log('[proactive] LLM no generó mensaje en evaluación forzada');
@@ -1502,36 +1619,38 @@ No expliques por qué escribes. No anuncies que eres proactiva. Solo di lo que d
   getStats() {
     const now = Date.now();
     return {
-      running:               this._running,
-      deciding:              this._deciding,
-      lastProactive:         this._lastProactive,
-      lastProactiveMessage:  this._lastProactiveMessage,
-      lastProactiveTrigger:  this._lastProactiveTrigger,
-      lastAttemptByType:     this._lastAttemptByType,
-      lastUserMsg:           this._lastUserMsg,
-      silenceMs:             now - this._lastUserMsg,
-      chatOpen:              this._chatOpen,
-      idleSecs:              this._osSensor?.getCurrentContext()?.idleSecs ?? null,
-      currentCategory:       this._currentCategory,
-      categoryStreakSec:     this._categoryStreakStart ? Math.round((now - this._categoryStreakStart) / 1000) : 0,
-      categoryStreakFired:   this._categoryStreakFired,
+      running: this._running,
+      deciding: this._deciding,
+      lastProactive: this._lastProactive,
+      lastProactiveMessage: this._lastProactiveMessage,
+      lastProactiveTrigger: this._lastProactiveTrigger,
+      lastAttemptByType: this._lastAttemptByType,
+      lastUserMsg: this._lastUserMsg,
+      silenceMs: now - this._lastUserMsg,
+      chatOpen: this._chatOpen,
+      idleSecs: this._osSensor?.getCurrentContext()?.idleSecs ?? null,
+      currentCategory: this._currentCategory,
+      categoryStreakSec: this._categoryStreakStart
+        ? Math.round((now - this._categoryStreakStart) / 1000)
+        : 0,
+      categoryStreakFired: this._categoryStreakFired,
       categoryStreakFollowupFired: this._categoryStreakFollowupFired,
-      recentSwitchesCount:   this._recentSwitches.length,
-      awaySince:             this._idleStartedAt,
-      proactiveScore:        this._currentProactiveScore,
-      autonomyMode:          this._autonomyMode,
-      feedback:              this._store?.getStats() ?? null,
-      pendingProposals:      this._pendingActions.size,
+      recentSwitchesCount: this._recentSwitches.length,
+      awaySince: this._idleStartedAt,
+      proactiveScore: this._currentProactiveScore,
+      autonomyMode: this._autonomyMode,
+      feedback: this._store?.getStats() ?? null,
+      pendingProposals: this._pendingActions.size,
       dailyBudget: {
         dayKey: this._store?.getDailyStats().dayKey ?? null,
-        count:  this._store?.dailyCount() ?? 0,
-        limit:  DAILY_BUDGET,
+        count: this._store?.dailyCount() ?? 0,
+        limit: DAILY_BUDGET,
       },
       gate: {
-        shadowMode:  this._shadowMode,
+        shadowMode: this._shadowMode,
         receptivity: this._receptivity,
-        queued:      this._queue.size(),
-        audit:       this._audit.getStats(),
+        queued: this._queue.size(),
+        audit: this._audit.getStats(),
       },
       slo: this._store ? this._sloStats() : null,
     };
@@ -1542,8 +1661,18 @@ No expliques por qué escribes. No anuncies que eres proactiva. Solo di lo que d
 
 function _monthName(monthIndex) {
   const months = [
-    'enero','febrero','marzo','abril','mayo','junio',
-    'julio','agosto','septiembre','octubre','noviembre','diciembre',
+    'enero',
+    'febrero',
+    'marzo',
+    'abril',
+    'mayo',
+    'junio',
+    'julio',
+    'agosto',
+    'septiembre',
+    'octubre',
+    'noviembre',
+    'diciembre',
   ];
   return months[monthIndex];
 }
@@ -1588,8 +1717,10 @@ function _triggerDescription(trigger) {
 function _safeGetIdentity() {
   try {
     return getIdentity();
-  } catch(_) {
-    return { core: 'Eres la asistente personal. Tienes carácter propio y eres cercana a la persona con quien hablas.' };
+  } catch (_) {
+    return {
+      core: 'Eres la asistente personal. Tienes carácter propio y eres cercana a la persona con quien hablas.',
+    };
   }
 }
 
@@ -1602,7 +1733,8 @@ function _localDayString(ts) {
 
 /** 0 = mismo día, 1 = mañana, -1 = ayer... (día calendario local). */
 function _dayOffset(tsA, tsB) {
-  const a = new Date(tsA), b = new Date(tsB);
+  const a = new Date(tsA),
+    b = new Date(tsB);
   const da = new Date(a.getFullYear(), a.getMonth(), a.getDate());
   const db = new Date(b.getFullYear(), b.getMonth(), b.getDate());
   return Math.round((da - db) / 86400000);
@@ -1627,21 +1759,24 @@ function _extractPatch(response) {
   if (!text) return null;
 
   // Quitar fences de código.
-  text = text.replace(/^```(?:json)?\s*/i, '').replace(/```\s*$/, '').trim();
+  text = text
+    .replace(/^```(?:json)?\s*/i, '')
+    .replace(/```\s*$/, '')
+    .trim();
 
   try {
     const parsed = JSON.parse(text);
     return parsed && typeof parsed === 'object' ? parsed : null;
-  } catch(_) {}
+  } catch (_) {}
 
   // Fallback: capturar el objeto JSON más externo con "changes".
   const start = text.indexOf('{');
-  const end   = text.lastIndexOf('}');
+  const end = text.lastIndexOf('}');
   if (start === -1 || end <= start) return null;
   try {
     const parsed = JSON.parse(text.slice(start, end + 1));
     return parsed && typeof parsed === 'object' ? parsed : null;
-  } catch(_) {}
+  } catch (_) {}
 
   return null;
 }

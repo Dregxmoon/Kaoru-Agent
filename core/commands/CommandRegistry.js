@@ -6,7 +6,7 @@ function _parse(text) {
   const trimmed = text.trim().slice(1);
   const parts = trimmed.match(/(?:[^\s"']+|"[^"]*"|'[^']*')+/g) || [];
   const name = (parts[0] || '').toLowerCase();
-  const args = parts.slice(1).map(a => a.replace(/^["']|["']$/g, ''));
+  const args = parts.slice(1).map((a) => a.replace(/^["']|["']$/g, ''));
   return { name, args, raw: text };
 }
 
@@ -18,13 +18,29 @@ function register(def) {
 }
 
 const CATEGORIES = {
-  help: 'General', clear: 'General', memory: 'General', olvida: 'General',
-  stats: 'General', export: 'General', telemetria: 'General',
-  model: 'IA / LLM', provider: 'IA / LLM', agent: 'IA / LLM', code: 'IA / LLM',
-  skill: 'IA / LLM', credenciales: 'Config', github: 'Cuentas',
-  init: 'Desarrollo', review: 'Desarrollo', plan: 'Desarrollo',
-  fix: 'Desarrollo', undo: 'Desarrollo', retry: 'Desarrollo',
-  'cambio-modelo': 'Modelo', 'modelo-vistas': 'Modelo', gestos: 'Modelo',
+  help: 'General',
+  clear: 'General',
+  memory: 'General',
+  olvida: 'General',
+  stats: 'General',
+  export: 'General',
+  telemetria: 'General',
+  model: 'IA / LLM',
+  provider: 'IA / LLM',
+  agent: 'IA / LLM',
+  code: 'IA / LLM',
+  skill: 'IA / LLM',
+  credenciales: 'Config',
+  github: 'Cuentas',
+  init: 'Desarrollo',
+  review: 'Desarrollo',
+  plan: 'Desarrollo',
+  fix: 'Desarrollo',
+  undo: 'Desarrollo',
+  retry: 'Desarrollo',
+  'cambio-modelo': 'Modelo',
+  'modelo-vistas': 'Modelo',
+  gestos: 'Modelo',
 };
 
 function getHelp() {
@@ -63,7 +79,7 @@ async function execute(text, ctx = {}) {
   const def = commands.get(name);
   if (!def) {
     const LLMProvider = ctx?.LLMProvider;
-    const provider = LLMProvider?.getAvailableProviders?.().find(p => p.id === name);
+    const provider = LLMProvider?.getAvailableProviders?.().find((p) => p.id === name);
     if (provider) {
       LLMProvider.configure({ llm: { primary: provider.id } });
       if (ctx.sendIPC) ctx.sendIPC('set-provider', { primary: provider.id });
@@ -72,9 +88,13 @@ async function execute(text, ctx = {}) {
         : `\n\n**${provider.name}** no tiene API key configurada. Todos los proveedores (incluso los "gratis") necesitan su propia key — agrega la de ${provider.name} con \`/credenciales\` antes de usarlo.`;
       return { result: `Proveedor cambiado a: **${provider.name}**${warn}` };
     }
-    const similar = getNames().filter(n => n.startsWith(name[0])).slice(0, 3);
+    const similar = getNames()
+      .filter((n) => n.startsWith(name[0]))
+      .slice(0, 3);
     const hint = similar.length > 0 ? ` Quizas quisiste decir: \`/${similar.join('`, `')}\`` : '';
-    return { error: `Comando desconocido: \`/${name}\`.${hint} Escribe \`/help\` para ver la lista.` };
+    return {
+      error: `Comando desconocido: \`/${name}\`.${hint} Escribe \`/help\` para ver la lista.`,
+    };
   }
 
   try {

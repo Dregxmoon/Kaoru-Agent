@@ -61,8 +61,11 @@ class OAuthDeviceFlow {
       userCode: data.user_code,
       verificationUri: data.verification_uri,
       // GitHub ya devuelve la URI con el código pre-cargado; si no, lo armamos.
-      verificationUriComplete: data.verification_uri_complete
-        || (data.verification_uri ? `${data.verification_uri}?user_code=${encodeURIComponent(data.user_code)}` : null),
+      verificationUriComplete:
+        data.verification_uri_complete ||
+        (data.verification_uri
+          ? `${data.verification_uri}?user_code=${encodeURIComponent(data.user_code)}`
+          : null),
       expiresIn: data.expires_in,
       interval: data.interval,
     };
@@ -81,11 +84,20 @@ class OAuthDeviceFlow {
     });
     const data = await res.json().catch(() => ({}));
     if (res.ok && data.access_token) {
-      return { ok: true, accessToken: data.access_token, tokenType: data.token_type, scope: data.scope };
+      return {
+        ok: true,
+        accessToken: data.access_token,
+        tokenType: data.token_type,
+        scope: data.scope,
+      };
     }
     // Errores del estándar: authorization_pending, slow_down, expired_token,
     // access_denied (y cualquiera que GitHub agregue).
-    return { ok: false, error: data.error || 'unknown_error', errorDescription: data.error_description || null };
+    return {
+      ok: false,
+      error: data.error || 'unknown_error',
+      errorDescription: data.error_description || null,
+    };
   }
 }
 

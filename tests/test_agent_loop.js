@@ -5,12 +5,12 @@ const fs = require('fs');
 const os = require('os');
 
 const C = {
-  green:  (s) => `\x1b[32m${s}\x1b[0m`,
-  red:    (s) => `\x1b[31m${s}\x1b[0m`,
+  green: (s) => `\x1b[32m${s}\x1b[0m`,
+  red: (s) => `\x1b[31m${s}\x1b[0m`,
   yellow: (s) => `\x1b[33m${s}\x1b[0m`,
-  cyan:   (s) => `\x1b[36m${s}\x1b[0m`,
-  bold:   (s) => `\x1b[1m${s}\x1b[0m`,
-  dim:    (s) => `\x1b[2m${s}\x1b[0m`,
+  cyan: (s) => `\x1b[36m${s}\x1b[0m`,
+  bold: (s) => `\x1b[1m${s}\x1b[0m`,
+  dim: (s) => `\x1b[2m${s}\x1b[0m`,
 };
 
 let passed = 0;
@@ -39,7 +39,9 @@ function setup() {
 
 function teardown() {
   if (tmpDir) {
-    try { fs.rmSync(tmpDir, { recursive: true, force: true }); } catch {}
+    try {
+      fs.rmSync(tmpDir, { recursive: true, force: true });
+    } catch {}
     tmpDir = null;
   }
 }
@@ -55,7 +57,9 @@ function createMockLLM(responses) {
     return responses[callCount++];
   };
   fn.callCount = () => callCount;
-  fn.reset = () => { callCount = 0; };
+  fn.reset = () => {
+    callCount = 0;
+  };
   return fn;
 }
 
@@ -70,7 +74,13 @@ function createMockBridge(projectCwd) {
           case 'read': {
             const p = params.path;
             if (!fs.existsSync(p)) {
-              return { ok: false, error: `File not found: ${p}`, result: null, tool, elapsed: Date.now() - t0 };
+              return {
+                ok: false,
+                error: `File not found: ${p}`,
+                result: null,
+                tool,
+                elapsed: Date.now() - t0,
+              };
             }
             const content = fs.readFileSync(p, 'utf-8');
             return { ok: true, result: content, error: null, tool, elapsed: Date.now() - t0 };
@@ -82,18 +92,36 @@ function createMockBridge(projectCwd) {
             if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
             const content = params.content || `Archivo creado: ${path.basename(p)}`;
             fs.writeFileSync(p, content, 'utf-8');
-            return { ok: true, result: `Written to ${p}`, error: null, tool, elapsed: Date.now() - t0 };
+            return {
+              ok: true,
+              result: `Written to ${p}`,
+              error: null,
+              tool,
+              elapsed: Date.now() - t0,
+            };
           }
           case 'exec':
           case 'run_command': {
             const cmd = params.command || '';
-            return { ok: true, result: { stdout: `[mock] ${cmd} ejecutado`, stderr: '', exitCode: 0 }, error: null, tool, elapsed: Date.now() - t0 };
+            return {
+              ok: true,
+              result: { stdout: `[mock] ${cmd} ejecutado`, stderr: '', exitCode: 0 },
+              error: null,
+              tool,
+              elapsed: Date.now() - t0,
+            };
           }
           case 'edit':
           case 'edit_file': {
             const p = params.path;
             if (!fs.existsSync(p)) {
-              return { ok: false, error: `File not found: ${p}`, result: null, tool, elapsed: Date.now() - t0 };
+              return {
+                ok: false,
+                error: `File not found: ${p}`,
+                result: null,
+                tool,
+                elapsed: Date.now() - t0,
+              };
             }
             const content = fs.readFileSync(p, 'utf-8');
             const oldText = params.old_text || params.instruction || '';
@@ -101,12 +129,30 @@ function createMockBridge(projectCwd) {
             if (oldText && content.includes(oldText)) {
               const updated = content.replace(oldText, newText);
               fs.writeFileSync(p, updated, 'utf-8');
-              return { ok: true, result: `Edited ${p}`, error: null, tool, elapsed: Date.now() - t0 };
+              return {
+                ok: true,
+                result: `Edited ${p}`,
+                error: null,
+                tool,
+                elapsed: Date.now() - t0,
+              };
             }
-            return { ok: true, result: `File ${p} unchanged (no matching text)`, error: null, tool, elapsed: Date.now() - t0 };
+            return {
+              ok: true,
+              result: `File ${p} unchanged (no matching text)`,
+              error: null,
+              tool,
+              elapsed: Date.now() - t0,
+            };
           }
           default:
-            return { ok: true, result: `[mock] ${tool} ejecutado`, error: null, tool, elapsed: Date.now() - t0 };
+            return {
+              ok: true,
+              result: `[mock] ${tool} ejecutado`,
+              error: null,
+              tool,
+              elapsed: Date.now() - t0,
+            };
         }
       } catch (e) {
         return { ok: false, error: e.message, result: null, tool, elapsed: Date.now() - t0 };
@@ -123,22 +169,21 @@ async function testTextResponse() {
   const { AgentLoop } = require('../core/planner/AgentLoop.js');
 
   const mockLLM = createMockLLM([
-    'El archivo config.json contiene una clave "key" con el valor "value".'
+    'El archivo config.json contiene una clave "key" con el valor "value".',
   ]);
 
   const loop = new AgentLoop({ maxIterations: 10, llm: mockLLM, bridge: createMockBridge('/tmp') });
 
-  const result = await loop.run(
-    '¿Qué hay en config.json?',
-    'Eres un asistente útil.',
-    [],
-    {}
-  );
+  const result = await loop.run('¿Qué hay en config.json?', 'Eres un asistente útil.', [], {});
 
   assert(result.iterations === 1, 'Termina en 1 iteración', `iteraciones: ${result.iterations}`);
   assert(!result.truncated, 'No está truncado');
   assert(!result.error, 'Sin error', `error: ${result.error}`);
-  assert(result.response.includes('config.json'), 'Respuesta contiene el texto esperado', result.response.slice(0, 100));
+  assert(
+    result.response.includes('config.json'),
+    'Respuesta contiene el texto esperado',
+    result.response.slice(0, 100)
+  );
 }
 
 // ── Test 2: Loop se adapta al resultado real (archivo no existe → create) ─────
@@ -165,7 +210,11 @@ ACCIÓN: create_file | ARCHIVO: ${path.join(projectCwd, 'nuevo.json')}
 \`\`\``,
   ]);
 
-  const loop = new AgentLoop({ maxIterations: 5, llm: mockLLM, bridge: createMockBridge(projectCwd) });
+  const loop = new AgentLoop({
+    maxIterations: 5,
+    llm: mockLLM,
+    bridge: createMockBridge(projectCwd),
+  });
 
   const result = await loop.run(
     'crea config.json si no existe',
@@ -174,17 +223,31 @@ ACCIÓN: create_file | ARCHIVO: ${path.join(projectCwd, 'nuevo.json')}
     { onApprovalNeeded: async () => true }
   );
 
-  assert(result.iterations === 3, 'Ejecuta 3 iteraciones (read + create + texto final)', `iteraciones: ${result.iterations}`);
-  assert(result.toolResults.length === 2, 'Dos herramientas ejecutadas', `tools: ${result.toolResults.length}`);
+  assert(
+    result.iterations === 3,
+    'Ejecuta 3 iteraciones (read + create + texto final)',
+    `iteraciones: ${result.iterations}`
+  );
+  assert(
+    result.toolResults.length === 2,
+    'Dos herramientas ejecutadas',
+    `tools: ${result.toolResults.length}`
+  );
 
   const firstTool = result.toolResults[0];
   assert(firstTool.tool === 'read', 'Primera tool: read', `tool: ${firstTool.tool}`);
-  assert(!firstTool.ok, 'Primera tool falla (archivo no existe)',
-    firstTool.error ? firstTool.error.slice(0, 80) : '');
+  assert(
+    !firstTool.ok,
+    'Primera tool falla (archivo no existe)',
+    firstTool.error ? firstTool.error.slice(0, 80) : ''
+  );
 
   const secondTool = result.toolResults[1];
-  assert(secondTool.tool === 'write', 'Segunda tool: write (normalizado de create_file)',
-    `tool: ${secondTool.tool} — verifica que el LLM adaptó su decisión al resultado real`);
+  assert(
+    secondTool.tool === 'write',
+    'Segunda tool: write (normalizado de create_file)',
+    `tool: ${secondTool.tool} — verifica que el LLM adaptó su decisión al resultado real`
+  );
   assert(secondTool.ok, 'Segunda tool tiene éxito', secondTool.error || '');
 
   const createdFile = path.join(projectCwd, 'nuevo.json');
@@ -211,22 +274,23 @@ async function testMaxIterations() {
   const alwaysTool = `\`\`\`action
 ACCIÓN: read_file | ARCHIVO: ${path.join(projectCwd, 'nonexistent.txt')}
 \`\`\``;
-  const mockLLM = createMockLLM([
-    alwaysTool, alwaysTool, alwaysTool, alwaysTool, alwaysTool,
-  ]);
+  const mockLLM = createMockLLM([alwaysTool, alwaysTool, alwaysTool, alwaysTool, alwaysTool]);
 
-  const loop = new AgentLoop({ maxIterations: 3, llm: mockLLM, bridge: createMockBridge(projectCwd) });
+  const loop = new AgentLoop({
+    maxIterations: 3,
+    llm: mockLLM,
+    bridge: createMockBridge(projectCwd),
+  });
 
-  const result = await loop.run(
-    'ejecuta herramientas sin parar',
-    'Eres un asistente.',
-    [],
-    {}
-  );
+  const result = await loop.run('ejecuta herramientas sin parar', 'Eres un asistente.', [], {});
 
   assert(result.truncated === true, 'Resultado marcado como truncado');
   assert(result.iterations <= 3, `Iteraciones respetan límite: ${result.iterations} <= 3`);
-  assert(result.error === 'max_iterations_reached', `Error es max_iterations_reached`, `error: ${result.error}`);
+  assert(
+    result.error === 'max_iterations_reached',
+    `Error es max_iterations_reached`,
+    `error: ${result.error}`
+  );
 
   teardown();
 }
@@ -268,20 +332,32 @@ ACCIÓN: create_file | ARCHIVO: ${testFilePath}
 \`\`\``,
   ]);
 
-  const loop = new AgentLoop({ maxIterations: 5, llm: mockLLM, bridge: createMockBridge(projectCwd) });
+  const loop = new AgentLoop({
+    maxIterations: 5,
+    llm: mockLLM,
+    bridge: createMockBridge(projectCwd),
+  });
 
-  const result = await loop.run(
-    'prueba de aprobación',
-    'Eres un asistente.',
-    [],
-    { onApprovalNeeded: approvalHandler }
+  const result = await loop.run('prueba de aprobación', 'Eres un asistente.', [], {
+    onApprovalNeeded: approvalHandler,
+  });
+
+  assert(
+    approvalCalls === 1,
+    'Handler de aprobación llamado 1 vez (solo exec, write no requiere aprobación)',
+    `veces: ${approvalCalls}`
   );
-
-  assert(approvalCalls === 1, 'Handler de aprobación llamado 1 vez (solo exec, write no requiere aprobación)', `veces: ${approvalCalls}`);
   assert(rejectedTool === 'exec', 'La primera tool (exec) fue rechazada');
   assert(approvedTool === null, 'write normalizado no requiere aprobación (path interno)');
-  assert(result.toolResults.length === 1, 'Solo 1 herramienta ejecutada (write pasó directo)', `tools: ${result.toolResults.length}`);
-  assert(result.toolResults[0].tool === 'write', 'La ejecutada es write (normalizado de create_file)');
+  assert(
+    result.toolResults.length === 1,
+    'Solo 1 herramienta ejecutada (write pasó directo)',
+    `tools: ${result.toolResults.length}`
+  );
+  assert(
+    result.toolResults[0].tool === 'write',
+    'La ejecutada es write (normalizado de create_file)'
+  );
   assert(result.toolResults[0].ok, 'write se ejecuta correctamente');
   assert(fs.existsSync(testFilePath), 'Archivo de prueba creado');
 
@@ -308,7 +384,11 @@ ACCIÓN: apply_patch | ARCHIVO: ${testFilePath}
     `Tarea completada.`,
   ]);
 
-  const loop = new AgentLoop({ maxIterations: 5, llm: mockLLM, bridge: createMockBridge(projectCwd) });
+  const loop = new AgentLoop({
+    maxIterations: 5,
+    llm: mockLLM,
+    bridge: createMockBridge(projectCwd),
+  });
 
   // Sin onApprovalNeeded → apply_patch es highImpact → fail closed
   const result = await loop.run(
@@ -318,8 +398,11 @@ ACCIÓN: apply_patch | ARCHIVO: ${testFilePath}
     {} // sin onApprovalNeeded
   );
 
-  assert(result.toolResults.length === 0, 'Ninguna herramienta se ejecutó (fail closed)',
-    `tools: ${result.toolResults.length}`);
+  assert(
+    result.toolResults.length === 0,
+    'Ninguna herramienta se ejecutó (fail closed)',
+    `tools: ${result.toolResults.length}`
+  );
   assert(!fs.existsSync(testFilePath), 'El archivo NO fue creado (apply_patch bloqueado)');
 
   // El loop debió continuar y eventualmente terminar con texto normal
@@ -351,14 +434,13 @@ ACCIÓN: read_file | ARCHIVO: ${testFile}
     `El archivo contiene: contenido de prueba.`,
   ]);
 
-  const loop = new AgentLoop({ maxIterations: 5, llm: mockLLM, bridge: createMockBridge(projectCwd) });
+  const loop = new AgentLoop({
+    maxIterations: 5,
+    llm: mockLLM,
+    bridge: createMockBridge(projectCwd),
+  });
 
-  const result = await loop.run(
-    'lee el archivo de prueba',
-    'Eres un asistente.',
-    [],
-    {}
-  );
+  const result = await loop.run('lee el archivo de prueba', 'Eres un asistente.', [], {});
 
   assert(result.iterations === 2, '2 iteraciones (read + texto)');
   assert(result.toolResults.length === 1, '1 herramienta ejecutada');
@@ -366,11 +448,15 @@ ACCIÓN: read_file | ARCHIVO: ${testFile}
   assert(result.toolResults[0].tool === 'read', 'Tool es read');
 
   // Verificar que el resultado incluye el contenido real
-  const resultStr = typeof result.toolResults[0].result === 'string'
-    ? result.toolResults[0].result
-    : JSON.stringify(result.toolResults[0].result);
-  assert(resultStr.includes('contenido de prueba'), 'Resultado contiene el contenido real del archivo',
-    resultStr.slice(0, 100));
+  const resultStr =
+    typeof result.toolResults[0].result === 'string'
+      ? result.toolResults[0].result
+      : JSON.stringify(result.toolResults[0].result);
+  assert(
+    resultStr.includes('contenido de prueba'),
+    'Resultado contiene el contenido real del archivo',
+    resultStr.slice(0, 100)
+  );
 
   teardown();
 }
@@ -403,21 +489,40 @@ async function testNativeToolCallEmptyContent() {
 
   try {
     const mockLLM = createMockLLM(['no se usa']);
-    const loop = new AgentLoop({ maxIterations: 5, llm: mockLLM, bridge: createMockBridge(projectCwd) });
+    const loop = new AgentLoop({
+      maxIterations: 5,
+      llm: mockLLM,
+      bridge: createMockBridge(projectCwd),
+    });
 
-    const result = await loop.run(
-      'hola',
-      'Eres un asistente.',
-      [],
-      { tools: [{ name: 'read', description: 'lee un archivo', inputSchema: { type: 'object', properties: {} } }] }
+    const result = await loop.run('hola', 'Eres un asistente.', [], {
+      tools: [
+        {
+          name: 'read',
+          description: 'lee un archivo',
+          inputSchema: { type: 'object', properties: {} },
+        },
+      ],
+    });
+
+    assert(
+      calls === 2,
+      'completeWithTools llamado 2 veces (tool call + cierre)',
+      `llamadas: ${calls}`
     );
-
-    assert(calls === 2, 'completeWithTools llamado 2 veces (tool call + cierre)', `llamadas: ${calls}`);
-    assert(result.toolResults.length === 1, 'La tool call nativa se ejecutó', `tools: ${result.toolResults.length}`);
+    assert(
+      result.toolResults.length === 1,
+      'La tool call nativa se ejecutó',
+      `tools: ${result.toolResults.length}`
+    );
     assert(result.toolResults[0].tool === 'read', 'Tool ejecutada: read');
     assert(result.toolResults[0].ok, 'read tuvo éxito', result.toolResults[0].error || '');
     assert(!result.error, 'Sin error "empty_response"', `error: ${result.error}`);
-    assert(result.response.includes('Tarea completada'), 'Respuesta final es el texto de cierre', result.response.slice(0, 60));
+    assert(
+      result.response.includes('Tarea completada'),
+      'Respuesta final es el texto de cierre',
+      result.response.slice(0, 60)
+    );
   } finally {
     LLMProvider.completeWithTools = originalCompleteWithTools;
   }
@@ -431,7 +536,11 @@ async function testContextCompaction() {
   console.log(C.bold('\n── Test 8: compactación de contexto ───────────────────────'));
 
   const { AgentLoop } = require('../core/planner/AgentLoop.js');
-  const loop = new AgentLoop({ maxIterations: 25, llm: async () => 'hola', bridge: createMockBridge('/tmp') });
+  const loop = new AgentLoop({
+    maxIterations: 25,
+    llm: async () => 'hola',
+    bridge: createMockBridge('/tmp'),
+  });
 
   // Historia larga: 20 tuplas (assistant + user) → debe compactar.
   const history = [];
@@ -449,12 +558,20 @@ async function testContextCompaction() {
     });
   }
 
-  const msgs = loop._buildLLMMessages(history, 'mensaje de resultado actual', 'el objetivo original', toolResults, 20);
+  const msgs = loop._buildLLMMessages(
+    history,
+    'mensaje de resultado actual',
+    'el objetivo original',
+    toolResults,
+    20
+  );
 
   // 1. El objetivo original siempre presente al inicio.
   assert(msgs[0].content === 'el objetivo original', 'el objetivo original va primero');
   // 2. Hay un mensaje de resumen compacto.
-  const summary = msgs.find((m) => m.content && m.content.includes('[RESUMEN DE LO HECHO HASTA AHORA'));
+  const summary = msgs.find(
+    (m) => m.content && m.content.includes('[RESUMEN DE LO HECHO HASTA AHORA')
+  );
   assert(!!summary, 'hay un mensaje de resumen compacto');
   assert(summary.content.includes('el objetivo original'), 'el resumen incluye el objetivo');
   assert(summary.content.includes('Acciones ejecutadas'), 'el resumen lista las acciones');
@@ -465,13 +582,22 @@ async function testContextCompaction() {
   assert(msgs.length < history.length, `la historia se acota (${msgs.length} < ${history.length})`);
 
   // Historia corta → sin compactación, se reenvía igual.
-  const short = [{ role: 'assistant', content: 'a' }, { role: 'user', content: 'b' }];
+  const short = [
+    { role: 'assistant', content: 'a' },
+    { role: 'user', content: 'b' },
+  ];
   const shortMsgs = loop._buildLLMMessages(short, 'res', 'obj', [], 2);
-  assert(shortMsgs.length === 4, 'historia corta se reenvía completa (objetivo + 2 turnos + resultado)');
+  assert(
+    shortMsgs.length === 4,
+    'historia corta se reenvía completa (objetivo + 2 turnos + resultado)'
+  );
 
   // Resumen sin toolResults no explota.
   const emptyMsgs = loop._buildLLMMessages(history, 'res', 'obj', [], 20);
-  assert(emptyMsgs.some((m) => m.content && m.content.includes('(ninguna todavía)')), 'resumen tolera toolResults vacío');
+  assert(
+    emptyMsgs.some((m) => m.content && m.content.includes('(ninguna todavía)')),
+    'resumen tolera toolResults vacío'
+  );
 }
 
 // ── Test 9: subagente (tool dispatch en proceso) ──────────────────────────────
@@ -493,28 +619,53 @@ async function testSubagentDispatch() {
   LLMProvider.completeWithTools = async () => {
     tcCalls++;
     if (tcCalls === 1) {
-      return { content: null, toolCalls: [{ tool: 'subagent', params: { task: 'cuenta los archivos' } }] };
+      return {
+        content: null,
+        toolCalls: [{ tool: 'subagent', params: { task: 'cuenta los archivos' } }],
+      };
     }
     return { content: 'Tarea completada.', toolCalls: null };
   };
 
   try {
     const mockLLM = createMockLLM(['Resumen del subagente: hay 3 archivos.']);
-    const loop = new AgentLoop({ maxIterations: 5, llm: mockLLM, bridge: createMockBridge(projectCwd) });
+    const loop = new AgentLoop({
+      maxIterations: 5,
+      llm: mockLLM,
+      bridge: createMockBridge(projectCwd),
+    });
 
-    const result = await loop.run(
-      'delega la tarea a un subagente',
-      'Eres un asistente.',
-      [],
-      { tools: [{ name: 'subagent', description: 'lanzar subagente', inputSchema: { type: 'object', properties: {} } }] }
+    const result = await loop.run('delega la tarea a un subagente', 'Eres un asistente.', [], {
+      tools: [
+        {
+          name: 'subagent',
+          description: 'lanzar subagente',
+          inputSchema: { type: 'object', properties: {} },
+        },
+      ],
+    });
+
+    assert(
+      tcCalls === 2,
+      'completeWithTools llamado 2 veces (subagent + cierre)',
+      `llamadas: ${tcCalls}`
     );
-
-    assert(tcCalls === 2, 'completeWithTools llamado 2 veces (subagent + cierre)', `llamadas: ${tcCalls}`);
-    assert(result.toolResults.length === 1, 'El subagente se ejecutó', `tools: ${result.toolResults.length}`);
+    assert(
+      result.toolResults.length === 1,
+      'El subagente se ejecutó',
+      `tools: ${result.toolResults.length}`
+    );
     assert(result.toolResults[0].tool === 'subagent', 'Tool ejecutada: subagent');
     assert(result.toolResults[0].ok, 'subagent tuvo éxito', result.toolResults[0].error || '');
-    assert(result.toolResults[0].result.response.includes('3 archivos'), 'El resumen del subagente llegó al padre', result.toolResults[0].result.response.slice(0, 60));
-    assert(Array.isArray(result.toolResults[0].result.toolCalls), 'subagent reporta toolCalls internos');
+    assert(
+      result.toolResults[0].result.response.includes('3 archivos'),
+      'El resumen del subagente llegó al padre',
+      result.toolResults[0].result.response.slice(0, 60)
+    );
+    assert(
+      Array.isArray(result.toolResults[0].result.toolCalls),
+      'subagent reporta toolCalls internos'
+    );
   } finally {
     LLMProvider.completeWithTools = originalCompleteWithTools;
   }
@@ -528,24 +679,44 @@ async function testSubagentDepthLimit() {
   console.log(C.bold('\n── Test 10: profundidad máxima de subagentes ───────────────'));
 
   const { AgentLoop } = require('../core/planner/AgentLoop.js');
-  const loop = new AgentLoop({ maxIterations: 3, llm: async () => 'x', bridge: createMockBridge('/tmp') });
+  const loop = new AgentLoop({
+    maxIterations: 3,
+    llm: async () => 'x',
+    bridge: createMockBridge('/tmp'),
+  });
 
   // Simular un subagente ya a profundidad 2 → debe negarse a crear uno más.
   loop._subagentDepth = 2;
   const result = await loop._executeSubagent({ tool: 'subagent', params: { task: 'haz algo' } });
   assert(!result.ok, 'a profundidad máxima el subagente falla con error claro', result.error || '');
-  assert(result.error.includes('profundidad máxima'), 'error menciona el límite de profundidad', result.error);
+  assert(
+    result.error.includes('profundidad máxima'),
+    'error menciona el límite de profundidad',
+    result.error
+  );
 
   // Sin task → error de validación.
   const noTask = await loop._executeSubagent({ tool: 'subagent', params: {} });
-  assert(!noTask.ok && noTask.error.includes('task'), 'subagente sin task → error de validación', noTask.error || '');
+  assert(
+    !noTask.ok && noTask.error.includes('task'),
+    'subagente sin task → error de validación',
+    noTask.error || ''
+  );
 
   // A profundidad 0 la negativa NO aplica (crea el subagente, y el mock LLM
   // responde directamente sin herramientas).
-  const fresh = new AgentLoop({ maxIterations: 3, llm: async () => 'ok', bridge: createMockBridge('/tmp') });
+  const fresh = new AgentLoop({
+    maxIterations: 3,
+    llm: async () => 'ok',
+    bridge: createMockBridge('/tmp'),
+  });
   const ok = await fresh._executeSubagent({ tool: 'subagent', params: { task: 'resume algo' } });
   assert(ok.ok, 'subagente a profundidad 0 se ejecuta', ok.error || '');
-  assert(ok.result.response === 'ok', 'el subagente devuelve la respuesta del LLM', ok.result.response);
+  assert(
+    ok.result.response === 'ok',
+    'el subagente devuelve la respuesta del LLM',
+    ok.result.response
+  );
 }
 
 // ── Test 11: compactación persiste y reconstruye contexto (memoria) ───────────
@@ -561,7 +732,12 @@ async function testMemoryCompaction() {
 
   try {
     // Fuerza el branch de compactación: historia larga, sin tools.
-    const loop = new AgentLoop({ maxIterations: 25, llm: async () => 'hola', bridge: createMockBridge('/tmp'), graph });
+    const loop = new AgentLoop({
+      maxIterations: 25,
+      llm: async () => 'hola',
+      bridge: createMockBridge('/tmp'),
+      graph,
+    });
     const history = [];
     for (let i = 0; i < 20; i++) {
       history.push({ role: 'assistant', content: `turno ${i}` });
@@ -572,26 +748,55 @@ async function testMemoryCompaction() {
 
     // El estado del graph se volvió a leer: el nodo Episode está en disco.
     const nodes = graph.queryNodes({ type: 'Episode', limit: 10 });
-    assert(nodes.some(n => (JSON.parse(n.tags || '[]') || []).includes('context-compaction')), 'el episodio tiene tag context-compaction');
+    assert(
+      nodes.some((n) => (JSON.parse(n.tags || '[]') || []).includes('context-compaction')),
+      'el episodio tiene tag context-compaction'
+    );
 
     // Un segundo loop (sin haber compactado) recupera el contexto por recall.
-    const loop2 = new AgentLoop({ maxIterations: 5, llm: async () => 'x', bridge: createMockBridge('/tmp'), graph });
+    const loop2 = new AgentLoop({
+      maxIterations: 5,
+      llm: async () => 'x',
+      bridge: createMockBridge('/tmp'),
+      graph,
+    });
     const memory = await loop2._recallMemory('tarea de memoria recurrente');
-    assert(memory && memory.includes('CONTEXTO RELEVANTE DE MEMORIA'), 'recall encuentra el episodio persistido', String(memory).slice(0, 120));
+    assert(
+      memory && memory.includes('CONTEXTO RELEVANTE DE MEMORIA'),
+      'recall encuentra el episodio persistido',
+      String(memory).slice(0, 120)
+    );
     assert(memory.includes('tarea de memoria recurrente'), 'recall incluye el objetivo original');
 
     // Sin graph → recall null, sin romper.
-    const loop3 = new AgentLoop({ maxIterations: 5, llm: async () => 'x', bridge: createMockBridge('/tmp') });
+    const loop3 = new AgentLoop({
+      maxIterations: 5,
+      llm: async () => 'x',
+      bridge: createMockBridge('/tmp'),
+    });
     const noMem = await loop3._recallMemory('algo');
     assert(noMem === null, 'sin graph → recall devuelve null');
 
     // La persistencia es best-effort: un graph con createNode roto no rompe el loop.
-    const broken = new AgentLoop({ maxIterations: 5, llm: async () => 'x', bridge: createMockBridge('/tmp'), graph: { createNode: () => { throw new Error('db caída'); } } });
+    const broken = new AgentLoop({
+      maxIterations: 5,
+      llm: async () => 'x',
+      bridge: createMockBridge('/tmp'),
+      graph: {
+        createNode: () => {
+          throw new Error('db caída');
+        },
+      },
+    });
     broken._buildLLMMessages(history, 'res', 'objetivo', [], 20);
     assert(true, 'persistencia con graph roto no lanza');
   } finally {
-    try { graph.close(); } catch {}
-    try { fs.rmSync(dir, { recursive: true, force: true }); } catch {}
+    try {
+      graph.close();
+    } catch {}
+    try {
+      fs.rmSync(dir, { recursive: true, force: true });
+    } catch {}
   }
 }
 
@@ -616,7 +821,9 @@ async function main() {
   console.log(C.bold('\n════════════════════════════════════════════════════════'));
   const total = passed + failed;
   console.log(
-    C.bold(`  Resultado: ${C.green(passed + ' passed')}  ${failed > 0 ? C.red(failed + ' failed') : C.dim('0 failed')}  / ${total} total`)
+    C.bold(
+      `  Resultado: ${C.green(passed + ' passed')}  ${failed > 0 ? C.red(failed + ' failed') : C.dim('0 failed')}  / ${total} total`
+    )
   );
   console.log(C.bold('════════════════════════════════════════════════════════\n'));
 

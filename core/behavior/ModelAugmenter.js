@@ -15,7 +15,7 @@
 //
 // El resultado NO se escribe en disco ni se tocan los model3.json originales.
 
-const fs   = require('fs');
+const fs = require('fs');
 const path = require('path');
 
 // Las animaciones cuyo nombre coincide con /idle/i pasan al grupo "Idle", que
@@ -43,7 +43,11 @@ function _toPosix(p) {
 function _walkModelDir(dir, out, depth) {
   if (depth > MAX_WALK_DEPTH) return;
   let entries;
-  try { entries = fs.readdirSync(dir, { withFileTypes: true }); } catch { return; }
+  try {
+    entries = fs.readdirSync(dir, { withFileTypes: true });
+  } catch {
+    return;
+  }
   for (const entry of entries) {
     const full = path.join(dir, entry.name);
     if (entry.isDirectory()) _walkModelDir(full, out, depth + 1);
@@ -55,7 +59,10 @@ function _walkModelDir(dir, out, depth) {
 // Nombre "legible" a partir del nombre de archivo: sin extensión, sin
 // directorio, espacios normalizados.
 function _nameFromFile(file) {
-  return path.basename(file, path.extname(file)).replace(/\.(exp3|motion3)$/i, '').trim();
+  return path
+    .basename(file, path.extname(file))
+    .replace(/\.(exp3|motion3)$/i, '')
+    .trim();
 }
 
 function _uniqueName(base, used) {
@@ -114,9 +121,9 @@ function _discover(model3Path) {
   // del SDK. Solo lo descubierto en disco sin referencia se clasifica por nombre
   // (idle → "Idle"; el resto → "motions"). Si el grupo original es una cadena
   // vacía (quirk de 免费模型艾莲), se cae a la clasificación por nombre.
-  const groups = new Map();       // group → array de { name, file, referenced }
+  const groups = new Map(); // group → array de { name, file, referenced }
   const seenMotionRel = new Set(); // paths relativos ya añadidos (dedupe)
-  const refMotBases = new Set();   // basenames referenciados (dedupe subcarpetas)
+  const refMotBases = new Set(); // basenames referenciados (dedupe subcarpetas)
   for (const defs of Object.values(refMots)) {
     if (!Array.isArray(defs)) continue;
     for (const d of defs) {
@@ -126,9 +133,12 @@ function _discover(model3Path) {
   const addMotion = (name, file, { referenced = false, group = null } = {}) => {
     if (seenMotionRel.has(file)) return;
     seenMotionRel.add(file);
-    const g = (typeof group === 'string' && group.trim())
-      ? group
-      : (IDLE_MOTION_RE.test(name) ? 'Idle' : 'motions');
+    const g =
+      typeof group === 'string' && group.trim()
+        ? group
+        : IDLE_MOTION_RE.test(name)
+          ? 'Idle'
+          : 'motions';
     if (!groups.has(g)) groups.set(g, []);
     groups.get(g).push({ name, file, group: g, referenced });
   };
@@ -204,7 +214,7 @@ function augmentModel(model3Path) {
 
   const fileRefs = { ...(raw.FileReferences || {}) };
   if (gestures.expressions.length) {
-    fileRefs.Expressions = gestures.expressions.map(e => ({ Name: e.name, File: e.file }));
+    fileRefs.Expressions = gestures.expressions.map((e) => ({ Name: e.name, File: e.file }));
   }
   if (gestures.motions.length) {
     const motions = {};

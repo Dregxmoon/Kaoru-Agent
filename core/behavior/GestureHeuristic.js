@@ -19,13 +19,13 @@ const _cache = new Map(); // model3Path → resultado de resolveAll
 
 function _idleMotion(gestures) {
   const motions = gestures.motions || [];
-  return motions.find(m => m.group === 'Idle') || null;
+  return motions.find((m) => m.group === 'Idle') || null;
 }
 
 function _allGestures(gestures) {
   return [
-    ...(gestures.expressions || []).map(g => ({ ...g, kind: 'expression' })),
-    ...(gestures.motions || []).map(g => ({ ...g, kind: 'motion' })),
+    ...(gestures.expressions || []).map((g) => ({ ...g, kind: 'expression' })),
+    ...(gestures.motions || []).map((g) => ({ ...g, kind: 'motion' })),
   ];
 }
 
@@ -40,7 +40,10 @@ function scoreGesture(gesture, mood) {
   let best = 0;
   for (const tok of tokens) {
     if (!tok) continue;
-    if (tok === gname) { best = 100; break; }
+    if (tok === gname) {
+      best = 100;
+      break;
+    }
     // Tokens latin cortos (p. ej. "hi", "no") generan falsos positivos por
     // substring ("white eyes".includes("hi")); los CJK sí son significativos
     // en fragmentos ("哭" dentro de "大哭").
@@ -69,7 +72,7 @@ function resolveMood(mood, gestures, opts = {}) {
   // 1) Mapping explícito de config: mood → nombre de gesto.
   const mappings = opts.mappings || {};
   if (mappings[m]) {
-    const target = _allGestures(gestures).find(g => g.name === mappings[m]);
+    const target = _allGestures(gestures).find((g) => g.name === mappings[m]);
     if (target) return { ok: true, mood: m, gesture: target, score: 100, source: 'config' };
   }
 
@@ -115,8 +118,8 @@ function resolveAll(gestures, opts = {}) {
     }
   }
   const unmapped = _allGestures(gestures)
-    .filter(g => !used.has(g.name))
-    .map(g => g.name);
+    .filter((g) => !used.has(g.name))
+    .map((g) => g.name);
   return { map, unmapped, modelName: gestures.modelName || '' };
 }
 

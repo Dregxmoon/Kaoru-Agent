@@ -21,18 +21,18 @@
  * componer la tasa de aceptación del mes sin duplicar el almacenamiento.
  */
 
-const fs   = require('fs');
+const fs = require('fs');
 const path = require('path');
 
 const DEFAULT_PATH = path.join(__dirname, '..', '..', 'data', 'telemetry.json');
 
 // ── Umbrales de la telemetría ─────────────────────────────────────────────
-const SILENCE_THRESHOLD_MS = 30 * 60 * 1000;  // gap entre mensajes del usuario que cuenta como "silencio"
-const SESSION_GAP_MS       = 20 * 60 * 1000;  // gap que separa dos "sesiones" (reuso)
-const RESPONSE_WINDOW_MS   = 10 * 60 * 1000;  // máximo para considerar un turno assistant como respuesta a un user
-const MAX_RESPONSE_SAMPLES = 200;             // muestras de tiempo de respuesta por día (p50/p90)
-const MAX_SILENCE_SAMPLES  = 60;              // muestras de silencios por día
-const MAX_DAYS             = 90;              // días de historial retenidos en disco
+const SILENCE_THRESHOLD_MS = 30 * 60 * 1000; // gap entre mensajes del usuario que cuenta como "silencio"
+const SESSION_GAP_MS = 20 * 60 * 1000; // gap que separa dos "sesiones" (reuso)
+const RESPONSE_WINDOW_MS = 10 * 60 * 1000; // máximo para considerar un turno assistant como respuesta a un user
+const MAX_RESPONSE_SAMPLES = 200; // muestras de tiempo de respuesta por día (p50/p90)
+const MAX_SILENCE_SAMPLES = 60; // muestras de silencios por día
+const MAX_DAYS = 90; // días de historial retenidos en disco
 
 function _localDayKey(ts = Date.now()) {
   const d = new Date(ts);
@@ -58,9 +58,9 @@ function _percentile(sorted, p) {
 class TelemetryStore {
   constructor({ filePath, now = Date.now } = {}) {
     this._filePath = filePath || DEFAULT_PATH;
-    this._now      = now;
-    this._data     = { days: {}, meta: { lastActivityTs: 0, lastUserTs: 0 } };
-    this._inMem    = false;
+    this._now = now;
+    this._data = { days: {}, meta: { lastActivityTs: 0, lastUserTs: 0 } };
+    this._inMem = false;
     this._load();
   }
 
@@ -72,7 +72,7 @@ class TelemetryStore {
         if (!this._data.days) this._data.days = {};
         if (!this._data.meta) this._data.meta = { lastActivityTs: 0, lastUserTs: 0 };
       }
-    } catch(e) {
+    } catch (e) {
       console.warn('[telemetry] no se pudo leer telemetría previa:', e.message);
       this._inMem = true;
     }
@@ -83,7 +83,7 @@ class TelemetryStore {
     try {
       fs.mkdirSync(path.dirname(this._filePath), { recursive: true });
       fs.writeFileSync(this._filePath, JSON.stringify(this._data, null, 2));
-    } catch(e) {
+    } catch (e) {
       console.warn('[telemetry] no se pudo persistir:', e.message);
       this._inMem = true;
     }
@@ -91,15 +91,15 @@ class TelemetryStore {
 
   _day(dayKey) {
     return (this._data.days[dayKey] ||= {
-      userMessages:    0,
+      userMessages: 0,
       assistantMessages: 0,
-      responseCount:   0,
-      responseSumMs:   0,
-      responseTimes:   [],
-      silenceCount:    0,
-      silenceTotalMs:  0,
-      silences:        [],
-      sessions:        0,
+      responseCount: 0,
+      responseSumMs: 0,
+      responseTimes: [],
+      silenceCount: 0,
+      silenceTotalMs: 0,
+      silences: [],
+      sessions: 0,
     });
   }
 
@@ -121,8 +121,8 @@ class TelemetryStore {
    */
   recordTurn(role, ts = this._now()) {
     const dayKey = _localDayKey(ts);
-    const day    = this._day(dayKey);
-    const meta   = this._data.meta;
+    const day = this._day(dayKey);
+    const meta = this._data.meta;
 
     if (role === 'user') {
       day.userMessages += 1;
@@ -152,7 +152,11 @@ class TelemetryStore {
       // Tiempo de respuesta SOLO si este assistant sigue a un user reciente.
       // Una iniciativa proactiva (sin user previo o mucho después) NO es una
       // respuesta y no debe inflar el promedio.
-      if (meta.lastUserTs && ts - meta.lastUserTs > 0 && ts - meta.lastUserTs <= RESPONSE_WINDOW_MS) {
+      if (
+        meta.lastUserTs &&
+        ts - meta.lastUserTs > 0 &&
+        ts - meta.lastUserTs <= RESPONSE_WINDOW_MS
+      ) {
         const ms = ts - meta.lastUserTs;
         day.responseCount += 1;
         day.responseSumMs += ms;
@@ -171,45 +175,49 @@ class TelemetryStore {
 
   monthSummary(monthKey = _monthKey(this._now())) {
     const acc = {
-      activeDays:      0,
-      userMessages:    0,
+      activeDays: 0,
+      userMessages: 0,
       assistantMessages: 0,
-      responseCount:   0,
-      responseSumMs:   0,
-      responseTimes:   [],
-      silenceCount:    0,
-      silenceTotalMs:  0,
-      sessions:        0,
+      responseCount: 0,
+      responseSumMs: 0,
+      responseTimes: [],
+      silenceCount: 0,
+      silenceTotalMs: 0,
+      sessions: 0,
     };
 
     for (const [dayKey, d] of Object.entries(this._data.days)) {
       if (!dayKey.startsWith(monthKey)) continue;
       if (d.userMessages > 0) acc.activeDays += 1;
-      acc.userMessages     += d.userMessages;
+      acc.userMessages += d.userMessages;
       acc.assistantMessages += d.assistantMessages;
-      acc.responseCount    += d.responseCount;
-      acc.responseSumMs    += d.responseSumMs;
-      acc.responseTimes     = acc.responseTimes.concat(d.responseTimes).slice(-MAX_RESPONSE_SAMPLES * 4);
-      acc.silenceCount     += d.silenceCount;
-      acc.silenceTotalMs   += d.silenceTotalMs;
-      acc.sessions         += d.sessions;
+      acc.responseCount += d.responseCount;
+      acc.responseSumMs += d.responseSumMs;
+      acc.responseTimes = acc.responseTimes
+        .concat(d.responseTimes)
+        .slice(-MAX_RESPONSE_SAMPLES * 4);
+      acc.silenceCount += d.silenceCount;
+      acc.silenceTotalMs += d.silenceTotalMs;
+      acc.sessions += d.sessions;
     }
 
     const sorted = [...acc.responseTimes].sort((a, b) => a - b);
     return {
       monthKey,
-      activeDays:       acc.activeDays,
-      userMessages:     acc.userMessages,
+      activeDays: acc.activeDays,
+      userMessages: acc.userMessages,
       assistantMessages: acc.assistantMessages,
-      messagesPerDay:   acc.activeDays ? ((acc.userMessages + acc.assistantMessages) / acc.activeDays) : 0,
-      responseCount:    acc.responseCount,
-      avgResponseMs:    acc.responseCount ? Math.round(acc.responseSumMs / acc.responseCount) : null,
-      p50ResponseMs:    _percentile(sorted, 50),
-      p90ResponseMs:    _percentile(sorted, 90),
-      silenceCount:     acc.silenceCount,
-      silenceHours:     Math.round(acc.silenceTotalMs / (1000 * 60 * 60) * 10) / 10,
-      sessions:         acc.sessions,
-      sessionsPerDay:   acc.activeDays ? (acc.sessions / acc.activeDays) : 0,
+      messagesPerDay: acc.activeDays
+        ? (acc.userMessages + acc.assistantMessages) / acc.activeDays
+        : 0,
+      responseCount: acc.responseCount,
+      avgResponseMs: acc.responseCount ? Math.round(acc.responseSumMs / acc.responseCount) : null,
+      p50ResponseMs: _percentile(sorted, 50),
+      p90ResponseMs: _percentile(sorted, 90),
+      silenceCount: acc.silenceCount,
+      silenceHours: Math.round((acc.silenceTotalMs / (1000 * 60 * 60)) * 10) / 10,
+      sessions: acc.sessions,
+      sessionsPerDay: acc.activeDays ? acc.sessions / acc.activeDays : 0,
     };
   }
 
@@ -220,8 +228,8 @@ class TelemetryStore {
   acceptanceForMonth(monthKey, decisions = []) {
     const [y, m] = monthKey.split('-').map(Number);
     const from = new Date(y, m - 1, 1, 0, 0, 0, 0).getTime();
-    const to   = new Date(y, m, 1, 0, 0, 0, 0).getTime();
-    const inMonth = decisions.filter(d => d.ts >= from && d.ts < to);
+    const to = new Date(y, m, 1, 0, 0, 0, 0).getTime();
+    const inMonth = decisions.filter((d) => d.ts >= from && d.ts < to);
 
     const byType = {};
     for (const d of inMonth) {
@@ -230,14 +238,17 @@ class TelemetryStore {
       else if (d.decision === 'rejected') t.rejected += 1;
       t.total += 1;
     }
-    const totals = Object.values(byType).reduce((a, t) => ({ accepted: a.accepted + t.accepted, rejected: a.rejected + t.rejected }), { accepted: 0, rejected: 0 });
+    const totals = Object.values(byType).reduce(
+      (a, t) => ({ accepted: a.accepted + t.accepted, rejected: a.rejected + t.rejected }),
+      { accepted: 0, rejected: 0 }
+    );
     const total = totals.accepted + totals.rejected;
 
     return {
       monthKey,
-      rate:      total ? Math.round((totals.accepted / total) * 100) : null,
-      accepted:  totals.accepted,
-      rejected:  totals.rejected,
+      rate: total ? Math.round((totals.accepted / total) * 100) : null,
+      accepted: totals.accepted,
+      rejected: totals.rejected,
       total,
       byType,
     };
@@ -256,33 +267,40 @@ class TelemetryStore {
     const acceptance = this.acceptanceForMonth(monthKey, decisions);
     const prevAcceptance = this.acceptanceForMonth(prevKey, decisions);
 
-    const pct = (cur, prev) => (prev === 0 || cur == null || prev == null) ? null : Math.round(((cur - prev) / prev) * 100);
+    const pct = (cur, prev) =>
+      prev === 0 || cur == null || prev == null ? null : Math.round(((cur - prev) / prev) * 100);
 
     const deltas = {
-      messagesPerDay:   pct(current.messagesPerDay, previous.messagesPerDay),
-      avgResponseMs:    pct(current.avgResponseMs, previous.avgResponseMs),
-      p50ResponseMs:    pct(current.p50ResponseMs, previous.p50ResponseMs),
-      silenceHours:     pct(current.silenceHours, previous.silenceHours),
-      silenceCount:     pct(current.silenceCount, previous.silenceCount),
-      sessionsPerDay:   pct(current.sessionsPerDay, previous.sessionsPerDay),
-      activeDays:       pct(current.activeDays, previous.activeDays),
-      acceptanceRate:   (prevAcceptance.rate == null || acceptance.rate == null) ? null : pct(acceptance.rate, prevAcceptance.rate),
+      messagesPerDay: pct(current.messagesPerDay, previous.messagesPerDay),
+      avgResponseMs: pct(current.avgResponseMs, previous.avgResponseMs),
+      p50ResponseMs: pct(current.p50ResponseMs, previous.p50ResponseMs),
+      silenceHours: pct(current.silenceHours, previous.silenceHours),
+      silenceCount: pct(current.silenceCount, previous.silenceCount),
+      sessionsPerDay: pct(current.sessionsPerDay, previous.sessionsPerDay),
+      activeDays: pct(current.activeDays, previous.activeDays),
+      acceptanceRate:
+        prevAcceptance.rate == null || acceptance.rate == null
+          ? null
+          : pct(acceptance.rate, prevAcceptance.rate),
     };
 
     // Dirección "buena" por métrica: ↑ o ↓ es mejor.
     const GOOD = {
-      messagesPerDay:   'up',
-      avgResponseMs:    'down',
-      p50ResponseMs:    'down',
-      silenceHours:     'down',
-      silenceCount:     'down',
-      sessionsPerDay:   'up',
-      activeDays:       'up',
-      acceptanceRate:   'up',
+      messagesPerDay: 'up',
+      avgResponseMs: 'down',
+      p50ResponseMs: 'down',
+      silenceHours: 'down',
+      silenceCount: 'down',
+      sessionsPerDay: 'up',
+      activeDays: 'up',
+      acceptanceRate: 'up',
     };
     const improved = { up: 0, down: 0, neutral: 0 };
     for (const [k, delta] of Object.entries(deltas)) {
-      if (delta == null || delta === 0) { improved.neutral += 1; continue; }
+      if (delta == null || delta === 0) {
+        improved.neutral += 1;
+        continue;
+      }
       const direction = GOOD[k];
       const good = direction === 'up' ? delta > 0 : delta < 0;
       improved[good ? 'up' : 'down'] += 1;
@@ -296,27 +314,34 @@ class TelemetryStore {
       acceptance,
       prevAcceptance,
       deltas,
-      verdict: improved.up > improved.down ? 'improved' : (improved.down > improved.up ? 'regressed' : 'stable'),
+      verdict:
+        improved.up > improved.down
+          ? 'improved'
+          : improved.down > improved.up
+            ? 'regressed'
+            : 'stable',
     };
   }
 
   getStats() {
     const today = this.monthSummary(_monthKey(this._now()));
     return {
-      filePath:     this._filePath,
+      filePath: this._filePath,
       inMemoryOnly: this._inMem,
-      days:         Object.keys(this._data.days).length,
-      meta:         this._data.meta,
+      days: Object.keys(this._data.days).length,
+      meta: this._data.meta,
       today,
-      lastReport:   null,
+      lastReport: null,
     };
   }
 
   reset() {
-    this._data  = { days: {}, meta: { lastActivityTs: 0, lastUserTs: 0 } };
+    this._data = { days: {}, meta: { lastActivityTs: 0, lastUserTs: 0 } };
     this._inMem = false;
     if (this._filePath) {
-      try { fs.rmSync(this._filePath, { force: true }); } catch(_) {}
+      try {
+        fs.rmSync(this._filePath, { force: true });
+      } catch (_) {}
     }
   }
 }

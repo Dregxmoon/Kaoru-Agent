@@ -31,7 +31,9 @@ const taskFilter = args.filter((a) => !a.startsWith('--'))[0];
 
 function listTasks() {
   if (taskFilter) return [taskFilter];
-  return fs.readdirSync(TASKS_DIR).filter((d) => fs.existsSync(path.join(TASKS_DIR, d, 'task.json')));
+  return fs
+    .readdirSync(TASKS_DIR)
+    .filter((d) => fs.existsSync(path.join(TASKS_DIR, d, 'task.json')));
 }
 
 function prepareWorkspace(taskDir, workspaceRel) {
@@ -41,7 +43,11 @@ function prepareWorkspace(taskDir, workspaceRel) {
   fs.rmSync(path.join(tmp, '.git'), { recursive: true, force: true });
   execFileSync('git', ['init', '-q'], { cwd: tmp });
   execFileSync('git', ['add', '-A'], { cwd: tmp });
-  execFileSync('git', ['-c', 'user.email=bench@x', '-c', 'user.name=bench', 'commit', '-qm', 'init'], { cwd: tmp });
+  execFileSync(
+    'git',
+    ['-c', 'user.email=bench@x', '-c', 'user.name=bench', 'commit', '-qm', 'init'],
+    { cwd: tmp }
+  );
   return tmp;
 }
 
@@ -55,7 +61,11 @@ function loadResults(taskId) {
 
 function saveResults(taskId, data) {
   fs.mkdirSync(RESULTS_DIR, { recursive: true });
-  fs.writeFileSync(path.join(RESULTS_DIR, `${taskId}.json`), JSON.stringify(data, null, 2), 'utf-8');
+  fs.writeFileSync(
+    path.join(RESULTS_DIR, `${taskId}.json`),
+    JSON.stringify(data, null, 2),
+    'utf-8'
+  );
 }
 
 function runVerify(verifyPath, workspace) {
@@ -103,7 +113,9 @@ async function main() {
           truncated: res.truncated || false,
           verify: verify.output.slice(0, 500),
         };
-        console.log(`Resultado: ${verify.pass ? 'PASS' : 'FAIL'} (${res.iterations} iter, ${res.elapsedMs}ms)`);
+        console.log(
+          `Resultado: ${verify.pass ? 'PASS' : 'FAIL'} (${res.iterations} iter, ${res.elapsedMs}ms)`
+        );
         if (!verify.pass) {
           console.log(`  verify: ${verify.output.slice(0, 300)}`);
         }
@@ -129,8 +141,12 @@ async function main() {
     // Resumen de la tarea
     const last = results.runs.slice(-RUNS);
     const passed = last.filter((x) => x.ok).length;
-    const avgMs = last.length ? Math.round(last.reduce((a, x) => a + (x.elapsedMs || 0), 0) / last.length) : 0;
-    console.log(`\nTarea ${task.id}: ${passed}/${RUNS} (pass@${RUNS}) · avg ${avgMs}ms · histórico ${results.runs.length} corridas`);
+    const avgMs = last.length
+      ? Math.round(last.reduce((a, x) => a + (x.elapsedMs || 0), 0) / last.length)
+      : 0;
+    console.log(
+      `\nTarea ${task.id}: ${passed}/${RUNS} (pass@${RUNS}) · avg ${avgMs}ms · histórico ${results.runs.length} corridas`
+    );
   }
 
   // G.1: reporte final global — pass@RUNS por tarea + agregado.
@@ -141,17 +157,26 @@ async function main() {
     const data = loadResults(taskId);
     const last = data.runs.slice(-RUNS);
     const ok = last.filter((x) => x.ok).length;
-    const avgMs = last.length ? Math.round(last.reduce((a, x) => a + (x.elapsedMs || 0), 0) / last.length) : 0;
+    const avgMs = last.length
+      ? Math.round(last.reduce((a, x) => a + (x.elapsedMs || 0), 0) / last.length)
+      : 0;
     totalPassed += ok;
     totalRuns += last.length;
-    return { task: taskId, pass: `${ok}/${last.length}`, passK: last.length ? (ok / last.length).toFixed(2) : '-', avgMs };
+    return {
+      task: taskId,
+      pass: `${ok}/${last.length}`,
+      passK: last.length ? (ok / last.length).toFixed(2) : '-',
+      avgMs,
+    };
   });
   console.log(`  ${'TAREA'.padEnd(20)} ${'PASS@' + RUNS}  ${'avg ms'.padStart(8)}`);
   for (const r of rows) {
     console.log(`  ${r.task.padEnd(20)} ${r.pass.padEnd(10)} ${String(r.avgMs).padStart(8)}`);
   }
   if (totalRuns > 0) {
-    console.log(`\n  GLOBAL pass@${RUNS}: ${totalPassed}/${totalRuns} (${(totalPassed / totalRuns).toFixed(2)})`);
+    console.log(
+      `\n  GLOBAL pass@${RUNS}: ${totalPassed}/${totalRuns} (${(totalPassed / totalRuns).toFixed(2)})`
+    );
   }
 
   console.log('\n=== Benchmark finalizado ===');

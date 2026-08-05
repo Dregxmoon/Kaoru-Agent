@@ -11,18 +11,24 @@ class AppHistoryStore {
     if (!app || !start || !end || !duration) return;
     const dayKey = new Date(start).toISOString().slice(0, 10);
     try {
-      this._db.prepare(`
+      this._db
+        .prepare(
+          `
         INSERT INTO app_history (app, friendly_name, title, category, start_ts, end_ts, duration_sec, day_key)
         VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-      `).run(
-        app,
-        friendlyName || app,
-        (title || '').slice(0, 200),
-        category || 'other',
-        start, end, duration,
-        dayKey
-      );
-    } catch(e) {
+      `
+        )
+        .run(
+          app,
+          friendlyName || app,
+          (title || '').slice(0, 200),
+          category || 'other',
+          start,
+          end,
+          duration,
+          dayKey
+        );
+    } catch (e) {
       console.warn('[state-graph] error guardando app_history:', e.message);
     }
   }
@@ -30,29 +36,37 @@ class AppHistoryStore {
   getTodayAppHistory() {
     const dayKey = new Date().toISOString().slice(0, 10);
     try {
-      return this._db.prepare(`
+      return this._db
+        .prepare(
+          `
         SELECT * FROM app_history
         WHERE day_key = ?
         ORDER BY start_ts ASC
-      `).all(dayKey);
-    } catch(e) {
+      `
+        )
+        .all(dayKey);
+    } catch (e) {
       console.warn('[state-graph] error leyendo app_history:', e.message);
       return [];
     }
   }
 
   getAppUsageSummary(days = 1) {
-    const since = Date.now() - (days * 24 * 60 * 60 * 1000);
+    const since = Date.now() - days * 24 * 60 * 60 * 1000;
     try {
-      return this._db.prepare(`
+      return this._db
+        .prepare(
+          `
         SELECT friendly_name, category, SUM(duration_sec) as total_sec
         FROM app_history
         WHERE start_ts >= ?
         GROUP BY app
         ORDER BY total_sec DESC
         LIMIT 15
-      `).all(since);
-    } catch(e) {
+      `
+        )
+        .all(since);
+    } catch (e) {
       console.warn('[state-graph] error en app usage summary:', e.message);
       return [];
     }
@@ -69,15 +83,13 @@ class AppHistoryStore {
   }
 
   pruneAppHistory(days = 30) {
-    const cutoff = Date.now() - (days * 24 * 60 * 60 * 1000);
+    const cutoff = Date.now() - days * 24 * 60 * 60 * 1000;
     try {
-      const result = this._db.prepare(
-        'DELETE FROM app_history WHERE start_ts < ?'
-      ).run(cutoff);
+      const result = this._db.prepare('DELETE FROM app_history WHERE start_ts < ?').run(cutoff);
       if (result.changes > 0) {
         console.log(`[state-graph] app_history pruned: ${result.changes} entradas eliminadas`);
       }
-    } catch(e) {
+    } catch (e) {
       console.warn('[state-graph] error en pruneAppHistory:', e.message);
     }
   }

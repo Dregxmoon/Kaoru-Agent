@@ -115,7 +115,9 @@ class _LSPInstance {
       this._process = proc;
 
       proc.on('error', async (err) => {
-        console.warn(`[lsp:${this._languageKey}] no se pudo lanzar ${config.command}: ${err.message}`);
+        console.warn(
+          `[lsp:${this._languageKey}] no se pudo lanzar ${config.command}: ${err.message}`
+        );
         if (config.installCmd && !config.autoInstall) {
           console.warn(`[lsp:${this._languageKey}] instalalo con: ${config.installCmd}`);
         }
@@ -127,9 +129,14 @@ class _LSPInstance {
         if (retriesLeft > 0) {
           started = true;
           try {
-            console.log(`[lsp:${this._languageKey}] ${config.command} no existe — ejecutando instalación: ${config.installCmd}`);
+            console.log(
+              `[lsp:${this._languageKey}] ${config.command} no existe — ejecutando instalación: ${config.installCmd}`
+            );
             await this._runInstall(config.installCmd);
-            if (this._stopping) { reject(new Error('LSP server stopped durante la instalación')); return; }
+            if (this._stopping) {
+              reject(new Error('LSP server stopped durante la instalación'));
+              return;
+            }
             resolve(await this._doStart(workspacePath, { retriesLeft: retriesLeft - 1 }));
           } catch (e2) {
             reject(new Error(`auto-install falló (${config.installCmd}): ${e2.message}`));
@@ -172,43 +179,51 @@ class _LSPInstance {
       }
       initializeParams.initializationOptions = this._initializationOptions || undefined;
       initializeParams.capabilities = {
-          // LSP.0: capabilities que los servers esperan de un cliente real.
-          // workspace.configuration es REQUERIDO por servers como gopls/jdtls
-          // (piden settings vía workspace/configuration); sin declararlo algunos
-          // no terminan de inicializar o ignoran config.
-          window: {
-            workDoneProgress: true,
-          },
-          workspace: {
-            configuration: true,
-            didChangeWatchedFiles: { dynamicRegistration: true },
-            symbol: {},
-          },
-          textDocument: {
-            synchronization: { didSave: true },
-            // G.1: NO declarar textDocument.diagnostic (pull) — pyright lo
-            // interpreta como soporte pull y deja de enviar push (publishDiagnostics).
-            // publicar solo publishDiagnostics activa el push en todos los servers.
-            publishDiagnostics: { relatedInformation: true },
-          },
+        // LSP.0: capabilities que los servers esperan de un cliente real.
+        // workspace.configuration es REQUERIDO por servers como gopls/jdtls
+        // (piden settings vía workspace/configuration); sin declararlo algunos
+        // no terminan de inicializar o ignoran config.
+        window: {
+          workDoneProgress: true,
+        },
+        workspace: {
+          configuration: true,
+          didChangeWatchedFiles: { dynamicRegistration: true },
+          symbol: {},
+        },
+        textDocument: {
+          synchronization: { didSave: true },
+          // G.1: NO declarar textDocument.diagnostic (pull) — pyright lo
+          // interpreta como soporte pull y deja de enviar push (publishDiagnostics).
+          // publicar solo publishDiagnostics activa el push en todos los servers.
+          publishDiagnostics: { relatedInformation: true },
+        },
       };
-      this._request('initialize', initializeParams).then((result) => {
-        this._capabilities = result.capabilities || {};
-        // Patrón opencode: tras `initialized`, aplicar la configuración del
-        // server (workspace/didChangeConfiguration) con sus initializationOptions.
-        if (this._initializationOptions) {
-          this._notify('workspace/didChangeConfiguration', {
-            settings: this._initializationOptions,
-          });
-        }
-        // Send initialized notification
-        this._notify('initialized', {});
-        this._started = true;
-        this._startedAt = Date.now();
-        if (!started) { started = true; resolve(); }
-      }).catch((err) => {
-        if (!started) { started = true; reject(err); }
-      });
+      this._request('initialize', initializeParams)
+        .then((result) => {
+          this._capabilities = result.capabilities || {};
+          // Patrón opencode: tras `initialized`, aplicar la configuración del
+          // server (workspace/didChangeConfiguration) con sus initializationOptions.
+          if (this._initializationOptions) {
+            this._notify('workspace/didChangeConfiguration', {
+              settings: this._initializationOptions,
+            });
+          }
+          // Send initialized notification
+          this._notify('initialized', {});
+          this._started = true;
+          this._startedAt = Date.now();
+          if (!started) {
+            started = true;
+            resolve();
+          }
+        })
+        .catch((err) => {
+          if (!started) {
+            started = true;
+            reject(err);
+          }
+        });
 
       // Timeout safety (LSP.0: por-server — java/heavy necesita más de 15s)
       const initTimeoutMs = this._initTimeoutMs;
@@ -244,7 +259,7 @@ class _LSPInstance {
    * un crash-loop temprano se corta al llegar a _maxRestartAttempts.
    */
   _handleExit(code) {
-    const stable = this._startedAt && (Date.now() - this._startedAt) > this._stableMs;
+    const stable = this._startedAt && Date.now() - this._startedAt > this._stableMs;
     if (stable) this._restartAttempts = 0;
     console.log(`[lsp:${this._languageKey}] proceso terminado (código ${code})`);
     this._process = null;
@@ -272,10 +287,13 @@ class _LSPInstance {
       // ocupado analizando (typeshed) y no queremos bloquear el apagado 20s.
       await Promise.race([
         this._request('shutdown', null),
-        new Promise(res => setTimeout(res, 2500)),
+        new Promise((res) => setTimeout(res, 2500)),
       ]);
     } catch (e) {
-      console.warn(`[lsp:${this._languageKey}] shutdown request falló:`, e && e.message ? e.message : e);
+      console.warn(
+        `[lsp:${this._languageKey}] shutdown request falló:`,
+        e && e.message ? e.message : e
+      );
     }
     this._notify('exit', null);
     // `npx` re-ejecuta el server en un hijo — matar npx no basta. Recorremos
@@ -285,8 +303,14 @@ class _LSPInstance {
     } catch (e) {
       console.warn(`[lsp:${this._languageKey}] killTree falló:`, e && e.message ? e.message : e);
     }
-    try { this._process.kill(); }
-    catch (e) { console.warn(`[lsp:${this._languageKey}] kill del proceso falló:`, e && e.message ? e.message : e); }
+    try {
+      this._process.kill();
+    } catch (e) {
+      console.warn(
+        `[lsp:${this._languageKey}] kill del proceso falló:`,
+        e && e.message ? e.message : e
+      );
+    }
     this._process = null;
     this._started = false;
     this._restartAttempts = 0;
@@ -398,13 +422,19 @@ class _LSPInstance {
     // anuncie en capabilities (pyright no declara diagnosticProvider), la
     // mayoría lo soporta; si responde MethodNotFound, caemos a la cache push.
     try {
-      const result = await this._request('textDocument/diagnostic', {
-        textDocument: { uri },
-      }, DIAGNOSTIC_PULL_TIMEOUT_MS);
+      const result = await this._request(
+        'textDocument/diagnostic',
+        {
+          textDocument: { uri },
+        },
+        DIAGNOSTIC_PULL_TIMEOUT_MS
+      );
       if (result && Array.isArray(result.items)) {
         return result.items;
       }
-    } catch (_) { /* fallback a push cache */ }
+    } catch (_) {
+      /* fallback a push cache */
+    }
 
     // Push diagnostics: track from textDocument/publishDiagnostics notifications
     return this._diagnostics.get(uri) || [];
@@ -422,7 +452,7 @@ class _LSPInstance {
 
     if (!result) return null;
     const locations = Array.isArray(result) ? result : [result];
-    return locations.map(loc => ({
+    return locations.map((loc) => ({
       uri: loc.uri,
       filePath: loc.uri ? decodeURIComponent(loc.uri.replace(/^file:\/\//, '')) : null,
       range: loc.range,
@@ -443,7 +473,7 @@ class _LSPInstance {
     });
 
     if (!result) return [];
-    return result.map(loc => ({
+    return result.map((loc) => ({
       uri: loc.uri,
       filePath: loc.uri ? decodeURIComponent(loc.uri.replace(/^file:\/\//, '')) : null,
       range: loc.range,
@@ -462,7 +492,7 @@ class _LSPInstance {
     });
 
     if (!result) return [];
-    return result.map(sym => ({
+    return result.map((sym) => ({
       name: sym.name,
       kind: sym.kind,
       kindName: _symbolKindName(sym.kind),
@@ -476,12 +506,14 @@ class _LSPInstance {
   async getWorkspaceSymbols(query) {
     const result = await this._request('workspace/symbol', { query });
     if (!result) return [];
-    return result.map(sym => ({
+    return result.map((sym) => ({
       name: sym.name,
       kind: sym.kind,
       kindName: _symbolKindName(sym.kind),
       location: sym.location,
-      filePath: sym.location?.uri ? decodeURIComponent(sym.location.uri.replace(/^file:\/\//, '')) : null,
+      filePath: sym.location?.uri
+        ? decodeURIComponent(sym.location.uri.replace(/^file:\/\//, ''))
+        : null,
     }));
   }
 
@@ -555,7 +587,7 @@ class _LSPInstance {
       context: { diagnostics },
     });
     if (!result) return [];
-    return result.map(a => ({
+    return result.map((a) => ({
       title: a.title,
       kind: a.kind || null,
       diagnostics: a.diagnostics || [],
@@ -660,16 +692,23 @@ class _LSPInstance {
           // El server pide su configuración por sección. Devolvemos lo que
           // corresponda de las initializationOptions (o un array vacío).
           if (msg.params?.items) {
-            this._respond(id, msg.params.items.map((it) =>
-              it?.section ? this._pickSection(it.section) : this._initializationOptions));
+            this._respond(
+              id,
+              msg.params.items.map((it) =>
+                it?.section ? this._pickSection(it.section) : this._initializationOptions
+              )
+            );
           } else {
             this._respond(id, this._initializationOptions || []);
           }
           return;
         case 'workspace/workspaceFolders':
-          this._respond(id, this._workspacePath
-            ? [{ uri: `file://${this._workspacePath}`, name: path.basename(this._workspacePath) }]
-            : null);
+          this._respond(
+            id,
+            this._workspacePath
+              ? [{ uri: `file://${this._workspacePath}`, name: path.basename(this._workspacePath) }]
+              : null
+          );
           return;
         case 'window/workDoneProgress/create':
         case 'client/registerCapability':
@@ -717,7 +756,9 @@ class _LSPInstance {
   _scheduleRestart() {
     if (this._restartTimer || this._stopping) return;
     if (this._restartAttempts >= this._maxRestartAttempts) {
-      console.error(`[lsp:${this._languageKey}] servidor no se recupera tras ${this._maxRestartAttempts} reinicios — LSP de ${this._languageKey} desactivado.`);
+      console.error(
+        `[lsp:${this._languageKey}] servidor no se recupera tras ${this._maxRestartAttempts} reinicios — LSP de ${this._languageKey} desactivado.`
+      );
       this._emitter.emit('crashed', this._languageKey);
       return;
     }
@@ -726,7 +767,9 @@ class _LSPInstance {
       this._baseRestartDelayMs * Math.pow(2, this._restartAttempts - 1),
       this._maxRestartDelayMs
     );
-    console.log(`[lsp:${this._languageKey}] reinicio programado en ${delay}ms (intento ${this._restartAttempts}/${this._maxRestartAttempts})`);
+    console.log(
+      `[lsp:${this._languageKey}] reinicio programado en ${delay}ms (intento ${this._restartAttempts}/${this._maxRestartAttempts})`
+    );
     this._restartTimer = setTimeout(async () => {
       this._restartTimer = null;
       if (this._stopping || this.isRunning || !this._workspacePath) return;
@@ -757,7 +800,9 @@ class _LSPInstance {
       }
     }
     if (uris.length > 0) {
-      console.log(`[lsp:${this._languageKey}] ${uris.length} documento(s) re-abierto(s) tras el reinicio`);
+      console.log(
+        `[lsp:${this._languageKey}] ${uris.length} documento(s) re-abierto(s) tras el reinicio`
+      );
     }
   }
 }
@@ -767,13 +812,13 @@ class _LSPInstance {
 // enrutan por extensión de archivo a la instancia correcta.
 class LSPManager {
   constructor() {
-    this._instances = new Map();   // languageKey → _LSPInstance
+    this._instances = new Map(); // languageKey → _LSPInstance
     this._workspacePath = null;
     this._servers = loadServersTable();
   }
 
   get isRunning() {
-    return [...this._instances.values()].some(i => i.isRunning);
+    return [...this._instances.values()].some((i) => i.isRunning);
   }
 
   get activeLanguages() {
@@ -789,7 +834,7 @@ class LSPManager {
   get supportedFilePatterns() {
     const all = [];
     for (const inst of this._instances.values()) {
-      for (const p of (inst._serverConfig.filePatterns || [])) {
+      for (const p of inst._serverConfig.filePatterns || []) {
         if (!all.includes(p)) all.push(p);
       }
     }
@@ -833,7 +878,9 @@ class LSPManager {
     // G.5: si una instancia se rinde tras los reinicios, el manager lo reporta
     // una vez (no loguear por instancia cada intento).
     inst.on('crashed', (lang) => {
-      console.error(`[lsp] sin server LSP para '${lang}' tras agotar reinicios — las tools de ese lenguaje devolverán error explícito.`);
+      console.error(
+        `[lsp] sin server LSP para '${lang}' tras agotar reinicios — las tools de ese lenguaje devolverán error explícito.`
+      );
     });
     inst.start(workspacePath).catch((e) => {
       console.warn(`[lsp:${languageKey}] no disponible:`, e.message);
@@ -857,9 +904,7 @@ class LSPManager {
       throw new Error(`Workspace path does not exist: ${resolved}`);
     }
 
-    const languages = language
-      ? [language]
-      : LSPManager.detectLanguagesForWorkspace(resolved);
+    const languages = language ? [language] : LSPManager.detectLanguagesForWorkspace(resolved);
     if (languages.length === 0) languages.push('javascript');
 
     const [primaryKey, ...restKeys] = languages;
@@ -909,7 +954,7 @@ class LSPManager {
   async stop() {
     const instances = [...this._instances.values()];
     this._instances.clear();
-    await Promise.all(instances.map(i => i.stop().catch(() => {})));
+    await Promise.all(instances.map((i) => i.stop().catch(() => {})));
   }
 
   async openDocument(filePath) {
@@ -999,7 +1044,13 @@ class LSPManager {
    */
   static detectLanguagesForWorkspace(ws) {
     const root = path.resolve(ws);
-    const has = (f) => { try { return fs.existsSync(path.join(root, f)); } catch { return false; } };
+    const has = (f) => {
+      try {
+        return fs.existsSync(path.join(root, f));
+      } catch {
+        return false;
+      }
+    };
     const languages = [];
 
     // Familia JS/TS (comparten package.json, se resuelven juntas)
@@ -1027,7 +1078,7 @@ class LSPManager {
       if (fs.existsSync(path.join(root, 'tsconfig.json'))) return true;
       const pkg = JSON.parse(fs.readFileSync(path.join(root, 'package.json'), 'utf-8'));
       const deps = { ...(pkg.dependencies || {}), ...(pkg.devDependencies || {}) };
-      return Object.keys(deps).some(d => /^typescript(@|$)/.test(d) || d.startsWith('@types/'));
+      return Object.keys(deps).some((d) => /^typescript(@|$)/.test(d) || d.startsWith('@types/'));
     } catch {
       return false;
     }
@@ -1046,28 +1097,58 @@ function _killTree(rootPid) {
       try {
         const stat = require('fs').readFileSync(`/proc/${entry}/stat`, 'utf-8');
         const close = stat.lastIndexOf(')');
-        ppid = parseInt(stat.slice(close + 1).trim().split(/\s+/)[1], 10);
+        ppid = parseInt(
+          stat
+            .slice(close + 1)
+            .trim()
+            .split(/\s+/)[1],
+          10
+        );
       } catch (_) {}
       if (!children.has(ppid)) children.set(ppid, []);
       children.get(ppid).push(parseInt(entry, 10));
     }
-  } catch (_) { return; }
+  } catch (_) {
+    return;
+  }
   const stack = [...(children.get(rootPid) || [])];
   while (stack.length) {
     const pid = stack.pop();
-    try { process.kill(pid, 'SIGTERM'); } catch (_) {}
+    try {
+      process.kill(pid, 'SIGTERM');
+    } catch (_) {}
     stack.push(...(children.get(pid) || []));
   }
 }
 
 function _symbolKindName(kind) {
   const names = {
-    1: 'File', 2: 'Module', 3: 'Namespace', 4: 'Package', 5: 'Class',
-    6: 'Method', 7: 'Property', 8: 'Field', 9: 'Constructor', 10: 'Enum',
-    11: 'Interface', 12: 'Function', 13: 'Variable', 14: 'Constant',
-    15: 'String', 16: 'Number', 17: 'Boolean', 18: 'Array',
-    19: 'Object', 20: 'Key', 21: 'Null', 22: 'EnumMember',
-    23: 'Struct', 24: 'Event', 25: 'Operator', 26: 'TypeParameter',
+    1: 'File',
+    2: 'Module',
+    3: 'Namespace',
+    4: 'Package',
+    5: 'Class',
+    6: 'Method',
+    7: 'Property',
+    8: 'Field',
+    9: 'Constructor',
+    10: 'Enum',
+    11: 'Interface',
+    12: 'Function',
+    13: 'Variable',
+    14: 'Constant',
+    15: 'String',
+    16: 'Number',
+    17: 'Boolean',
+    18: 'Array',
+    19: 'Object',
+    20: 'Key',
+    21: 'Null',
+    22: 'EnumMember',
+    23: 'Struct',
+    24: 'Event',
+    25: 'Operator',
+    26: 'TypeParameter',
   };
   return names[kind] || `Kind_${kind}`;
 }

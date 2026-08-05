@@ -13,20 +13,20 @@
  */
 
 const path = require('path');
-const fs   = require('fs');
+const fs = require('fs');
 
-const { NodeStore }        = require('./stores/NodeStore.js');
-const { VectorIndex }      = require('./stores/VectorIndex.js');
-const { SessionStore }     = require('./stores/SessionStore.js');
-const { AppHistoryStore }  = require('./stores/AppHistoryStore.js');
-const { RelationsStore }   = require('./stores/RelationsStore.js');
-const { DecayStore }       = require('./stores/DecayStore.js');
+const { NodeStore } = require('./stores/NodeStore.js');
+const { VectorIndex } = require('./stores/VectorIndex.js');
+const { SessionStore } = require('./stores/SessionStore.js');
+const { AppHistoryStore } = require('./stores/AppHistoryStore.js');
+const { RelationsStore } = require('./stores/RelationsStore.js');
+const { DecayStore } = require('./stores/DecayStore.js');
 const { NODE_TYPES, DECAY_RATES } = require('./stores/constants.js');
 
 let Database;
 try {
   Database = require('better-sqlite3');
-} catch(e) {
+} catch (e) {
   console.warn('[state-graph] better-sqlite3 no disponible, usando modo memoria');
   console.warn('[state-graph]   Solución: npm install (reconstruye módulos nativos para Electron)');
   Database = null;
@@ -36,34 +36,79 @@ let _memoryDBSilentWarningShown = false;
 
 class MemoryStatement {
   constructor(db, sql) {
-    this._db  = db;
+    this._db = db;
     this._sql = sql.trim().replace(/\s+/g, ' ');
     this._classify();
   }
 
   _classify() {
     const s = this._sql;
-    if (/^(CREATE|PRAGMA|BEGIN|COMMIT)/i.test(s)) { this._kind = 'noop'; return; }
-    if (/^INSERT INTO (node_vectors|app_history)/i.test(s)) { this._kind = 'noop'; return; }
-    if (/^DELETE FROM (node_vectors|app_history)/i.test(s)) { this._kind = 'noop'; return; }
-    if (/^SELECT name FROM sqlite_master/i.test(s)) { this._kind = 'meta'; return; }
-    if (/^INSERT INTO nodes/i.test(s)) { this._kind = 'insertNode'; return; }
-    if (/^INSERT INTO sessions/i.test(s)) { this._kind = 'insertSession'; return; }
-    if (/^UPDATE nodes/i.test(s)) { this._kind = 'updateNodes'; return; }
-    if (/^UPDATE sessions/i.test(s)) { this._kind = 'updateSessions'; return; }
-    if (/^SELECT \* FROM sessions/i.test(s)) { this._kind = 'selectSessions'; return; }
-    if (/^SELECT \* FROM nodes/i.test(s)) { this._kind = 'selectNodes'; return; }
-    if (/^SELECT id, importance, decay_rate, last_accessed_at FROM nodes/i.test(s)) { this._kind = 'selectDecay'; return; }
-    if (/^SELECT id FROM nodes/i.test(s)) { this._kind = 'selectNodeIds'; return; }
-    if (/^SELECT label, COUNT\(\*\) as cnt FROM nodes/i.test(s)) { this._kind = 'selectDupLabels'; return; }
-    if (/^SELECT type, COUNT\(\*\) as c FROM nodes/i.test(s)) { this._kind = 'selectTypeCount'; return; }
-    if (/^SELECT COUNT\(\*\) as c FROM nodes/i.test(s)) { this._kind = 'selectCount'; return; }
+    if (/^(CREATE|PRAGMA|BEGIN|COMMIT)/i.test(s)) {
+      this._kind = 'noop';
+      return;
+    }
+    if (/^INSERT INTO (node_vectors|app_history)/i.test(s)) {
+      this._kind = 'noop';
+      return;
+    }
+    if (/^DELETE FROM (node_vectors|app_history)/i.test(s)) {
+      this._kind = 'noop';
+      return;
+    }
+    if (/^SELECT name FROM sqlite_master/i.test(s)) {
+      this._kind = 'meta';
+      return;
+    }
+    if (/^INSERT INTO nodes/i.test(s)) {
+      this._kind = 'insertNode';
+      return;
+    }
+    if (/^INSERT INTO sessions/i.test(s)) {
+      this._kind = 'insertSession';
+      return;
+    }
+    if (/^UPDATE nodes/i.test(s)) {
+      this._kind = 'updateNodes';
+      return;
+    }
+    if (/^UPDATE sessions/i.test(s)) {
+      this._kind = 'updateSessions';
+      return;
+    }
+    if (/^SELECT \* FROM sessions/i.test(s)) {
+      this._kind = 'selectSessions';
+      return;
+    }
+    if (/^SELECT \* FROM nodes/i.test(s)) {
+      this._kind = 'selectNodes';
+      return;
+    }
+    if (/^SELECT id, importance, decay_rate, last_accessed_at FROM nodes/i.test(s)) {
+      this._kind = 'selectDecay';
+      return;
+    }
+    if (/^SELECT id FROM nodes/i.test(s)) {
+      this._kind = 'selectNodeIds';
+      return;
+    }
+    if (/^SELECT label, COUNT\(\*\) as cnt FROM nodes/i.test(s)) {
+      this._kind = 'selectDupLabels';
+      return;
+    }
+    if (/^SELECT type, COUNT\(\*\) as c FROM nodes/i.test(s)) {
+      this._kind = 'selectTypeCount';
+      return;
+    }
+    if (/^SELECT COUNT\(\*\) as c FROM nodes/i.test(s)) {
+      this._kind = 'selectCount';
+      return;
+    }
     this._kind = 'noop';
   }
 
   _descs() {
     const out = [];
-    const re  = /\?/g;
+    const re = /\?/g;
     let m;
     while ((m = re.exec(this._sql)) !== null) {
       const pre = this._sql.slice(Math.max(0, m.index - 30), m.index);
@@ -100,38 +145,58 @@ class MemoryStatement {
       const v = args[ai];
       ai++;
       switch (d) {
-        case 'id':   list = list.filter(n => n.id === v); break;
-        case 'ids':  ids.push(v); break;
-        case 'like': list = list.filter(n => (n.label || '').includes(v) || (n.content || '').includes(v)); break;
-        case 'type': list = list.filter(n => n.type === v); break;
-        case 'label': list = list.filter(n => n.label === v); break;
-        case 'archived': list = list.filter(n => n.archived === v); break;
-        case 'limit': list = list.slice(0, v); break;
-        default: break;
+        case 'id':
+          list = list.filter((n) => n.id === v);
+          break;
+        case 'ids':
+          ids.push(v);
+          break;
+        case 'like':
+          list = list.filter((n) => (n.label || '').includes(v) || (n.content || '').includes(v));
+          break;
+        case 'type':
+          list = list.filter((n) => n.type === v);
+          break;
+        case 'label':
+          list = list.filter((n) => n.label === v);
+          break;
+        case 'archived':
+          list = list.filter((n) => n.archived === v);
+          break;
+        case 'limit':
+          list = list.slice(0, v);
+          break;
+        default:
+          break;
       }
     }
-    if (ids.length) list = list.filter(n => ids.includes(n.id));
+    if (ids.length) list = list.filter((n) => ids.includes(n.id));
 
-    if (this._sql.includes('archived=0')) list = list.filter(n => n.archived === 0);
-    else if (this._sql.includes('archived=1')) list = list.filter(n => n.archived === 1);
+    if (this._sql.includes('archived=0')) list = list.filter((n) => n.archived === 0);
+    else if (this._sql.includes('archived=1')) list = list.filter((n) => n.archived === 1);
     const typeIn = this._sql.match(/type IN \(([^)]+)\)/);
     if (typeIn) {
-      const types = typeIn[1].split(',').map(x => x.trim().replace(/'/g, ''));
-      list = list.filter(n => types.includes(n.type));
+      const types = typeIn[1].split(',').map((x) => x.trim().replace(/'/g, ''));
+      list = list.filter((n) => types.includes(n.type));
     }
     const eq = this._sql.match(/type='([^']+)'/);
-    if (eq) list = list.filter(n => n.type === eq[1]);
-    if (this._sql.includes('history_json IS NOT NULL')) list = list.filter(n => n.history_json != null);
+    if (eq) list = list.filter((n) => n.type === eq[1]);
+    if (this._sql.includes('history_json IS NOT NULL'))
+      list = list.filter((n) => n.history_json != null);
 
     const orderBy = this._sql.match(/ORDER BY ([^L]+?)(?:LIMIT|$)/);
     if (orderBy) {
-      const parts = orderBy[1].split(',').map(x => x.trim()).filter(Boolean);
+      const parts = orderBy[1]
+        .split(',')
+        .map((x) => x.trim())
+        .filter(Boolean);
       for (let i = parts.length - 1; i >= 0; i--) {
         const p = parts[i];
         const desc = p.endsWith(' DESC');
         const col = p.replace(/ DESC$/, '').trim();
         list.sort((a, b) => {
-          const av = a[col], bv = b[col];
+          const av = a[col],
+            bv = b[col];
           if (av === bv) return 0;
           return (av < bv ? -1 : 1) * (desc ? -1 : 1);
         });
@@ -148,13 +213,19 @@ class MemoryStatement {
     const setArgs = args.slice(0, setParamCount);
     let si = 0;
     const assigns = [];
-    for (const piece of setClause.split(',').map(x => x.trim()).filter(Boolean)) {
+    for (const piece of setClause
+      .split(',')
+      .map((x) => x.trim())
+      .filter(Boolean)) {
       const m = piece.match(/^([\w_]+)\s*=\s*(.+)$/);
       if (!m) continue;
-      const col = m[1], rhs = m[2];
+      const col = m[1],
+        rhs = m[2];
       if (rhs === '?') assigns.push({ col, value: setArgs[si++] });
-      else if (/^[\w_]+\s*\+\s*\d+$/.test(rhs)) { const [c, add] = rhs.split('+').map(x => x.trim()); assigns.push({ col, value: undefined, inc: { c, add: Number(add) } }); }
-      else if (/^\d+$/.test(rhs)) assigns.push({ col, value: Number(rhs) });
+      else if (/^[\w_]+\s*\+\s*\d+$/.test(rhs)) {
+        const [c, add] = rhs.split('+').map((x) => x.trim());
+        assigns.push({ col, value: undefined, inc: { c, add: Number(add) } });
+      } else if (/^\d+$/.test(rhs)) assigns.push({ col, value: Number(rhs) });
       else assigns.push({ col, value: rhs.replace(/^['"]|['"]$/g, '') });
     }
     return assigns;
@@ -162,17 +233,30 @@ class MemoryStatement {
 
   run(...args) {
     if (this._kind === 'insertNode') {
-      const cols = (this._sql.match(/\(([^)]+)\)\s*VALUES/) || [])[1]?.split(',').map(c => c.trim().replace(/['"`]/g, '')) || [];
+      const cols =
+        (this._sql.match(/\(([^)]+)\)\s*VALUES/) || [])[1]
+          ?.split(',')
+          .map((c) => c.trim().replace(/['"`]/g, '')) || [];
       const id = this._db._nextId++;
       const node = { id, archived: 0, access_count: 0 };
-      cols.forEach((c, i) => { node[c] = args[i]; });
+      cols.forEach((c, i) => {
+        node[c] = args[i];
+      });
       if (typeof node.tags !== 'string') node.tags = JSON.stringify(node.tags || []);
       this._db._nodes.set(id, node);
       return { lastInsertRowid: id, changes: 1 };
     }
     if (this._kind === 'insertSession') {
       const id = this._db._nextSessionId++;
-      this._db._sessions.set(id, { id, started_at: args[0], ended_at: null, summary: null, turn_count: 0, episode_id: null, history_json: null });
+      this._db._sessions.set(id, {
+        id,
+        started_at: args[0],
+        ended_at: null,
+        summary: null,
+        turn_count: 0,
+        episode_id: null,
+        history_json: null,
+      });
       return { lastInsertRowid: id, changes: 1 };
     }
     if (this._kind === 'updateNodes') {
@@ -206,9 +290,14 @@ class MemoryStatement {
 
   all(...args) {
     if (this._kind === 'selectNodes') return this._nodes(args);
-    if (this._kind === 'selectNodeIds') return this._nodes(args).map(n => ({ id: n.id }));
+    if (this._kind === 'selectNodeIds') return this._nodes(args).map((n) => ({ id: n.id }));
     if (this._kind === 'selectDecay') {
-      return this._nodes(args).map(n => ({ id: n.id, importance: n.importance, decay_rate: n.decay_rate, last_accessed_at: n.last_accessed_at }));
+      return this._nodes(args).map((n) => ({
+        id: n.id,
+        importance: n.importance,
+        decay_rate: n.decay_rate,
+        last_accessed_at: n.last_accessed_at,
+      }));
     }
     if (this._kind === 'selectSessions') return this._selectSessions(args);
     if (this._kind === 'selectDupLabels') {
@@ -232,13 +321,15 @@ class MemoryStatement {
       const d = descs[ai];
       const v = args[ai];
       ai++;
-      if (d === 'since') list = list.filter(x => x.started_at > v);
-      else if (d === 'id') list = list.filter(x => x.id === v);
+      if (d === 'since') list = list.filter((x) => x.started_at > v);
+      else if (d === 'id') list = list.filter((x) => x.id === v);
       else if (d === 'limit') list = list.slice(0, v);
     }
-    if (this._sql.includes('ended_at IS NULL')) list = list.filter(x => x.ended_at == null);
-    else if (this._sql.includes('ended_at IS NOT NULL')) list = list.filter(x => x.ended_at != null);
-    if (this._sql.includes('history_json IS NOT NULL')) list = list.filter(x => x.history_json != null);
+    if (this._sql.includes('ended_at IS NULL')) list = list.filter((x) => x.ended_at == null);
+    else if (this._sql.includes('ended_at IS NOT NULL'))
+      list = list.filter((x) => x.ended_at != null);
+    if (this._sql.includes('history_json IS NOT NULL'))
+      list = list.filter((x) => x.history_json != null);
     list.sort((a, b) => (b.started_at || 0) - (a.started_at || 0));
     const lm = this._sql.match(/LIMIT (\d+)/);
     if (lm) list = list.slice(0, Number(lm[1]));
@@ -248,31 +339,38 @@ class MemoryStatement {
 
 class MemoryDB {
   constructor() {
-    this._nodes    = new Map();
+    this._nodes = new Map();
     this._sessions = new Map();
-    this._nextId   = 1;
+    this._nextId = 1;
     this._nextSessionId = 1;
     if (!_memoryDBSilentWarningShown) {
       _memoryDBSilentWarningShown = true;
-      setInterval(() => {
-        console.warn('[state-graph] MemoryDB activo — los datos NO persisten en disco. better-sqlite3 no está disponible.');
-      }, 5 * 60 * 1000);
+      setInterval(
+        () => {
+          console.warn(
+            '[state-graph] MemoryDB activo — los datos NO persisten en disco. better-sqlite3 no está disponible.'
+          );
+        },
+        5 * 60 * 1000
+      );
     }
   }
   prepare(sql) {
     return new MemoryStatement(this, sql);
   }
   exec() {}
-  transaction(fn) { return fn; }
+  transaction(fn) {
+    return fn;
+  }
   pragma() {}
   close() {}
 }
 
 class StateGraph {
   constructor(dbPath) {
-    this._dbPath       = dbPath;
-    this._db           = null;
-    this._ready        = false;
+    this._dbPath = dbPath;
+    this._db = null;
+    this._ready = false;
     this.usingFallback = false;
     this._vectorReady = false;
     this._vectorReadyPromise = Promise.resolve();
@@ -281,7 +379,9 @@ class StateGraph {
     this._embeddingMaxConcurrent = 2;
   }
 
-  get isReady() { return this._ready; }
+  get isReady() {
+    return this._ready;
+  }
 
   init() {
     if (this._ready) return this;
@@ -304,10 +404,10 @@ class StateGraph {
       this._migrateSchema();
       this._ready = true;
       console.log('[state-graph] inicializado (Fase 2):', this._dbPath);
-    } catch(e) {
+    } catch (e) {
       console.error('[state-graph] ERROR CRÍTICO — cayendo a MemoryDB:', e.message);
       console.error('[state-graph] La memoria del asistente NO se esta guardando en disco.');
-      this._db           = new MemoryDB();
+      this._db = new MemoryDB();
       this.usingFallback = true;
       this._createSchema();
       this._ready = true;
@@ -318,12 +418,12 @@ class StateGraph {
   }
 
   _initStores() {
-    this._nodes      = new NodeStore(this._db, this);
-    this._vectors    = new VectorIndex(this._db, this);
-    this._sessions   = new SessionStore(this._db);
+    this._nodes = new NodeStore(this._db, this);
+    this._vectors = new VectorIndex(this._db, this);
+    this._sessions = new SessionStore(this._db);
     this._appHistory = new AppHistoryStore(this._db);
-    this._relations  = new RelationsStore(this._db);
-    this._decay      = new DecayStore(this._db);
+    this._relations = new RelationsStore(this._db);
+    this._decay = new DecayStore(this._db);
   }
 
   // Schema
@@ -392,10 +492,14 @@ class StateGraph {
 
   _migrateSchema() {
     try {
-      const tableExists = this._db.prepare(`
+      const tableExists = this._db
+        .prepare(
+          `
         SELECT name FROM sqlite_master
         WHERE type='table' AND name='app_history'
-      `).get();
+      `
+        )
+        .get();
 
       if (!tableExists) {
         console.log('[state-graph] migrando schema a Fase 2...');
@@ -420,11 +524,11 @@ class StateGraph {
       }
 
       const sessionCols = this._db.prepare(`PRAGMA table_info(sessions)`).all();
-      if (!sessionCols.some(c => c.name === 'history_json')) {
+      if (!sessionCols.some((c) => c.name === 'history_json')) {
         console.log('[state-graph] migrando schema: sessions.history_json...');
         this._db.exec(`ALTER TABLE sessions ADD COLUMN history_json TEXT;`);
       }
-    } catch(e) {
+    } catch (e) {
       console.warn('[state-graph] error en migración (no crítico):', e.message);
     }
   }
@@ -432,7 +536,10 @@ class StateGraph {
   // Cola de embeddings
 
   _processEmbeddingQueue() {
-    while (this._embeddingInFlight < this._embeddingMaxConcurrent && this._embeddingQueue.length > 0) {
+    while (
+      this._embeddingInFlight < this._embeddingMaxConcurrent &&
+      this._embeddingQueue.length > 0
+    ) {
       const job = this._embeddingQueue.shift();
       this._embeddingInFlight++;
       this._runEmbedding(job.id, job.content).finally(() => {
@@ -447,7 +554,7 @@ class StateGraph {
       const { embedText, float32ToBuffer } = require('../grounding/IntentDetector.js');
       const vec = await embedText(content.slice(0, 2000));
       this._vectors._upsertNodeVector(id, float32ToBuffer(vec));
-    } catch(e) {
+    } catch (e) {
       console.warn(`[state-graph] no se pudo embedear nodo ${id}:`, e.message);
     }
   }
@@ -460,66 +567,136 @@ class StateGraph {
 
   // Delegación a stores
 
-  enableVectorSearch() { return this._vectors.enableVectorSearch(); }
-  queryNodesSemantic(searchText, opts) { return this._vectors.queryNodesSemantic(searchText, opts); }
-  backfillEmbeddings(batchSize) { return this._vectors.backfillEmbeddings(batchSize); }
+  enableVectorSearch() {
+    return this._vectors.enableVectorSearch();
+  }
+  queryNodesSemantic(searchText, opts) {
+    return this._vectors.queryNodesSemantic(searchText, opts);
+  }
+  backfillEmbeddings(batchSize) {
+    return this._vectors.backfillEmbeddings(batchSize);
+  }
 
-  createNode(opts) { return this._nodes.createNode(opts); }
-  updateNode(id, opts) { return this._nodes.updateNode(id, opts); }
-  getNode(id) { return this._nodes.getNode(id); }
-  queryNodes(opts) { return this._nodes.queryNodes(opts); }
-  getRecentEpisodes(limit) { return this._nodes.getRecentEpisodes(limit); }
-  getWorldModel() { return this._nodes.getWorldModel(); }
-  upsertNode(opts) { return this._nodes.upsertNode(opts); }
-  forget(text) { return this._nodes.forget(text); }
-  _touchNodes(ids, label) { return this._nodes._touchNodes(ids, label); }
-  _findActiveNodeByLabel(label) { return this._nodes._findActiveNodeByLabel(label); }
-  _archiveNode(id) { return this._nodes._archiveNode(id); }
-  _findDuplicateLabels() { return this._nodes._findDuplicateLabels(); }
-  _findNodesByLabel(label) { return this._nodes._findNodesByLabel(label); }
+  createNode(opts) {
+    return this._nodes.createNode(opts);
+  }
+  updateNode(id, opts) {
+    return this._nodes.updateNode(id, opts);
+  }
+  getNode(id) {
+    return this._nodes.getNode(id);
+  }
+  queryNodes(opts) {
+    return this._nodes.queryNodes(opts);
+  }
+  getRecentEpisodes(limit) {
+    return this._nodes.getRecentEpisodes(limit);
+  }
+  getWorldModel() {
+    return this._nodes.getWorldModel();
+  }
+  upsertNode(opts) {
+    return this._nodes.upsertNode(opts);
+  }
+  forget(text) {
+    return this._nodes.forget(text);
+  }
+  _touchNodes(ids, label) {
+    return this._nodes._touchNodes(ids, label);
+  }
+  _findActiveNodeByLabel(label) {
+    return this._nodes._findActiveNodeByLabel(label);
+  }
+  _archiveNode(id) {
+    return this._nodes._archiveNode(id);
+  }
+  _findDuplicateLabels() {
+    return this._nodes._findDuplicateLabels();
+  }
+  _findNodesByLabel(label) {
+    return this._nodes._findNodesByLabel(label);
+  }
 
-  createRelation(fromId, toId, relType, weight) { return this._relations.createRelation(fromId, toId, relType, weight); }
+  createRelation(fromId, toId, relType, weight) {
+    return this._relations.createRelation(fromId, toId, relType, weight);
+  }
 
-  startSession() { return this._sessions.startSession(); }
-  endSession(id, opts) { return this._sessions.endSession(id, opts); }
-  getLastSessions(limit) { return this._sessions.getLastSessions(limit); }
-  updateSessionHistory(id, history) { return this._sessions.updateSessionHistory(id, history); }
-  findResumableSession(maxAgeHours) { return this._sessions.findResumableSession(maxAgeHours); }
+  startSession() {
+    return this._sessions.startSession();
+  }
+  endSession(id, opts) {
+    return this._sessions.endSession(id, opts);
+  }
+  getLastSessions(limit) {
+    return this._sessions.getLastSessions(limit);
+  }
+  updateSessionHistory(id, history) {
+    return this._sessions.updateSessionHistory(id, history);
+  }
+  findResumableSession(maxAgeHours) {
+    return this._sessions.findResumableSession(maxAgeHours);
+  }
 
-  saveAppHistory(opts) { return this._appHistory.saveAppHistory(opts); }
-  getTodayAppHistory() { return this._appHistory.getTodayAppHistory(); }
-  getAppUsageSummary(days) { return this._appHistory.getAppUsageSummary(days); }
-  getTodayAppSummaryString() { return this._appHistory.getTodayAppSummaryString(); }
-  pruneAppHistory(days) { return this._appHistory.pruneAppHistory(days); }
+  saveAppHistory(opts) {
+    return this._appHistory.saveAppHistory(opts);
+  }
+  getTodayAppHistory() {
+    return this._appHistory.getTodayAppHistory();
+  }
+  getAppUsageSummary(days) {
+    return this._appHistory.getAppUsageSummary(days);
+  }
+  getTodayAppSummaryString() {
+    return this._appHistory.getTodayAppSummaryString();
+  }
+  pruneAppHistory(days) {
+    return this._appHistory.pruneAppHistory(days);
+  }
 
-  applyDecay() { return this._decay.applyDecay(); }
+  applyDecay() {
+    return this._decay.applyDecay();
+  }
 
   getStats() {
     try {
-      const total  = this._db.prepare('SELECT COUNT(*) as c FROM nodes').get()?.c ?? 0;
-      const active = this._db.prepare('SELECT COUNT(*) as c FROM nodes WHERE archived=0').get()?.c ?? 0;
-      const byType = this._db.prepare(
-        'SELECT type, COUNT(*) as c FROM nodes WHERE archived=0 GROUP BY type'
-      ).all();
+      const total = this._db.prepare('SELECT COUNT(*) as c FROM nodes').get()?.c ?? 0;
+      const active =
+        this._db.prepare('SELECT COUNT(*) as c FROM nodes WHERE archived=0').get()?.c ?? 0;
+      const byType = this._db
+        .prepare('SELECT type, COUNT(*) as c FROM nodes WHERE archived=0 GROUP BY type')
+        .all();
 
       const appHistoryToday = this.getTodayAppHistory().length;
-      const appHistoryTotal = this._db.prepare(
-        'SELECT COUNT(*) as c FROM app_history'
-      ).get()?.c ?? 0;
+      const appHistoryTotal =
+        this._db.prepare('SELECT COUNT(*) as c FROM app_history').get()?.c ?? 0;
 
       return {
-        total, active, byType,
-        appHistoryToday, appHistoryTotal,
+        total,
+        active,
+        byType,
+        appHistoryToday,
+        appHistoryTotal,
         usingFallback: this.usingFallback,
       };
     } catch {
-      return { total: 0, active: 0, byType: [], appHistoryToday: 0, appHistoryTotal: 0, usingFallback: this.usingFallback };
+      return {
+        total: 0,
+        active: 0,
+        byType: [],
+        appHistoryToday: 0,
+        appHistoryTotal: 0,
+        usingFallback: this.usingFallback,
+      };
     }
   }
 
   close() {
     if (this.usingFallback) return;
-    try { this._db?.close(); } catch(e) { console.warn('[state-graph] error al cerrar db:', e.message); }
+    try {
+      this._db?.close();
+    } catch (e) {
+      console.warn('[state-graph] error al cerrar db:', e.message);
+    }
   }
 }
 

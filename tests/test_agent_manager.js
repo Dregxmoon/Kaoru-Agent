@@ -1,12 +1,12 @@
 'use strict';
 
 const C = {
-  green:  (s) => `\x1b[32m${s}\x1b[0m`,
-  red:    (s) => `\x1b[31m${s}\x1b[0m`,
+  green: (s) => `\x1b[32m${s}\x1b[0m`,
+  red: (s) => `\x1b[31m${s}\x1b[0m`,
   yellow: (s) => `\x1b[33m${s}\x1b[0m`,
-  cyan:   (s) => `\x1b[36m${s}\x1b[0m`,
-  bold:   (s) => `\x1b[1m${s}\x1b[0m`,
-  dim:    (s) => `\x1b[2m${s}\x1b[0m`,
+  cyan: (s) => `\x1b[36m${s}\x1b[0m`,
+  bold: (s) => `\x1b[1m${s}\x1b[0m`,
+  dim: (s) => `\x1b[2m${s}\x1b[0m`,
 };
 
 let passed = 0;
@@ -61,7 +61,7 @@ function testGetAll() {
   const m = fresh();
   const all = m.getAll();
   assert(all.length === 4, '4 agentes disponibles');
-  const names = all.map(a => a.name);
+  const names = all.map((a) => a.name);
   assert(names.includes('conversation'), 'Incluye conversation');
   assert(names.includes('coder'), 'Incluye coder');
   assert(names.includes('reviewer'), 'Incluye reviewer');
@@ -121,8 +121,14 @@ function testGetMode() {
 function testGetAllLabels() {
   const m = fresh();
   const all = m.getAll();
-  assert(all.every(a => a.label), 'Todos tienen label');
-  assert(all.every(a => a.description), 'Todos tienen description');
+  assert(
+    all.every((a) => a.label),
+    'Todos tienen label'
+  );
+  assert(
+    all.every((a) => a.description),
+    'Todos tienen description'
+  );
 }
 
 // ── Test 12: BUILTIN_AGENTS integridad ───────────────────────────────────
@@ -175,5 +181,7 @@ testSetActiveReturnsFull();
 testCodeAgentModes();
 
 const total = passed + failed;
-console.log(`\n${C.bold(C.cyan(`🤖 AgentManager: ${passed}/${total} tests passed`))}${failed > 0 ? C.red(` (${failed} failed)`) : C.green(' ✅')}`);
+console.log(
+  `\n${C.bold(C.cyan(`🤖 AgentManager: ${passed}/${total} tests passed`))}${failed > 0 ? C.red(` (${failed} failed)`) : C.green(' ✅')}`
+);
 module.exports = { passed, failed };

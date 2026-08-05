@@ -63,7 +63,7 @@
 
 'use strict';
 
-const { getOpenClawBridge }        = require('./OpenClawBridge.js');
+const { getOpenClawBridge } = require('./OpenClawBridge.js');
 const { getStructuredActionParser } = require('./StructuredActionParser.js');
 const AP = require('./ActionParser.js');
 
@@ -81,7 +81,7 @@ function _getLLMComplete() {
   } catch (e) {
     throw new Error(
       'LLMProvider no encontrado. Asegúrate de que ../llm/LLMProvider.js existe, ' +
-      'o usa setLLMProvider(fn) para inyectar tu propio cliente.'
+        'o usa setLLMProvider(fn) para inyectar tu propio cliente.'
     );
   }
 }
@@ -93,10 +93,10 @@ function setLLMProvider(fn) {
 }
 
 let PROVIDER_LIMITS = {
-  groq:    8_000,
+  groq: 8_000,
   gemini: 100_000,
-  openai:  80_000,
-  default:  8_000,
+  openai: 80_000,
+  default: 8_000,
 };
 
 function setProviderLimits(limits) {
@@ -108,7 +108,7 @@ function setProviderLimits(limits) {
 function _getProviderLimit() {
   try {
     const LLMProvider = require('../llm/LLMProvider.js');
-    const provider    = LLMProvider.getActiveProvider() || 'default';
+    const provider = LLMProvider.getActiveProvider() || 'default';
     return PROVIDER_LIMITS[provider] ?? PROVIDER_LIMITS.default;
   } catch {
     return PROVIDER_LIMITS.default;
@@ -116,12 +116,12 @@ function _getProviderLimit() {
 }
 
 function _splitIntoSections(content, filePath) {
-  const ext   = filePath.split('.').pop().toLowerCase();
+  const ext = filePath.split('.').pop().toLowerCase();
   const lines = content.split('\n');
 
   if (['md', 'markdown', 'txt', 'rst'].includes(ext)) {
     const sections = [];
-    let current    = [];
+    let current = [];
     for (const line of lines) {
       if (/^#\s/.test(line) && current.length > 0) {
         sections.push(current.join('\n'));
@@ -134,9 +134,10 @@ function _splitIntoSections(content, filePath) {
   }
 
   if (['js', 'ts', 'jsx', 'tsx', 'py', 'java', 'cs', 'go', 'rs', 'cpp', 'c'].includes(ext)) {
-    const SECTION_START = /^(?:function\s|class\s|const\s+\w+\s*=\s*(?:async\s+)?(?:function|\()|async\s+function\s|def\s|public\s|private\s|protected\s|export\s)/;
+    const SECTION_START =
+      /^(?:function\s|class\s|const\s+\w+\s*=\s*(?:async\s+)?(?:function|\()|async\s+function\s|def\s|public\s|private\s|protected\s|export\s)/;
     const sections = [];
-    let current    = [];
+    let current = [];
     for (const line of lines) {
       if (SECTION_START.test(line) && current.length > 5) {
         sections.push(current.join('\n'));
@@ -168,37 +169,58 @@ function _splitIntoSections(content, filePath) {
  * @returns {number[]} índices de secciones relevantes, en orden original
  */
 function _findRelevantSections(sections, instruction) {
-  const STOPWORDS = new Set(['el','la','los','las','un','una','en','de','que','y','a','con','por','para','al','del']);
-  const keywords  = instruction
+  const STOPWORDS = new Set([
+    'el',
+    'la',
+    'los',
+    'las',
+    'un',
+    'una',
+    'en',
+    'de',
+    'que',
+    'y',
+    'a',
+    'con',
+    'por',
+    'para',
+    'al',
+    'del',
+  ]);
+  const keywords = instruction
     .toLowerCase()
     .replace(/[^\w\s]/g, ' ')
     .split(/\s+/)
-    .filter(w => w.length > 3 && !STOPWORDS.has(w));
+    .filter((w) => w.length > 3 && !STOPWORDS.has(w));
 
   if (!keywords.length) return [0];
 
   const scored = sections.map((section, i) => {
     const sectionLower = section.toLowerCase();
-    const score = keywords.filter(kw => sectionLower.includes(kw)).length;
+    const score = keywords.filter((kw) => sectionLower.includes(kw)).length;
     return { i, score };
   });
 
-  const matched = scored.filter(s => s.score > 0).map(s => s.i);
+  const matched = scored.filter((s) => s.score > 0).map((s) => s.i);
   if (matched.length > 0) return matched;
 
   // Sin matches en ninguna sección — fallback al comportamiento anterior:
   // una sola sección, la de mejor puntaje (puede ser 0 en todas, en cuyo
   // caso se queda con la primera por orden de iteración).
-  let bestIdx = 0, bestScore = -1;
+  let bestIdx = 0,
+    bestScore = -1;
   for (const s of scored) {
-    if (s.score > bestScore) { bestScore = s.score; bestIdx = s.i; }
+    if (s.score > bestScore) {
+      bestScore = s.score;
+      bestIdx = s.i;
+    }
   }
   return [bestIdx];
 }
 
 async function _llmTransform(originalContent, instruction, filePath) {
   const complete = _getLLMComplete();
-  const limit    = _getProviderLimit();
+  const limit = _getProviderLimit();
 
   const systemPrompt = [
     'Eres un editor de archivos de texto.',
@@ -210,7 +232,9 @@ async function _llmTransform(originalContent, instruction, filePath) {
   ].join(' ');
 
   if (originalContent.length <= limit) {
-    console.log(`[planner] _llmTransform: modo completo (${originalContent.length} chars, límite ${limit})`);
+    console.log(
+      `[planner] _llmTransform: modo completo (${originalContent.length} chars, límite ${limit})`
+    );
 
     const userMessage = [
       `Archivo: ${filePath}`,
@@ -224,10 +248,7 @@ async function _llmTransform(originalContent, instruction, filePath) {
       'Devuelve el nuevo contenido completo del archivo.',
     ].join('\n');
 
-    const newContent = await complete(
-      [{ role: 'user', content: userMessage }],
-      systemPrompt
-    );
+    const newContent = await complete([{ role: 'user', content: userMessage }], systemPrompt);
 
     if (!newContent || !newContent.trim()) {
       throw new Error('El LLM devolvió contenido vacío (modo completo).');
@@ -236,12 +257,16 @@ async function _llmTransform(originalContent, instruction, filePath) {
     return newContent;
   }
 
-  console.log(`[planner] _llmTransform: modo chunking (${originalContent.length} chars > límite ${limit})`);
+  console.log(
+    `[planner] _llmTransform: modo chunking (${originalContent.length} chars > límite ${limit})`
+  );
 
-  const sections         = _splitIntoSections(originalContent, filePath);
-  const relevantIndices  = _findRelevantSections(sections, instruction);
+  const sections = _splitIntoSections(originalContent, filePath);
+  const relevantIndices = _findRelevantSections(sections, instruction);
 
-  console.log(`[planner] chunking: ${sections.length} secciones, relevantes: [${relevantIndices.join(', ')}]`);
+  console.log(
+    `[planner] chunking: ${sections.length} secciones, relevantes: [${relevantIndices.join(', ')}]`
+  );
 
   // ── Caso simple: una sola sección relevante ─────────────────────────────
   // Comportamiento idéntico a v7 — incluye secciones vecinas como contexto
@@ -250,18 +275,17 @@ async function _llmTransform(originalContent, instruction, filePath) {
     const relevantIdx = relevantIndices[0];
 
     const CONTEXT_SECTIONS = [
-      relevantIdx > 0             ? sections[relevantIdx - 1] : null,
+      relevantIdx > 0 ? sections[relevantIdx - 1] : null,
       sections[relevantIdx],
       relevantIdx < sections.length - 1 ? sections[relevantIdx + 1] : null,
     ].filter(Boolean);
 
     const contextContent = CONTEXT_SECTIONS.join('\n');
 
-    const chunkContent = contextContent.length <= limit
-      ? contextContent
-      : sections[relevantIdx].slice(0, limit);
+    const chunkContent =
+      contextContent.length <= limit ? contextContent : sections[relevantIdx].slice(0, limit);
 
-    const isPartial   = sections.length > 1;
+    const isPartial = sections.length > 1;
     const sectionInfo = isPartial
       ? `Esta es la sección ${relevantIdx + 1} de ${sections.length} del archivo.`
       : '';
@@ -279,12 +303,11 @@ async function _llmTransform(originalContent, instruction, filePath) {
       isPartial
         ? 'Devuelve ÚNICAMENTE esta sección modificada. No incluyas otras partes del archivo.'
         : 'Devuelve el nuevo contenido completo del archivo.',
-    ].filter(Boolean).join('\n');
+    ]
+      .filter(Boolean)
+      .join('\n');
 
-    const modifiedChunk = await complete(
-      [{ role: 'user', content: userMessage }],
-      systemPrompt
-    );
+    const modifiedChunk = await complete([{ role: 'user', content: userMessage }], systemPrompt);
 
     if (!modifiedChunk || !modifiedChunk.trim()) {
       throw new Error('El LLM devolvió contenido vacío (modo chunking).');
@@ -293,7 +316,7 @@ async function _llmTransform(originalContent, instruction, filePath) {
     if (!isPartial) return modifiedChunk;
 
     const startIdx = Math.max(0, relevantIdx - 1);
-    const endIdx   = Math.min(sections.length - 1, relevantIdx + 1);
+    const endIdx = Math.min(sections.length - 1, relevantIdx + 1);
 
     const rebuiltSections = [
       ...sections.slice(0, startIdx),
@@ -309,7 +332,9 @@ async function _llmTransform(originalContent, instruction, filePath) {
   // el resto del archivo quedaba intacto sin avisar. Ahora se procesa
   // CADA sección relevante con su propia llamada al LLM, y solo esas se
   // reemplazan; las demás secciones se conservan exactamente igual.
-  console.log(`[planner] _llmTransform: ${relevantIndices.length} secciones afectadas, procesando cada una por separado`);
+  console.log(
+    `[planner] _llmTransform: ${relevantIndices.length} secciones afectadas, procesando cada una por separado`
+  );
 
   const resultSections = [...sections];
 
@@ -329,10 +354,7 @@ async function _llmTransform(originalContent, instruction, filePath) {
       'Devuelve ÚNICAMENTE esta sección (modificada o sin cambios). No incluyas otras partes del archivo.',
     ].join('\n');
 
-    const modifiedChunk = await complete(
-      [{ role: 'user', content: userMessage }],
-      systemPrompt
-    );
+    const modifiedChunk = await complete([{ role: 'user', content: userMessage }], systemPrompt);
 
     if (!modifiedChunk || !modifiedChunk.trim()) {
       throw new Error(`El LLM devolvió contenido vacío (sección ${idx + 1}/${sections.length}).`);
@@ -347,38 +369,48 @@ async function _llmTransform(originalContent, instruction, filePath) {
 // ── isHighImpact, _cleanPath y ActionParser fueron movidos a ActionParser.js ──
 
 // ── IDs ───────────────────────────────────────────────────────────────────────
-let _planCounter = 0, _stepCounter = 0;
-function planId() { return `plan_${Date.now()}_${++_planCounter}`; }
-function stepId() { return `step_${Date.now()}_${++_stepCounter}`; }
+let _planCounter = 0,
+  _stepCounter = 0;
+function planId() {
+  return `plan_${Date.now()}_${++_planCounter}`;
+}
+function stepId() {
+  return `step_${Date.now()}_${++_stepCounter}`;
+}
 
 // ── Planner ───────────────────────────────────────────────────────────────────
 
 class Planner {
   constructor() {
-    this._bridge      = getOpenClawBridge();
-    this._activePlan  = null;
-    this._planQueue   = [];
-    this._history     = [];
-    this._maxHistory  = 50;
+    this._bridge = getOpenClawBridge();
+    this._activePlan = null;
+    this._planQueue = [];
+    this._history = [];
+    this._maxHistory = 50;
     this._abort = new AbortController();
   }
 
   planSingleStep(goal, tool, params, description) {
     const step = {
-      id:               stepId(),
+      id: stepId(),
       tool,
       params,
-      description:      description || `${tool}`,
+      description: description || `${tool}`,
       requiresApproval: AP.isHighImpact(tool, params),
-      dependsOn:        [],
-      status:           'pending',
-      result:           null,
-      error:            null,
+      dependsOn: [],
+      status: 'pending',
+      result: null,
+      error: null,
     };
     return {
-      id: planId(), goal, steps: [step],
-      status: 'pending', result: null, error: null,
-      created: Date.now(), finished: null,
+      id: planId(),
+      goal,
+      steps: [step],
+      status: 'pending',
+      result: null,
+      error: null,
+      created: Date.now(),
+      finished: null,
     };
   }
 
@@ -392,21 +424,26 @@ class Planner {
    *   ]);
    */
   planMultiStep(goal, stepsConfig) {
-    const steps = stepsConfig.map(cfg => ({
-      id:               cfg.id || stepId(),
-      tool:             cfg.tool,
-      params:           cfg.params,
-      description:      cfg.description || `${cfg.tool}`,
+    const steps = stepsConfig.map((cfg) => ({
+      id: cfg.id || stepId(),
+      tool: cfg.tool,
+      params: cfg.params,
+      description: cfg.description || `${cfg.tool}`,
       requiresApproval: AP.isHighImpact(cfg.tool, cfg.params),
-      dependsOn:        cfg.dependsOn || [],
-      status:           'pending',
-      result:           null,
-      error:            null,
+      dependsOn: cfg.dependsOn || [],
+      status: 'pending',
+      result: null,
+      error: null,
     }));
     return {
-      id: planId(), goal, steps,
-      status: 'pending', result: null, error: null,
-      created: Date.now(), finished: null,
+      id: planId(),
+      goal,
+      steps,
+      status: 'pending',
+      result: null,
+      error: null,
+      created: Date.now(),
+      finished: null,
     };
   }
 
@@ -429,19 +466,24 @@ class Planner {
    *   pedido; no cambia el parsing en sí.
    */
   planFromLLMResponse(llmResponse, userGoal, toolIntent = null) {
-    const parser  = getStructuredActionParser(AP.PROJECT_CWD);
+    const parser = getStructuredActionParser(AP.PROJECT_CWD);
     const actions = parser.parse(llmResponse, userGoal, toolIntent);
     if (!actions || !actions.length) return null;
     if (actions.length === 1) {
       const action = actions[0];
       if (!action || !action.tool) return null;
-      return this.planSingleStep(userGoal, action.tool, action.params || {}, action.description || '');
+      return this.planSingleStep(
+        userGoal,
+        action.tool,
+        action.params || {},
+        action.description || ''
+      );
     }
     return this.planMultiStep(userGoal, actions);
   }
 
   async execute(plan, opts = {}) {
-    this._planQueue = this._planQueue.filter(p => p !== plan);
+    this._planQueue = this._planQueue.filter((p) => p !== plan);
     if (this._activePlan) {
       this._planQueue.push(plan);
       console.log(`[planner] plan ${plan.id} encolado (${this._planQueue.length} pendientes)`);
@@ -457,7 +499,7 @@ class Planner {
       return { ...plan, status: 'queued', info: 'Encolado hasta que el plan activo termine' };
     }
 
-    plan.status      = 'running';
+    plan.status = 'running';
     this._activePlan = plan;
     this._abort = new AbortController();
     const signal = this._abort.signal;
@@ -467,7 +509,7 @@ class Planner {
     // agrupan en oleadas y se ejecutan en paralelo (Promise.all); el orden
     // topológico se respeta porque un paso solo entra a una oleada cuando
     // TODAS sus dependsOn ya terminaron. Si antes el plan era secuencial puro.
-    const remaining = new Set(plan.steps.map(s => s.id));
+    const remaining = new Set(plan.steps.map((s) => s.id));
     let failedStep = null;
 
     while (remaining.size > 0) {
@@ -475,15 +517,14 @@ class Planner {
         for (const s of plan.steps) {
           if (!remaining.has(s.id)) continue;
           s.status = 'skipped';
-          s.error  = 'Plan cancelado';
+          s.error = 'Plan cancelado';
           opts.onStepDone?.(s, null);
         }
         break;
       }
 
-      const ready = plan.steps.filter(s =>
-        remaining.has(s.id) &&
-        (s.dependsOn || []).every(depId => !remaining.has(depId))
+      const ready = plan.steps.filter(
+        (s) => remaining.has(s.id) && (s.dependsOn || []).every((depId) => !remaining.has(depId))
       );
 
       if (ready.length === 0) {
@@ -491,39 +532,42 @@ class Planner {
         for (const s of plan.steps) {
           if (!remaining.has(s.id)) continue;
           s.status = 'skipped';
-          s.error  = 'Dependencia no disponible';
+          s.error = 'Dependencia no disponible';
           opts.onStepDone?.(s, null);
         }
         break;
       }
 
-      const wave = await Promise.all(ready.map(async (step) => {
-        const resolvedParams = this._resolveParams(step.params, stepResults);
+      const wave = await Promise.all(
+        ready.map(async (step) => {
+          const resolvedParams = this._resolveParams(step.params, stepResults);
 
-        if (step.requiresApproval) {
-          const approved = typeof opts.onApprovalNeeded === 'function'
-            ? await opts.onApprovalNeeded(step)
-            : false;
-          if (!approved) {
-            step.status = 'skipped';
-            step.error  = 'Cancelado por el usuario';
-            opts.onStepDone?.(step, null);
-            return { step, res: null, skipped: true };
+          if (step.requiresApproval) {
+            const approved =
+              typeof opts.onApprovalNeeded === 'function'
+                ? await opts.onApprovalNeeded(step)
+                : false;
+            if (!approved) {
+              step.status = 'skipped';
+              step.error = 'Cancelado por el usuario';
+              opts.onStepDone?.(step, null);
+              return { step, res: null, skipped: true };
+            }
           }
-        }
 
-        step.status = 'running';
-        opts.onStepStart?.(step);
-        console.log(`[planner] ejecutando paso: ${step.description}`);
+          step.status = 'running';
+          opts.onStepStart?.(step);
+          console.log(`[planner] ejecutando paso: ${step.description}`);
 
-        let res;
-        try {
-          res = await this._executeStep(step.tool, resolvedParams);
-        } catch (e) {
-          res = { ok: false, error: e.message, result: null, tool: step.tool, elapsed: 0 };
-        }
-        return { step, res, skipped: false };
-      }));
+          let res;
+          try {
+            res = await this._executeStep(step.tool, resolvedParams);
+          } catch (e) {
+            res = { ok: false, error: e.message, result: null, tool: step.tool, elapsed: 0 };
+          }
+          return { step, res, skipped: false };
+        })
+      );
 
       for (const { step, res, skipped } of wave) {
         remaining.delete(step.id);
@@ -531,7 +575,7 @@ class Planner {
 
         if (!res.ok) {
           step.status = 'failed';
-          step.error  = res.error;
+          step.error = res.error;
           step.result = res.result || null;
           opts.onStepDone?.(step, null);
           failedStep = step;
@@ -549,7 +593,7 @@ class Planner {
         for (const s of plan.steps) {
           if (!remaining.has(s.id)) continue;
           s.status = 'skipped';
-          s.error  = 'Plan falló en otro paso';
+          s.error = 'Plan falló en otro paso';
           opts.onStepDone?.(s, null);
         }
         break;
@@ -557,8 +601,8 @@ class Planner {
     }
 
     if (failedStep) {
-      plan.status   = 'failed';
-      plan.error    = `"${failedStep.description}" falló: ${failedStep.error}`;
+      plan.status = 'failed';
+      plan.error = `"${failedStep.description}" falló: ${failedStep.error}`;
       plan.finished = Date.now();
       this._activePlan = null;
       this._archivePlan(plan);
@@ -566,9 +610,9 @@ class Planner {
       return plan;
     }
 
-    const anyFailed = plan.steps.some(s => s.status === 'failed');
-    plan.status   = anyFailed ? 'failed' : 'done';
-    plan.result   = this._aggregateResults(plan.steps);
+    const anyFailed = plan.steps.some((s) => s.status === 'failed');
+    plan.status = anyFailed ? 'failed' : 'done';
+    plan.result = this._aggregateResults(plan.steps);
     plan.finished = Date.now();
     this._activePlan = null;
     this._archivePlan(plan);
@@ -581,7 +625,7 @@ class Planner {
   async _executeStep(tool, params) {
     if (tool === 'edit_file' || tool === 'edit') return this._executeEditFile(params);
     if (tool === 'create_file' || tool === 'write') return this._executeCreateFile(params);
-    if (tool === 'mcp')         return this._executeMCP(params);
+    if (tool === 'mcp') return this._executeMCP(params);
     return this._bridge.execute(tool, params);
   }
 
@@ -593,16 +637,22 @@ class Planner {
   async _executeMCP(params = {}) {
     const { server, tool, args } = params;
     if (!server || !tool) {
-      return { ok: false, error: 'server y tool requeridos para mcp_call', result: null, tool: 'mcp' };
+      return {
+        ok: false,
+        error: 'server y tool requeridos para mcp_call',
+        result: null,
+        tool: 'mcp',
+      };
     }
     const { getMCPManager } = require('../mcp/MCPManager.js');
     const mgr = getMCPManager();
     try {
       const result = await mgr.callTool(server, tool, args || {});
-      const text = (result?.content || [])
-        .filter(c => c.type === 'text')
-        .map(c => c.text)
-        .join('\n') || JSON.stringify(result);
+      const text =
+        (result?.content || [])
+          .filter((c) => c.type === 'text')
+          .map((c) => c.text)
+          .join('\n') || JSON.stringify(result);
       return { ok: true, result: text, tool: `mcp:${server}:${tool}` };
     } catch (e) {
       console.warn(`[planner] error ejecutando mcp:${server}:${tool}:`, e.message);
@@ -613,24 +663,30 @@ class Planner {
   async _executeEditFile({ path: filePath, instruction } = {}) {
     const start = Date.now();
 
-    if (!filePath) return { ok: false, error: 'filePath requerido', result: null, tool: 'edit_file', elapsed: 0 };
+    if (!filePath)
+      return {
+        ok: false,
+        error: 'filePath requerido',
+        result: null,
+        tool: 'edit_file',
+        elapsed: 0,
+      };
     const instr = instruction || 'Realiza los cambios necesarios en el archivo.';
     console.log(`[planner] paso 1: Leer ${filePath}`);
     const readResult = await this._bridge.execute('read', { path: filePath });
 
     if (!readResult.ok) {
       return {
-        ok:      false,
-        error:   `No se pudo leer "${filePath}": ${readResult.error}`,
-        result:  null,
-        tool:    'edit_file',
+        ok: false,
+        error: `No se pudo leer "${filePath}": ${readResult.error}`,
+        result: null,
+        tool: 'edit_file',
         elapsed: Date.now() - start,
       };
     }
 
-    const originalContent = typeof readResult.result === 'string'
-      ? readResult.result
-      : JSON.stringify(readResult.result);
+    const originalContent =
+      typeof readResult.result === 'string' ? readResult.result : JSON.stringify(readResult.result);
 
     console.log(`[planner] paso 2: Generar contenido actualizado para ${filePath}`);
     let newContent;
@@ -638,26 +694,26 @@ class Planner {
       newContent = await _llmTransform(originalContent, instr, filePath);
     } catch (e) {
       return {
-        ok:      false,
-        error:   `Error al transformar "${filePath}": ${e.message}`,
-        result:  null,
-        tool:    'edit_file',
+        ok: false,
+        error: `Error al transformar "${filePath}": ${e.message}`,
+        result: null,
+        tool: 'edit_file',
         elapsed: Date.now() - start,
       };
     }
 
     console.log(`[planner] paso 3: Escribir ${filePath}`);
     const writeResult = await this._bridge.execute('write', {
-      path:    filePath,
+      path: filePath,
       content: newContent,
     });
 
     if (!writeResult.ok) {
       return {
-        ok:      false,
-        error:   `No se pudo escribir "${filePath}": ${writeResult.error}`,
-        result:  null,
-        tool:    'edit_file',
+        ok: false,
+        error: `No se pudo escribir "${filePath}": ${writeResult.error}`,
+        result: null,
+        tool: 'edit_file',
         elapsed: Date.now() - start,
       };
     }
@@ -665,14 +721,14 @@ class Planner {
     console.log(`[planner] plan completado — ${filePath} modificado correctamente`);
 
     return {
-      ok:     true,
+      ok: true,
       result: {
-        status:          'success',
-        path:            filePath,
+        status: 'success',
+        path: filePath,
         originalContent,
         newContent,
       },
-      tool:    'edit_file',
+      tool: 'edit_file',
       elapsed: Date.now() - start,
     };
   }
@@ -680,7 +736,14 @@ class Planner {
   async _executeCreateFile({ path: filePath, instruction } = {}) {
     const start = Date.now();
 
-    if (!filePath) return { ok: false, error: 'filePath requerido', result: null, tool: 'create_file', elapsed: 0 };
+    if (!filePath)
+      return {
+        ok: false,
+        error: 'filePath requerido',
+        result: null,
+        tool: 'create_file',
+        elapsed: 0,
+      };
     console.log(`[planner] paso 1: Generar contenido para ${filePath}`);
 
     const complete = _getLLMComplete();
@@ -705,20 +768,20 @@ class Planner {
       content = await complete([{ role: 'user', content: userMessage }], systemPrompt);
     } catch (e) {
       return {
-        ok:      false,
-        error:   `Error generando contenido para "${filePath}": ${e.message}`,
-        result:  null,
-        tool:    'create_file',
+        ok: false,
+        error: `Error generando contenido para "${filePath}": ${e.message}`,
+        result: null,
+        tool: 'create_file',
         elapsed: Date.now() - start,
       };
     }
 
     if (!content || !content.trim()) {
       return {
-        ok:      false,
-        error:   'El LLM devolvió contenido vacío.',
-        result:  null,
-        tool:    'create_file',
+        ok: false,
+        error: 'El LLM devolvió contenido vacío.',
+        result: null,
+        tool: 'create_file',
         elapsed: Date.now() - start,
       };
     }
@@ -728,10 +791,10 @@ class Planner {
 
     if (!writeResult.ok) {
       return {
-        ok:      false,
-        error:   `No se pudo escribir "${filePath}": ${writeResult.error}`,
-        result:  null,
-        tool:    'create_file',
+        ok: false,
+        error: `No se pudo escribir "${filePath}": ${writeResult.error}`,
+        result: null,
+        tool: 'create_file',
         elapsed: Date.now() - start,
       };
     }
@@ -739,9 +802,9 @@ class Planner {
     console.log(`[planner] plan completado — ${filePath} creado correctamente`);
 
     return {
-      ok:     true,
+      ok: true,
       result: { status: 'success', path: filePath, content },
-      tool:    'create_file',
+      tool: 'create_file',
       elapsed: Date.now() - start,
     };
   }
@@ -750,7 +813,7 @@ class Planner {
     if (this._planQueue.length === 0) return;
     const next = this._planQueue.shift();
     console.log(`[planner] desencolando plan ${next.id} (${this._planQueue.length} pendientes)`);
-    this._runPlan(next, opts || {}).catch(e => {
+    this._runPlan(next, opts || {}).catch((e) => {
       console.error(`[planner] plan encolado ${next.id} falló:`, e.message);
       next.status = 'failed';
       next.error = e.message;
@@ -759,7 +822,7 @@ class Planner {
 
   cancel() {
     if (this._activePlan) {
-      this._activePlan.status   = 'cancelled';
+      this._activePlan.status = 'cancelled';
       this._activePlan.finished = Date.now();
       this._archivePlan(this._activePlan);
       this._activePlan = null;
@@ -781,14 +844,15 @@ class Planner {
   }
 
   _aggregateResults(steps) {
-    const doneSteps = steps.filter(s => s.status === 'done' && s.result != null);
+    const doneSteps = steps.filter((s) => s.status === 'done' && s.result != null);
     if (doneSteps.length === 0) return null;
     if (doneSteps.length === 1) return doneSteps[0].result;
     const results = {};
     for (const s of doneSteps) {
-      const val = typeof s.result === 'string' && s.result.length > 800
-        ? s.result.slice(0, 800) + '[...]'
-        : s.result;
+      const val =
+        typeof s.result === 'string' && s.result.length > 800
+          ? s.result.slice(0, 800) + '[...]'
+          : s.result;
       results[s.description] = val;
     }
     return results;
@@ -801,24 +865,24 @@ class Planner {
 
   getStats() {
     return {
-      total:     this._history.length,
-      done:      this._history.filter(p => p.status === 'done').length,
-      failed:    this._history.filter(p => p.status === 'failed').length,
-      cancelled: this._history.filter(p => p.status === 'cancelled').length,
-      active:    this._activePlan?.id ?? null,
-      bridge:    this._bridge.getStats(),
+      total: this._history.length,
+      done: this._history.filter((p) => p.status === 'done').length,
+      failed: this._history.filter((p) => p.status === 'failed').length,
+      cancelled: this._history.filter((p) => p.status === 'cancelled').length,
+      active: this._activePlan?.id ?? null,
+      bridge: this._bridge.getStats(),
     };
   }
 
   getHistory(n = 10) {
-    return this._history.slice(-n).map(p => ({
-      id:      p.id,
-      goal:    p.goal,
-      status:  p.status,
-      steps:   p.steps.length,
+    return this._history.slice(-n).map((p) => ({
+      id: p.id,
+      goal: p.goal,
+      status: p.status,
+      steps: p.steps.length,
       elapsed: p.finished ? p.finished - p.created : null,
-      result:  typeof p.result === 'string' ? p.result.slice(0, 200) : p.result,
-      error:   p.error,
+      result: typeof p.result === 'string' ? p.result.slice(0, 200) : p.result,
+      error: p.error,
     }));
   }
 }

@@ -1,11 +1,13 @@
 // IPC listeners
-document.getElementById('close-btn').addEventListener('click', () => ipcRenderer.send('chat-close'));
-ipcRenderer.on('init-theme',   (e, theme) => setTheme(theme));
-ipcRenderer.on('chat-speak',   (e, text)  => speak(text));
-ipcRenderer.on('chat-message', (e, text)  => processMessage(text));
+document
+  .getElementById('close-btn')
+  .addEventListener('click', () => ipcRenderer.send('chat-close'));
+ipcRenderer.on('init-theme', (e, theme) => setTheme(theme));
+ipcRenderer.on('chat-speak', (e, text) => speak(text));
+ipcRenderer.on('chat-message', (e, text) => processMessage(text));
 ipcRenderer.on('model-changed', (e, info) => {
   _modelInfo = info && info.model3Path ? info : _modelInfo;
-  _modelNames = (info && info.models || []).map(m => m.name);
+  _modelNames = ((info && info.models) || []).map((m) => m.name);
   reloadModel();
 });
 
@@ -25,7 +27,10 @@ messagesEl.addEventListener('click', async (e) => {
   btn.disabled = true;
   try {
     const res = await ipcRenderer.invoke('model-set', { id: btn.getAttribute('data-model-set') });
-    if (res.error) { addMessage('assistant', `Error al cambiar modelo: ${res.error}`); return; }
+    if (res.error) {
+      addMessage('assistant', `Error al cambiar modelo: ${res.error}`);
+      return;
+    }
     addMessage('assistant', `Modelo cambiado a: **${res.info.name}**`);
   } catch (err) {
     addMessage('assistant', `Error al cambiar modelo: ${err.message}`);
@@ -40,23 +45,33 @@ messagesEl.addEventListener('click', async (e) => {
   if (!btn) return;
   const mode = btn.getAttribute('data-view-mode');
   const activeBtn = btn.closest('.view-toggle-group');
-  if (activeBtn) activeBtn.querySelectorAll('[data-view-mode]').forEach(b => { b.disabled = true; });
+  if (activeBtn)
+    activeBtn.querySelectorAll('[data-view-mode]').forEach((b) => {
+      b.disabled = true;
+    });
   try {
     const res = await ipcRenderer.invoke('views-set', { mode });
-    if (res.error) { addMessage('assistant', `Error: ${res.error}`); return; }
+    if (res.error) {
+      addMessage('assistant', `Error: ${res.error}`);
+      return;
+    }
     viewMode = res.mode;
-    if (viewMode !== 'random' && VIEW[viewMode] && model) applyView(viewMode, viewMode !== currentView);
+    if (viewMode !== 'random' && VIEW[viewMode] && model)
+      applyView(viewMode, viewMode !== currentView);
     _refreshViewButtons();
   } catch (err) {
     addMessage('assistant', `Error: ${err.message}`);
   } finally {
-    if (activeBtn) activeBtn.querySelectorAll('[data-view-mode]').forEach(b => { b.disabled = false; });
+    if (activeBtn)
+      activeBtn.querySelectorAll('[data-view-mode]').forEach((b) => {
+        b.disabled = false;
+      });
   }
 });
 
 function _refreshViewButtons() {
-  document.querySelectorAll('.view-toggle-group').forEach(group => {
-    group.querySelectorAll('[data-view-mode]').forEach(b => {
+  document.querySelectorAll('.view-toggle-group').forEach((group) => {
+    group.querySelectorAll('[data-view-mode]').forEach((b) => {
       const m = b.getAttribute('data-view-mode');
       const active = m === viewMode;
       b.classList.toggle('active', active);
@@ -85,7 +100,8 @@ ipcRenderer.on('plan-step-done', (e, { planId, stepId, status }) => {
   const el = document.getElementById(`step-${stepId}`);
   if (!el) return;
   el.className = `plan-step ${status}`;
-  el.querySelector('.step-icon').textContent = { done:'D', failed:'F', skipped:'S' }[status] || '?';
+  el.querySelector('.step-icon').textContent =
+    { done: 'D', failed: 'F', skipped: 'S' }[status] || '?';
   messagesEl.scrollTop = messagesEl.scrollHeight;
 });
 
@@ -93,11 +109,14 @@ ipcRenderer.on('plan-approval-needed', (e, payload) => _showApprovalCard(payload
 
 // Agent Loop IPC (Fase 2)
 let _agentProgressEl = null;
-const _spinnerFrames = ['⠋','⠙','⠹','⠸','⠼','⠴','⠦','⠧','⠇','⠏'];
+const _spinnerFrames = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'];
 function _startSpinner(el) {
   let i = 0;
   const interval = setInterval(() => {
-    if (!el || !el.parentNode) { clearInterval(interval); return; }
+    if (!el || !el.parentNode) {
+      clearInterval(interval);
+      return;
+    }
     el.textContent = _spinnerFrames[i++ % _spinnerFrames.length];
   }, 100);
 }
@@ -105,21 +124,27 @@ function _startSpinner(el) {
 ipcRenderer.on('agent-progress', (e, { iteration, tool, status }) => {
   if (chatGestureEngine) chatGestureEngine.onEvent('agent-progress', { status });
   if (_agentProgressEl) {
-    _agentProgressEl.textContent = status === 'ok'
-      ? `Paso ${iteration}: ${tool} completado`
-      : `⋯ Paso ${iteration}: ejecutando ${tool}...`;
+    _agentProgressEl.textContent =
+      status === 'ok'
+        ? `Paso ${iteration}: ${tool} completado`
+        : `⋯ Paso ${iteration}: ejecutando ${tool}...`;
   }
 });
 
 ipcRenderer.on('agent-approval-needed', (e, { actionId, tool, description }) => {
-  const approved = confirm(`El asistente quiere ejecutar:\n\n${description}\n\n¿Aprobar esta acción?`);
+  const approved = confirm(
+    `El asistente quiere ejecutar:\n\n${description}\n\n¿Aprobar esta acción?`
+  );
   ipcRenderer.send('agent-approval-response', { id: actionId, approved });
 });
 
 ipcRenderer.on('plan-finished', (e, { planId }) => {
   if (chatGestureEngine) chatGestureEngine.onEvent('plan:finished');
   const card = document.getElementById(`plan-${planId}`);
-  if (card) { const dot = card.querySelector('.plan-dot'); if (dot) dot.style.animation = 'none'; }
+  if (card) {
+    const dot = card.querySelector('.plan-dot');
+    if (dot) dot.style.animation = 'none';
+  }
 });
 
 ipcRenderer.on('initiative', (e, payload) => {
@@ -128,7 +153,8 @@ ipcRenderer.on('initiative', (e, payload) => {
   (async () => {
     const { bubble } = addMessage('assistant', '');
     const badge = document.createElement('span');
-    badge.style.cssText = 'display:inline-block;font-family:var(--font-mono);font-size:9px;color:var(--accent);border:1px solid var(--border-accent);border-radius:3px;padding:1px 5px;margin-right:6px;opacity:.7;vertical-align:middle;';
+    badge.style.cssText =
+      'display:inline-block;font-family:var(--font-mono);font-size:9px;color:var(--accent);border:1px solid var(--border-accent);border-radius:3px;padding:1px 5px;margin-right:6px;opacity:.7;vertical-align:middle;';
     badge.textContent = 'AP';
     bubble.classList.add('markdown');
     bubble.appendChild(badge);
@@ -142,14 +168,14 @@ ipcRenderer.on('initiative', (e, payload) => {
       buf += char;
       textSpan.textContent = buf;
       messagesEl.scrollTop = messagesEl.scrollHeight;
-      await new Promise(r => setTimeout(r, 18 + Math.random() * 8));
+      await new Promise((r) => setTimeout(r, 18 + Math.random() * 8));
     }
     bubble.classList.remove('typewriter-cursor');
     bubble.classList.add('markdown');
     textSpan.outerHTML = `<span class="md-inline"></span>`;
     const inlineSpan = bubble.querySelector('.md-inline');
     inlineSpan.innerHTML = renderMarkdown(payload.suggestion);
-    inlineSpan.querySelectorAll('.mermaid').forEach(el => _renderMermaid(el));
+    inlineSpan.querySelectorAll('.mermaid').forEach((el) => _renderMermaid(el));
     messagesEl.scrollTop = messagesEl.scrollHeight;
     speak(payload.suggestion);
     pushToSession('assistant', payload.suggestion);
@@ -216,11 +242,13 @@ function _renderProposal(proposal, bubble) {
 function sendProposalDecision(proposal, decision, wrap, clickedBtn) {
   ipcRenderer.send('initiative-decision', {
     proposalId: proposal.id,
-    type:       proposal.type,
+    type: proposal.type,
     decision,
   });
 
-  wrap.querySelectorAll('button').forEach(b => { b.disabled = true; });
+  wrap.querySelectorAll('button').forEach((b) => {
+    b.disabled = true;
+  });
   clickedBtn.classList.remove('btn-proposal-accept', 'btn-proposal-deny');
   if (decision === 'accepted') {
     clickedBtn.classList.add('btn-proposal-accept');
@@ -229,9 +257,10 @@ function sendProposalDecision(proposal, decision, wrap, clickedBtn) {
 
   const status = document.createElement('span');
   status.className = decision === 'accepted' ? 'proposal-status ok' : 'proposal-status no';
-  status.textContent = decision === 'accepted'
-    ? '✓ Aceptado — en proceso.'
-    : 'Descartado — seré más selectiva con esto.';
+  status.textContent =
+    decision === 'accepted'
+      ? '✓ Aceptado — en proceso.'
+      : 'Descartado — seré más selectiva con esto.';
   wrap.appendChild(status);
   messagesEl.scrollTop = messagesEl.scrollHeight;
 }
@@ -250,7 +279,11 @@ ipcRenderer.on('proposal-result', (e, { proposalId, ok, skipped, detail }) => {
 
   const status = document.createElement('span');
   status.className = ok ? 'proposal-status ok' : 'proposal-status err';
-  status.textContent = skipped ? `↺ ${detail || 'Ya estaba hecho.'}` : (ok ? `✓ ${detail || 'Listo.'}` : `✗ ${detail || 'Algo falló.'}`);
+  status.textContent = skipped
+    ? `↺ ${detail || 'Ya estaba hecho.'}`
+    : ok
+      ? `✓ ${detail || 'Listo.'}`
+      : `✗ ${detail || 'Algo falló.'}`;
   wrap.appendChild(status);
   messagesEl.scrollTop = messagesEl.scrollHeight;
 });

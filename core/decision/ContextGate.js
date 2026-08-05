@@ -25,9 +25,9 @@
 const { decide, presupuesto, REASON, DEFAULT_POLICY } = require('./DecisionCore.js');
 
 const FLOW = {
-  IDLE:   'idle',     // AFK o sin actividad reciente → no molestar salvo crítico
-  ACTIVE: 'active',   // trabajando normalmente → se puede proponer si el score lo justifica
-  DEEP:   'deep',     // inmerso (app actual > N min, sin thrashing) → barra alta
+  IDLE: 'idle', // AFK o sin actividad reciente → no molestar salvo crítico
+  ACTIVE: 'active', // trabajando normalmente → se puede proponer si el score lo justifica
+  DEEP: 'deep', // inmerso (app actual > N min, sin thrashing) → barra alta
 };
 
 const DEFAULT_GATE_POLICY = {
@@ -58,7 +58,7 @@ function detectFlow(context = {}, policy = DEFAULT_GATE_POLICY) {
 
   if (idleSecs > 60) return { level: FLOW.IDLE, reason: 'idle' };
 
-  const switches = (recentSwitches || []).filter(s => now - s.ts <= policy.thrashWindowMs);
+  const switches = (recentSwitches || []).filter((s) => now - s.ts <= policy.thrashWindowMs);
   const thrashing = switches.length >= policy.thrashThreshold;
 
   if (appElapsedSec >= policy.deepFlowAppMin * 60 && !thrashing) {
@@ -101,39 +101,78 @@ function evaluate(candidate, context = {}, policy = DEFAULT_GATE_POLICY) {
   // eso cada mensaje temporal queda con score + audit (ROADMAP).
   if (candidate.selfGated) {
     if (!withinBudget) {
-      return { admit: false, decision: { verdict: 'DROP', reason: REASON.DROP_BUDGET_EXHAUSTED, relevance: candidate.score ?? 0, flow: flow.level }, flow: flow.level, budgetLimit };
+      return {
+        admit: false,
+        decision: {
+          verdict: 'DROP',
+          reason: REASON.DROP_BUDGET_EXHAUSTED,
+          relevance: candidate.score ?? 0,
+          flow: flow.level,
+        },
+        flow: flow.level,
+        budgetLimit,
+      };
     }
     if (degraded) {
-      return { admit: false, decision: { verdict: 'DROP', reason: REASON.DROP_DEGRADED, relevance: candidate.score ?? 0, flow: flow.level }, flow: flow.level, budgetLimit };
+      return {
+        admit: false,
+        decision: {
+          verdict: 'DROP',
+          reason: REASON.DROP_DEGRADED,
+          relevance: candidate.score ?? 0,
+          flow: flow.level,
+        },
+        flow: flow.level,
+        budgetLimit,
+      };
     }
-    return { admit: true, decision: { verdict: 'ACT', reason: REASON.SELF_GATED_ADMIT, relevance: candidate.score ?? 0, flow: flow.level }, flow: flow.level, budgetLimit };
+    return {
+      admit: true,
+      decision: {
+        verdict: 'ACT',
+        reason: REASON.SELF_GATED_ADMIT,
+        relevance: candidate.score ?? 0,
+        flow: flow.level,
+      },
+      flow: flow.level,
+      budgetLimit,
+    };
   }
 
-  const userPresent = !context.chatOpen && (context.lastUserMsg == null || now - context.lastUserMsg > policy.recentChatMs);
+  const userPresent =
+    !context.chatOpen &&
+    (context.lastUserMsg == null || now - context.lastUserMsg > policy.recentChatMs);
 
   // 4) Relevancia desde el vector de señal del candidato (F-1).
   const relevance = candidate.score ?? 0;
   if (relevance < policy.floorRelevance) {
-    return { admit: false, decision: { verdict: 'DROP', reason: 'below_floor', relevance, flow: flow.level }, queue: false };
+    return {
+      admit: false,
+      decision: { verdict: 'DROP', reason: 'below_floor', relevance, flow: flow.level },
+      queue: false,
+    };
   }
 
   // 5) Decisión del núcleo. En flow profundo exigimos más relevancia: se
   //    sube el umbral de re-promoción (histéresis) vía la política del núcleo.
   //    Un tipo DEGRADADO por SLO (F-5) también se promociona más difícil.
   const degradedGate = flow.level === FLOW.DEEP || degraded;
-  const decision = decide({
-    relevance,
-    goodMoment: userPresent && withinBudget && flow.level !== FLOW.IDLE,
-    isCritical: !!candidate.isCritical,
-    userPresent,
-    budgetUsed,
-    budgetLimit,
-    degraded: degradedGate,
-  }, {
-    thresholds: degradedGate
-      ? { promoteBy: Math.max(policy.deepFlowRBonus, context.degradedBonus ?? 0) }
-      : undefined,
-  });
+  const decision = decide(
+    {
+      relevance,
+      goodMoment: userPresent && withinBudget && flow.level !== FLOW.IDLE,
+      isCritical: !!candidate.isCritical,
+      userPresent,
+      budgetUsed,
+      budgetLimit,
+      degraded: degradedGate,
+    },
+    {
+      thresholds: degradedGate
+        ? { promoteBy: Math.max(policy.deepFlowRBonus, context.degradedBonus ?? 0) }
+        : undefined,
+    }
+  );
 
   if (decision.verdict === 'ACT' || decision.verdict === 'ESCALATE') {
     return { admit: true, decision, flow: flow.level, budgetLimit };
@@ -159,7 +198,11 @@ class QueueStore {
   /** Encola un candidato diferido. Devuelve false si ya estaba (dedupe por tipo+kind). */
   push(candidate, context = {}) {
     if (!candidate) return false;
-    if (this._items.some(i => i.candidate.tipo === candidate.tipo && i.candidate.kind === candidate.kind)) {
+    if (
+      this._items.some(
+        (i) => i.candidate.tipo === candidate.tipo && i.candidate.kind === candidate.kind
+      )
+    ) {
       return false;
     }
     if (this._items.length >= this._max) this._items.shift();
@@ -196,9 +239,15 @@ class QueueStore {
     return ready;
   }
 
-  size() { return this._items.length; }
-  clear() { this._items = []; }
-  entries() { return [...this._items]; }
+  size() {
+    return this._items.length;
+  }
+  clear() {
+    this._items = [];
+  }
+  entries() {
+    return [...this._items];
+  }
 }
 
 module.exports = { evaluate, detectFlow, dynamicBudget, QueueStore, FLOW, DEFAULT_GATE_POLICY };

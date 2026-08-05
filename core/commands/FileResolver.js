@@ -24,7 +24,8 @@ function readFileContent(filePath) {
     if (!fs.existsSync(filePath)) return null;
     const stat = fs.statSync(filePath);
     if (!stat.isFile()) return null;
-    if (stat.size > MAX_FILE_SIZE) return `[Archivo demasiado grande: ${(stat.size / 1024).toFixed(0)} KB, máximo ${MAX_FILE_SIZE / 1024} KB]`;
+    if (stat.size > MAX_FILE_SIZE)
+      return `[Archivo demasiado grande: ${(stat.size / 1024).toFixed(0)} KB, máximo ${MAX_FILE_SIZE / 1024} KB]`;
     return fs.readFileSync(filePath, 'utf-8');
   } catch {
     return null;
@@ -64,13 +65,18 @@ function listProjectFiles(projectCwd, pattern = '') {
   function walk(dir, depth) {
     if (depth > MAX_DEPTH) return;
     let entries;
-    try { entries = fs.readdirSync(dir, { withFileTypes: true }); } catch { return; }
+    try {
+      entries = fs.readdirSync(dir, { withFileTypes: true });
+    } catch {
+      return;
+    }
 
     for (const entry of entries) {
       const fullPath = path.join(dir, entry.name);
       const relPath = path.relative(projectCwd, fullPath);
 
-      if (entry.name.startsWith('.') || entry.name === 'node_modules' || entry.name === '.git') continue;
+      if (entry.name.startsWith('.') || entry.name === 'node_modules' || entry.name === '.git')
+        continue;
 
       if (entry.isDirectory()) {
         if (query === '' || relPath.toLowerCase().includes(query)) {
@@ -79,7 +85,10 @@ function listProjectFiles(projectCwd, pattern = '') {
         walk(fullPath, depth + 1);
       } else if (entry.isFile()) {
         const stat = fs.statSync(fullPath);
-        const isText = /\.(js|ts|jsx|tsx|json|md|css|html|yml|yaml|toml|env|txt|py|rb|go|rs|c|cpp|h|hpp|java|kt|swift|vue|svelte|xml|svg|sh|bash|zsh|fish|ps1|bat|cfg|ini|conf|lock)$/i.test(entry.name);
+        const isText =
+          /\.(js|ts|jsx|tsx|json|md|css|html|yml|yaml|toml|env|txt|py|rb|go|rs|c|cpp|h|hpp|java|kt|swift|vue|svelte|xml|svg|sh|bash|zsh|fish|ps1|bat|cfg|ini|conf|lock)$/i.test(
+            entry.name
+          );
         if (!isText && !query) continue;
         if (query === '' || relPath.toLowerCase().includes(query)) {
           results.push({ path: relPath, type: 'file', name: entry.name, size: stat.size });

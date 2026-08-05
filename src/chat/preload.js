@@ -14,14 +14,14 @@ const path = require('path');
 const fs = require('fs');
 const cp = require('child_process');
 
-const marked          = require('marked');
+const marked = require('marked');
 const createDOMPurify = require('dompurify');
 
-const LLMProvider     = require('../../core/llm/LLMProvider.js');
+const LLMProvider = require('../../core/llm/LLMProvider.js');
 const CommandRegistry = require('../../core/commands/CommandRegistry.js');
-const FileResolver    = require('../../core/commands/FileResolver.js');
-const AgentManager    = require('../../core/agents/AgentManager.js');
-const ModelAugmenter  = require('../../core/behavior/ModelAugmenter.js');
+const FileResolver = require('../../core/commands/FileResolver.js');
+const AgentManager = require('../../core/agents/AgentManager.js');
+const ModelAugmenter = require('../../core/behavior/ModelAugmenter.js');
 
 // Fuente de los módulos core que la página necesita EJECUTAR en su propio
 // mundo (GestureEngine): recibe el objeto Live2D real creado por PIXI en la
@@ -31,9 +31,9 @@ const ModelAugmenter  = require('../../core/behavior/ModelAugmenter.js');
 // expone Node/fs/child_process a la página ni a los CDN.
 const coreBehaviorDir = path.join(__dirname, '..', '..', 'core', 'behavior');
 const coreSources = {
-  GestureLexicon:   fs.readFileSync(path.join(coreBehaviorDir, 'GestureLexicon.js'), 'utf8'),
+  GestureLexicon: fs.readFileSync(path.join(coreBehaviorDir, 'GestureLexicon.js'), 'utf8'),
   GestureHeuristic: fs.readFileSync(path.join(coreBehaviorDir, 'GestureHeuristic.js'), 'utf8'),
-  GestureEngine:    fs.readFileSync(path.join(coreBehaviorDir, 'GestureEngine.js'), 'utf8'),
+  GestureEngine: fs.readFileSync(path.join(coreBehaviorDir, 'GestureEngine.js'), 'utf8'),
 };
 
 // El preload comparte el DOM con la página (contextIsolation aísla los
@@ -44,14 +44,19 @@ const DOMPurify = createDOMPurify(window);
 
 function _escapeHtml(text) {
   return (text || '')
-    .replace(/&/g, '&amp;').replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
 }
 
 function renderMarkdown(md) {
   try {
     let rawHtml = marked.parse(md || '');
-    rawHtml = rawHtml.replace(/<pre><code class="language-mermaid">([\s\S]*?)<\/code><\/pre>/g, '<div class="mermaid">$1</div>');
+    rawHtml = rawHtml.replace(
+      /<pre><code class="language-mermaid">([\s\S]*?)<\/code><\/pre>/g,
+      '<div class="mermaid">$1</div>'
+    );
     return DOMPurify.sanitize(rawHtml);
   } catch (e) {
     return _escapeHtml(md);
@@ -61,18 +66,28 @@ function renderMarkdown(md) {
 // TTS: misma mecánica que el overlay pero con los parámetros fijos del chat.
 function ttsStream(args = {}) {
   return new Promise((resolve, reject) => {
-    if (!args.pythonBin) { reject(new Error('pythonBin requerido')); return; }
+    if (!args.pythonBin) {
+      reject(new Error('pythonBin requerido'));
+      return;
+    }
     const chunks = [];
     const proc = cp.spawn(args.pythonBin, [
       path.join(__dirname, '..', '..', 'tts_stream.py'),
-      '--voice', args.voice || 'ja-JP-NanamiNeural',
-      '--rate',  args.rate || '+10%',
-      '--pitch', args.pitch || '+20Hz',
-      '--text',  args.text || '',
+      '--voice',
+      args.voice || 'ja-JP-NanamiNeural',
+      '--rate',
+      args.rate || '+10%',
+      '--pitch',
+      args.pitch || '+20Hz',
+      '--text',
+      args.text || '',
     ]);
     proc.stdout.on('data', (c) => chunks.push(c));
     proc.on('close', (code) => {
-      if (code !== 0 || chunks.length === 0) { reject(new Error('TTS failed')); return; }
+      if (code !== 0 || chunks.length === 0) {
+        reject(new Error('TTS failed'));
+        return;
+      }
       resolve(new Uint8Array(Buffer.concat(chunks)));
     });
     proc.on('error', reject);
@@ -91,7 +106,11 @@ contextBridge.exposeInMainWorld('assistant', {
   pathJoin: (...parts) => path.join(...parts),
   existsSync: (p) => fs.existsSync(p),
   statIsDir: (p) => {
-    try { return fs.statSync(p).isDirectory(); } catch { return false; }
+    try {
+      return fs.statSync(p).isDirectory();
+    } catch {
+      return false;
+    }
   },
   cwd: () => process.cwd(),
   renderMarkdown,
