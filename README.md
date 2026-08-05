@@ -142,6 +142,21 @@ Ambas ventanas (overlay Live2D y chat) corren con `nodeIntegration:false` + `con
 ### Contexto largo con memoria
 Al compactar la historia, `AgentLoop` persiste el resumen como episodio en el grafo semántico y al inicio de cada run inyecta el recall de episodios relevantes al objetivo actual — reconstruye contexto en tareas largas o retomadas.
 
+### Streaming de respuesta
+El LLM responde con `stream: true`; cada fragmento viaja por IPC (`agent-token`) hasta la ventana de chat y se pinta **en vivo** en la burbuja del asistente (patrón opencode), con render de Markdown al terminar. Cubre tool-calling nativo y fallback textual, en OpenAI-compatible y Gemini.
+
+### Ejecución no bloqueante
+`exec`/`code_execution` usan `spawn` asíncrono (no `spawnSync`): un comando largo ya no congela el proceso main. Mismo contrato de salida `{ stdout, stderr, exitCode, signal, error }`, `maxBuffer` y timeout por `SIGKILL`.
+
+### Sesiones multi-turno
+Conversación persistente por sesión (hasta 40 turnos) con reanudación tras crash. El contexto inyectado al LLM es **incremental**: presupuesto de 8000 caracteres — turnos recientes completos, el excedente se condensa en un resumen `system` al inicio.
+
+### Tipado con JSDoc estricto
+`npm run typecheck` valida los módulos marcados con `// @ts-check` (`tsconfig.json`, `strict` + `noImplicitAny` + `strictNullChecks`). El pipeline de contexto/grounding está tipado con 0 errores.
+
+### CI y releases
+CI de GitHub Actions con jobs de **calidad** (ESLint + typecheck + Prettier), **tests** con Electron y **build Windows portable**; un tag `v*` dispara la **release automática** (`.exe` + notas). Localmente: `bash scripts/release.sh [patch|minor|major]`.
+
 ### Telemetría local
 `TelemetryStore`: turnos, sesiones, silencios, tiempos de respuesta y reporte mensual con deltas — para responder "¿estamos mejor que el mes pasado?" con datos locales.
 
@@ -339,6 +354,11 @@ El proyecto se desarrolla por fases — ver [`ROADMAP.md`](./ROADMAP.md) para la
 ## 9. Pruebas y capturas
 
 La suite de pruebas es **ejecutable e independiente por archivo** (`tests/`), con cobertura de comandos, motor de proactividad, detección de intenciones, skills, integraciones LSP, Git/GitHub y seguridad de la Control API. La regresión completa se ejecuta con `npm test` (usando el Node de Electron): **1371 pruebas en verde** (incluyen regresiones del fix LSP G.1, del parser de CONTENIDO multilínea, de la compactación de contexto, del edit determinista, de las tools grep/glob/subagent y de la compactación con memoria). Antes de correrla, cierra el asistente para que las suites de seguridad puedan levantar su propio servidor en `:18789` (si la app está corriendo, `test_server_security` y `test_integration_stress` fallan por conflicto de puerto).
+
+Calidad de código:
+- `npm run lint` — ESLint (0 errores).
+- `npm run typecheck` — `tsc` sobre los módulos con `// @ts-check` (JSDoc estricto, 0 errores).
+- `npm run format:check` — Prettier.
 
 ### Pruebas
 

@@ -1,3 +1,5 @@
+// @ts-check
+// @ts-check
 /**
  * GroundingEngine.js — Fase 3 (actualizado)
  *
@@ -12,14 +14,28 @@ const path = require('path');
 const { RetrievalPlanner } = require('./RetrievalPlanner.js');
 const { ContextAssembler } = require('./ContextAssembler.js');
 
+/**
+ * @typedef {Array<{ role: string, content: string, ts?: number }>} SessionHistory
+ * @typedef {object} ToolIntent
+ * @typedef {object} ContextResult
+ * @property {string} systemPrompt
+ * @property {Array<{ role: string, content: string }>} messages
+ * @typedef {object} StateGraphLike
+ */
+
 class GroundingEngine {
+  /** @param {StateGraphLike | null} stateGraph */
   constructor(stateGraph) {
     this._graph     = stateGraph;
-    this._planner   = new RetrievalPlanner(stateGraph);
+    this._planner   = new RetrievalPlanner(/** @type {object} */ (stateGraph));
     this._assembler = new ContextAssembler();
+    /** @type {{ getCurrentContext(): object } | null} */
     this._osSensor  = null;
   }
 
+  /**
+   * @param {{ getCurrentContext(): object }} osSensor
+   */
   setOSSensor(osSensor) {
     this._osSensor = osSensor;
     this._assembler.setOSSensor(osSensor);
@@ -27,9 +43,10 @@ class GroundingEngine {
   }
 
   /**
-   * @param {Array}  sessionHistory
+   * @param {SessionHistory} sessionHistory
    * @param {string} activeProvider
-   * @param {object} toolIntent      — resultado de IntentDetector (Fase 3, opcional)
+   * @param {ToolIntent | null} [toolIntent] - resultado de IntentDetector (Fase 3, opcional)
+   * @returns {Promise<ContextResult>}
    */
   async buildContext(sessionHistory = [], activeProvider = 'groq', toolIntent = null) {
     try {
@@ -37,29 +54,33 @@ class GroundingEngine {
       const userText   = currentMsg?.role === 'user' ? currentMsg.content : '';
       const osCtx      = this._osSensor?.getCurrentContext() ?? null;
 
-      const retrievalResult = await this._planner.plan(userText, osCtx);
+      const retrievalResult = await this._planner.plan(userText, /** @type {object | undefined} */ (osCtx ?? undefined));
 
       const result = this._assembler.build({
         sessionHistory,
         retrievalResult,
         activeProvider,
-        toolIntent,
+        toolIntent: /** @type {object} */ (toolIntent),
       });
 
       return result;
 
     } catch(e) {
-      console.error('[grounding] error en pipeline, usando fallback:', e.message);
+      console.error('[grounding] error en pipeline, usando fallback:', /** @type {Error} */ (e).message);
       return this._fallback(sessionHistory);
     }
   }
 
+  /**
+   * @param {SessionHistory} sessionHistory
+   * @returns {ContextResult}
+   */
   _fallback(sessionHistory) {
     try {
       const Fallback = require('../llm/GroundingMinimo.js');
       return Fallback.buildContext(sessionHistory);
     } catch(e2) {
-      console.error('[grounding] fallback también falló:', e2.message);
+      console.error('[grounding] fallback también falló:', /** @type {Error} */ (e2).message);
       return {
         systemPrompt: 'Eres la asistente personal. Responde con tu personalidad habitual.',
         messages: sessionHistory.slice(-1),
@@ -85,6 +106,9 @@ class GroundingEngine {
   }
 }
 
+/**
+ * @type {GroundingEngine | null}
+ */
 let _contextEngine = null;
 
 function getOSContextPublic() {

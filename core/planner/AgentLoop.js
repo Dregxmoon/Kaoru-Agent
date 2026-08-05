@@ -152,6 +152,10 @@ class AgentLoop {
     const domain = taskIntent?.domain || null;
     const llm = opts.llm || this._llm || this._getLLM();
     const parser = getStructuredActionParser(AP.PROJECT_CWD);
+    // Streaming: opts.onToken(text) recibe los fragmentos del LLM en vivo
+    // para pintarlos en el chat mientras se generan (patrón opencode).
+    const onToken = typeof opts.onToken === 'function' ? opts.onToken : null;
+    const llmOpts = onToken ? { onToken } : {};
 
     // ── Tool resolution (Fase 5): Skill > MCP > OpenClaw ────────────
     let tools = opts.tools || null;
@@ -231,13 +235,13 @@ class AgentLoop {
 
       if (tools && llm === this._getLLM()) {
         try {
-          const tcResult = await LLMProvider.completeWithTools(llmMessages, agentPrompt, tools, this._mode);
+          const tcResult = await LLMProvider.completeWithTools(llmMessages, agentPrompt, tools, this._mode, llmOpts);
           responseText = tcResult.content;
           toolCalls = tcResult.toolCalls;
         } catch (e) {
           console.warn('[agent-loop] tool-calling nativo falló, usando fallback texto:', e.message);
           try {
-            const fallback = await llm(llmMessages, agentPrompt);
+            const fallback = await llm(llmMessages, agentPrompt, llmOpts);
             responseText = typeof fallback === 'string' ? fallback : (fallback?.content || '');
           } catch (e2) {
             return {
@@ -250,7 +254,7 @@ class AgentLoop {
         }
       } else {
         try {
-          const raw = await llm(llmMessages, agentPrompt);
+          const raw = await llm(llmMessages, agentPrompt, llmOpts);
           responseText = typeof raw === 'string' ? raw : (raw?.content || '');
         } catch (e) {
           return {

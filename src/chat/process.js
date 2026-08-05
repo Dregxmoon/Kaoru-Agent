@@ -134,18 +134,38 @@ async function processMessage(text, files = []) {
       _startSpinner(progressEl.querySelector('.loading-spinner'));
       messagesEl.scrollTop = messagesEl.scrollHeight;
 
+      // Streaming: acumular fragmentos del LLM y pintarlos en el bubble en
+      // vivo (texto plano mientras llega; al final se renderiza markdown).
+      let streamBuf = '';
+      const streamedSpan = document.createElement('span');
+      streamedSpan.style.whiteSpace = 'pre-wrap';
+      bubble.appendChild(streamedSpan);
+      const offStream = ipcRenderer.on('agent-token', (_e, token) => {
+        streamBuf += token;
+        streamedSpan.textContent = streamBuf;
+        messagesEl.scrollTop = messagesEl.scrollHeight;
+      });
+
       const result = await ipcRenderer.invoke('agent-run', {
         text: trimmed,
       });
 
+      offStream();
       _agentProgressEl = null;
       if (progressEl.parentNode) progressEl.parentNode.removeChild(progressEl);
 
-      if (result.error && !result.response) {
+      // La respuesta final autoritativa es `result.response` (el output final
+      // del LLM). El buffer de streaming solo sirve de preview en vivo y como
+      // fallback si el loop terminó sin una respuesta limpia (max_iterations).
+      const finalText = (result.response && String(result.response).trim())
+        ? result.response
+        : (streamBuf.trim() ? streamBuf : null);
+
+      if (result.error && !finalText) {
         error = result.error;
         response = `Ocurrió un error: ${result.error}`;
       } else {
-        response = result.response || '(sin respuesta)';
+        response = finalText || '(sin respuesta)';
       }
 
       // Escribir respuesta directamente en el bubble existente

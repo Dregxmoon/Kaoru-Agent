@@ -267,16 +267,16 @@ async function testHttpPathValidation() {
 }
 
 // ── Test 7: handlerTool edge cases ─────────────────────────────────────────
-function testHandleToolEdgeCases() {
+async function testHandleToolEdgeCases() {
   console.log(C.bold('\n── handleTool edge cases ───────────────────────────────'));
 
-  const result = srv.handleTool({ tool: 'read', input: { path: 'nonexistent-12345' } });
+  const result = await srv.handleTool({ tool: 'read', input: { path: 'nonexistent-12345' } });
   assert(result.error && result.error.includes('File not found'), 'read de archivo inexistente → error File not found');
 
-  const unknownResult = srv.handleTool({ tool: 'nonexistent_tool', input: {} });
+  const unknownResult = await srv.handleTool({ tool: 'nonexistent_tool', input: {} });
   assert(unknownResult.error && unknownResult.error.includes('Unknown tool'), 'tool desconocida → error');
 
-  const noInputResult = srv.handleTool({ tool: 'exec' });
+  const noInputResult = await srv.handleTool({ tool: 'exec' });
   assert(noInputResult.error && noInputResult.error.includes('command required'), 'exec sin command → error');
 }
 
@@ -296,7 +296,12 @@ async function main() {
   testBlockedCommand();
 
   console.log(C.bold('\n── Edge cases de handlers ──────────────────────────────'));
-  testHandleToolEdgeCases();
+  try {
+    await testHandleToolEdgeCases();
+  } catch (e) {
+    console.error(`  ${C.red('✗')} handleTool edge cases falló: ${e.message}`);
+    failed++;
+  }
 
   console.log(C.bold('\n── HTTP auth integration ───────────────────────────────'));
   try {

@@ -1,3 +1,4 @@
+// @ts-check
 /**
  * SessionManager.js — con deduplicación al inicio de sesión
  */
@@ -7,13 +8,30 @@ const { ContradictionResolver } = require('./ContradictionResolver.js');
 
 const DECAY_INTERVAL_HOURS = 20;
 
+/**
+ * @typedef {{ id: string, history: Array<{ role: string, content: string, ts?: number }>, turnCount: number }} ResumableSession
+ * @typedef {{ getPath(name: string): string }} ElectronAppLike
+ * @typedef {{
+ *   findResumableSession(hours: number): ResumableSession | null,
+ *   startSession(): string,
+ *   updateSessionHistory(id: string, history: Array<object>): void,
+ *   endSession(id: string, opts: object): void,
+ *   getStats(): object,
+ * }} StateGraphLike
+ */
 class SessionManager {
+  /**
+   * @param {StateGraphLike} stateGraph
+   * @param {object} groundingEngine
+   * @param {{ resumeMaxAgeHours?: number }} [options]
+   */
   constructor(stateGraph, groundingEngine, { resumeMaxAgeHours = 48 } = {}) {
     this._graph        = stateGraph;
     this._grounding    = groundingEngine;
     this._updater      = new StateUpdater(stateGraph);
     this._resolver     = new ContradictionResolver(stateGraph);
     this._sessionId    = null;
+    /** @type {Array<{ role: string, content: string, ts?: number }>} */
     this._history      = [];
     this._turnCount    = 0;
     this._isClosing    = false;
@@ -30,6 +48,7 @@ class SessionManager {
    * main.js → chat.html) usa el flag `resumed` para repoblar la ventana
    * de chat visualmente con los mensajes recuperados.
    */
+  /** @param {ElectronAppLike | null} [app] */
   async start(app) {
     if (this._closePromise) {
       await this._closePromise.catch(() => {});
@@ -60,6 +79,10 @@ class SessionManager {
     return { sessionId: this._sessionId, resumed: false, history: [] };
   }
 
+  /**
+   * @param {string} role
+   * @param {string} content
+   */
   addTurn(role, content) {
     this._history.push({ role, content, ts: Date.now() });
     this._turnCount++;
@@ -68,7 +91,9 @@ class SessionManager {
     // Persistencia incremental — barata (better-sqlite3 es síncrono), y es
     // justo lo que permite resumir tras un crash: si la app truena ahora
     // mismo, como mucho se pierde el turno en vuelo, no la conversación.
-    this._graph.updateSessionHistory(this._sessionId, this._history);
+    if (this._sessionId) {
+      this._graph.updateSessionHistory(this._sessionId, this._history);
+    }
   }
 
   getHistory() { return [...this._history]; }
@@ -98,6 +123,7 @@ class SessionManager {
     return this._closePromise;
   }
 
+  /** @param {ElectronAppLike | null} [app] */
   _maybeRunDecay(app) {
     try {
       const fs   = require('fs');
@@ -114,7 +140,7 @@ class SessionManager {
         this._updater.runDecay();
         fs.writeFileSync(marker, JSON.stringify({ ts: Date.now() }), 'utf-8');
       }
-    } catch(e) { console.warn('[session] error decay:', e.message); }
+    } catch(e) { console.warn('[session] error decay:', /** @type {Error} */ (e).message); }
   }
 
   getStats() {

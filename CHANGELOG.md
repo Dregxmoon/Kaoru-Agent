@@ -47,6 +47,46 @@ Todas las versiones notables de este proyecto se documentan en este archivo.
   contexto, filtro de relleno en modo producción, edit determinista, grep/glob,
   subagentes y compactación con memoria.
 
+## [1.2.0] — 2026-08-04
+
+### Experiencia de agente (patrón opencode)
+- **Streaming de tokens al chat:** el LLM ahora responde con `stream: true` y cada
+  fragmento viaja por un canal IPC nuevo (`agent-token`) hasta la ventana de chat, que lo
+  pinta en vivo en la burbuja del asistente mientras se genera (con render de Markdown al
+  final). Implementado en `LLMProvider` (SSE para OpenAI-compatible y Gemini) y en el
+  handler `agent-run`; cubre el tool-calling nativo y el fallback textual.
+- **`exec`/`code_execution` asíncronos:** `openclaw-server.js` dejó de usar `spawnSync`
+  (que congelaba el proceso main con un comando largo) y pasa a `spawn` con acumulación
+  de stdout/stderr, `maxBuffer` y timeout por `SIGKILL` (`signal:"timeout"`). Contrato de
+  salida idéntico (`{ stdout, stderr, exitCode, signal, error }`); el event loop ya no
+  se bloquea mientras corre una herramienta.
+
+### Sesiones multi-turno
+- **Contexto incremental en el historial:** el serializer inyecta un presupuesto de
+  `8000` caracteres para el historial de sesión — los turnos recientes entran completos y
+  el excedente se condensa en un único mensaje `system` de resumen al inicio. El multi-turno
+  ya era nativo (SessionManager, 40 turnos, persistencia incremental y reanudación tras
+  crash); ahora la conversación larga no se come el presupuesto de tokens de la tarea.
+
+### Tipado
+- **JSDoc estricto con `tsc`:** nuevo `tsconfig.json` + script `npm run typecheck`.
+  `// @ts-check` adoptado incrementalmente en el pipeline de contexto/grounding
+  (`GroundingEngine`, `SessionManager`, `GroqSerializer` + serializers heredados) con
+  `strict`/`noImplicitAny`/`strictNullChecks` — 0 errores. Se añadió `typescript` y
+  `@types/node` como devDependencies.
+
+### CI y releases
+- **CI ampliado:** nuevo job `quality` (ESLint + `tsc` + Prettier) además del job de
+  tests con Electron; el build Windows portable sigue en `produccion`.
+- **Release automática:** job `release` que se dispara con un tag `v*` — empaqueta el
+  `.exe` portable y crea la GitHub Release con notas auto-generadas.
+- **`scripts/release.sh`:** bump semver (`patch`/`minor`/`major`), commit, tag y push en
+  un solo comando.
+
+### Pruebas
+- Suite completa: **1371 pruebas en verde** (`npm test`; 2 suites de seguridad requieren
+  el puerto `:18789` libre — cierran la app antes de correr).
+
 ## [1.1.0] — 2026-08-04
 
 ### Seguridad

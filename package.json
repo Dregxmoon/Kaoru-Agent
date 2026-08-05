@@ -16,15 +16,18 @@
     "lint:fix": "eslint --fix main.js openclaw-server.js core infrastructure ipc tests benchmarks src --ext .js",
     "format": "prettier --write \"{main.js,openclaw-server.js,core,infrastructure,ipc,tests,benchmarks,src}/**/*.js\"",
     "format:check": "prettier --check \"{main.js,openclaw-server.js,core,infrastructure,ipc,tests,benchmarks,src}/**/*.js\"",
+    "typecheck": "tsc --noEmit",
     "build": "electron-builder --win --x64",
     "build-portable": "electron-builder --win portable"
   },
   "devDependencies": {
     "@electron/rebuild": "^4.2.0",
+    "@types/node": "^26.1.2",
     "electron": "^28.0.0",
     "electron-builder": "^26.15.3",
     "eslint": "^8.57.0",
-    "prettier": "^3.3.0"
+    "prettier": "^3.3.0",
+    "typescript": "^7.0.2"
   },
   "build": {
     "appId": "com.asistente.personal",

@@ -1,3 +1,4 @@
+// @ts-check
 /**
  * GroqSerializer.js — Fase 3 (actualizado)
  *
@@ -40,12 +41,70 @@
 const fs   = require('fs');
 const path = require('path');
 
+// Presupuesto de caracteres para el historial de sesión en el contexto del
+// LLM. Los turnos recientes se envían completos; el excedente se resume.
+const MAX_HISTORY_CHARS = 8000;
+
 // ── Identity (cacheada) ───────────────────────────────────────────────────────
 // La identidad NO cambia entre turnos. Se serializa UNA SOLA VEZ al cargar
 // el módulo y se reusa en cada llamada, ahorrando ~400-600 tokens por turno.
 const IDENTITY_PATH = path.join(__dirname, '../../identity/identity.json');
 
+/**
+ * @typedef {{
+ *   summary?: string,
+ *   traits?: string[],
+ *   dislikes?: string[],
+ * }} IdentityCharacter
+ * @typedef {{
+ *   style?: string,
+ *   rhythm?: string,
+ *   formality?: string,
+ *   forbidden_phrases?: string[],
+ * }} IdentityVoice
+ * @typedef {{
+ *   what_i_am_not?: string[],
+ *   identity_stability?: string,
+ * }} IdentityLimits
+ * @typedef {{
+ *   description?: string,
+ *   examples?: string[],
+ * }} UncertaintyBehavior
+ * @typedef {{
+ *   default_dynamic?: string,
+ *   continuity?: string,
+ * }} IdentityRelationship
+ * @typedef {{
+ *   time?: string,
+ *   session?: string,
+ *   system?: string,
+ * }} IdentityContextAwareness
+ * @typedef {{
+ *   name: string, core: string, version?: string,
+ *   character?: IdentityCharacter,
+ *   voice?: IdentityVoice,
+ *   uncertainty_behaviors?: Record<string, UncertaintyBehavior>,
+ *   relationship?: IdentityRelationship,
+ *   context_awareness?: IdentityContextAwareness,
+ *   limits?: IdentityLimits,
+ * }} Identity
+ * @typedef {{ role: string, content: string, ts?: number }} HistoryTurn
+ * @typedef {{
+ *   timeFormatted?: string,
+ *   friendlyName?: string,
+ *   elapsedFormatted?: string,
+ *   title?: string,
+ *   idleFormatted?: string,
+ *   openWindowsSummary?: string,
+ *   todaySummary?: string,
+ *   [key: string]: unknown,
+ * }} OSContext
+ * @typedef {object} ToolIntentCtx
+ */
+
+/** @type {string | null} */
 let _serializedIdentity = null; // cache de la sección ya formateada
+/** @type {Identity | null} */
 let _identityRawCache   = null;
 
 function _getIdentity() {
@@ -60,7 +119,7 @@ function _getIdentity() {
 
 function _getSerializedIdentity() {
   if (_serializedIdentity) return _serializedIdentity;
-  _serializedIdentity = _buildIdentitySection(_getIdentity());
+  _serializedIdentity = _buildIdentitySection(/** @type {Identity} */ (_getIdentity()));
   return _serializedIdentity;
 }
 
@@ -78,6 +137,7 @@ const FILE_PATH_ACTIONS = new Set(['create_file', 'edit_file', 'read_file', 'del
  * absoluto con un usuario inventado — el archivo terminaba creándose
  * dentro del proyecto o en un lugar equivocado, sin ningún aviso.
  */
+/** @param {string} action */
 function _specialFolderNote(action) {
   if (!FILE_PATH_ACTIONS.has(action)) return '';
   return `
@@ -95,7 +155,7 @@ Si NO se menciona ninguna carpeta especial, usa una ruta relativa normal (se res
 // ── Formato de tool intent por level ─────────────────────────────────────────
 const TOOL_INSTRUCTIONS = {
   // El LLM DEBE usar el formato estructurado
-  high: (intent) => `
+  high: (/** @type {{ action: string, confidence: number, tool?: string }} */ intent) => `
 ## INTENCIÓN DE HERRAMIENTA DETECTADA (alta confianza: ${(intent.confidence * 100).toFixed(0)}%)
 
 El usuario quiere ejecutar una acción en el sistema: **${intent.action}**
@@ -116,7 +176,7 @@ seguro de si el usuario quiere ejecutar algo de verdad, pregunta.
 `.trim(),
 
   // El LLM DEBERÍA usar el formato estructurado si confirma la intención
-  medium: (intent) => `
+  medium: (/** @type {{ action: string, confidence: number, tool?: string }} */ intent) => `
 ## POSIBLE INTENCIÓN DE HERRAMIENTA (confianza media: ${(intent.confidence * 100).toFixed(0)}%)
 
 Es posible que el usuario quiera ejecutar: **${intent.action}**
@@ -139,7 +199,9 @@ seguro de si el usuario quiere ejecutar algo de verdad, pregunta.
  * Genera el ejemplo de formato estructurado según el tipo de acción.
  * El LLM aprende el formato leyendo este ejemplo en el system prompt.
  */
+/** @param {string} action */
 function _buildFormatExample(action) {
+  /** @type {Record<string, string>} */
   const examples = {
     // Acciones con path de archivo
     create_file:      '```action\nACCIÓN: create_file | ARCHIVO: nombre-del-archivo.ext\n```',
@@ -173,10 +235,10 @@ function _buildFormatExample(action) {
  * no existen en identity.json — ahora usa la forma real: character,
  * voice, uncertainty_behaviors, relationship, limits.
  */
+/** @param {Identity} identity */
 function _buildIdentitySection(identity) {
   const lines = ['# Identidad'];
-  if (identity.name) lines.push(`Te llamas ${identity.name}.`);
-  lines.push(identity.core || 'Soy tu asistente personal.');
+  if (identity.name) lines.push(`Te llamas ${identity.name}.`);  lines.push(identity.core || 'Soy tu asistente personal.');
   lines.push('Cuando te pregunten quién eres, respóndelo con tus propias palabras, en tu voz habitual (breve y con carácter), no recites esta definición literalmente.');
 
   lines.push('', '## Capacidades reales');
@@ -240,8 +302,8 @@ function _buildIdentitySection(identity) {
 
   const ctx = identity.context_awareness;
   if (ctx) {
-    const bits = [ctx.time, ctx.session, ctx.system].filter(Boolean);
-    if (bits.length) lines.push('', '## Conciencia de contexto', ...bits);
+    const bits = [ctx.time, ctx.session, ctx.system].filter((/** @type {string | undefined} */ b) => b);
+    if (bits.length) lines.push('', '## Conciencia de contexto', .../** @type {string[]} */ (bits));
   }
 
   const lim = identity.limits;
@@ -262,6 +324,7 @@ function _buildIdentitySection(identity) {
   return lines.join('\n');
 }
 
+/** @param {OSContext | null | undefined} osContext */
 function _buildOSSection(osContext) {
   if (!osContext) return '';
 
@@ -293,23 +356,33 @@ function _buildOSSection(osContext) {
   return lines.join('\n');
 }
 
+/**
+ * @typedef {{
+ *   nodes?: Array<{ type?: string, content?: string }>,
+ *   episodes?: Array<{ content?: string, created_at?: string }>,
+ * }} MemoryData
+ */
+
+/** @param {MemoryData | null | undefined} persistentMemory */
 function _buildMemorySection(persistentMemory) {
   if (!persistentMemory) return '';
 
   const parts = [];
 
-  if (persistentMemory.nodes?.length > 0) {
+  const nodes = persistentMemory.nodes;
+  if (nodes && nodes.length > 0) {
     parts.push('## Lo que sé del usuario y sus proyectos');
-    for (const node of persistentMemory.nodes.slice(0, 8)) {
+    for (const node of nodes.slice(0, 8)) {
       const type = node.type || 'Dato';
       const props = node.content ? node.content.slice(0, 200) : '';
       parts.push(`- (${type}): ${props}`);
     }
   }
 
-  if (persistentMemory.episodes?.length > 0) {
+  const episodes = persistentMemory.episodes;
+  if (episodes && episodes.length > 0) {
     // Filtrar episodios sin resumen: solo los que tienen contenido útil
-    const withContent = persistentMemory.episodes.filter(ep => {
+    const withContent = episodes.filter(ep => {
       const c = (ep.content || '').trim();
       return c.length > 15 && !c.endsWith('null"') && !c.endsWith('null') && !/^\[.+\]\s*null/.test(c);
     });
@@ -329,16 +402,29 @@ function _buildMemorySection(persistentMemory) {
 }
 
 /**
+ * @typedef {{
+ *   detected?: boolean,
+ *   level?: 'high' | 'medium',
+ *   action?: string,
+ *   confidence?: number,
+ *   tool?: string,
+ * }} ToolIntentData
+ */
+
+/**
  * Inyecta la instrucción de formato estructurado cuando hay toolIntent.
  * Esta es la pieza clave que conecta el embedding con el parsing del LLM.
+ * @param {ToolIntentData | null | undefined} toolIntent
  */
 function _buildToolIntentSection(toolIntent) {
-  if (!toolIntent || !toolIntent.detected) return '';
+  if (!toolIntent || !toolIntent.detected || !toolIntent.level) return '';
 
   const builder = TOOL_INSTRUCTIONS[toolIntent.level];
   if (!builder) return '';
 
-  return builder(toolIntent);
+  // El toolIntent ya pasó las guardas de `detected` y `level`; action/confidence
+  // siempre están presentes en runtime cuando llega del IntentDetector.
+  return /** @type {(intent: ToolIntentData) => string} */ (builder)(toolIntent);
 }
 
 // ── Serializer principal ──────────────────────────────────────────────────────
@@ -347,15 +433,16 @@ class GroqSerializer {
   /**
    * Serializa el Context Package completo al formato que espera Groq/Llama.
    *
-   * @param {object} contextPackage
-   * @param {object} contextPackage.identity
-   * @param {object} contextPackage.osContext
-   * @param {object} contextPackage.persistentMemory  — { nodes, episodes }
-   * @param {Array}  contextPackage.sessionHistory     — historial previo
-   * @param {object} contextPackage.currentMessage     — { role, content }
-   * @param {object} contextPackage.toolIntent         — resultado de IntentDetector (Fase 3)
+   * @param {{
+   *   identity?: Identity | null,
+   *   osContext?: OSContext | null,
+   *   persistentMemory?: MemoryData | null,
+   *   sessionHistory?: Array<HistoryTurn>,
+   *   currentMessage?: HistoryTurn | null,
+   *   toolIntent?: ToolIntentData | null,
+   * }} contextPackage
    *
-   * @returns {{ systemPrompt: string, messages: Array }}
+   * @returns {{ systemPrompt: string, messages: Array<HistoryTurn> }}
    */
   serialize(contextPackage) {
     const {
@@ -385,10 +472,42 @@ class GroqSerializer {
     const systemPrompt = sections.join('\n\n---\n\n');
 
     // Construir el array de mensajes para la API de Groq
+    /** @type {Array<HistoryTurn>} */
     const messages = [];
 
-    // Historial de sesión (sin el mensaje actual)
-    for (const turn of sessionHistory) {
+    // Contexto incremental: presupuesto de caracteres para el historial. Los
+    // turnos recientes entran COMPLETOS; los que exceden el presupuesto se
+    // condensan en un único resumen al inicio (la conversación vieja no
+    // puede comerse el presupuesto de tokens de la tarea actual).
+    let budget = MAX_HISTORY_CHARS;
+    /** @type {Array<HistoryTurn>} */
+    const recent = [];
+    /** @type {Array<HistoryTurn>} */
+    const overflow = [];
+    for (let i = sessionHistory.length - 1; i >= 0; i--) {
+      const turn = sessionHistory[i];
+      const size = (turn.content ? String(turn.content).length : 0) + 64;
+      if (budget > 0 && size <= budget) {
+        recent.unshift(turn);
+        budget -= size;
+      } else {
+        overflow.unshift(turn);
+      }
+    }
+
+    if (overflow.length > 0) {
+      const summaryText = overflow
+        .map(t => `${t.role === 'user' ? 'Usuario' : 'Asistente'}: ${String(t.content || '').replace(/\s+/g, ' ')}`)
+        .join('\n');
+      const cap = MAX_HISTORY_CHARS;
+      messages.push({
+        role: 'system',
+        content: `[Conversación anterior (resumen de ${overflow.length} turnos)]:\n${summaryText.slice(0, cap)}${summaryText.length > cap ? '\n…' : ''}`,
+      });
+    }
+
+    // Historial de sesión reciente (sin el mensaje actual)
+    for (const turn of recent) {
       if (turn.role && turn.content) {
         messages.push({ role: turn.role, content: String(turn.content) });
       }

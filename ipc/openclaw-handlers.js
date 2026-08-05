@@ -154,6 +154,14 @@ function register(ctx) {
             S.chatWindow.webContents.send('agent-progress', progress);
           }
         },
+
+        // Streaming: cada fragmento de texto que genera el LLM se reenvía al
+        // chat para pintarlo en vivo mientras se produce (patrón opencode).
+        onToken: (token) => {
+          if (S.chatWindow && !S.chatWindow.isDestroyed()) {
+            S.chatWindow.webContents.send('agent-token', token);
+          }
+        },
       });
 
       return {

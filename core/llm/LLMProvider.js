@@ -275,8 +275,83 @@ function post(url, headers, body, timeoutMs = 20_000) {
   });
 }
 
+// POST con streaming SSE (OpenAI-compatible /chat/completions con stream:true).
+// onToken(text) se invoca por cada fragmento de texto; el body acumulado se
+// resuelve como { status, body: { content, tool_calls } } al final del stream.
+function postStream(url, headers, body, onToken, timeoutMs = 20_000) {
+  return new Promise((resolve, reject) => {
+    const parsed  = new URL(url);
+    const lib     = parsed.protocol === 'https:' ? https : http;
+    const payload = JSON.stringify(body);
+    const options = {
+      hostname: parsed.hostname,
+      port:     parsed.port || (parsed.protocol === 'https:' ? 443 : 80),
+      path:     parsed.pathname + parsed.search,
+      method:   'POST',
+      family:   4,
+      headers:  { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(payload), ...headers },
+    };
+    options.agent = AGENT_BY_PROTOCOL[parsed.protocol] || lib.globalAgent;
+    const req = lib.request(options, (res) => {
+      if (res.statusCode !== 200) {
+        let data = '';
+        res.on('data', c => data += c);
+        res.on('end', () => {
+          let parsed;
+          try { parsed = JSON.parse(data); } catch { parsed = data; }
+          reject(new Error(`HTTP ${res.statusCode}: ${JSON.stringify(parsed).slice(0, 200)}`));
+        });
+        return;
+      }
+      let buffer = '';
+      let content = '';
+      const toolCalls = []; // acumulados por índice (deltas incrementales)
+      const parseDelta = (delta) => {
+        if (delta && typeof delta.content === 'string' && delta.content.length > 0) {
+          content += delta.content;
+          try { onToken && onToken(delta.content); } catch (_) {}
+        }
+        if (delta && Array.isArray(delta.tool_calls)) {
+          for (const piece of delta.tool_calls) {
+            const idx = piece.index || 0;
+            const slot = toolCalls[idx] || (toolCalls[idx] = { id: null, name: '', arguments: '' });
+            if (piece.id) slot.id = piece.id;
+            if (piece.function && piece.function.name) slot.name += piece.function.name;
+            if (piece.function && typeof piece.function.arguments === 'string') slot.arguments += piece.function.arguments;
+          }
+        }
+      };
+      res.on('data', (c) => {
+        buffer += c;
+        let nl;
+        while ((nl = buffer.indexOf('\n')) !== -1) {
+          const line = buffer.slice(0, nl).trim();
+          buffer = buffer.slice(nl + 1);
+          if (!line.startsWith('data:')) continue;
+          const data = line.slice(5).trim();
+          if (data === '[DONE]') continue;
+          let json;
+          try { json = JSON.parse(data); } catch { continue; }
+          const delta = json.choices?.[0]?.delta;
+          if (delta) parseDelta(delta);
+        }
+      });
+      res.on('end', () => {
+        const toolCallsOut = toolCalls
+          .filter(tc => tc && tc.name && tc.arguments)
+          .map(tc => ({ id: tc.id, function: { name: tc.name, arguments: tc.arguments } }));
+        resolve({ status: res.statusCode, body: { content, tool_calls: toolCallsOut.length > 0 ? toolCallsOut : null } });
+      });
+    });
+    req.setTimeout(timeoutMs, () => { req.destroy(); reject(new Error(`Timeout después de ${timeoutMs}ms`)); });
+    req.on('error', reject);
+    req.write(payload);
+    req.end();
+  });
+}
+
 // ── Generic OpenAI-compatible caller ──────────────────────────────────────────
-async function callOpenAI(providerId, messages, systemPrompt, mode = 'fast') {
+async function callOpenAI(providerId, messages, systemPrompt, mode = 'fast', opts = {}) {
   const def = _registry.get(providerId);
   if (!def) throw new Error(`Provider desconocido: ${providerId}`);
   const key = _getApiKey(providerId);
@@ -289,21 +364,21 @@ async function callOpenAI(providerId, messages, systemPrompt, mode = 'fast') {
   const history   = _trimHistoryForMode(messages, safeMode);
   const msgs      = [{ role: 'system', content: systemPrompt }, ...history];
 
-  console.log(`[llm] ${providerId} model: ${model} (${safeMode}, max_tokens=${maxTokens}, history=${history.length}msg, timeout=${timeoutMs}ms)`);
+  console.log(`[llm] ${providerId} model: ${model} (${safeMode}, max_tokens=${maxTokens}, history=${history.length}msg, timeout=${timeoutMs}ms)${opts.onToken ? ' [stream]' : ''}`);
 
   const headers = key ? { Authorization: `Bearer ${key}` } : {};
-  const res = await post(
-    `${def.baseURL}/chat/completions`,
-    headers,
-    { model, messages: msgs, max_tokens: maxTokens, temperature: 0.85 },
-    timeoutMs
-  );
+  const body = { model, messages: msgs, max_tokens: maxTokens, temperature: 0.85 };
+  if (opts.onToken) body.stream = true;
+
+  const res = opts.onToken
+    ? await postStream(`${def.baseURL}/chat/completions`, headers, body, opts.onToken, timeoutMs)
+    : await post(`${def.baseURL}/chat/completions`, headers, body, timeoutMs);
   if (res.status !== 200) throw new Error(`${def.name} ${res.status}: ${JSON.stringify(res.body)}`);
   return (res.body.choices[0].message.content || '').trim();
 }
 
 // ── Generic Gemini caller ─────────────────────────────────────────────────────
-async function callGeminiProvider(providerId, messages, systemPrompt, mode = 'fast') {
+async function callGeminiProvider(providerId, messages, systemPrompt, mode = 'fast', opts = {}) {
   const def = _registry.get(providerId);
   if (!def) throw new Error(`Provider desconocido: ${providerId}`);
   const key = _getApiKey(providerId);
@@ -319,20 +394,47 @@ async function callGeminiProvider(providerId, messages, systemPrompt, mode = 'fa
     parts: [{ text: m.content }],
   }));
 
-  console.log(`[llm] ${providerId} model: ${model} (${safeMode}, max_tokens=${maxTokens}, history=${history.length}msg, timeout=${timeoutMs}ms)`);
+  console.log(`[llm] ${providerId} model: ${model} (${safeMode}, max_tokens=${maxTokens}, history=${history.length}msg, timeout=${timeoutMs}ms)${opts.onToken ? ' [stream]' : ''}`);
+
+  const body = {
+    system_instruction: { parts: [{ text: systemPrompt }] },
+    contents,
+    generationConfig: { maxOutputTokens: maxTokens, temperature: 0.85 },
+  };
+  if (opts.onToken) body.stream = true;
 
   const res = await post(
-    `${def.baseURL}/models/${model}:generateContent?key=${key}`,
+    `${def.baseURL}/models/${model}:generateContent?key=${key}${opts.onToken ? '&alt=sse' : ''}`,
     {},
-    {
-      system_instruction: { parts: [{ text: systemPrompt }] },
-      contents,
-      generationConfig: { maxOutputTokens: maxTokens, temperature: 0.85 },
-    },
+    body,
     timeoutMs
   );
   if (res.status !== 200) throw new Error(`${def.name} ${res.status}: ${JSON.stringify(res.body)}`);
+  // Gemini stream (alt=sse) devuelve el body como string SSE en data — si
+  // llegó como JSON normal, extraemos directo; si es SSE, parseamos fragmentos.
+  if (opts.onToken && typeof res.body === 'string') {
+    const full = _parseGeminiSSE(res.body, opts.onToken);
+    return full.trim();
+  }
   return (res.body.candidates[0]?.content?.parts?.[0]?.text || '').trim();
+}
+
+function _parseGeminiSSE(raw, onToken) {
+  let out = '';
+  for (const line of raw.split('\n')) {
+    const t = line.trim();
+    if (!t.startsWith('data:')) continue;
+    const data = t.slice(5).trim();
+    if (data === '[DONE]') continue;
+    let json;
+    try { json = JSON.parse(data); } catch { continue; }
+    const text = json.candidates?.[0]?.content?.parts?.[0]?.text;
+    if (text) {
+      out += text;
+      try { onToken && onToken(text); } catch (_) {}
+    }
+  }
+  return out;
 }
 
 // ── Generic Anthropic caller ──────────────────────────────────────────────────
@@ -385,9 +487,9 @@ const PROVIDERS_WITH_TOOLS = {};
 function _rebuildMaps() {
   for (const [id] of _registry) {
     const fn = _getCaller(id);
-    if (fn) PROVIDERS[id] = (m, s, mode) => fn(id, m, s, mode);
+    if (fn) PROVIDERS[id] = (m, s, mode, opts) => fn(id, m, s, mode, opts);
     const fnTools = _getToolCaller(id);
-    if (fnTools) PROVIDERS_WITH_TOOLS[id] = (m, s, mode, tools) => fnTools(id, m, s, mode, tools);
+    if (fnTools) PROVIDERS_WITH_TOOLS[id] = (m, s, mode, tools, opts) => fnTools(id, m, s, mode, tools, opts);
   }
 }
 
@@ -449,7 +551,7 @@ function _normalizeGeminiResponse(body) {
   return { content: (content || '').trim() || null, toolCalls: toolCalls.length > 0 ? toolCalls : null };
 }
 
-async function callOpenAIWithTools(providerId, messages, systemPrompt, mode, tools) {
+async function callOpenAIWithTools(providerId, messages, systemPrompt, mode, tools, opts = {}) {
   const def = _registry.get(providerId);
   if (!def) throw new Error(`Provider desconocido: ${providerId}`);
   const key = _getApiKey(providerId);
@@ -466,12 +568,19 @@ async function callOpenAIWithTools(providerId, messages, systemPrompt, mode, too
     model, messages: msgs, max_tokens: maxTokens, temperature: 0.85,
     tools: _buildOpenAITools(tools), tool_choice: 'auto',
   };
+  if (opts.onToken) body.stream = true;
 
-  console.log(`[llm] ${providerId} tool-calling model: ${model} (${mode}, ${tools.length} tools)`);
+  console.log(`[llm] ${providerId} tool-calling model: ${model} (${mode}, ${tools.length} tools)${opts.onToken ? ' [stream]' : ''}`);
 
   const headers = key ? { Authorization: `Bearer ${key}` } : {};
-  const res = await post(`${def.baseURL}/chat/completions`, headers, body, timeoutMs);
+  const res = opts.onToken
+    ? await postStream(`${def.baseURL}/chat/completions`, headers, body, opts.onToken, timeoutMs)
+    : await post(`${def.baseURL}/chat/completions`, headers, body, timeoutMs);
   if (res.status !== 200) throw new Error(`${def.name} ${res.status}: ${JSON.stringify(res.body)}`);
+  if (opts.onToken) {
+    // postStream devolvió { content, tool_calls } ya normalizados a OpenAI
+    return _normalizeOpenAIResponse({ choices: [{ message: res.body }] });
+  }
   return _normalizeOpenAIResponse(res.body);
 }
 
@@ -604,7 +713,7 @@ async function _callWithFallback(messages, systemPrompt, mode = 'fast', opts = {
           await _sleep(waitMs);
         }
         console.log(`[llm] intentando ${providerName} (${mode})${attempt > 0 ? ` [retry ${attempt}]` : ''}...`);
-        const result = await _enqueueProviderCall(providerName, () => fn(messages, systemPrompt, mode), opts);
+        const result = await _enqueueProviderCall(providerName, () => fn(messages, systemPrompt, mode, opts), opts);
         console.log(`[llm] respuesta de ${providerName} (${result.length} chars)`);
         return result;
       } catch(e) {
@@ -669,7 +778,7 @@ async function _callWithFallbackTools(messages, systemPrompt, mode = 'smart', to
           const waitMs = ra > 0 ? ra : _backoffWithJitter(attempt - 1);
           await _sleep(waitMs);
         }
-        const result = await _enqueueProviderCall(providerName, () => fn(messages, systemPrompt, mode, tools), opts);
+        const result = await _enqueueProviderCall(providerName, () => fn(messages, systemPrompt, mode, tools, opts), opts);
         return result;
       } catch(e) {
         lastErr = e;

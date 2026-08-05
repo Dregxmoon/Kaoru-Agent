@@ -1,7 +1,7 @@
 'use strict';
 
 const http = require('http');
-const { spawnSync, spawn } = require('child_process');
+const { spawn } = require('child_process');
 const fs = require('fs');
 const path = require('path');
 const Diff = require('diff');
@@ -250,23 +250,54 @@ const HANDLERS = {
     const args = _buildCommandArgs(command);
     if (args.length === 0) return { error: 'empty command after parsing' };
 
-    const r = spawnSync(args[0], args.slice(1), {
-      cwd,
-      timeout,
-      stdio: 'pipe',
-      encoding: 'utf-8',
-      maxBuffer: MAX_EXEC_OUTPUT,
-    });
+    // Async con spawn (no spawnSync): un comando largo NO bloquea el proceso
+    // main ni el event loop del server (antes congelaba la app entera).
+    return new Promise((resolve) => {
+      const child = spawn(args[0], args.slice(1), {
+        cwd,
+        stdio: 'pipe',
+        windowsHide: true,
+      });
+      const stdout = [];
+      const stderr = [];
+      let outSize = 0;
+      let errSize = 0;
+      let killed = false;
 
-    return {
-      result: {
-        stdout: r.stdout || '',
-        stderr: r.stderr || '',
-        exitCode: r.status,
-        signal: r.signal,
-        error: r.error ? r.error.message : null,
-      },
-    };
+      child.stdout.on('data', (c) => {
+        outSize += c.length;
+        if (outSize <= MAX_EXEC_OUTPUT) stdout.push(c);
+      });
+      child.stderr.on('data', (c) => {
+        errSize += c.length;
+        if (errSize <= MAX_EXEC_OUTPUT) stderr.push(c);
+      });
+
+      const timer = setTimeout(() => {
+        killed = true;
+        child.kill('SIGKILL');
+      }, timeout);
+
+      child.on('error', (e) => {
+        clearTimeout(timer);
+        resolve({
+          result: { stdout: Buffer.concat(stdout).toString('utf-8'), stderr: Buffer.concat(stderr).toString('utf-8'), exitCode: null, signal: null, error: e.message },
+        });
+      });
+
+      child.on('close', (code, signal) => {
+        clearTimeout(timer);
+        resolve({
+          result: {
+            stdout: Buffer.concat(stdout).toString('utf-8'),
+            stderr: Buffer.concat(stderr).toString('utf-8'),
+            exitCode: code,
+            signal: killed ? 'timeout' : (signal || null),
+            error: null,
+          },
+        });
+      });
+    });
   },
 
   read(input) {
@@ -425,22 +456,49 @@ const HANDLERS = {
     const timeout = Math.min((input.timeout || 10) * 1000, MAX_CODE_TIMEOUT);
     if (!code) return { error: 'code required' };
 
-    const r = spawnSync('python3', ['-c', code], {
-      timeout,
-      stdio: 'pipe',
-      encoding: 'utf-8',
-      maxBuffer: MAX_EXEC_OUTPUT,
-    });
+    return new Promise((resolve) => {
+      const child = spawn('python3', ['-c', code], {
+        stdio: 'pipe',
+        windowsHide: true,
+      });
+      const stdout = [];
+      const stderr = [];
+      let outSize = 0;
+      let errSize = 0;
+      let killed = false;
 
-    return {
-      result: {
-        stdout: r.stdout || '',
-        stderr: r.stderr || '',
-        exitCode: r.status,
-        signal: r.signal,
-        error: r.error ? r.error.message : null,
-      },
-    };
+      child.stdout.on('data', (c) => {
+        outSize += c.length;
+        if (outSize <= MAX_EXEC_OUTPUT) stdout.push(c);
+      });
+      child.stderr.on('data', (c) => {
+        errSize += c.length;
+        if (errSize <= MAX_EXEC_OUTPUT) stderr.push(c);
+      });
+
+      const timer = setTimeout(() => {
+        killed = true;
+        child.kill('SIGKILL');
+      }, timeout);
+
+      child.on('error', (e) => {
+        clearTimeout(timer);
+        resolve({ result: { stdout: Buffer.concat(stdout).toString('utf-8'), stderr: Buffer.concat(stderr).toString('utf-8'), exitCode: null, signal: null, error: e.message } });
+      });
+
+      child.on('close', (code_, signal) => {
+        clearTimeout(timer);
+        resolve({
+          result: {
+            stdout: Buffer.concat(stdout).toString('utf-8'),
+            stderr: Buffer.concat(stderr).toString('utf-8'),
+            exitCode: code_,
+            signal: killed ? 'timeout' : (signal || null),
+            error: null,
+          },
+        });
+      });
+    });
   },
 };
 
@@ -474,7 +532,7 @@ function respond(res, code, data) {
   res.end(JSON.stringify(data));
 }
 
-function handleTool(body) {
+async function handleTool(body) {
   const tool = body.tool;
   const input = body.input || {};
 
@@ -482,7 +540,7 @@ function handleTool(body) {
   if (!handler) return { error: `Unknown tool: ${tool}` };
 
   try {
-    const result = handler(input);
+    const result = await handler(input);
     _audit(tool, input, !result.error, result.error || 'ok');
     return result;
   } catch (e) {
@@ -524,9 +582,10 @@ const server = http.createServer((req, res) => {
       if (req.destroyed) return;
       let parsed;
       try { parsed = JSON.parse(body); } catch { return respond(res, 400, { error: 'Invalid JSON' }); }
-      const result = handleTool(parsed);
-      if (result.error) respond(res, 400, result);
-      else respond(res, 200, result);
+      handleTool(parsed).then((result) => {
+        if (result.error) respond(res, 400, result);
+        else respond(res, 200, result);
+      });
     });
 
     return;

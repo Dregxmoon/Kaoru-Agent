@@ -3,6 +3,7 @@ name: CI
 on:
   push:
     branches: [dev, produccion]
+    tags: ['v*']
   pull_request:
     branches: [dev, produccion]
 
@@ -11,6 +12,30 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  quality:
+    name: Lint · typecheck · format
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Instalar dependencias
+        run: npm ci
+
+      - name: ESLint
+        run: npm run lint
+
+      - name: Typecheck (JSDoc estricto en core/)
+        run: npm run typecheck
+
+      - name: Prettier check
+        run: npm run format:check
+
   test:
     name: Tests (Electron runner)
     runs-on: ubuntu-latest
@@ -68,3 +93,43 @@ jobs:
           name: asistente-portable-win
           path: dist/*.exe
           if-no-files-found: warn
+
+  release:
+    name: Release (tag v*)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [quality, test]
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Instalar wine
+        run: |
+          sudo dpkg --add-architecture i386
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends wine64 wine32
+
+      - name: Instalar dependencias
+        run: npm ci
+
+      - name: Empaquetar ejecutable portable
+        run: npm run build-portable
+
+      - name: Extraer notas del tag
+        id: tag
+        run: echo "name=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+
+      - name: Crear GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.ref_name }}
+          name: Asistente v${{ steps.tag.outputs.name }}
+          generate_release_notes: true
+          files: dist/*.exe
