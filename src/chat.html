@@ -2,19 +2,15 @@
 <html lang="es" data-theme="dark">
   <head>
     <meta charset="UTF-8" />
-    <!-- CSP: mitigación de defensa en profundidad. Con webSecurity:false en
-     main.js (ver ticket de contextIsolation) su efecto real es parcial —
-     Chromium igual restringe fetch/XHR/recursos por este header, pero la
-     same-origin policy general sigue desactivada a nivel BrowserWindow.
-     Vale la pena tenerla igual, y se vuelve completamente efectiva el día
-     que webSecurity pase a true. 'unsafe-inline' en script-src es
+    <!-- CSP: Fase 1 — webSecurity:true + libs locales (sin CDN). 'self' cubre
+     los scripts de node_modules. 'unsafe-inline' en script-src es
      necesario mientras todo el JS viva inline en este archivo — se puede
      retirar si algún día se externaliza a un <script src> con nonce. -->
     <meta
       http-equiv="Content-Security-Policy"
       content="
   default-src 'self';
-  script-src 'self' https://cdn.jsdelivr.net https://cubism.live2d.com 'unsafe-inline' 'unsafe-eval';
+  script-src 'self' 'unsafe-inline' 'unsafe-eval';
   style-src 'self' https://fonts.googleapis.com 'unsafe-inline';
   font-src https://fonts.gstatic.com;
   img-src 'self' data:;
@@ -321,9 +317,9 @@
       </div>
     </div>
 
-    <script src="https://cubism.live2d.com/sdk-web/cubismcore/live2dcubismcore.min.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/pixi.js@6.5.10/dist/browser/pixi.min.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/pixi-live2d-display@0.4.0/dist/cubism4.min.js"></script>
+    <script src="../vendor/live2dcubismcore.min.js"></script>
+    <script src="../node_modules/pixi.js/dist/browser/pixi.min.js"></script>
+    <script src="../node_modules/pixi-live2d-display/dist/cubism4.min.js"></script>
 
     <script src="chat/core.js"></script>
     <script src="chat/messages.js"></script>

@@ -50,11 +50,18 @@ function _openclawBase() {
 }
 
 const DEFAULT_TIMEOUT = 30_000;
-// FIX Fase 0.1: API_KEY se lee en el momento del request, no al cargar el módulo.
-// Core._startOpenClaw() (línea 205 en Core.js) setea process.env.OPENCLAW_API_KEY
-// DESPUÉS de que este módulo ya fue require()-do (línea 38 en Core.js).
-// Con un const de módulo, el cliente nunca manda el header de auth.
+// FIX Fase 0.1: la key se lee en el momento del request, no al cargar el módulo.
+// Core._startOpenClaw() genera la key DESPUÉS de que este módulo ya fue
+// require()-do (línea 38 en Core.js) y la entrega vía setApiKey(). Con un
+// const de módulo el cliente nunca mandaría el header de auth. Se prefiere el
+// store en memoria (setApiKey) sobre el env: Core borra OPENCLAW_API_KEY del
+// process del padre (Fase 1) para no dejar la key expuesta en env heredado.
+let _apiKeyStore = null;
+function setApiKey(key) {
+  _apiKeyStore = key || null;
+}
 function _getApiKey() {
+  if (_apiKeyStore) return _apiKeyStore;
   return process.env.OPENCLAW_API_KEY || null;
 }
 
@@ -389,4 +396,4 @@ function getOpenClawBridge() {
   return _instance;
 }
 
-module.exports = { OpenClawBridge, getOpenClawBridge };
+module.exports = { OpenClawBridge, getOpenClawBridge, setApiKey };

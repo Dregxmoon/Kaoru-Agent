@@ -26,6 +26,12 @@ const { createSharedState } = require('./ipc/state.js');
 
 app.setName('vtuber-overlay');
 
+// Fase 1: webSecurity pasó a true en todas las ventanas (las libs de
+// pixi/live2d ya se sirven locales desde node_modules, sin CDN). El modelo
+// Live2D y sus texturas viven en `models/` y se cargan por file:// desde
+// una página file:// — sin este switch Chromium bloquea ese XHR por CORS.
+app.commandLine.appendSwitch('allow-file-access-from-files');
+
 // G.1: endurecimiento de seguridad. Las ventanas cargan SOLO archivos locales;
 // se bloquea toda navegación a URLs remotas, window.open y webviews. Con
 // nodeIntegration:false + contextIsolation:true y preloads (src/preload.js y
@@ -442,7 +448,7 @@ function createWindow() {
       preload: path.join(__dirname, 'src/preload.js'),
       nodeIntegration: false,
       contextIsolation: true, // sandbox: la página (y los CDN) no ven Node
-      webSecurity: false, // intencional: Live2D/pixi.js cargan recursos por CDN
+      webSecurity: true, // Fase 1: libs (pixi/live2d) ya se sirven locales; CSP plena
       sandbox: false, // el preload necesita Node para los módulos core
       webviewTag: false,
       allowRunningInsecureContent: false,

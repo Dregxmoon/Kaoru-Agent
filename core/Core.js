@@ -1001,6 +1001,10 @@ function _startOpenClaw(workspacePath) {
 
     // No dejar la API key en el env del proceso padre
     delete process.env.OPENCLAW_API_KEY;
+    // Entregar la key al bridge en memoria (el bridge la lee por request)
+    try {
+      require('./planner/OpenClawBridge.js').setApiKey(apiKey);
+    } catch (_) {}
 
     _openclawProcess.stdout?.on('data', (d) => {
       const msg = d.toString().trim();

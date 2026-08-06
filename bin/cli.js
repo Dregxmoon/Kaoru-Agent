@@ -11,7 +11,8 @@
  *   ELECTRON_RUN_AS_NODE=1 npx electron bin/cli.js chat
  *
  * Comandos:
- *   run "<prompt>" [--workspace dir] [--json] [--auto-approve] [--session id]
+ *   run "<prompt>" [--workspace dir] [--json] [--auto-approve] [--mode fast|smart]
+ *                  [--session id]
  *                  → una consulta y sale.
  *   chat [--workspace dir] [--session id]  → REPL interactivo con streaming.
  *   sessions [--limit n]                   → lista sesiones pasadas.
@@ -167,7 +168,10 @@ function loadCheckpoint(name, Core) {
 
 function listCheckpoints() {
   const dir = checkpointDir();
-  const files = fs.readdirSync(dir).filter((f) => f.endsWith('.json')).sort();
+  const files = fs
+    .readdirSync(dir)
+    .filter((f) => f.endsWith('.json'))
+    .sort();
   if (!files.length) {
     console.log('  (sin checkpoints)');
     return;
@@ -193,7 +197,9 @@ async function setup() {
   }
   fs.mkdirSync(process.env.ASISTENTE_DATA_DIR, { recursive: true });
 
-  const workspace = path.resolve(flags.workspace || process.env.ASISTENTE_WORKSPACE || process.cwd());
+  const workspace = path.resolve(
+    flags.workspace || process.env.ASISTENTE_WORKSPACE || process.cwd()
+  );
   process.env.ASISTENTE_WORKSPACE = workspace;
   setProjectCWD(workspace);
 
@@ -212,9 +218,11 @@ async function setup() {
   if (flags.config || process.env.ASISTENTE_CONFIG) {
     const cfgPath = path.resolve(flags.config || process.env.ASISTENTE_CONFIG);
     const userData = path.dirname(cfgPath);
-    LLMProvider.setUsageTracker(new (require('../core/observability/UsageTracker.js').UsageTracker)(
-      path.join(userData, 'usage.jsonl')
-    ));
+    LLMProvider.setUsageTracker(
+      new (require('../core/observability/UsageTracker.js').UsageTracker)(
+        path.join(userData, 'usage.jsonl')
+      )
+    );
   }
 
   const active = await Core.startSession();
@@ -243,7 +251,10 @@ async function cmdRun(Core, LLMProvider, prompt) {
   const autoApprove = flags['auto-approve'] === true || flags['auto-approve'] === 'true';
   const start = Date.now();
   let output = '';
+  const runOpts = {};
+  if (flags.mode === 'fast' || flags.mode === 'smart') runOpts.mode = flags.mode;
   const result = await Core.runAgent(prompt, {
+    ...runOpts,
     onToken: (t) => {
       process.stdout.write(t);
       output += t;
@@ -267,8 +278,7 @@ async function cmdRun(Core, LLMProvider, prompt) {
     console.error(`[cli] error: ${result.error}`);
     return;
   }
-  const summary =
-    result.iterations > 0 ? `\n[cli] ${result.iterations} iteraciones · ${ms}ms` : '';
+  const summary = result.iterations > 0 ? `\n[cli] ${result.iterations} iteraciones · ${ms}ms` : '';
   console.log((output.trim() || result.response || '').trim() + summary);
 }
 
@@ -278,7 +288,9 @@ async function cmdChat(ctx) {
   const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
   rl.setPrompt('kaoru> ');
 
-  console.log(`Sesión activa: ${ctx.active.sessionId} (${ctx.active.resumed ? 'reanudada' : 'nueva'})`);
+  console.log(
+    `Sesión activa: ${ctx.active.sessionId} (${ctx.active.resumed ? 'reanudada' : 'nueva'})`
+  );
   console.log('Escribe /help para ayuda. /exit para salir.');
 
   const ask = (q) =>

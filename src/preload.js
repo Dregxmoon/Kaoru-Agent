@@ -13,7 +13,20 @@ const path = require('path');
 const fs = require('fs');
 const cp = require('child_process');
 
+const { assertAllowed } = require('../ipc/channel-whitelist.js');
+
 const ModelAugmenter = require('../core/behavior/ModelAugmenter.js');
+
+// Bridge acotado: la página del overlay SOLO recibe las funciones concretas
+// que usa (augmentModel para el modelo 3D y listGestures para el
+// GestureEngine cargado en la página). NUNCA el módulo completo — así la
+// página (y los CDN) no pueden llegar a resetCache ni a otros internos.
+function _boundedModelAugmenter() {
+  return {
+    augmentModel: (model3Path) => ModelAugmenter.augmentModel(model3Path),
+    listGestures: (model3Path) => ModelAugmenter.listGestures(model3Path),
+  };
+}
 
 // Fuente de los módulos core que la página necesita EJECUTAR en su propio
 // mundo (GestureEngine): el engine recibe el objeto Live2D real creado por
@@ -62,10 +75,18 @@ function ttsStream(args = {}) {
 }
 
 contextBridge.exposeInMainWorld('assistant', {
-  // IPC con la misma firma que ipcRenderer (on recibe (event, ...args)).
-  invoke: (channel, ...args) => ipcRenderer.invoke(channel, ...args),
-  send: (channel, ...args) => ipcRenderer.send(channel, ...args),
+  // IPC con whitelist de canales (ipc/channel-whitelist.js) — el renderer no
+  // puede invocar canales internos no previstos.
+  invoke: (channel, ...args) => {
+    assertAllowed('invoke', channel);
+    return ipcRenderer.invoke(channel, ...args);
+  },
+  send: (channel, ...args) => {
+    assertAllowed('send', channel);
+    return ipcRenderer.send(channel, ...args);
+  },
   on: (channel, listener) => {
+    assertAllowed('on', channel);
     const wrapped = (_e, ...args) => listener(_e, ...args);
     ipcRenderer.on(channel, wrapped);
     return () => ipcRenderer.removeListener(channel, wrapped);
@@ -86,5 +107,5 @@ contextBridge.exposeInMainWorld('assistant', {
   // ModelAugmenter, que se usa como objeto de métodos (augmentModel devuelve
   // objetos planos serializables) y sí puede pasar por el bridge.
   getCoreModuleSource: (name) => coreSources[name] || null,
-  ModelAugmenter,
+  ModelAugmenter: _boundedModelAugmenter(),
 });

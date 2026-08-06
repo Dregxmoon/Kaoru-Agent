@@ -244,11 +244,8 @@ let mermaidReady = false;
 
 function loadMermaid() {
   const s = document.createElement('script');
-  // Versión fijada a propósito — @11 sin fijar significa que cualquier
-  // publicación nueva de la línea 11.x se carga automáticamente sin que
-  // nadie lo decida. Actualizar este número es una decisión consciente,
-  // no un "just works" silencioso.
-  s.src = 'https://cdn.jsdelivr.net/npm/mermaid@11.4.1/dist/mermaid.min.js';
+  // Fase 1: se sirve local desde node_modules (sin CDN).
+  s.src = '../node_modules/mermaid/dist/mermaid.min.js';
   s.onload = () => {
     mermaid.initialize({
       startOnLoad: false,

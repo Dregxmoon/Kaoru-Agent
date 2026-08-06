@@ -2,17 +2,17 @@
 <html lang="es">
 <head>
 <meta charset="UTF-8">
-<!-- CSP: mitigación de defensa en profundidad (espejo de chat.html). Con
-     webSecurity:false en main.js su efecto real es parcial, pero Chromium
-     igual restringe fetch/XHR/recursos por este header. 'unsafe-inline' es
-     necesario mientras todo el JS viva inline; file:/data:/blob: cubren los
-     modelos Live2D locales y sus texturas. -->
+<!-- CSP: Fase 1 — webSecurity:true + libs locales (sin CDN). 'self' cubre
+     los scripts de node_modules y los modelos Live2D locales. file: sigue
+     en connect/img para el modelo y sus texturas. 'unsafe-inline' es
+     necesario mientras todo el JS viva inline; 'unsafe-eval' para el
+     loader mínimo de módulos core de la página. -->
 <meta http-equiv="Content-Security-Policy" content="
   default-src 'self';
-  script-src 'self' https://cdn.jsdelivr.net https://cubism.live2d.com 'unsafe-inline' 'unsafe-eval';
+  script-src 'self' 'unsafe-inline' 'unsafe-eval';
   style-src 'self' 'unsafe-inline';
   img-src 'self' data: file: blob:;
-  connect-src 'self' file: data: blob: https://cubism.live2d.com;
+  connect-src 'self' file: data: blob:;
   media-src 'self' file: data: blob:;
   object-src 'none';
   base-uri 'none';
@@ -36,9 +36,9 @@
 
 <canvas id="live2d-canvas"></canvas>
 
-<script src="https://cubism.live2d.com/sdk-web/cubismcore/live2dcubismcore.min.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/pixi.js@6.5.10/dist/browser/pixi.min.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/pixi-live2d-display@0.4.0/dist/cubism4.min.js"></script>
+<script src="../vendor/live2dcubismcore.min.js"></script>
+<script src="../node_modules/pixi.js/dist/browser/pixi.min.js"></script>
+<script src="../node_modules/pixi-live2d-display/dist/cubism4.min.js"></script>
 
 <script>
 // Sandbox: la página no tiene require() ni Node. Todo llega acotado desde el

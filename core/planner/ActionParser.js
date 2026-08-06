@@ -64,7 +64,14 @@ const SAFE_READONLY_PATTERNS = [
   /^wc(\s+-[a-zA-Z]+)*\s+[^;&|`$()>]+$/,
   /^which\s+[^;&|`$()]+$/,
   /^uname(\s+-[a-zA-Z]+)*$/,
-  /^git\s+(status|log|diff|branch|remote\s+-v|show|blame)(\s+[^;&|`$()]*)?$/,
+  /^git\s+(status|log|diff|remote\s+-v|show|blame)(\s+[^;&|`$()]*)?$/,
+  // `git branch` SOLO en modo listado de solo lectura: sin args, -a/-r/--all
+  // o --list con un patrón. Nunca con -d/-D/--delete ni con un nombre de
+  // rama a secas (que CREA la rama). Un "git branch -D main" o "git branch
+  // feature" desde el LLM ahora pide aprobación.
+  /^git\s+branch$/,
+  /^git\s+branch\s+(-a|-r|--all|--list)$/,
+  /^git\s+branch\s+--list\s+[A-Za-z0-9_*?./-]+$/,
   /^node\s+(-v|--version)$/,
   /^npm\s+(-v|--version)$/,
   /^python3?\s+(-V|--version)$/,

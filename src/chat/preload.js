@@ -14,6 +14,8 @@ const path = require('path');
 const fs = require('fs');
 const cp = require('child_process');
 
+const { assertAllowed } = require('../../ipc/channel-whitelist.js');
+
 const marked = require('marked');
 const createDOMPurify = require('dompurify');
 
@@ -22,6 +24,47 @@ const CommandRegistry = require('../../core/commands/CommandRegistry.js');
 const FileResolver = require('../../core/commands/FileResolver.js');
 const AgentManager = require('../../core/agents/AgentManager.js');
 const ModelAugmenter = require('../../core/behavior/ModelAugmenter.js');
+
+// Bridge acotado: la página SOLO recibe las funciones concretas que usa el
+// chat, nunca el módulo completo. LLMProvider entero expone _getApiKey/
+// _config con las API keys en claro; CommandRegistry entero expone todos los
+// comandos y su motor de ejecución. Aquí se envuelve cada método de forma
+// explícita y únicamente los que el renderer consume (comprobado contra
+// src/chat/*.js). Si el renderer necesita algo nuevo, se añade aquí — no se
+// desbloquea el módulo completo.
+function _boundedLLM() {
+  return {
+    complete: (messages, systemPrompt, opts) => LLMProvider.complete(messages, systemPrompt, opts),
+    configure: (cfg) => LLMProvider.configure(cfg),
+    getActiveProvider: () => LLMProvider.getActiveProvider(),
+    getAvailableProviders: () => LLMProvider.getAvailableProviders(),
+  };
+}
+function _boundedCommands() {
+  return {
+    getNames: () => CommandRegistry.getNames(),
+    getCommand: (name) => CommandRegistry.getCommand(name),
+  };
+}
+function _boundedFiles() {
+  return {
+    listProjectFiles: (cwd, pattern) => FileResolver.listProjectFiles(cwd, pattern),
+    buildFileContext: (text, cwd) => FileResolver.buildFileContext(text, cwd),
+  };
+}
+function _boundedAgents() {
+  return {
+    getSystemPrompt: (name) => AgentManager.getSystemPrompt(name),
+  };
+}
+// ModelAugmenter se usa como objeto de métodos (augmentModel devuelve objetos
+// planos serializables) y la página necesita listGestures para el mini-avatar.
+function _boundedModelAugmenter() {
+  return {
+    augmentModel: (model3Path) => ModelAugmenter.augmentModel(model3Path),
+    listGestures: (model3Path) => ModelAugmenter.listGestures(model3Path),
+  };
+}
 
 // Fuente de los módulos core que la página necesita EJECUTAR en su propio
 // mundo (GestureEngine): recibe el objeto Live2D real creado por PIXI en la
@@ -95,9 +138,18 @@ function ttsStream(args = {}) {
 }
 
 contextBridge.exposeInMainWorld('assistant', {
-  invoke: (channel, ...args) => ipcRenderer.invoke(channel, ...args),
-  send: (channel, ...args) => ipcRenderer.send(channel, ...args),
+  // IPC con whitelist de canales: el renderer (o un script comprometido) no
+  // puede invocar canales internos fuera de ipc/channel-whitelist.js.
+  invoke: (channel, ...args) => {
+    assertAllowed('invoke', channel);
+    return ipcRenderer.invoke(channel, ...args);
+  },
+  send: (channel, ...args) => {
+    assertAllowed('send', channel);
+    return ipcRenderer.send(channel, ...args);
+  },
   on: (channel, listener) => {
+    assertAllowed('on', channel);
     const wrapped = (_e, ...args) => listener(_e, ...args);
     ipcRenderer.on(channel, wrapped);
     return () => ipcRenderer.removeListener(channel, wrapped);
@@ -128,15 +180,17 @@ contextBridge.exposeInMainWorld('assistant', {
     return CommandRegistry.execute(text, ctx);
   },
 
-  LLMProvider,
-  CommandRegistry,
-  FileResolver,
-  AgentManager,
+  // Módulos core SOLO como bridge acotado (funciones concretas por dominio),
+  // nunca los módulos completos — ver _bounded* arriba.
+  LLMProvider: _boundedLLM(),
+  CommandRegistry: _boundedCommands(),
+  FileResolver: _boundedFiles(),
+  AgentManager: _boundedAgents(),
   // GestureEngine NO se expone aquí: es una clase ES que la página instancia
   // con `new` y recibe el objeto Live2D real (creado por PIXI en la página),
   // nada de lo cual funciona a través del contextBridge (los proxies no son
   // constructables y el modelo no puede copiarse). La página lo carga vía
   // getCoreModuleSource con un loader mínimo que solo resuelve estos nombres.
   getCoreModuleSource: (name) => coreSources[name] || null,
-  ModelAugmenter,
+  ModelAugmenter: _boundedModelAugmenter(),
 });

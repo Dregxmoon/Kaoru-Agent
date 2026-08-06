@@ -129,10 +129,11 @@ registerProvider({
 
 registerProvider({
   id: 'nvidia',
-  name: 'NVIDIA Nemotron',
+  name: 'NVIDIA Builds (DeepSeek V4)',
   type: 'openai',
   baseURL: 'https://integrate.api.nvidia.com/v1',
-  models: { fast: 'nvidia/nemotron-3-ultra', smart: 'nvidia/nemotron-3-ultra' },
+  models: { fast: 'deepseek-ai/deepseek-v4-flash', smart: 'deepseek-ai/deepseek-v4-pro' },
+  timeoutMs: { fast: 45_000, smart: 120_000 },
   builtin: true,
   free: true,
 });
@@ -504,7 +505,7 @@ async function callOpenAI(providerId, messages, systemPrompt, mode = 'fast', opt
   const safeMode = _resolveMode(mode);
   const model = def.models?.[safeMode];
   const maxTokens = MAX_OUTPUT[safeMode];
-  const timeoutMs = TIMEOUT_MS[safeMode] ?? TIMEOUT_MS.fast;
+  const timeoutMs = def.timeoutMs?.[safeMode] ?? TIMEOUT_MS[safeMode] ?? TIMEOUT_MS.fast;
   const history = _trimHistoryForMode(messages, safeMode);
   const msgs = [{ role: 'system', content: systemPrompt }, ...history];
   const startedAt = Date.now();
@@ -757,7 +758,7 @@ async function callOpenAIWithTools(providerId, messages, systemPrompt, mode, too
   const safeMode = _resolveMode(mode);
   const model = def.models?.[safeMode];
   const maxTokens = MAX_OUTPUT[safeMode];
-  const timeoutMs = TIMEOUT_MS[safeMode] ?? TIMEOUT_MS.fast;
+  const timeoutMs = def.timeoutMs?.[safeMode] ?? TIMEOUT_MS[safeMode] ?? TIMEOUT_MS.fast;
   const history = _trimHistoryForMode(messages, safeMode);
   const msgs = [{ role: 'system', content: systemPrompt }, ...history];
   const startedAt = Date.now();
@@ -1086,6 +1087,13 @@ function defHasKey(providerId) {
   return !!_getApiKey(providerId);
 }
 
+// Acceso main-process a la key resuelta (config/env/keychain). NO expone la
+// key al renderer — es para el núcleo y tests. Fase 1: getAvailableProviders()
+// ya no devuelve apiKey; esta es la vía explícita para quien la necesite.
+function getResolvedApiKey(providerId) {
+  return _getApiKey(providerId);
+}
+
 // ── Public API ────────────────────────────────────────────────────────────────
 function complete(messages, systemPrompt, opts) {
   _rebuildMaps();
@@ -1129,7 +1137,6 @@ function getAvailableProviders() {
     hasKey: !!_getApiKey(p.id),
     baseURL: p.baseURL,
     models: p.models,
-    apiKey: _config.providers[p.id]?.apiKey || '',
   }));
 }
 
@@ -1162,6 +1169,7 @@ module.exports = {
   completeWithTools,
   getActiveProvider,
   getActiveModel,
+  getResolvedApiKey,
   getAvailableProviders,
   addCustomProvider,
   removeCustomProvider,

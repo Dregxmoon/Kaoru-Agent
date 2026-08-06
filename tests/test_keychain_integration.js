@@ -58,12 +58,14 @@ function main() {
     LLM._setKeychainResolver(false); // fuerza "sin llavero" (no toca el real)
     LLM.configure({ llm: { apiKeys: { groq: 'CONFIG-ONLY' } } });
     const p = LLM.getAvailableProviders().find((x) => x.id === 'groq');
+    assert(p && p.hasKey === true, 'sin llavero, config.json sigue funcionando');
+    // Fase 1: el surface público NO expone la key; se verifica por acceso
+    // explícito main-process (getResolvedApiKey).
+    assert(p && !('apiKey' in p), 'getAvailableProviders no expone apiKey (Fase 1)');
     assert(
-      p && p.apiKey === 'CONFIG-ONLY',
-      'sin llavero, config.json sigue funcionando',
-      JSON.stringify(p?.apiKey)
+      LLM.getResolvedApiKey('groq') === 'CONFIG-ONLY',
+      'sin llavero, la key resuelta es la de config'
     );
-    assert(p && p.hasKey === true, 'hasKey true con key de config');
   }
 
   // ── 2. El llavero gana sobre config.json ───────────────────────────────
@@ -71,11 +73,10 @@ function main() {
     const fake = makeFakeKeychain({ groq: 'KEYCHAIN-KEY' });
     LLM._setKeychainResolver(fake);
     LLM.configure({ llm: { apiKeys: { groq: 'CONFIG-KEY' } } });
-    const p = LLM.getAvailableProviders().find((x) => x.id === 'groq');
     assert(
-      p && p.apiKey === 'KEYCHAIN-KEY',
+      LLM.getResolvedApiKey('groq') === 'KEYCHAIN-KEY',
       'key del llavero tiene prioridad sobre config.json',
-      JSON.stringify(p?.apiKey)
+      LLM.getResolvedApiKey('groq')
     );
   }
 
@@ -84,8 +85,10 @@ function main() {
     const fake = makeFakeKeychain({});
     LLM._setKeychainResolver(fake);
     LLM.configure({ llm: { apiKeys: { groq: 'CONFIG-KEY' } } });
-    const p = LLM.getAvailableProviders().find((x) => x.id === 'groq');
-    assert(p && p.apiKey === 'CONFIG-KEY', 'llavero vacío no borra la key de config');
+    assert(
+      LLM.getResolvedApiKey('groq') === 'CONFIG-KEY',
+      'llavero vacío no borra la key de config'
+    );
   }
 
   // ── 4. Una key del llavero para un provider sin config también entra ───
@@ -93,9 +96,8 @@ function main() {
     const fake = makeFakeKeychain({ openai: 'KC-OPENAI' });
     LLM._setKeychainResolver(fake);
     LLM.configure({ llm: {} });
-    const p = LLM.getAvailableProviders().find((x) => x.id === 'openai');
     assert(
-      p && p.apiKey === 'KC-OPENAI',
+      LLM.getResolvedApiKey('openai') === 'KC-OPENAI',
       'provider sin entrada en config se resuelve solo desde el llavero'
     );
   }
@@ -148,8 +150,7 @@ function main() {
     assert(LLM.removeProviderApiKey('groq') === false, 'remove sin llavero devuelve false');
     // y config sigue funcionando
     LLM.configure({ llm: { apiKeys: { groq: 'SIGUE' } } });
-    const p = LLM.getAvailableProviders().find((x) => x.id === 'groq');
-    assert(p && p.apiKey === 'SIGUE', 'config funciona aunque no haya llavero');
+    assert(LLM.getResolvedApiKey('groq') === 'SIGUE', 'config funciona aunque no haya llavero');
   }
 
   // ── 8. Keys vacías no se migran ni pisan nada ──────────────────────────
