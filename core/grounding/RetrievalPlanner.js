@@ -231,8 +231,11 @@ class RetrievalPlanner {
     };
     const addAll = (arr) => arr?.forEach(addNode);
 
-    // 1. Siempre incluir nodos User de alta importancia
-    addAll(this._graph.queryNodes({ type: 'User', limit: 5 }));
+    // 1. Siempre incluir el "world model": conocimiento estable del usuario
+    // (User/Project/Preference/Belief por importancia). Antes solo entraban
+    // 5 nodos User — el resto de la foto estable del usuario (creencias,
+    // preferencias, proyectos) quedaba fuera del contexto del chat.
+    addAll(this._graph.getWorldModel());
 
     // 2. Detectar intención semántica para StateGraph y traer nodos específicos
     const intents = this._detectGraphIntents(userMessage);

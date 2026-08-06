@@ -26,7 +26,7 @@ function addMessage(role, text, files = []) {
   files.forEach((f) => {
     const chip = document.createElement('div');
     chip.className = 'file-chip';
-    chip.innerHTML = `<span>${f.name}</span>`;
+    chip.innerHTML = `<span>${escapeHtml(f.name)}</span>`;
     bubble.appendChild(chip);
   });
 
@@ -182,7 +182,7 @@ function openSettings() {
       if (p.custom) badges.push('<span class="pill custom">CUSTOM</span>');
       return `<div class="settings-field">
       <div class="settings-label">${escapeHtml(p.name)} ${badges.join(' ')}</div>
-      <input class="settings-input provider-key" data-provider="${escapeHtml(p.id)}" type="password" value="${escapeHtml(p.apiKey)}" placeholder="${p.free ? 'API key (tier gratis — créala en el sitio del proveedor)' : 'API key...'}">
+      <input class="settings-input provider-key" data-provider="${escapeHtml(p.id)}" type="password" value="${escapeHtml(p.apiKey)}" placeholder="${p.free ? 'API key (tier gratis — créala en el sitio del proveedor)' : 'API key...'}" title="${p.apiKey && p.apiKey !== '***' ? '' : 'Guardada (oculta). Deja en blanco para borrarla o escribe una nueva.'}">
     </div>`;
     })
     .join('');

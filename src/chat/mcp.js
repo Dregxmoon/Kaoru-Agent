@@ -237,7 +237,7 @@ async function mcpSearch(query) {
       });
     });
   } catch (e) {
-    resultsEl.innerHTML = `<div class="mcp-empty">Error buscando: ${e.message}</div>`;
+    resultsEl.innerHTML = `<div class="mcp-empty">Error buscando: ${escapeHtml(e.message)}</div>`;
   }
 }
 

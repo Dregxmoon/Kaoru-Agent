@@ -1,5 +1,7 @@
 'use strict';
 
+const { formatElapsed } = require('../../utils/format.js');
+
 const NODE_TYPES = ['User', 'Episode', 'Belief', 'Preference', 'Project'];
 
 const DECAY_RATES = {
@@ -15,26 +17,7 @@ const RECENCY_HALFLIFE_DAYS = 21;
 const SEMANTIC_CANDIDATES = 24;
 
 function _formatSec(seconds) {
-  if (!seconds || seconds < 60) return `${seconds}s`;
-  const mins = Math.floor(seconds / 60);
-  if (mins < 60) return `${mins}m`;
-  const hrs = Math.floor(mins / 60);
-  const rem = mins % 60;
-  return rem > 0 ? `${hrs}h ${rem}m` : `${hrs}h`;
-}
-
-function _touchNodes(db, ids, label) {
-  if (!ids || !ids.length) return;
-  const now = Date.now();
-  const stmt = db.prepare(`
-    UPDATE nodes
-    SET last_accessed_at = ?, access_count = access_count + 1
-    WHERE id = ?
-  `);
-  const tx = db.transaction((ids) => {
-    for (const id of ids) stmt.run(now, id);
-  });
-  tx(ids);
+  return formatElapsed(seconds);
 }
 
 module.exports = {
@@ -44,5 +27,4 @@ module.exports = {
   RECENCY_HALFLIFE_DAYS,
   SEMANTIC_CANDIDATES,
   _formatSec,
-  _touchNodes,
 };

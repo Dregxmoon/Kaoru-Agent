@@ -115,6 +115,32 @@ const TOOL_SCHEMAS = [
     },
   },
   {
+    name: 'websearch',
+    description:
+      'Búsqueda web ligera vía DuckDuckGo (sin navegador, sin API key). Úsala para consultas rápidas de referencia; para interactuar con una página usa browser o webfetch',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        query: { type: 'string', description: 'Término de búsqueda' },
+        max_results: { type: 'number', description: 'Máximo de resultados a devolver', default: 5 },
+      },
+      required: ['query'],
+    },
+  },
+  {
+    name: 'webfetch',
+    description:
+      'Obtiene el contenido de una URL como texto plano (sin navegador). Úsala para leer documentación, noticias o APIs de texto; para JS pesado usa browser',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        url: { type: 'string', description: 'URL http(s) a leer' },
+        timeout: { type: 'number', description: 'Timeout en segundos', default: 20 },
+      },
+      required: ['url'],
+    },
+  },
+  {
     name: 'grep',
     description:
       'Busca un patrón (regex) dentro del contenido de los archivos del proyecto y devuelve las coincidencias con ruta, línea y texto',

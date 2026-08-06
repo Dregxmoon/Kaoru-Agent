@@ -227,12 +227,6 @@ ipcRenderer
 
 // Fase 3
 let openclawAvailable = false;
-let activePlanId = null;
-
-// Plan pendiente de aprobación (fase 1 del sistema de dos fases)
-let pendingPlan = null; // plan extraído
-let pendingLlmResponse = null; // respuesta LLM original con el plan
-let pendingPlanMsgDiv = null; // div del mensaje donde se renderizó el plan
 
 const sessionHistory = [];
 const MAX_SESSION_HISTORY = 20;

@@ -7,20 +7,15 @@
  *   - Todo lo demás igual
  */
 
-const fs = require('fs');
-const path = require('path');
-
 const { GroqSerializer } = require('./serializers/GroqSerializer.js');
 const { GeminiSerializer, OpenAISerializer } = require('./serializers/GeminiOpenAISerializer.js');
+const { getIdentity: getIdentityStore } = require('../identity/IdentityStore.js');
 
 const SERIALIZERS = {
   groq: new GroqSerializer(),
   gemini: new GeminiSerializer(),
   openai: new OpenAISerializer(),
 };
-
-const IDENTITY_PATH = path.join(__dirname, '../identity/identity.json');
-let _identity = null;
 
 // ── Sanitización de privacidad ─────────────────────────────────────────────
 // Limpia URLs, identificadores de perfil, paths del sistema de los nombres
@@ -66,17 +61,6 @@ function _sanitizeOSContext(ctx) {
           .join(', ')
       : null,
   };
-}
-
-function getIdentity() {
-  if (_identity) return _identity;
-  try {
-    _identity = JSON.parse(fs.readFileSync(IDENTITY_PATH, 'utf-8'));
-  } catch (e) {
-    console.warn('[context-assembler] no se pudo cargar identity.json:', e.message);
-    _identity = { name: 'asistente', core: 'Soy tu asistente personal.' };
-  }
-  return _identity;
 }
 
 function buildOSContext(osSensor) {
@@ -173,7 +157,7 @@ class ContextAssembler {
     activeProvider = 'groq',
     toolIntent = null,
   }) {
-    const identity = getIdentity();
+    const identity = getIdentityStore();
     const osCtx = buildOSContext(this._osSensor);
 
     const history = sessionHistory.slice(0, -1);

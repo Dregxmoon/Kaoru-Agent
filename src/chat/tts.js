@@ -1,4 +1,14 @@
 // Input
+let _ttsMuted = false;
+
+function setTtsMuted(value) {
+  _ttsMuted = !!value;
+}
+
+function isTtsMuted() {
+  return _ttsMuted;
+}
+
 function getAudioCtx() {
   if (!audioCtx || audioCtx.state === 'closed') audioCtx = new AudioContext();
   return audioCtx;
@@ -15,6 +25,7 @@ function cleanForTTS(text) {
     .trim();
 }
 async function speak(text) {
+  if (_ttsMuted) return;
   if (isSpeaking) return;
   isSpeaking = true;
   const spokenText = cleanForTTS(text);

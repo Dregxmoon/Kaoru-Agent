@@ -8,7 +8,6 @@
  *   - VectorIndex        → recall semántico (sqlite-vec) + backfill
  *   - SessionStore       → sesiones y su historial
  *   - AppHistoryStore    → uso de aplicaciones (Fase 2)
- *   - RelationsStore     → aristas node_relations
  *   - DecayStore         → decay de importancia y archivado
  */
 
@@ -19,7 +18,6 @@ const { NodeStore } = require('./stores/NodeStore.js');
 const { VectorIndex } = require('./stores/VectorIndex.js');
 const { SessionStore } = require('./stores/SessionStore.js');
 const { AppHistoryStore } = require('./stores/AppHistoryStore.js');
-const { RelationsStore } = require('./stores/RelationsStore.js');
 const { DecayStore } = require('./stores/DecayStore.js');
 const { NODE_TYPES, DECAY_RATES } = require('./stores/constants.js');
 
@@ -422,7 +420,6 @@ class StateGraph {
     this._vectors = new VectorIndex(this._db, this);
     this._sessions = new SessionStore(this._db);
     this._appHistory = new AppHistoryStore(this._db);
-    this._relations = new RelationsStore(this._db);
     this._decay = new DecayStore(this._db);
   }
 
@@ -449,19 +446,6 @@ class StateGraph {
       CREATE INDEX IF NOT EXISTS idx_nodes_importance ON nodes(importance DESC);
       CREATE INDEX IF NOT EXISTS idx_nodes_archived   ON nodes(archived);
       CREATE INDEX IF NOT EXISTS idx_nodes_created    ON nodes(created_at DESC);
-
-      CREATE TABLE IF NOT EXISTS node_relations (
-        id         INTEGER PRIMARY KEY AUTOINCREMENT,
-        from_id    INTEGER NOT NULL REFERENCES nodes(id) ON DELETE CASCADE,
-        to_id      INTEGER NOT NULL REFERENCES nodes(id) ON DELETE CASCADE,
-        rel_type   TEXT    NOT NULL,
-        weight     REAL    NOT NULL DEFAULT 1.0,
-        created_at INTEGER NOT NULL,
-        UNIQUE(from_id, to_id, rel_type)
-      );
-
-      CREATE INDEX IF NOT EXISTS idx_relations_from ON node_relations(from_id);
-      CREATE INDEX IF NOT EXISTS idx_relations_to   ON node_relations(to_id);
 
       CREATE TABLE IF NOT EXISTS sessions (
         id         INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -615,10 +599,6 @@ class StateGraph {
   }
   _findNodesByLabel(label) {
     return this._nodes._findNodesByLabel(label);
-  }
-
-  createRelation(fromId, toId, relType, weight) {
-    return this._relations.createRelation(fromId, toId, relType, weight);
   }
 
   startSession() {

@@ -102,6 +102,28 @@ class SessionManager {
     return [...this._history];
   }
 
+  /**
+   * Restaura una sesión desde un snapshot (checkpoint). Permite retomar una
+   * conversación desde un punto guardado: mismo historial y turnos, pero
+   * siempre dentro de una sesión válida (nueva si sessionId es null).
+   * @param {Array<{ role: string, content: string, ts?: number }>} history
+   * @param {string | null} [sessionId]
+   * @returns {{ sessionId: string, turnCount: number }}
+   */
+  restore(history, sessionId = null) {
+    const safeHistory = Array.isArray(history) ? history : [];
+    this._sessionId = sessionId || this._graph.startSession();
+    this._history = safeHistory.slice(-40);
+    this._turnCount = this._history.length;
+    if (this._sessionId) {
+      this._graph.updateSessionHistory(this._sessionId, this._history);
+    }
+    console.log(
+      `[session] checkpoint restaurado: sesión ${this._sessionId} (${this._history.length} mensajes)`
+    );
+    return { sessionId: this._sessionId, turnCount: this._turnCount };
+  }
+
   async close() {
     if (this._isClosing || !this._sessionId) return;
     this._isClosing = true;

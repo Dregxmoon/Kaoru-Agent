@@ -2,6 +2,21 @@
 <html lang="es">
 <head>
 <meta charset="UTF-8">
+<!-- CSP: mitigación de defensa en profundidad (espejo de chat.html). Con
+     webSecurity:false en main.js su efecto real es parcial, pero Chromium
+     igual restringe fetch/XHR/recursos por este header. 'unsafe-inline' es
+     necesario mientras todo el JS viva inline; file:/data:/blob: cubren los
+     modelos Live2D locales y sus texturas. -->
+<meta http-equiv="Content-Security-Policy" content="
+  default-src 'self';
+  script-src 'self' https://cdn.jsdelivr.net https://cubism.live2d.com 'unsafe-inline' 'unsafe-eval';
+  style-src 'self' 'unsafe-inline';
+  img-src 'self' data: file: blob:;
+  connect-src 'self' file: data: blob: https://cubism.live2d.com;
+  media-src 'self' file: data: blob:;
+  object-src 'none';
+  base-uri 'none';
+">
 <title>Asistente personal</title>
 <style>
   * { margin: 0; padding: 0; box-sizing: border-box; }
@@ -505,8 +520,6 @@ ipcRenderer.on('gesture', (e, payload) => {
   if (!gestureEngine || !payload || typeof payload.mood !== 'string') return;
   gestureEngine.play(payload.mood);
 });
-
-ipcRenderer.on('set-status', () => {});
 
 ipcRenderer.on('model-changed', (e, info) => {
   if (info && info.model3Path) _modelInfo = info;

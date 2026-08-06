@@ -122,6 +122,34 @@ const TOOL_SCHEMAS = [
     highImpact: false,
   },
   {
+    id: 'openclaw.websearch',
+    name: 'websearch',
+    domain: ['web'],
+    source: 'openclaw',
+    description:
+      'Búsqueda web ligera vía DuckDuckGo (sin navegador, sin API key). Úsalo para consultas rápidas de referencia; para interacción completa con una web usa browser',
+    params: [
+      { name: 'query', type: 'string', description: 'Término de búsqueda', required: true },
+      { name: 'max_results', type: 'number', description: 'Máximo de resultados', default: 5 },
+    ],
+    examples: [{ cmd: 'buscar en la web "API de node fs"', desc: 'Búsqueda web ligera' }],
+    highImpact: false,
+  },
+  {
+    id: 'openclaw.webfetch',
+    name: 'webfetch',
+    domain: ['web'],
+    source: 'openclaw',
+    description:
+      'Obtiene el contenido de una URL como texto plano (sin navegador). Úsalo para leer documentación, noticias o APIs de texto; para JS pesado usa browser',
+    params: [
+      { name: 'url', type: 'string', description: 'URL http(s) a leer', required: true },
+      { name: 'timeout', type: 'number', description: 'Timeout en segundos', default: 20 },
+    ],
+    examples: [{ cmd: 'leer https://nodejs.org/api/fs.html', desc: 'Leer página como texto' }],
+    highImpact: false,
+  },
+  {
     id: 'openclaw.grep',
     name: 'grep',
     domain: ['filesystem', 'code'],

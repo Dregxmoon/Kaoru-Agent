@@ -140,6 +140,27 @@ function testIsOutsideAllowed() {
   assert(!srv._isOutsideAllowed(allowed), 'el proyecto mismo → false');
   assert(!srv._isOutsideAllowed(path.join(allowed, 'src')), 'subcarpeta del proyecto → false');
   assert(srv._isOutsideAllowed('..'), 'parent directory → true');
+
+  // Escape por symlink: un enlace dentro del proyecto que apunta fuera debe
+  // resolverse vía realpath y quedar marcado como fuera de la zona permitida.
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'openclaw-symlink-'));
+  const outside = fs.mkdtempSync(path.join(os.tmpdir(), 'openclaw-outside-'));
+  try {
+    fs.writeFileSync(path.join(outside, 'secret.txt'), 'supersecreto');
+    const link = path.join(tmp, 'escapedir');
+    fs.symlinkSync(outside, link, 'dir');
+    assert(
+      srv._isOutsideAllowed(path.join(link, 'secret.txt')),
+      'archivo vía symlink fuera del proyecto → true'
+    );
+    assert(
+      srv._isOutsideAllowed(path.join(link, 'nuevo.txt')),
+      'archivo nuevo vía symlink fuera → true'
+    );
+  } finally {
+    fs.rmSync(tmp, { recursive: true, force: true });
+    fs.rmSync(outside, { recursive: true, force: true });
+  }
 }
 
 // ── Test 4: _isBlockedCommand ──────────────────────────────────────────────

@@ -19,6 +19,8 @@ const crypto = require('crypto');
 
 const Core = require('./core/Core.js');
 const KeychainManager = require('./infrastructure/keychain/KeychainManager.js');
+const { ConfigManager } = require('./core/config/ConfigManager.js');
+const { initUpdater } = require('./updater.js');
 
 const { createSharedState } = require('./ipc/state.js');
 
@@ -156,16 +158,39 @@ const WIN_H = 580;
 const CHAT_W = 900;
 const CHAT_H = 600;
 
-// Config persistente
+// Config persistente — gestionada por ConfigManager (schema + defaults +
+// validación + cache). loadConfig/saveConfig se mantienen como API hacia
+// el resto del proceso (ipc/config-handlers los usa por su nombre).
 const CONFIG_PATH = path.join(app.getPath('userData'), 'config.json');
 
+const configManager = new ConfigManager(CONFIG_PATH);
+
 function loadConfig() {
-  try {
-    if (fs.existsSync(CONFIG_PATH)) return JSON.parse(fs.readFileSync(CONFIG_PATH, 'utf-8'));
-  } catch (e) {
-    console.log('[config] error leyendo config.json:', e.message);
+  return configManager.load();
+}
+
+// Valor con el que se sustituyen las API keys cuando se entregan al renderer.
+// El renderer solo necesita saber si hay key (hasKey) y mostrar el prefill del
+// input de settings; la key real nunca sale del main process.
+const MASKED_KEY_VALUE = '***';
+
+// Devuelve una copia de la config con TODAS las API keys redactadas
+// (cfg.llm.apiKeys y cfg.llm.providers[*].apiKey).
+function redactKeys(cfg) {
+  const copy = JSON.parse(JSON.stringify(cfg));
+  const llm = copy.llm;
+  if (!llm) return copy;
+  if (llm.apiKeys && typeof llm.apiKeys === 'object') {
+    for (const k of Object.keys(llm.apiKeys)) {
+      if (llm.apiKeys[k]) llm.apiKeys[k] = MASKED_KEY_VALUE;
+    }
   }
-  return {};
+  if (llm.providers && typeof llm.providers === 'object') {
+    for (const p of Object.values(llm.providers)) {
+      if (p && p.apiKey) p.apiKey = MASKED_KEY_VALUE;
+    }
+  }
+  return copy;
 }
 
 function loadEffectiveConfig() {
@@ -219,12 +244,8 @@ function loadEffectiveConfig() {
 }
 
 function saveConfig(data) {
-  try {
-    const merged = { ...loadConfig(), ...data };
-    fs.writeFileSync(CONFIG_PATH, JSON.stringify(merged, null, 2), 'utf-8');
-  } catch (e) {
-    console.log('[config] error guardando config.json:', e.message);
-  }
+  const result = configManager.save(data);
+  for (const err of result.errors) console.log('[config] error guardando config.json:', err);
 }
 
 function migratePlaintextApiKeysToKeychain() {
@@ -263,7 +284,7 @@ function migratePlaintextApiKeysToKeychain() {
     newCfg.llm.providers[id] = clean;
   }
   try {
-    fs.writeFileSync(CONFIG_PATH, JSON.stringify(newCfg, null, 2), 'utf-8');
+    configManager.save(newCfg);
     console.log(
       `[config] keys LLM migradas al llavero y quitadas de config.json: ${migrated.join(', ')}`
     );
@@ -347,6 +368,11 @@ function sendOverlayGesture(mood, meta = {}) {
   S.mainWindow.webContents.send('gesture', { mood, ...meta });
 }
 
+function sendToChat(channel, payload) {
+  if (!S.chatWindow || S.chatWindow.isDestroyed()) return;
+  S.chatWindow.webContents.send(channel, payload);
+}
+
 ipcMain.handle('gesture-config', () => savedConfig.gestures || null);
 
 // Contexto compartido para los handlers
@@ -378,6 +404,7 @@ const ctx = {
   savedConfig,
   loadConfig,
   loadEffectiveConfig,
+  redactKeys,
   saveConfig,
   Core,
   KeychainManager,
@@ -386,6 +413,7 @@ const ctx = {
   getBottomRightBounds,
   setClickThrough,
   sendSpeak,
+  sendToChat,
   sendOverlayGesture,
   keySource: () => _keySource,
   keySourcesByProvider: () => _keySourcesByProvider,
@@ -440,6 +468,37 @@ function createWindow() {
   S.mainWindow.webContents.once('did-finish-load', () => {
     setTimeout(() => S.mainWindow.webContents.send('set-view', S.currentView), 1500);
   });
+  attachCrashWatchdog(S.mainWindow, 'overlay');
+}
+
+// Watchdog de renderer: si el proceso de una ventana muere (crash/OOM), se
+// registra en crash.log y la ventana se recarga sola (con tope para no
+// entrar en bucle infinito de reinicio).
+function attachCrashWatchdog(win, label) {
+  let crashes = 0;
+  win.webContents.on('render-process-gone', (_e, details) => {
+    crashes++;
+    logCrash(`render-process-gone [${label}]`, {
+      reason: details.reason,
+      exitCode: details.exitCode,
+    });
+    if (crashes > 3) {
+      logCrash(`render-process-gone [${label}]`, 'demasiados crashes — sin auto-reload');
+      return;
+    }
+    setTimeout(() => {
+      if (!win.isDestroyed()) {
+        try {
+          win.reload();
+        } catch (err) {
+          logCrash(`reload [${label}]`, err);
+        }
+      }
+    }, 1500);
+  });
+  win.webContents.on('did-fail-load', (_e, code, desc) => {
+    logCrash(`did-fail-load [${label}]`, `${code}: ${desc}`);
+  });
 }
 
 // Ventana de chat
@@ -482,7 +541,8 @@ function createChatWindow() {
 
   S.chatWindow.setMenuBarVisibility(false);
   S.chatWindow.loadFile(path.join(__dirname, 'src/chat.html'));
-  S.chatWindow.webContents.openDevTools({ mode: 'detach' });
+  if (!app.isPackaged) S.chatWindow.webContents.openDevTools({ mode: 'detach' });
+  attachCrashWatchdog(S.chatWindow, 'chat');
   S.chatWindow.webContents.on('console-message', (e, level, msg) => {
     if (
       msg.includes('PixiJS') ||
@@ -517,8 +577,7 @@ function createChatWindow() {
           S.chatWindow &&
           !S.chatWindow.isDestroyed()
         ) {
-          console.log(`[main] enviando sesión resumida al chat: ${result.history.length} mensajes`);
-          S.chatWindow.webContents.send('resumed-session', { history: result.history });
+          sendToChat('resumed-session', { history: result.history });
         }
       })
       .catch(() => {});
@@ -627,6 +686,7 @@ require('./ipc/init-vectors-handlers.js').register(ctx);
 require('./ipc/openclaw-handlers.js').register(ctx);
 require('./ipc/mcp-handlers.js').register(ctx);
 require('./ipc/github-handlers.js').register(ctx);
+require('./ipc/security-handlers.js').register(ctx);
 
 // Servidor HTTP local
 const VALID_EMOTIONS = ['happy', 'excited', 'sad', 'tired', 'gentle', 'default'];
@@ -683,8 +743,7 @@ function startControlServer() {
         return;
       }
       sendSpeak(text, emotion);
-      if (S.chatWindow && !S.chatWindow.isDestroyed())
-        S.chatWindow.webContents.send('chat-message', text);
+      sendToChat('chat-message', text);
       res.writeHead(200);
       res.end(`ok: ${text}`);
       return;
@@ -861,48 +920,26 @@ app.whenReady().then(() => {
   Core.init(app);
 
   Core.getEventBus().on('openclaw:available', (payload) => {
-    if (S.chatWindow && !S.chatWindow.isDestroyed()) {
-      S.chatWindow.webContents.send('openclaw-status', payload);
-    }
+    sendToChat('openclaw-status', payload);
   });
 
   Core.getEventBus().on('workspace:changed', (payload) => {
-    if (S.chatWindow && !S.chatWindow.isDestroyed()) {
-      S.chatWindow.webContents.send('workspace-changed', payload);
-    }
-  });
-
-  Core.getEventBus().on('plan:started', (payload) => {
-    if (S.chatWindow && !S.chatWindow.isDestroyed()) {
-      S.chatWindow.webContents.send('plan-started', payload);
-    }
-    sendOverlayGesture('think', { source: 'plan-started' });
-  });
-
-  Core.getEventBus().on('plan:finished', (payload) => {
-    if (S.chatWindow && !S.chatWindow.isDestroyed()) {
-      S.chatWindow.webContents.send('plan-finished', payload);
-    }
-    sendOverlayGesture('happy', { source: 'plan-finished' });
+    sendToChat('workspace-changed', payload);
   });
 
   Core.onInitiative((payload) => {
     sendOverlayGesture('excited', { source: 'initiative' });
     const chatVisible = S.chatWindow && !S.chatWindow.isDestroyed() && S.chatWindow.isVisible();
     if (chatVisible) {
-      S.chatWindow.webContents.send('initiative', payload);
+      sendToChat('initiative', payload);
       return;
     }
     if (payload.openChat) {
       createChatWindow();
       const sendWhenReady = () => {
-        if (S.chatWindow && !S.chatWindow.isDestroyed()) {
-          setTimeout(() => {
-            if (S.chatWindow && !S.chatWindow.isDestroyed()) {
-              S.chatWindow.webContents.send('initiative', payload);
-            }
-          }, 800);
-        }
+        setTimeout(() => {
+          sendToChat('initiative', payload);
+        }, 800);
       };
       if (S.chatWindow && !S.chatWindow.isDestroyed()) {
         S.chatWindow.webContents.once('did-finish-load', sendWhenReady);
@@ -917,15 +954,21 @@ app.whenReady().then(() => {
 
   Core.onProposalResult((payload) => {
     sendOverlayGesture(payload.ok ? 'happy' : 'sad', { source: 'proposal-result' });
-    if (S.chatWindow && !S.chatWindow.isDestroyed()) {
-      S.chatWindow.webContents.send('proposal-result', payload);
-    }
+    sendToChat('proposal-result', payload);
   });
 
   createWindow();
   createTray();
   startControlServer();
   createChatWindow();
+
+  initUpdater({
+    sendToWindows: (channel, payload) => {
+      for (const w of [S.chatWindow, S.mainWindow]) {
+        if (w && !w.isDestroyed()) w.webContents.send(channel, payload);
+      }
+    },
+  });
 
   _autoInitProject();
 

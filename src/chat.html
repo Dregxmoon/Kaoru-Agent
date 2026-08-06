@@ -1,8 +1,8 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="es" data-theme="dark">
-<head>
-<meta charset="UTF-8">
-<!-- CSP: mitigación de defensa en profundidad. Con webSecurity:false en
+  <head>
+    <meta charset="UTF-8" />
+    <!-- CSP: mitigación de defensa en profundidad. Con webSecurity:false en
      main.js (ver ticket de contextIsolation) su efecto real es parcial —
      Chromium igual restringe fetch/XHR/recursos por este header, pero la
      same-origin policy general sigue desactivada a nivel BrowserWindow.
@@ -10,7 +10,9 @@
      que webSecurity pase a true. 'unsafe-inline' en script-src es
      necesario mientras todo el JS viva inline en este archivo — se puede
      retirar si algún día se externaliza a un <script src> con nonce. -->
-<meta http-equiv="Content-Security-Policy" content="
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="
   default-src 'self';
   script-src 'self' https://cdn.jsdelivr.net https://cubism.live2d.com 'unsafe-inline' 'unsafe-eval';
   style-src 'self' https://fonts.googleapis.com 'unsafe-inline';
@@ -19,187 +21,319 @@
   connect-src 'self' http://127.0.0.1:18789 http://localhost:3131 https://registry.modelcontextprotocol.io;
   object-src 'none';
   base-uri 'none';
-">
-<title>Asistente personal — Chat</title>
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link href="https://fonts.googleapis.com/css2?family=Share+Tech+Mono&family=Zen+Kaku+Gothic+New:wght@300;400;700&family=Kaisei+Decol:wght@400;700&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="chat.css">
-</head>
-<body>
-<div id="app">
-
-  <header id="header">
-    <span class="header-title" id="workspace-title">~/workspace</span>
-    <span class="header-title" style="opacity:.3;font-size:9px;margin-left:2px">$</span>
-    <div class="header-spacer"></div>
-    <span id="openclaw-badge" class="openclaw-badge offline" title="OpenClaw no disponible">OFFLINE</span>
-    <button id="sessions-btn" class="mcp-badge" title="Sesiones pasadas">sesiones</button>
-    <div id="sessions-modal">
-      <div id="sessions-box">
-        <div class="sessions-head">
-          <span>Sesiones pasadas</span>
-          <button id="sessions-close" title="Cerrar">×</button>
+"
+    />
+    <title>Asistente personal — Chat</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Share+Tech+Mono&family=Zen+Kaku+Gothic+New:wght@300;400;700&family=Kaisei+Decol:wght@400;700&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="chat.css" />
+  </head>
+  <body>
+    <div id="app">
+      <header id="header">
+        <span class="header-title" id="workspace-title">~/workspace</span>
+        <span class="header-title" style="opacity: 0.3; font-size: 9px; margin-left: 2px">$</span>
+        <div class="header-spacer"></div>
+        <span id="openclaw-badge" class="openclaw-badge offline" title="OpenClaw no disponible"
+          >OFFLINE</span
+        >
+        <button id="sessions-btn" class="mcp-badge" title="Sesiones pasadas">sesiones</button>
+        <div id="sessions-modal">
+          <div id="sessions-box">
+            <div class="sessions-head">
+              <span>Sesiones pasadas</span>
+              <button id="sessions-close" title="Cerrar">×</button>
+            </div>
+            <div id="sessions-list"></div>
+          </div>
         </div>
-        <div id="sessions-list"></div>
-      </div>
-    </div>
-    <button id="mcp-btn" class="mcp-badge" title="Servidores MCP">MCP <span id="mcp-count">0</span></button>
-    <button id="workspace-btn" class="mcp-badge" title="Elegir carpeta de proyecto">dir</button>
-    <div id="theme-toggle" title="Cambiar tema"></div>
-    <button id="close-btn" title="Cerrar y salir">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14">
-        <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
-      </svg>
-    </button>
-  </header>
-
-  <section id="chat-panel">
-
-    <!-- FIX QW-1 (UI): banner de memoria no persistente. Lo controla
-         el listener 'memory-status' más abajo, vía ipcRenderer. -->
-    <div id="memory-banner">
-      Memoria no persistente — better-sqlite3 no cargó. Lo que hablen hoy se perderá al cerrar la app.
-    </div>
-
-    <div id="keys-banner">
-      <span>Sin API keys — el asistente no puede responder. Configura un proveedor:</span>
-      <button id="open-settings-btn">Abrir configuración</button>
-      <span style="font-size:9px;opacity:.7">o escribe <code>/provider</code></span>
-    </div>
-
-    <div id="drop-overlay">
-      <span>SOLTAR ARCHIVO</span>
-    </div>
-
-    <div id="messages">
-      <div id="landing">
-        <div class="landing-content"><span class="prompt-symbol">$</span> ~ $ <span class="landing-cursor"></span></div>
-      </div>
-    </div>
-
-    <div id="attachments-bar"></div>
-
-    <div id="input-area">
-      <div id="at-suggestions" class="at-suggestions" style="display:none"></div>
-      <div id="input-row">
-        <button class="input-btn" id="attach-btn" title="Adjuntar archivo">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-            <path d="M21.44 11.05l-9.19 9.19a6 6 0 01-8.49-8.49l9.19-9.19a4 4 0 015.66 5.66L9.41 17.41a2 2 0 01-2.83-2.83l8.49-8.48"/>
+        <button id="mcp-btn" class="mcp-badge" title="Servidores MCP">
+          MCP <span id="mcp-count">0</span>
+        </button>
+        <button id="perms-btn" class="mcp-badge" title="Permisos de herramientas (allow/ask/deny)">
+          permisos
+        </button>
+        <button id="workspace-btn" class="mcp-badge" title="Elegir carpeta de proyecto">dir</button>
+        <div id="theme-toggle" title="Cambiar tema"></div>
+        <button id="close-btn" title="Cerrar y salir">
+          <svg
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="2"
+            width="14"
+            height="14"
+          >
+            <line x1="18" y1="6" x2="6" y2="18" />
+            <line x1="6" y1="6" x2="18" y2="18" />
           </svg>
         </button>
-        <input type="file" id="file-input" multiple>
-        <textarea id="msg-input" placeholder="Escribe un mensaje..." rows="1"></textarea>
-        <button id="cancel-btn" class="input-btn" title="Detener generación" style="display:none">
-          <svg viewBox="0 0 24 24" fill="currentColor" width="12" height="12"><rect x="6" y="6" width="12" height="12" rx="1"/></svg>
-        </button>
-        <button id="send-btn" title="Enviar (Enter)">
-          <svg viewBox="0 0 24 24"><path d="M22 2L11 13M22 2L15 22l-4-9-9-4 20-7z"/></svg>
-        </button>
-      </div>
-      <div id="input-info">
-        <span class="input-hint" id="input-hint-text">Cargando...</span>
-      </div>
-    </div>
-  </section>
+      </header>
 
-  <section id="model-panel">
-    <div id="model-canvas-container"><canvas id="live2d-chat-canvas"></canvas><div id="model-load-error"></div></div>
-    <div id="view-indicator">FULL</div>
-  </section>
-</div>
-
-<!-- Modal settings -->
-<div id="settings-modal">
-  <div id="settings-box">
-    <div class="settings-title">Proveedores LLM</div>
-    <div class="settings-sub">CADA PROVEEDOR CON SU PROPIA KEY</div>
-    <div id="settings-guide" style="padding:8px 12px;background:var(--accent-glow);border-radius:6px;margin-bottom:12px;font-size:11px;line-height:1.6;border:1px solid var(--accent);display:none;">
-      <strong>Primeros pasos:</strong><br>
-      1. Elige un proveedor gratis (Groq) y pega tu API key<br>
-      2. Guarda — el asistente se conectará automáticamente<br>
-      3. Si tienes clave de OpenAI/Anthropic/xAI, configura las que quieras<br>
-      4. Usa <code>/model</code> para cambiar entre ellos<br><br>
-      <strong>No tienes keys?</strong><br>
-      Groq: <code>console.groq.com/keys</code> (gratis, sin tarjeta)<br>
-      Gemini: <code>aistudio.google.com</code> (tier gratis)<br>
-      NVIDIA: <code>build.nvidia.com</code> (gratis, recopila logs)<br>
-      Hugging Face: <code>huggingface.co/settings/tokens</code> (gratis)<br>
-      DeepSeek: <code>platform.deepseek.com</code> (free tier)<br>
-      OpenAI: <code>platform.openai.com/api-keys</code><br>
-      Anthropic: <code>console.anthropic.com</code><br>
-      xAI: <code>console.x.ai</code>
-    </div>
-    <div class="settings-source" id="settings-source"></div>
-    <div id="settings-providers-list"></div>
-    <div class="settings-row" style="margin-top:12px;font-size:12px;color:var(--text-secondary)">
-      <span>Para agregar un provider personalizado (Ollama, LM Studio, OpenRouter...): <code>/provider add</code></span>
-    </div>
-    <div class="settings-keychain-row" id="settings-keychain-row" style="display:none;">
-      <label class="settings-checkbox">
-        <input type="checkbox" id="use-keychain" checked>
-        <span>Guardar también en el llavero del sistema</span>
-      </label>
-    </div>
-    <div class="settings-status" id="settings-status"></div>
-    <div class="settings-actions">
-      <button class="btn-cancel" id="cancel-settings">Cancelar</button>
-      <button class="btn-save"   id="save-settings">Guardar y conectar</button>
-    </div>
-  </div>
-</div>
-
-<div id="mcp-modal">
-  <div id="mcp-box">
-    <div class="settings-title">Servidores MCP</div>
-    <div class="settings-sub">HERRAMIENTAS EXTRA, INDEPENDIENTES DE OPENCLAW · TODA LLAMADA PIDE TU APROBACIÓN</div>
-
-    <div id="mcp-server-list"></div>
-    <div class="mcp-empty" id="mcp-empty-msg" style="display:none;">Sin servidores configurados todavía.</div>
-
-    <button class="mcp-add-toggle" id="mcp-add-toggle-btn">+ Agregar servidor</button>
-
-    <div id="mcp-add-panel">
-      <div class="mcp-tabs">
-        <button class="mcp-tab active" id="mcp-tab-browse">Buscar en biblioteca</button>
-        <button class="mcp-tab" id="mcp-tab-manual">Configurar con JSON</button>
-      </div>
-
-      <div id="mcp-browse-view">
-        <div class="mcp-search-row">
-          <input id="mcp-search-input" type="text" placeholder="Buscar servidores MCP (ej: github, filesystem, slack)...">
-          <button id="mcp-search-btn">Buscar</button>
+      <section id="chat-panel">
+        <!-- FIX QW-1 (UI): banner de memoria no persistente. Lo controla
+         el listener 'memory-status' más abajo, vía ipcRenderer. -->
+        <div id="memory-banner">
+          Memoria no persistente — better-sqlite3 no cargó. Lo que hablen hoy se perderá al cerrar
+          la app.
         </div>
-        <div id="mcp-search-results"></div>
-      </div>
 
-      <div id="mcp-manual-view" style="display:none;">
-        <div class="mcp-json-hint">
-          Formato tipo Claude Desktop — pega la config que traiga la documentación del servidor:<br>
-          <code>{"name": "mi-servidor", "command": "npx", "args": ["-y", "@paquete/servidor"], "env": {}}</code>
+        <div id="keys-banner">
+          <span>Sin API keys — el asistente no puede responder. Configura un proveedor:</span>
+          <button id="open-settings-btn">Abrir configuración</button>
+          <span style="font-size: 9px; opacity: 0.7">o escribe <code>/provider</code></span>
         </div>
-        <textarea class="mcp-json-textarea" id="mcp-json-input" placeholder='{"name": "filesystem", "command": "npx", "args": ["-y", "@modelcontextprotocol/server-filesystem", "C:\\Users\\tu-usuario\\Documents"], "env": {}}'></textarea>
-        <div style="margin-top:10px; text-align:right;">
-          <button class="btn-save" id="mcp-json-add-btn">Agregar</button>
-        </div>
-      </div>
 
-      <div class="mcp-status-msg" id="mcp-status-msg"></div>
+        <!-- Banner de auto-update: lo controla el listener 'update-status' en ipc.js -->
+        <div id="update-banner">
+          <span id="update-text"></span>
+          <span id="update-progress"></span>
+          <button id="update-dl-btn" style="display: none">Descargar</button>
+          <button id="update-restart-btn" style="display: none">Reiniciar ahora</button>
+          <button id="update-close-btn">×</button>
+        </div>
+
+        <div id="drop-overlay">
+          <span>SOLTAR ARCHIVO</span>
+        </div>
+
+        <div id="messages">
+          <div id="landing">
+            <div class="landing-content">
+              <span class="prompt-symbol">$</span> ~ $ <span class="landing-cursor"></span>
+            </div>
+          </div>
+        </div>
+
+        <div id="attachments-bar"></div>
+
+        <div id="input-area">
+          <div id="at-suggestions" class="at-suggestions" style="display: none"></div>
+          <div id="input-row">
+            <button class="input-btn" id="attach-btn" title="Adjuntar archivo">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path
+                  d="M21.44 11.05l-9.19 9.19a6 6 0 01-8.49-8.49l9.19-9.19a4 4 0 015.66 5.66L9.41 17.41a2 2 0 01-2.83-2.83l8.49-8.48"
+                />
+              </svg>
+            </button>
+            <input type="file" id="file-input" multiple />
+            <textarea id="msg-input" placeholder="Escribe un mensaje..." rows="1"></textarea>
+            <button
+              id="cancel-btn"
+              class="input-btn"
+              title="Detener generación"
+              style="display: none"
+            >
+              <svg viewBox="0 0 24 24" fill="currentColor" width="12" height="12">
+                <rect x="6" y="6" width="12" height="12" rx="1" />
+              </svg>
+            </button>
+            <button id="send-btn" title="Enviar (Enter)">
+              <svg viewBox="0 0 24 24"><path d="M22 2L11 13M22 2L15 22l-4-9-9-4 20-7z" /></svg>
+            </button>
+          </div>
+          <div id="input-info">
+            <span class="input-hint" id="input-hint-text">Cargando...</span>
+          </div>
+        </div>
+      </section>
+
+      <section id="model-panel">
+        <div id="model-canvas-container">
+          <canvas id="live2d-chat-canvas"></canvas>
+          <div id="model-load-error"></div>
+        </div>
+        <div id="view-indicator">FULL</div>
+      </section>
     </div>
-  </div>
-</div>
 
-<script src="https://cubism.live2d.com/sdk-web/cubismcore/live2dcubismcore.min.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/pixi.js@6.5.10/dist/browser/pixi.min.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/pixi-live2d-display@0.4.0/dist/cubism4.min.js"></script>
+    <!-- Modal settings -->
+    <div id="settings-modal">
+      <div id="settings-box">
+        <div class="settings-title">Proveedores LLM</div>
+        <div class="settings-sub">CADA PROVEEDOR CON SU PROPIA KEY</div>
+        <div
+          id="settings-guide"
+          style="
+            padding: 8px 12px;
+            background: var(--accent-glow);
+            border-radius: 6px;
+            margin-bottom: 12px;
+            font-size: 11px;
+            line-height: 1.6;
+            border: 1px solid var(--accent);
+            display: none;
+          "
+        >
+          <strong>Primeros pasos:</strong><br />
+          1. Elige un proveedor gratis (Groq) y pega tu API key<br />
+          2. Guarda — el asistente se conectará automáticamente<br />
+          3. Si tienes clave de OpenAI/Anthropic/xAI, configura las que quieras<br />
+          4. Usa <code>/model</code> para cambiar entre ellos<br /><br />
+          <strong>No tienes keys?</strong><br />
+          Groq: <code>console.groq.com/keys</code> (gratis, sin tarjeta)<br />
+          Gemini: <code>aistudio.google.com</code> (tier gratis)<br />
+          NVIDIA: <code>build.nvidia.com</code> (gratis, recopila logs)<br />
+          Hugging Face: <code>huggingface.co/settings/tokens</code> (gratis)<br />
+          DeepSeek: <code>platform.deepseek.com</code> (free tier)<br />
+          OpenAI: <code>platform.openai.com/api-keys</code><br />
+          Anthropic: <code>console.anthropic.com</code><br />
+          xAI: <code>console.x.ai</code>
+        </div>
+        <div class="settings-source" id="settings-source"></div>
+        <div id="settings-providers-list"></div>
+        <div
+          class="settings-row"
+          style="margin-top: 12px; font-size: 12px; color: var(--text-secondary)"
+        >
+          <span
+            >Para agregar un provider personalizado (Ollama, LM Studio, OpenRouter...):
+            <code>/provider add</code></span
+          >
+        </div>
+        <div class="settings-keychain-row" id="settings-keychain-row" style="display: none">
+          <label class="settings-checkbox">
+            <input type="checkbox" id="use-keychain" checked />
+            <span>Guardar también en el llavero del sistema</span>
+          </label>
+        </div>
+        <div class="settings-status" id="settings-status"></div>
+        <div class="settings-actions">
+          <button class="btn-cancel" id="cancel-settings">Cancelar</button>
+          <button class="btn-save" id="save-settings">Guardar y conectar</button>
+        </div>
+      </div>
+    </div>
 
-<script src="chat/core.js"></script>
-<script src="chat/messages.js"></script>
-<script src="chat/mcp.js"></script>
-<script src="chat/sessions.js"></script>
-<script src="chat/process.js"></script>
-<script src="chat/input.js"></script>
-<script src="chat/tts.js"></script>
-<script src="chat/live2d.js"></script>
-<script src="chat/ipc.js"></script>
-</body>
+    <div id="perms-modal">
+      <div id="perms-box">
+        <div class="settings-title">Permisos de herramientas</div>
+        <div class="settings-sub">
+          ALLOW / ASK / DENY POR HERRAMIENTA Y CARPETA · SE GUARDAN EN TU PC
+        </div>
+        <div class="perms-hint">
+          Reglas persistentes (patrón opencode). <code>ask</code> = preguntar siempre,
+          <code>allow</code> = ejecutar sin preguntar, <code>deny</code> = bloquear.
+          <code>*</code> en herramienta aplica a todas; deja la ruta vacía para global.
+        </div>
+
+        <div class="perms-form">
+          <input
+            id="perms-tool"
+            list="perms-tools"
+            placeholder="Herramienta (ej: exec, write, git_commit, *)"
+          />
+          <datalist id="perms-tools">
+            <option value="exec"></option>
+            <option value="read"></option>
+            <option value="write"></option>
+            <option value="edit"></option>
+            <option value="apply_patch"></option>
+            <option value="grep"></option>
+            <option value="glob"></option>
+            <option value="code_execution"></option>
+            <option value="git_commit"></option>
+            <option value="git_push"></option>
+            <option value="git_stash"></option>
+            <option value="git_rebase"></option>
+            <option value="web_search"></option>
+            <option value="browser"></option>
+            <option value="webfetch"></option>
+            <option value="subagent"></option>
+            <option value="*"></option>
+          </datalist>
+          <input id="perms-path" placeholder="Carpeta (opcional, ej: /home/user/proyecto)" />
+          <select id="perms-action">
+            <option value="ask">ask</option>
+            <option value="allow">allow</option>
+            <option value="deny">deny</option>
+          </select>
+          <button class="btn-save" id="perms-add-btn">Agregar</button>
+        </div>
+        <div class="perms-status" id="perms-status"></div>
+        <div id="perms-list"></div>
+        <div class="perms-empty" id="perms-empty-msg" style="display: none">
+          Sin reglas — el default es preguntar en herramientas de alto impacto.
+        </div>
+        <div class="settings-actions">
+          <button class="btn-cancel" id="close-perms">Cerrar</button>
+        </div>
+      </div>
+    </div>
+
+    <div id="mcp-modal">
+      <div id="mcp-box">
+        <div class="settings-title">Servidores MCP</div>
+        <div class="settings-sub">
+          HERRAMIENTAS EXTRA, INDEPENDIENTES DE OPENCLAW · TODA LLAMADA PIDE TU APROBACIÓN
+        </div>
+
+        <div id="mcp-server-list"></div>
+        <div class="mcp-empty" id="mcp-empty-msg" style="display: none">
+          Sin servidores configurados todavía.
+        </div>
+
+        <button class="mcp-add-toggle" id="mcp-add-toggle-btn">+ Agregar servidor</button>
+
+        <div id="mcp-add-panel">
+          <div class="mcp-tabs">
+            <button class="mcp-tab active" id="mcp-tab-browse">Buscar en biblioteca</button>
+            <button class="mcp-tab" id="mcp-tab-manual">Configurar con JSON</button>
+          </div>
+
+          <div id="mcp-browse-view">
+            <div class="mcp-search-row">
+              <input
+                id="mcp-search-input"
+                type="text"
+                placeholder="Buscar servidores MCP (ej: github, filesystem, slack)..."
+              />
+              <button id="mcp-search-btn">Buscar</button>
+            </div>
+            <div id="mcp-search-results"></div>
+          </div>
+
+          <div id="mcp-manual-view" style="display: none">
+            <div class="mcp-json-hint">
+              Formato tipo Claude Desktop — pega la config que traiga la documentación del
+              servidor:<br />
+              <code
+                >{"name": "mi-servidor", "command": "npx", "args": ["-y", "@paquete/servidor"],
+                "env": {}}</code
+              >
+            </div>
+            <textarea
+              class="mcp-json-textarea"
+              id="mcp-json-input"
+              placeholder='{"name": "filesystem", "command": "npx", "args": ["-y", "@modelcontextprotocol/server-filesystem", "C:\\Users\\tu-usuario\\Documents"], "env": {}}'
+            ></textarea>
+            <div style="margin-top: 10px; text-align: right">
+              <button class="btn-save" id="mcp-json-add-btn">Agregar</button>
+            </div>
+          </div>
+
+          <div class="mcp-status-msg" id="mcp-status-msg"></div>
+        </div>
+      </div>
+    </div>
+
+    <script src="https://cubism.live2d.com/sdk-web/cubismcore/live2dcubismcore.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/pixi.js@6.5.10/dist/browser/pixi.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/pixi-live2d-display@0.4.0/dist/cubism4.min.js"></script>
+
+    <script src="chat/core.js"></script>
+    <script src="chat/messages.js"></script>
+    <script src="chat/mcp.js"></script>
+    <script src="chat/sessions.js"></script>
+    <script src="chat/permissions.js"></script>
+    <script src="chat/process.js"></script>
+    <script src="chat/input.js"></script>
+    <script src="chat/tts.js"></script>
+    <script src="chat/live2d.js"></script>
+    <script src="chat/ipc.js"></script>
+  </body>
 </html>

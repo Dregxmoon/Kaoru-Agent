@@ -163,6 +163,31 @@ class AgentLoop {
     }
   }
 
+  /**
+   * Shape estándar de un resultado de tool ({ok, result, error, tool, elapsed}).
+   * Devuelve { okShape, failShape } ligados a la tool y al momento de inicio.
+   * @param {object} action
+   * @param {string} action.tool
+   * @param {number} t0
+   */
+  _toolShapes(action, t0) {
+    const okShape = (result) => ({
+      ok: true,
+      result,
+      error: null,
+      tool: action.tool,
+      elapsed: Date.now() - t0,
+    });
+    const failShape = (error) => ({
+      ok: false,
+      result: null,
+      error,
+      tool: action.tool,
+      elapsed: Date.now() - t0,
+    });
+    return { okShape, failShape };
+  }
+
   _getLLM() {
     if (this._llm) return this._llm;
     if (!this._llmRef) {
@@ -408,107 +433,189 @@ class AgentLoop {
             a.params.content = a.params.instruction;
             delete a.params.instruction;
           }
-          // edit_file → edit: remapear instruction a content para schema LLM
-          if (modern === 'edit' && a.params.instruction) {
-            a.params.content = a.params.instruction;
+          // edit_file → edit: los parsers legacy emiten la edición como
+          // instrucción en lenguaje natural, pero la tool 'edit' exige
+          // old_text/new_text exactos. Se guarda la instrucción y se resuelve
+          // a un diff exacto con una llamada LLM focalizada antes de ejecutar
+          // (ver _executeResolvedEdit). Con native tool calling el modelo ya
+          // entrega old_text/new_text por schema, así que esto es solo el
+          // fallback para parsers de texto.
+          if (
+            modern === 'edit' &&
+            !a.params.old_text &&
+            !a.params.oldString &&
+            a.params.instruction
+          ) {
+            a._needsInstructionResolve = true;
+            a._editInstruction = a.params.instruction;
             delete a.params.instruction;
           }
         }
       }
 
-      const action = actions[0];
-      const requiresApproval = AP.isHighImpact(action.tool, action.params);
+      // ── Ejecutar TODAS las acciones de esta iteración (no solo actions[0]) ──
+      // Con native tool calling el modelo suele emitir varias tools en una
+      // misma respuesta; antes solo corría la primera y el resto se descartaba.
+      iterationHistory.push({ role: 'assistant', content: responseText });
+      const resultSummaries = [];
 
-      if (requiresApproval && opts.onApprovalNeeded) {
-        const approved = await opts.onApprovalNeeded(action);
-        if (!approved) {
-          iterationHistory.push(
-            { role: 'assistant', content: responseText },
-            {
-              role: 'user',
-              content: `[Herramienta "${action.tool}" cancelada por el usuario — continúa sin ella o busca otra estrategia]`,
-            }
-          );
-          lastToolResult = { ok: false, error: 'cancelada_por_usuario', tool: action.tool };
+      for (const action of actions) {
+        const requiresApproval = AP.isHighImpact(action.tool, action.params);
+
+        // ── Permisos granulares (allow/ask/deny) ─────────────────────────────
+        // Patrón opencode: una regla persistente puede elevar una herramienta
+        // de alto impacto a 'allow' (se ejecuta sin preguntar), bloquearla con
+        // 'deny', o forzar 'ask'. El default es 'ask' solo para alto impacto.
+        const permissionManager = opts.permissionManager || null;
+        let permissionAction = requiresApproval ? 'ask' : 'allow';
+        if (permissionManager && typeof permissionManager.check === 'function') {
+          const targetPath =
+            action.params?.path || action.params?.filePath || action.params?.cwd || '';
+          const perm = permissionManager.check({
+            tool: action.tool,
+            path: targetPath,
+            defaultAction: requiresApproval ? 'ask' : 'allow',
+          });
+          permissionAction = perm.action;
+          if (process.env.DEBUG && perm.rule) {
+            console.log(
+              `[agent-loop] permiso "${perm.action}" para ${action.tool} (regla: ${perm.rule.id})`
+            );
+          }
+        }
+
+        if (permissionAction === 'deny') {
+          iterationHistory.push({
+            role: 'user',
+            content: `[Herramienta "${action.tool}" bloqueada por política de permisos — continúa sin ella o busca otra estrategia]`,
+          });
+          lastToolResult = {
+            ok: false,
+            error: 'bloqueada_por_permiso',
+            tool: action.tool,
+          };
           continue;
         }
-      } else if (requiresApproval && !opts.onApprovalNeeded) {
-        iterationHistory.push(
-          { role: 'assistant', content: responseText },
-          {
+
+        // ── Hook de plugins: beforeTool ─────────────────────────────────────
+        // Los plugins pueden denegar una herramienta devolviendo
+        // { deny: true, reason?: string } — se trata como cancelada por el
+        // usuario y el loop continúa con otra estrategia.
+        const pluginManager = opts.pluginManager || null;
+        if (pluginManager && typeof pluginManager.runHook === 'function') {
+          let hookOut = null;
+          try {
+            hookOut = await pluginManager.runHook('beforeTool', {
+              tool: action.tool,
+              params: action.params,
+              requiresApproval,
+            });
+          } catch (e) {
+            console.warn(`[agent-loop] hook beforeTool falló: ${e.message}`);
+          }
+          if (hookOut && hookOut.deny) {
+            iterationHistory.push({
+              role: 'user',
+              content: `[Herramienta "${action.tool}" bloqueada por un plugin: ${hookOut.reason || 'denegada por política'} — continúa sin ella o busca otra estrategia]`,
+            });
+            lastToolResult = {
+              ok: false,
+              error: 'bloqueada_por_plugin',
+              tool: action.tool,
+            };
+            continue;
+          }
+        }
+
+        if (permissionAction === 'ask' && requiresApproval && opts.onApprovalNeeded) {
+          const approved = await opts.onApprovalNeeded(action);
+          if (!approved) {
+            iterationHistory.push({
+              role: 'user',
+              content: `[Herramienta "${action.tool}" cancelada por el usuario — continúa sin ella o busca otra estrategia]`,
+            });
+            lastToolResult = { ok: false, error: 'cancelada_por_usuario', tool: action.tool };
+            continue;
+          }
+        } else if (requiresApproval && !opts.onApprovalNeeded && permissionAction !== 'allow') {
+          iterationHistory.push({
             role: 'user',
             content: `[Herramienta "${action.tool}" requiere aprobación pero no hay handler — BLOQUEADA. Continúa sin ella o informa que no puedes ejecutarla.]`,
+          });
+          lastToolResult = { ok: false, error: 'sin_handler_aprobacion', tool: action.tool };
+          continue;
+        }
+
+        let result;
+        try {
+          if (GIT_TOOLS.has(action.tool)) {
+            result = await this._executeGitTool(action);
+          } else if (GITHUB_TOOLS.has(action.tool)) {
+            result = await this._executeGitHubTool(action);
+          } else if (LSP_TOOLS.has(action.tool)) {
+            result = await this._executeLSPTool(action);
+          } else if (SUBAGENT_TOOLS.has(action.tool)) {
+            result = await this._executeSubagent(action);
+          } else if (action._needsInstructionResolve) {
+            result = await this._executeResolvedEdit(action);
+          } else {
+            result = await this._bridge.execute(action.tool, action.params);
           }
-        );
-        lastToolResult = { ok: false, error: 'sin_handler_aprobacion', tool: action.tool };
-        continue;
-      }
+        } catch (e) {
+          result = { ok: false, error: e.message, result: null, tool: action.tool, elapsed: 0 };
+        }
 
-      iterationHistory.push({ role: 'assistant', content: responseText });
+        result._action = action;
+        toolResults.push(result);
+        lastToolResult = result;
+        if (process.env.DEBUG)
+          console.log(
+            `[agent-loop-timing] iter ${i}: tool=${action.tool} ${Date.now() - _itStart}ms`
+          );
 
-      let result;
-      try {
-        if (GIT_TOOLS.has(action.tool)) {
-          result = await this._executeGitTool(action);
-        } else if (GITHUB_TOOLS.has(action.tool)) {
-          result = await this._executeGitHubTool(action);
-        } else if (LSP_TOOLS.has(action.tool)) {
-          result = await this._executeLSPTool(action);
-        } else if (SUBAGENT_TOOLS.has(action.tool)) {
-          result = await this._executeSubagent(action);
+        if (opts.onProgress) {
+          opts.onProgress({
+            iteration: i + 1,
+            tool: action.tool,
+            params: action.params,
+            status: result.ok ? 'ok' : 'error',
+            result: result.ok ? result.result : null,
+            error: result.ok ? null : result.error,
+          });
+        }
+
+        // ── LSP.1: feedback de diagnósticos tras editar (patrón opencode) ──
+        // Cuando una tool que muta archivos tuvo éxito, se sincroniza el cambio
+        // en el LSP y se espera el push fresco de diagnósticos; si aparecen
+        // errores, se anexan al resumen que ve el LLM en el siguiente turno.
+        let lspFeedback = null;
+        if (result.ok && EDIT_TOOLS.has(action.tool)) {
+          lspFeedback = await this._lspFeedbackForEdit(result, action);
+          if (lspFeedback && lspFeedback.diagnostics && lspFeedback.diagnostics.length > 0) {
+            result.lspDiagnostics = lspFeedback.diagnostics;
+          }
+        }
+
+        let resultSummary;
+        if (result.ok) {
+          resultSummary = this._summarizeResult(result, action);
+          if (lspFeedback && lspFeedback.diagnostics && lspFeedback.diagnostics.length > 0) {
+            resultSummary +=
+              '\n\n' + this._formatDiagnostics(lspFeedback.filePath, lspFeedback.diagnostics);
+          }
         } else {
-          result = await this._bridge.execute(action.tool, action.params);
+          resultSummary = `[ERROR en ${action.tool}]: ${result.error || 'desconocido'}`;
         }
-      } catch (e) {
-        result = { ok: false, error: e.message, result: null, tool: action.tool, elapsed: 0 };
-      }
 
-      result._action = action;
-      toolResults.push(result);
-      lastToolResult = result;
-      if (process.env.DEBUG)
         console.log(
-          `[agent-loop-timing] iter ${i}: tool=${action.tool} ${Date.now() - _itStart}ms`
+          `[agent-loop] iteración ${i + 1}: ${action.tool} → ${result.ok ? 'OK' : 'FALLÓ'}`
         );
-
-      if (opts.onProgress) {
-        opts.onProgress({
-          iteration: i + 1,
-          tool: action.tool,
-          params: action.params,
-          status: result.ok ? 'ok' : 'error',
-          result: result.ok ? result.result : null,
-          error: result.ok ? null : result.error,
-        });
+        resultSummaries.push(resultSummary);
       }
 
-      // ── LSP.1: feedback de diagnósticos tras editar (patrón opencode) ──
-      // Cuando una tool que muta archivos tuvo éxito, se sincroniza el cambio
-      // en el LSP y se espera el push fresco de diagnósticos; si aparecen
-      // errores, se anexan al resumen que ve el LLM en el siguiente turno.
-      let lspFeedback = null;
-      if (result.ok && EDIT_TOOLS.has(action.tool)) {
-        lspFeedback = await this._lspFeedbackForEdit(result, action);
-        if (lspFeedback && lspFeedback.diagnostics && lspFeedback.diagnostics.length > 0) {
-          result.lspDiagnostics = lspFeedback.diagnostics;
-        }
+      if (resultSummaries.length > 0) {
+        iterationHistory.push({ role: 'user', content: resultSummaries.join('\n\n') });
       }
-
-      let resultSummary;
-      if (result.ok) {
-        resultSummary = this._summarizeResult(result, action);
-        if (lspFeedback && lspFeedback.diagnostics && lspFeedback.diagnostics.length > 0) {
-          resultSummary +=
-            '\n\n' + this._formatDiagnostics(lspFeedback.filePath, lspFeedback.diagnostics);
-        }
-      } else {
-        resultSummary = `[ERROR en ${action.tool}]: ${result.error || 'desconocido'}`;
-      }
-
-      console.log(
-        `[agent-loop] iteración ${i + 1}: ${action.tool} → ${result.ok ? 'OK' : 'FALLÓ'}`
-      );
-      iterationHistory.push({ role: 'user', content: resultSummary });
     }
 
     const finalResponse =
@@ -580,20 +687,7 @@ class AgentLoop {
     const raw = params.raw || {};
     const filePath =
       params.filePath || params.path || params.ARCHIVO || raw.ARCHIVO || raw.filePath;
-    const okShape = (result) => ({
-      ok: true,
-      result,
-      error: null,
-      tool: action.tool,
-      elapsed: Date.now() - t0,
-    });
-    const failShape = (error) => ({
-      ok: false,
-      result: null,
-      error,
-      tool: action.tool,
-      elapsed: Date.now() - t0,
-    });
+    const { okShape, failShape } = this._toolShapes(action, t0);
 
     if (!this._lsp) {
       return failShape('LSP no disponible — el LSPManager no está inicializado.');
@@ -647,20 +741,7 @@ class AgentLoop {
     const params = action.params || {};
     // Default de cwd: parámetro explícito → workspace de la app → raíz del proceso.
     const cwd = params.cwd || params.CWD || process.env.ASISTENTE_WORKSPACE || AP.PROJECT_CWD;
-    const okShape = (result) => ({
-      ok: true,
-      result,
-      error: null,
-      tool: action.tool,
-      elapsed: Date.now() - t0,
-    });
-    const failShape = (error) => ({
-      ok: false,
-      result: null,
-      error,
-      tool: action.tool,
-      elapsed: Date.now() - t0,
-    });
+    const { okShape, failShape } = this._toolShapes(action, t0);
 
     if (!this._git) {
       return failShape('Git no disponible — el GitManager no está inicializado.');
@@ -706,20 +787,7 @@ class AgentLoop {
   async _executeGitHubTool(action) {
     const t0 = Date.now();
     const params = action.params || {};
-    const okShape = (result) => ({
-      ok: true,
-      result,
-      error: null,
-      tool: action.tool,
-      elapsed: Date.now() - t0,
-    });
-    const failShape = (error) => ({
-      ok: false,
-      result: null,
-      error,
-      tool: action.tool,
-      elapsed: Date.now() - t0,
-    });
+    const { okShape, failShape } = this._toolShapes(action, t0);
 
     if (!this._github) {
       return failShape('GitHub no disponible — el GitHubManager no está inicializado.');
@@ -870,6 +938,96 @@ class AgentLoop {
         elapsed: Math.round((Date.now() - t0) / 1000),
       };
     }
+  }
+
+  // Convierte una instrucción de edición en lenguaje natural a un diff exacto
+  // (old_text/new_text) usando una llamada LLM focalizada, o a una reescritura
+  // completa (mode 'write') si la instrucción lo amerita. Devuelve null si no
+  // se pudo resolver de forma verificable.
+  async _resolveEditFromInstruction(filePath, instruction) {
+    if (!filePath || !instruction || typeof instruction !== 'string') return null;
+
+    const readResult = await this._bridge.execute('read', { path: filePath });
+    const content =
+      typeof readResult?.result === 'string' ? readResult.result : readResult?.result?.content;
+    if (typeof content !== 'string' || content.length === 0) return null;
+
+    const llm = this._getLLM();
+    const prompt =
+      `Tengo el contenido del archivo "${filePath}" y una instrucción de edición.\n` +
+      `Devuelve ÚNICAMENTE JSON válido:\n` +
+      `- Si la edición es puntual: {"old_text": "<fragmento EXACTO a reemplazar, con contexto único>", "new_text": "<reemplazo>"}\n` +
+      `- Si hay que reescribir el archivo entero: {"full": true, "content": "<contenido completo nuevo>"}\n\n` +
+      `Instrucción: ${instruction}\n\n` +
+      `CONTENIDO ACTUAL:\n\`\`\`\n${
+        content.length > 30000 ? content.slice(0, 30000) + '\n...[truncado]' : content
+      }\n\`\`\``;
+
+    let raw;
+    try {
+      raw = await llm(
+        [{ role: 'user', content: prompt }],
+        'Eres un editor de código experto. Respondes únicamente JSON.',
+        {}
+      );
+    } catch (e) {
+      return null;
+    }
+    const text = typeof raw === 'string' ? raw : raw?.content || '';
+    const m = text.match(/\{[\s\S]*\}/);
+    if (!m) return null;
+    try {
+      const parsed = JSON.parse(m[0]);
+      if (parsed.full && typeof parsed.content === 'string' && parsed.content.trim()) {
+        return { mode: 'write', content: parsed.content };
+      }
+      if (
+        typeof parsed.old_text === 'string' &&
+        parsed.old_text &&
+        typeof parsed.new_text === 'string' &&
+        content.includes(parsed.old_text)
+      ) {
+        return { mode: 'edit', old_text: parsed.old_text, new_text: parsed.new_text };
+      }
+    } catch {
+      // JSON inválido → sin resolución
+    }
+    return null;
+  }
+
+  async _executeResolvedEdit(action) {
+    const t0 = Date.now();
+    const filePath = action.params?.path;
+    const instruction = action._editInstruction;
+    let resolved;
+    try {
+      resolved = await this._resolveEditFromInstruction(filePath, instruction);
+    } catch (e) {
+      return {
+        ok: false,
+        error: `edit_no_resuelto: ${e.message}`,
+        result: null,
+        tool: action.tool,
+        elapsed: 0,
+      };
+    }
+    if (!resolved) {
+      return {
+        ok: false,
+        error: 'edit_no_resuelto: la instrucción no se convirtió en un cambio exacto verificable',
+        result: null,
+        tool: action.tool,
+        elapsed: Math.round((Date.now() - t0) / 1000),
+      };
+    }
+    if (resolved.mode === 'write') {
+      return this._bridge.execute('write', { path: filePath, content: resolved.content });
+    }
+    return this._bridge.execute('edit', {
+      path: filePath,
+      old_text: resolved.old_text,
+      new_text: resolved.new_text,
+    });
   }
 
   _buildToolResultMessage(lastResult) {

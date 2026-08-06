@@ -11,8 +11,6 @@ function register(ctx) {
     if (role === 'user') Core.detectInstant(content);
   });
 
-  ipcMain.handle('memory-stats', () => Core.getStats());
-
   // IPC: sesiones pasadas (panel con picker en el chat)
   ipcMain.handle('sessions-list', (e, { limit } = {}) => Core.listSessions(limit));
   ipcMain.handle('session-load', (e, { id } = {}) => Core.loadSession(id));
@@ -40,30 +38,7 @@ function register(ctx) {
     }
   );
 
-  ipcMain.handle('generate-plan', async (e, { sessionHistory, userGoal }) => {
-    const taskDetector = Core.getTaskDetector?.();
-    const taskIntent = taskDetector ? taskDetector.detect(userGoal) : null;
-    const result = await Core.generatePlan(userGoal, taskIntent, sessionHistory);
-    return result;
-  });
-
   // IPC: OS Sensor
-  ipcMain.handle('os-get-context', () => {
-    return Core.getOSSensor()?.getCurrentContext() ?? null;
-  });
-
-  ipcMain.handle('os-get-today-history', () => {
-    return Core.getOSSensor()?.getTodayHistory() ?? [];
-  });
-
-  ipcMain.handle('os-get-today-summary', () => {
-    return Core.getOSSensor()?.getTodaySummary() ?? null;
-  });
-
-  ipcMain.handle('get-stats', () => {
-    return Core.getStats();
-  });
-
   ipcMain.handle('memory-forget', (e, { text } = {}) => Core.forgetMemory(text));
 
   ipcMain.handle('list-skills', () => Core.listSkills());

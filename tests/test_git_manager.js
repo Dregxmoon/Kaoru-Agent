@@ -184,6 +184,27 @@ async function testCommit() {
   assert(threw, 'commit sin message es rechazado');
 }
 
+// ── Test 6b: commit ignora paths sensibles (secrets/deps) ─────────────────────
+
+async function testCommitIgnoresSensitivePaths() {
+  console.log(C.bold('\n── Test 6b: git_commit NO stagea .env ni node_modules ────────────'));
+  const gm = new GitManager();
+
+  writeFile(repoDir, 'src/lib.js', 'export const n = 1;\n');
+  writeFile(repoDir, '.env', 'SECRETO=123456');
+  writeFile(repoDir, 'node_modules/pkg/index.js', 'x');
+  writeFile(repoDir, 'dist/bundle.js', 'bundle');
+
+  const res = await gm.commit(repoDir, { message: 'feat: agrega código' });
+  assert(res.committed === true, 'commit exitoso');
+
+  const tracked = git(repoDir, ['ls-files']);
+  assert(tracked.includes('src/lib.js'), 'src/lib.js quedó commiteado');
+  assert(!tracked.includes('.env'), '.env NO quedó commiteado');
+  assert(!tracked.includes('node_modules'), 'node_modules NO quedó commiteado');
+  assert(!tracked.includes('dist/'), 'dist/ NO quedó commiteado');
+}
+
 // ── Test 7: stash ─────────────────────────────────────────────────────────────
 
 async function testStash() {
@@ -324,6 +345,7 @@ async function main() {
     await testLog();
     await testBranch();
     await testCommit();
+    await testCommitIgnoresSensitivePaths();
     await testStash();
     await testMergeConflict();
     await testParamValidation();

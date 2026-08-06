@@ -4,6 +4,7 @@ const https = require('https');
 const http = require('http');
 
 const { ProviderQueue } = require('./RequestQueue.js');
+const { UsageTracker } = require('../observability/UsageTracker.js');
 
 const KEEP_ALIVE_AGENT = new https.Agent({ keepAlive: true, maxSockets: 4 });
 const KEEP_ALIVE_AGENT_HTTP = new http.Agent({ keepAlive: true, maxSockets: 4 });
@@ -11,6 +12,58 @@ const AGENT_BY_PROTOCOL = {
   'https:': KEEP_ALIVE_AGENT,
   'http:': KEEP_ALIVE_AGENT_HTTP,
 };
+
+// ── Uso (observabilidad) ─────────────────────────────────────────────────────
+// Tracker por defecto en memoria; Core.init() inyecta uno persistido a disco
+// con setUsageTracker() cuando tiene app.getPath('userData') disponible.
+let _usageTracker = new UsageTracker(null);
+
+function setUsageTracker(tracker) {
+  _usageTracker = tracker || new UsageTracker(null);
+}
+
+function getUsageTracker() {
+  return _usageTracker;
+}
+
+/**
+ * Extrae tokens de un body de respuesta y registra el evento de uso.
+ * Devuelve los tokens extraídos (puede ser 0 si el provider no los reporta,
+ * p.ej. en streams).
+ * @param {string} providerId
+ * @param {any} def
+ * @param {string} model
+ * @param {string} mode
+ * @param {any} resBody
+ * @param {object} opts
+ * @param {number} startedAt
+ * @param {boolean} [isError]
+ */
+function _recordUsage(providerId, def, model, mode, resBody, opts, startedAt, isError) {
+  let promptTokens = 0;
+  let completionTokens = 0;
+  if (resBody && typeof resBody === 'object') {
+    const u = resBody.usage;
+    if (u) {
+      promptTokens = u.prompt_tokens || u.input_tokens || 0;
+      completionTokens = u.completion_tokens || u.output_tokens || 0;
+    } else if (resBody.usageMetadata) {
+      promptTokens = resBody.usageMetadata.promptTokenCount || 0;
+      completionTokens = resBody.usageMetadata.candidatesTokenCount || 0;
+    }
+  }
+  _usageTracker.record({
+    provider: providerId,
+    model: model || def?.name || providerId,
+    mode,
+    promptTokens,
+    completionTokens,
+    latencyMs: Date.now() - startedAt,
+    stream: opts.onToken === true,
+    error: isError === true,
+  });
+  return promptTokens + completionTokens;
+}
 
 // ── Provider registry ──────────────────────────────────────────────────────────
 const _registry = new Map();
@@ -22,16 +75,8 @@ function registerProvider(def) {
   _registry.set(def.id, { ...def });
 }
 
-function getProvider(id) {
-  return _registry.get(id) || null;
-}
-
 function getProviders() {
   return [..._registry.values()];
-}
-
-function getProviderNames() {
-  return [..._registry.keys()];
 }
 
 // ── Built-in providers ─────────────────────────────────────────────────────────
@@ -462,6 +507,7 @@ async function callOpenAI(providerId, messages, systemPrompt, mode = 'fast', opt
   const timeoutMs = TIMEOUT_MS[safeMode] ?? TIMEOUT_MS.fast;
   const history = _trimHistoryForMode(messages, safeMode);
   const msgs = [{ role: 'system', content: systemPrompt }, ...history];
+  const startedAt = Date.now();
 
   console.log(
     `[llm] ${providerId} model: ${model} (${safeMode}, max_tokens=${maxTokens}, history=${history.length}msg, timeout=${timeoutMs}ms)${opts.onToken ? ' [stream]' : ''}`
@@ -482,6 +528,7 @@ async function callOpenAI(providerId, messages, systemPrompt, mode = 'fast', opt
       )
     : await post(`${def.baseURL}/chat/completions`, headers, body, timeoutMs, opts.signal);
   if (res.status !== 200) throw new Error(`${def.name} ${res.status}: ${JSON.stringify(res.body)}`);
+  _recordUsage(providerId, def, model, safeMode, res.body, opts, startedAt);
   return (res.body.choices[0].message.content || '').trim();
 }
 
@@ -501,6 +548,7 @@ async function callGeminiProvider(providerId, messages, systemPrompt, mode = 'fa
     role: m.role === 'assistant' ? 'model' : 'user',
     parts: [{ text: m.content }],
   }));
+  const startedAt = Date.now();
 
   console.log(
     `[llm] ${providerId} model: ${model} (${safeMode}, max_tokens=${maxTokens}, history=${history.length}msg, timeout=${timeoutMs}ms)${opts.onToken ? ' [stream]' : ''}`
@@ -524,9 +572,11 @@ async function callGeminiProvider(providerId, messages, systemPrompt, mode = 'fa
   // Gemini stream (alt=sse) devuelve el body como string SSE en data — si
   // llegó como JSON normal, extraemos directo; si es SSE, parseamos fragmentos.
   if (opts.onToken && typeof res.body === 'string') {
+    _recordUsage(providerId, def, model, safeMode, {}, opts, startedAt);
     const full = _parseGeminiSSE(res.body, opts.onToken);
     return full.text.trim();
   }
+  _recordUsage(providerId, def, model, safeMode, res.body, opts, startedAt);
   return (res.body.candidates[0]?.content?.parts?.[0]?.text || '').trim();
 }
 
@@ -710,6 +760,7 @@ async function callOpenAIWithTools(providerId, messages, systemPrompt, mode, too
   const timeoutMs = TIMEOUT_MS[safeMode] ?? TIMEOUT_MS.fast;
   const history = _trimHistoryForMode(messages, safeMode);
   const msgs = [{ role: 'system', content: systemPrompt }, ...history];
+  const startedAt = Date.now();
 
   const body = {
     model,
@@ -752,8 +803,10 @@ async function callOpenAIWithTools(providerId, messages, systemPrompt, mode, too
         }
       })
       .filter(Boolean);
+    _recordUsage(providerId, def, model, safeMode, {}, opts, startedAt);
     return { content: body.content || null, toolCalls: toolCalls.length > 0 ? toolCalls : null };
   }
+  _recordUsage(providerId, def, model, safeMode, res.body, opts, startedAt);
   return _normalizeOpenAIResponse(res.body);
 }
 
@@ -772,6 +825,7 @@ async function callGeminiWithTools(providerId, messages, systemPrompt, mode, too
     role: m.role === 'assistant' ? 'model' : 'user',
     parts: [{ text: m.content }],
   }));
+  const startedAt = Date.now();
 
   const body = {
     system_instruction: { parts: [{ text: systemPrompt }] },
@@ -795,12 +849,14 @@ async function callGeminiWithTools(providerId, messages, systemPrompt, mode, too
   if (res.status !== 200) throw new Error(`${def.name} ${res.status}: ${JSON.stringify(res.body)}`);
 
   if (opts.onToken && typeof res.body === 'string') {
+    _recordUsage(providerId, def, model, safeMode, {}, opts, startedAt);
     const sse = _parseGeminiSSE(res.body, opts.onToken);
     return {
       content: sse.text.trim() || null,
       toolCalls: sse.toolCalls.length > 0 ? sse.toolCalls : null,
     };
   }
+  _recordUsage(providerId, def, model, safeMode, res.body, opts, startedAt);
   return _normalizeGeminiResponse(res.body);
 }
 
@@ -1099,10 +1155,6 @@ function removeCustomProvider(id) {
   _rebuildMaps();
 }
 
-function getCustomProviders() {
-  return _config.customProviders || [];
-}
-
 module.exports = {
   configure,
   complete,
@@ -1111,12 +1163,8 @@ module.exports = {
   getActiveProvider,
   getActiveModel,
   getAvailableProviders,
-  getProvider,
-  getProviders,
-  getProviderNames,
   addCustomProvider,
   removeCustomProvider,
-  getCustomProviders,
   getToolSchemas: () => require('./ToolSchemas.js').TOOL_SCHEMAS,
   registerProvider,
   getQueueStats,
@@ -1124,13 +1172,13 @@ module.exports = {
   removeProviderApiKey,
   migrateApiKeysToKeychain,
   _setKeychainResolver,
-  _debug_isRetryableError: _isRetryableError,
-  _debug_backoffWithJitter: _backoffWithJitter,
   _debug_enqueueProviderCall: _enqueueProviderCall,
   _debug_normalizeOpenAI: _normalizeOpenAIResponse,
   _debug_normalizeGemini: _normalizeGeminiResponse,
   _debug_buildOpenAITools: _buildOpenAITools,
   _debug_buildGeminiTools: _buildGeminiTools,
   _debug_postStream: postStream,
-  _debug_post: post,
+  setUsageTracker,
+  getUsageTracker,
+  _debug_recordUsage: _recordUsage,
 };

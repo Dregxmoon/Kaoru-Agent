@@ -17,8 +17,17 @@
     "format": "prettier --write \"main.js\" \"openclaw-server.js\" \"{core,infrastructure,ipc,tests,benchmarks,src}/**/*.js\"",
     "format:check": "prettier --check \"main.js\" \"openclaw-server.js\" \"{core,infrastructure,ipc,tests,benchmarks,src}/**/*.js\"",
     "typecheck": "tsc --noEmit",
+    "cli": "ELECTRON_RUN_AS_NODE=1 electron bin/cli.js",
+    "cli:help": "ELECTRON_RUN_AS_NODE=1 electron bin/cli.js help",
     "build": "electron-builder --win --x64",
-    "build-portable": "electron-builder --win portable"
+    "build-portable": "electron-builder --win portable",
+    "build:win": "electron-builder --win --x64",
+    "build:mac": "electron-builder --mac --x64 --arm64",
+    "build:linux": "electron-builder --linux --x64",
+    "build:all": "electron-builder --win --x64 && electron-builder --mac --x64 --arm64 && electron-builder --linux --x64",
+    "publish:win": "electron-builder --win --x64 --publish always",
+    "publish:mac": "electron-builder --mac --x64 --arm64 --publish always",
+    "publish:linux": "electron-builder --linux --x64 --publish always"
   },
   "devDependencies": {
     "@electron/rebuild": "^4.2.0",
@@ -35,22 +44,88 @@
     "directories": {
       "output": "dist"
     },
+    "publish": {
+      "provider": "github",
+      "owner": "Dregxmoon",
+      "repo": "Asistente-Vtuber",
+      "releaseType": "release"
+    },
     "win": {
       "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        },
         {
           "target": "portable",
           "arch": [
             "x64"
           ]
         }
-      ]
+      ],
+      "verifyUpdateCodeSignature": false
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "deleteAppDataOnUninstall": false
+    },
+    "mac": {
+      "target": [
+        {
+          "target": "dmg",
+          "arch": [
+            "x64",
+            "arm64"
+          ]
+        },
+        {
+          "target": "zip",
+          "arch": [
+            "x64",
+            "arm64"
+          ]
+        }
+      ],
+      "category": "public.app-category.utilities",
+      "identity": null
+    },
+    "linux": {
+      "target": [
+        {
+          "target": "AppImage",
+          "arch": [
+            "x64"
+          ]
+        },
+        {
+          "target": "deb",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "category": "Utility",
+      "maintainer": "Dregxmoon"
     },
     "files": [
       "main.js",
+      "openclaw-server.js",
+      "updater.js",
+      "bin/**/*",
+      "core/**/*",
+      "infrastructure/**/*",
+      "ipc/**/*",
+      "plugins/**/*",
       "src/**/*",
       "assets/**/*",
       "models/**/*",
-      "Models/**/*"
+      "Models/**/*",
+      "!data/**/*",
+      "!tests/**/*",
+      "!benchmarks/**/*"
     ]
   },
   "dependencies": {
@@ -60,6 +135,7 @@
     "diff": "^9.0.0",
     "dompurify": "^3.4.12",
     "dotenv": "^17.4.2",
+    "electron-updater": "^6.8.9",
     "marked": "^9.1.6",
     "minimatch": "^10.2.0",
     "playwright": "^1.61.0",

@@ -28,6 +28,7 @@ const fs = require('fs');
 const path = require('path');
 
 const { getEventBus } = require('../../infrastructure/event-bus/EventBus.js');
+const { BasePollingWatcher } = require('./BasePollingWatcher.js');
 
 const CPU_WARN = 92;
 const MEM_WARN = 92;
@@ -83,42 +84,18 @@ function _memPercent() {
   return total === 0 ? 0 : (1 - os.freemem() / total) * 100;
 }
 
-class SystemWatcher {
+class SystemWatcher extends BasePollingWatcher {
   constructor({ pollMs = DEFAULT_POLL_MS, probe = _defaultProbe, bus = getEventBus() } = {}) {
-    this._bus = bus;
-    this._pollMs = pollMs;
+    super({ pollMs, bus });
     this._probe = probe;
-    this._timer = null;
-    this._running = false;
     this._warned = {}; // kind → { active, value }
     this._last = null;
-    this._lastError = null;
   }
 
-  start() {
-    if (this._running) return;
-    this._running = true;
-    this.poll().catch(() => {});
-    this._timer = setInterval(() => this.poll().catch(() => {}), this._pollMs);
-  }
-
-  stop() {
-    if (this._timer) {
-      clearInterval(this._timer);
-      this._timer = null;
-    }
-    this._running = false;
-  }
-
-  async poll() {
-    try {
-      const s = await this._probe();
-      this._last = s;
-      this._tick(s);
-    } catch (e) {
-      this._lastError = e.message;
-      if (process.env.DEBUG) console.warn('[system-watcher]', e.message);
-    }
+  async _scan() {
+    const s = await this._probe();
+    this._last = s;
+    this._tick(s);
   }
 
   _tick(s) {

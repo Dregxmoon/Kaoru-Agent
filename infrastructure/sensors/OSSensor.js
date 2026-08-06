@@ -20,7 +20,8 @@
  */
 
 const { spawn } = require('child_process');
-const { getEventBus } = require('../event-bus/EventBus.js');
+const { BaseOSSensor } = require('./BaseOSSensor.js');
+const { formatElapsed } = require('../../core/utils/format.js');
 
 // FIX Bug 13: añadir claude y variantes a la lista de ignorados
 const IGNORED_APPS = new Set([
@@ -163,8 +164,6 @@ const APP_CATEGORIES = {
   ],
 };
 
-const IDLE_THRESHOLD_SECS = 120;
-
 const PS_SCRIPT = `
 [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
 $OutputEncoding = [System.Text.Encoding]::UTF8
@@ -245,64 +244,9 @@ foreach ($hwnd in [Win32]::GetVisibleWindows()) {
 }
 `.trim();
 
-class OSSensor {
+class OSSensor extends BaseOSSensor {
   constructor(stateGraph) {
-    this._graph = stateGraph;
-    this._bus = getEventBus();
-    this._polling = null;
-    this._pollBusy = false;
-    this._pollMs = 5000;
-    this._currentApp = null;
-    this._currentTitle = null;
-    this._appStart = null;
-    this._openWindows = [];
-    this._history = [];
-    this._maxHistory = 100;
-    this._running = false;
-    this._idleSecs = 0;
-    this._wasIdle = false;
-  }
-
-  start() {
-    if (this._running) return;
-    this._running = true;
-    console.log('[os-sensor] iniciado (poll cada 5s)');
-    this._poll();
-    this._polling = setInterval(() => this._poll(), this._pollMs);
-  }
-
-  stop() {
-    if (this._polling) {
-      clearInterval(this._polling);
-      this._polling = null;
-    }
-    this._running = false;
-    console.log('[os-sensor] detenido');
-  }
-
-  getCurrentContext() {
-    const elapsed = this._appStart ? Math.round((Date.now() - this._appStart) / 1000) : 0;
-    return {
-      app: this._currentApp,
-      friendlyName: this._getFriendlyName(this._currentApp),
-      title: this._currentTitle,
-      category: this._getCategory(this._currentApp),
-      elapsed,
-      elapsedFormatted: this._formatElapsed(elapsed),
-      idleSecs: this._idleSecs,
-      idleFormatted: this._idleSecs > 0 ? this._formatElapsed(this._idleSecs) : null,
-      isIdle: this._idleSecs >= IDLE_THRESHOLD_SECS,
-      openWindows: this.getOpenWindows(),
-      openWindowsSummary: this.getOpenWindowsSummary(),
-      history: this.getTodayHistory(),
-    };
-  }
-
-  getOpenWindows() {
-    return this._openWindows.map((w) => ({
-      ...w,
-      focused: w.app === this._currentApp && w.title === this._currentTitle,
-    }));
+    super(stateGraph, { logTag: 'os-sensor' });
   }
 
   getOpenWindowsSummary() {
@@ -312,27 +256,6 @@ class OSSensor {
         const cleanTitle = this._cleanTitle(w.app, w.title);
         return cleanTitle ? `${w.friendlyName} (${cleanTitle})` : w.friendlyName;
       })
-      .join(', ');
-  }
-
-  getTodayHistory() {
-    const startOfDay = new Date();
-    startOfDay.setHours(0, 0, 0, 0);
-    return this._history.filter((e) => e.start >= startOfDay.getTime());
-  }
-
-  getTodaySummary() {
-    const today = this.getTodayHistory();
-    if (!today.length) return null;
-    const byApp = {};
-    for (const entry of today) {
-      const key = entry.friendlyName || entry.app;
-      byApp[key] = (byApp[key] || 0) + (entry.duration || 0);
-    }
-    return Object.entries(byApp)
-      .sort(([, a], [, b]) => b - a)
-      .slice(0, 8)
-      .map(([app, secs]) => `${app} (${this._formatElapsed(secs)})`)
       .join(', ');
   }
 
@@ -424,74 +347,6 @@ class OSSensor {
     });
   }
 
-  _processIdle(idleSecs) {
-    this._idleSecs = idleSecs;
-    const isIdle = idleSecs >= IDLE_THRESHOLD_SECS;
-    if (isIdle && !this._wasIdle) {
-      this._wasIdle = true;
-      this._bus.emit('os:idle-changed', { idle: true, idleSecs });
-      console.log(`[os-sensor] usuario idle (${this._formatElapsed(idleSecs)})`);
-    } else if (!isIdle && this._wasIdle) {
-      this._wasIdle = false;
-      this._bus.emit('os:idle-changed', { idle: false, idleSecs: 0 });
-      console.log('[os-sensor] usuario activo de nuevo');
-    }
-  }
-
-  _processFocus(procName, title) {
-    const elapsed = this._appStart ? Math.round((Date.now() - this._appStart) / 1000) : 0;
-
-    if (procName !== this._currentApp) {
-      if (this._currentApp && this._appStart) {
-        this._saveToHistory(this._currentApp, this._currentTitle, this._appStart, Date.now());
-      }
-      const prev = this._currentApp;
-      this._currentApp = procName;
-      this._currentTitle = title;
-      this._appStart = Date.now();
-      this._bus.emit('os:app-changed', {
-        app: procName,
-        friendlyName: this._getFriendlyName(procName),
-        title,
-        category: this._getCategory(procName),
-        elapsed: 0,
-        prev,
-        prevFriendly: this._getFriendlyName(prev),
-      });
-      console.log(`[os-sensor] → ${this._getFriendlyName(procName)} — "${title.slice(0, 60)}"`);
-    } else {
-      this._currentTitle = title;
-      this._bus.emit('os:app-tick', {
-        app: procName,
-        friendlyName: this._getFriendlyName(procName),
-        title,
-        category: this._getCategory(procName),
-        elapsed,
-        elapsedFormatted: this._formatElapsed(elapsed),
-      });
-    }
-  }
-
-  /**
-   * FIX tracking: el foco cayó en una app ignorada (Explorer, diálogo de
-   * sistema, etc.). Guarda de inmediato el historial de la app anterior
-   * con el tiempo correcto hasta ESTE momento, y resetea el estado para
-   * que cuando el foco vuelva a una app real, _processFocus lo trate
-   * como un inicio nuevo (en vez de seguir sumando tiempo a la app vieja
-   * mientras el usuario estuvo en una ventana ignorada).
-   */
-  _pauseTracking() {
-    if (this._currentApp && this._appStart) {
-      this._saveToHistory(this._currentApp, this._currentTitle, this._appStart, Date.now());
-    }
-    if (this._currentApp !== null) {
-      console.log('[os-sensor] foco en app ignorada — pausando tracking');
-    }
-    this._currentApp = null;
-    this._currentTitle = null;
-    this._appStart = null;
-  }
-
   _saveToHistory(app, title, start, end) {
     const duration = Math.round((end - start) / 1000);
     if (duration < 5) return;
@@ -534,12 +389,7 @@ class OSSensor {
   }
 
   _formatElapsed(seconds) {
-    if (!seconds || seconds < 60) return `${seconds}s`;
-    const mins = Math.floor(seconds / 60);
-    if (mins < 60) return `${mins}m`;
-    const hrs = Math.floor(mins / 60);
-    const rem = mins % 60;
-    return rem > 0 ? `${hrs}h ${rem}m` : `${hrs}h`;
+    return formatElapsed(seconds);
   }
 
   _cleanTitle(procName, title) {

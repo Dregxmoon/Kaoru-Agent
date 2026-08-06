@@ -3,7 +3,6 @@ document
   .getElementById('close-btn')
   .addEventListener('click', () => ipcRenderer.send('chat-close'));
 ipcRenderer.on('init-theme', (e, theme) => setTheme(theme));
-ipcRenderer.on('chat-speak', (e, text) => speak(text));
 ipcRenderer.on('chat-message', (e, text) => processMessage(text));
 ipcRenderer.on('model-changed', (e, info) => {
   _modelInfo = info && info.model3Path ? info : _modelInfo;
@@ -83,30 +82,6 @@ function _refreshViewButtons() {
 // Fase 3
 ipcRenderer.on('openclaw-status', (e, { available }) => updateOpenClawBadge(available));
 
-ipcRenderer.on('plan-step-start', (e, { planId, stepId }) => {
-  if (planId !== activePlanId) return;
-  const el = document.getElementById(`step-${stepId}`);
-  if (!el) return;
-  el.className = 'plan-step running';
-  el.querySelector('.step-icon').textContent = '*';
-});
-
-ipcRenderer.on('plan-started', (e, payload) => {
-  if (chatGestureEngine) chatGestureEngine.onEvent('plan:started');
-});
-
-ipcRenderer.on('plan-step-done', (e, { planId, stepId, status }) => {
-  if (planId !== activePlanId) return;
-  const el = document.getElementById(`step-${stepId}`);
-  if (!el) return;
-  el.className = `plan-step ${status}`;
-  el.querySelector('.step-icon').textContent =
-    { done: 'D', failed: 'F', skipped: 'S' }[status] || '?';
-  messagesEl.scrollTop = messagesEl.scrollHeight;
-});
-
-ipcRenderer.on('plan-approval-needed', (e, payload) => _showApprovalCard(payload));
-
 // Agent Loop IPC (Fase 2)
 let _agentProgressEl = null;
 const _spinnerFrames = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'];
@@ -131,20 +106,8 @@ ipcRenderer.on('agent-progress', (e, { iteration, tool, status }) => {
   }
 });
 
-ipcRenderer.on('agent-approval-needed', (e, { actionId, tool, description }) => {
-  const approved = confirm(
-    `El asistente quiere ejecutar:\n\n${description}\n\n¿Aprobar esta acción?`
-  );
-  ipcRenderer.send('agent-approval-response', { id: actionId, approved });
-});
-
-ipcRenderer.on('plan-finished', (e, { planId }) => {
-  if (chatGestureEngine) chatGestureEngine.onEvent('plan:finished');
-  const card = document.getElementById(`plan-${planId}`);
-  if (card) {
-    const dot = card.querySelector('.plan-dot');
-    if (dot) dot.style.animation = 'none';
-  }
+ipcRenderer.on('agent-approval-needed', (e, { actionId, tool, params, description }) => {
+  _showApprovalCard({ id: actionId, tool, params, description });
 });
 
 ipcRenderer.on('initiative', (e, payload) => {
@@ -290,3 +253,61 @@ ipcRenderer.on('proposal-result', (e, { proposalId, ok, skipped, detail }) => {
 
 // Init
 window.addEventListener('DOMContentLoaded', loadModel);
+
+// ── Auto-update (banner) ─────────────────────────────────────────────────────
+const _updateBanner = document.getElementById('update-banner');
+const _updateText = document.getElementById('update-text');
+const _updateProgress = document.getElementById('update-progress');
+const _updateDlBtn = document.getElementById('update-dl-btn');
+const _updateRestartBtn = document.getElementById('update-restart-btn');
+const _updateCloseBtn = document.getElementById('update-close-btn');
+
+function _showUpdate(state, p) {
+  _updateText.textContent = p.text;
+  _updateProgress.textContent = p.progress || '';
+  _updateDlBtn.style.display = p.showDl ? '' : 'none';
+  _updateRestartBtn.style.display = p.showRestart ? '' : 'none';
+  _updateBanner.classList.toggle('visible', !!p.show);
+}
+
+_updateDlBtn.addEventListener('click', () => ipcRenderer.invoke('update:download'));
+_updateRestartBtn.addEventListener('click', () => ipcRenderer.invoke('update:install'));
+_updateCloseBtn.addEventListener('click', () => _updateBanner.classList.remove('visible'));
+
+ipcRenderer.on('update-status', (e, st) => {
+  const cur = st.info && st.info.version ? ` v${st.info.version}` : '';
+  switch (st.state) {
+    case 'available':
+      _showUpdate(st, {
+        show: true,
+        text: `Actualización disponible${cur} — reinicia la app para descargarla.`,
+        showDl: true,
+      });
+      break;
+    case 'downloading':
+      _showUpdate(st, {
+        show: true,
+        text: `Descargando actualización${cur}...`,
+        progress: st.percent != null ? `${st.percent}%` : '',
+      });
+      break;
+    case 'downloaded':
+      _showUpdate(st, {
+        show: true,
+        text: `Actualización v${st.version || ''} lista para instalar.`,
+        showRestart: true,
+      });
+      break;
+    case 'error':
+      _showUpdate(st, {
+        show: true,
+        text: `Error al actualizar: ${(st.error || '').slice(0, 80)}`,
+      });
+      break;
+    case 'postponed':
+      _showUpdate(st, { show: false });
+      break;
+    default:
+      _showUpdate(st, { show: false });
+  }
+});

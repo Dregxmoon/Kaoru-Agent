@@ -1,9 +1,7 @@
 'use strict';
 
 const { spawn } = require('child_process');
-const { getEventBus } = require('../event-bus/EventBus.js');
-
-const IDLE_THRESHOLD_SECS = 120;
+const { BaseOSSensor } = require('./BaseOSSensor.js');
 
 const IGNORED_APPS = new Set(['vtuber-overlay', 'electron', 'desktop-names', 'Hyprland']);
 
@@ -195,102 +193,13 @@ async function _getActiveSessionId() {
   return lines[0].split(/\s+/)[0];
 }
 
-class LinuxOSSensor {
+class LinuxOSSensor extends BaseOSSensor {
   constructor(stateGraph) {
-    this._graph = stateGraph;
-    this._bus = getEventBus();
-    this._polling = null;
-    this._pollBusy = false;
-    this._pollMs = 5000;
-    this._currentApp = null;
-    this._currentTitle = null;
-    this._appStart = null;
-    this._openWindows = [];
-    this._history = [];
-    this._maxHistory = 100;
-    this._running = false;
-    this._idleSecs = 0;
-    this._wasIdle = false;
-
+    super(stateGraph, { logTag: 'linux-os-sensor' });
     this._hyprctlOk = _checkBinary('hyprctl');
     if (!this._hyprctlOk) {
       console.warn('[linux-os-sensor] hyprctl no encontrado — sensor no funcionará');
     }
-  }
-
-  start() {
-    if (this._running) return;
-    this._running = true;
-    console.log('[linux-os-sensor] iniciado (Hyprland/Wayland, poll cada 5s)');
-    this._poll();
-    this._polling = setInterval(() => {
-      this._poll().catch((e) => console.warn('[linux-os-sensor] poll error:', e.message));
-    }, this._pollMs);
-  }
-
-  stop() {
-    if (this._polling) {
-      clearInterval(this._polling);
-      this._polling = null;
-    }
-    this._running = false;
-    console.log('[linux-os-sensor] detenido');
-  }
-
-  getCurrentContext() {
-    const elapsed = this._appStart ? Math.round((Date.now() - this._appStart) / 1000) : 0;
-    return {
-      app: this._currentApp,
-      friendlyName: _getFriendlyName(this._currentApp),
-      title: this._currentTitle,
-      category: _getCategory(this._currentApp),
-      elapsed,
-      elapsedFormatted: _formatElapsed(elapsed),
-      idleSecs: this._idleSecs,
-      idleFormatted: this._idleSecs > 0 ? _formatElapsed(this._idleSecs) : null,
-      isIdle: this._idleSecs >= IDLE_THRESHOLD_SECS,
-      openWindows: this.getOpenWindows(),
-      openWindowsSummary: this.getOpenWindowsSummary(),
-      history: this.getTodayHistory(),
-    };
-  }
-
-  getOpenWindows() {
-    return this._openWindows.map((w) => ({
-      ...w,
-      focused: w.app === this._currentApp && w.title === this._currentTitle,
-    }));
-  }
-
-  getOpenWindowsSummary() {
-    if (!this._openWindows.length) return null;
-    return this._openWindows
-      .map((w) => {
-        const cleanTitle = w.title || '';
-        return cleanTitle ? `${w.friendlyName} (${cleanTitle.slice(0, 50)})` : w.friendlyName;
-      })
-      .join(', ');
-  }
-
-  getTodayHistory() {
-    const startOfDay = new Date();
-    startOfDay.setHours(0, 0, 0, 0);
-    return this._history.filter((e) => e.start >= startOfDay.getTime());
-  }
-
-  getTodaySummary() {
-    const today = this.getTodayHistory();
-    if (!today.length) return null;
-    const byApp = {};
-    for (const entry of today) {
-      const key = entry.friendlyName || entry.app;
-      byApp[key] = (byApp[key] || 0) + (entry.duration || 0);
-    }
-    return Object.entries(byApp)
-      .sort(([, a], [, b]) => b - a)
-      .slice(0, 8)
-      .map(([app, secs]) => `${app} (${_formatElapsed(secs)})`)
-      .join(', ');
   }
 
   async _poll() {
@@ -345,58 +254,26 @@ class LinuxOSSensor {
     this._pollBusy = false;
   }
 
-  _processFocus(app, title) {
-    const elapsed = this._appStart ? Math.round((Date.now() - this._appStart) / 1000) : 0;
-
-    if (app !== this._currentApp) {
-      if (this._currentApp && this._appStart) {
-        this._saveToHistory(this._currentApp, this._currentTitle, this._appStart, Date.now());
-      }
-      const prev = this._currentApp;
-      this._currentApp = app;
-      this._currentTitle = title;
-      this._appStart = Date.now();
-      this._bus.emit('os:app-changed', {
-        app,
-        friendlyName: _getFriendlyName(app),
-        title,
-        category: _getCategory(app),
-        elapsed: 0,
-        prev,
-        prevFriendly: _getFriendlyName(prev),
-      });
-    } else {
-      this._currentTitle = title;
-      this._bus.emit('os:app-tick', {
-        app,
-        friendlyName: _getFriendlyName(app),
-        title,
-        category: _getCategory(app),
-        elapsed,
-        elapsedFormatted: _formatElapsed(elapsed),
-      });
-    }
+  getOpenWindowsSummary() {
+    if (!this._openWindows.length) return null;
+    return this._openWindows
+      .map((w) => {
+        const cleanTitle = w.title || '';
+        return cleanTitle ? `${w.friendlyName} (${cleanTitle.slice(0, 50)})` : w.friendlyName;
+      })
+      .join(', ');
   }
 
-  _processIdle(idleSecs) {
-    this._idleSecs = idleSecs;
-    const isIdle = idleSecs >= IDLE_THRESHOLD_SECS;
-    if (isIdle && !this._wasIdle) {
-      this._wasIdle = true;
-      this._bus.emit('os:idle-changed', { idle: true, idleSecs });
-    } else if (!isIdle && this._wasIdle) {
-      this._wasIdle = false;
-      this._bus.emit('os:idle-changed', { idle: false, idleSecs: 0 });
-    }
+  _getFriendlyName(procName) {
+    return _getFriendlyName(procName);
   }
 
-  _pauseTracking() {
-    if (this._currentApp && this._appStart) {
-      this._saveToHistory(this._currentApp, this._currentTitle, this._appStart, Date.now());
-    }
-    this._currentApp = null;
-    this._currentTitle = null;
-    this._appStart = null;
+  _getCategory(procName) {
+    return _getCategory(procName);
+  }
+
+  _formatElapsed(secs) {
+    return _formatElapsed(secs);
   }
 
   _saveToHistory(app, title, start, end) {

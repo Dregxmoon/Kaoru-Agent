@@ -6,6 +6,7 @@ const fs = require('fs');
 const path = require('path');
 const Diff = require('diff');
 const crypto = require('crypto');
+const { dirSet } = require('./core/utils/ignoreDirs.js');
 
 // G.1: puerto configurable vía OPENCLAW_PORT (para tests y despliegues
 // embebidos); default 18789 mantiene compatibilidad.
@@ -51,8 +52,24 @@ function _checkRateLimit() {
 }
 
 // ── Auditoría ───────────────────────────────────────────────────────────────
+// Cada ejecución de herramienta se registra en memoria (últimas 1000) y se
+// persiste en un archivo JSONL (auditoría forense que sobrevive reinicios).
+// La ruta se configura con OPENCLAW_AUDIT_PATH; default: tmp del SO.
+
+const AUDIT_LOG_PATH =
+  process.env.OPENCLAW_AUDIT_PATH || path.join(require('os').tmpdir(), 'openclaw-audit.jsonl');
 
 const auditLog = [];
+
+function _appendAuditFile(entry) {
+  try {
+    const dir = path.dirname(AUDIT_LOG_PATH);
+    fs.mkdirSync(dir, { recursive: true });
+    fs.appendFileSync(AUDIT_LOG_PATH, JSON.stringify(entry) + '\n', 'utf8');
+  } catch {
+    // El audit no debe romper la ejecución de herramientas
+  }
+}
 
 function _audit(tool, params, ok, detail) {
   const entry = {
@@ -66,6 +83,7 @@ function _audit(tool, params, ok, detail) {
   const status = ok ? 'OK' : 'FAIL';
   console.log(`[audit] ${entry.ts} ${tool} ${status} — ${detail}`);
   if (auditLog.length > 1000) auditLog.shift();
+  _appendAuditFile(entry);
 }
 
 function _sanitizeParamsForLog(tool, params) {
@@ -181,11 +199,35 @@ function _isImmutablePath(filePath) {
   return IMMUTABLE_PATH_PATTERNS.some((re) => re.test(filePath));
 }
 
+// Realpath del ancestro existente más cercano a `p` (para rutas de archivos
+// que aún no existen, p.ej. al escribir uno nuevo), manteniendo el resto
+// del path como sufijo literal. Cierra la vía de escape por symlink: si un
+// directorio intermedio es un symlink hacia fuera de ALLOWED_PATH, el realpath
+// lo resuelve y _isOutsideAllowed lo detecta.
+function _realpathNearest(p) {
+  let cur = p;
+  const tail = [];
+  for (;;) {
+    try {
+      const base = fs.realpathSync(cur);
+      return tail.length ? path.resolve(base, ...tail) : base;
+    } catch {
+      const parent = path.dirname(cur);
+      if (parent === cur) return path.resolve(p);
+      tail.unshift(path.basename(cur));
+      cur = parent;
+    }
+  }
+}
+
 function _isOutsideAllowed(filePath) {
   try {
     const resolved = path.resolve(filePath);
     if (_isImmutablePath(resolved)) return true;
-    const rel = path.relative(ALLOWED_PATH, resolved);
+    const realResolved = _realpathNearest(resolved);
+    if (_isImmutablePath(realResolved)) return true;
+    const realAllowed = _realpathNearest(ALLOWED_PATH);
+    const rel = path.relative(realAllowed, realResolved);
     return rel.startsWith('..') || path.isAbsolute(rel);
   } catch {
     return true;
@@ -194,15 +236,7 @@ function _isOutsideAllowed(filePath) {
 
 // ── Handlers ────────────────────────────────────────────────────────────────
 
-const DEFAULT_IGNORED = new Set([
-  'node_modules',
-  '.git',
-  'dist',
-  'build',
-  '.next',
-  '.cache',
-  '__pycache__',
-]);
+const DEFAULT_IGNORED = dirSet(['.git']);
 
 function _splitIgnore(ignore) {
   if (!ignore) return DEFAULT_IGNORED;
@@ -247,6 +281,123 @@ function _collectFiles(base, opts = {}) {
         }
         out.push(abs);
       }
+    }
+  }
+  return out;
+}
+
+// ── Herramientas web (webfetch/websearch) ────────────────────────────────────
+
+const MAX_WEB_BYTES = 512 * 1024; // 512 KB de texto por página
+const MAX_WEB_TIMEOUT = 20_000; // 20 s
+
+function _htmlToText(html) {
+  return (html || '')
+    .replace(/<script[\s\S]*?<\/script>/gi, ' ')
+    .replace(/<style[\s\S]*?<\/style>/gi, ' ')
+    .replace(/<head[\s\S]*?<\/head>/gi, ' ')
+    .replace(/<br\s*\/?>/gi, '\n')
+    .replace(/<\/(p|div|li|h[1-6]|tr|section|article)>/gi, '\n')
+    .replace(/<[^>]+>/g, ' ')
+    .replace(/&nbsp;/gi, ' ')
+    .replace(/&amp;/gi, '&')
+    .replace(/&lt;/gi, '<')
+    .replace(/&gt;/gi, '>')
+    .replace(/&quot;/gi, '"')
+    .replace(/&#39;/g, "'")
+    .replace(/[ \t]{2,}/g, ' ')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
+}
+
+function _httpGet(urlString, redirectsLeft = 3) {
+  return new Promise((resolve, reject) => {
+    let parsed;
+    try {
+      parsed = new URL(urlString);
+    } catch (e) {
+      reject(new Error(`URL inválida: ${urlString}`));
+      return;
+    }
+    if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
+      reject(new Error(`Protocolo no soportado: ${parsed.protocol}`));
+      return;
+    }
+    const lib = parsed.protocol === 'https:' ? require('https') : require('http');
+    const req = lib.get(
+      parsed,
+      { headers: { 'User-Agent': 'Kaoru-assistant/1.0 (+local desktop assistant)' } },
+      (res) => {
+        const status = res.statusCode || 0;
+        if (status >= 300 && status < 400 && res.headers.location && redirectsLeft > 0) {
+          res.resume();
+          const next = new URL(res.headers.location, parsed).toString();
+          _httpGet(next, redirectsLeft - 1).then(resolve, reject);
+          return;
+        }
+        if (status >= 400) {
+          res.resume();
+          reject(new Error(`HTTP ${status}`));
+          return;
+        }
+        const chunks = [];
+        let size = 0;
+        let truncated = false;
+        res.on('data', (c) => {
+          if (size >= MAX_WEB_BYTES) {
+            truncated = true;
+            return;
+          }
+          size += c.length;
+          chunks.push(c);
+        });
+        res.on('end', () => {
+          resolve({
+            statusCode: status,
+            contentType: res.headers['content-type'] || '',
+            truncated,
+            body: Buffer.concat(chunks).toString('utf-8'),
+          });
+        });
+        res.on('error', reject);
+      }
+    );
+    req.setTimeout(MAX_WEB_TIMEOUT, () => {
+      req.destroy(new Error('timeout'));
+    });
+    req.on('error', reject);
+  });
+}
+
+/**
+ * Extrae resultados del HTML de DuckDuckGo (html.duckduckgo.com/html).
+ * Función pura — testeable sin red.
+ * @param {string} html
+ * @returns {Array<{title: string, url: string, snippet: string}>}
+ */
+function _parseDuckDuckGoHTML(html) {
+  const out = [];
+  const itemRe = /<div[^>]*class="result[^"]*"[^>]*>([\s\S]*?)(?=<div[^>]*class="result|$)/gi;
+  let m;
+  const seen = new Set();
+  while ((m = itemRe.exec(html)) !== null && out.length < 10) {
+    const block = m[1];
+    const titleM = /<a[^>]*class="result__a"[^>]*>([\s\S]*?)<\/a>/i.exec(block);
+    const urlM = /<a[^>]*class="result__a"[^>]*href="([^"]+)"/i.exec(block);
+    const snipM = /<a[^>]*class="result__snippet"[^>]*>([\s\S]*?)<\/a>/i.exec(block);
+    const title = titleM ? _htmlToText(titleM[1]).trim() : '';
+    let url = urlM ? urlM[1] : '';
+    if (url.startsWith('//duckduckgo.com/l/?uddg=')) {
+      try {
+        url = decodeURIComponent(url.replace('//duckduckgo.com/l/?uddg=', ''));
+      } catch (_) {
+        /* mantener url cruda */
+      }
+    }
+    const snippet = snipM ? _htmlToText(snipM[1]).trim() : '';
+    if (title && url && !seen.has(url)) {
+      seen.add(url);
+      out.push({ title, url, snippet });
     }
   }
   return out;
@@ -531,6 +682,44 @@ const HANDLERS = {
       });
     });
   },
+
+  /**
+   * Obtiene el contenido de una URL como texto plano (sin navegador).
+   * Ligero y barato — distinto de 'browser', que usa Playwright.
+   */
+  async webfetch(input) {
+    if (!input.url) return { error: 'url required' };
+    try {
+      const res = await _httpGet(input.url);
+      const text = _htmlToText(res.body);
+      return {
+        result: {
+          url: res.finalUrl || input.url,
+          statusCode: res.statusCode,
+          contentType: res.contentType,
+          truncated: res.truncated,
+          text: text.slice(0, MAX_WEB_BYTES),
+        },
+      };
+    } catch (e) {
+      return { error: e.message };
+    }
+  },
+
+  /** Búsqueda web ligera vía DuckDuckGo HTML (sin API key). */
+  async websearch(input) {
+    const query = input.query;
+    if (!query) return { error: 'query required' };
+    const max = Math.min(input.max_results || 5, 10);
+    try {
+      const url = `https://html.duckduckgo.com/html/?q=${encodeURIComponent(query)}`;
+      const res = await _httpGet(url);
+      const results = _parseDuckDuckGoHTML(res.body).slice(0, max);
+      return { result: { query, results } };
+    } catch (e) {
+      return { error: e.message };
+    }
+  },
 };
 
 // ── Autenticación ───────────────────────────────────────────────────────────
@@ -677,6 +866,8 @@ module.exports = {
   HANDLERS,
   handleTool,
   _checkRateLimit,
+  _htmlToText,
+  _parseDuckDuckGoHTML,
   API_KEY: () => API_KEY,
   ALLOWED_PATH: () => ALLOWED_PATH,
 };

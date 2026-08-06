@@ -339,7 +339,7 @@ function renderAttachBar() {
   pendingFiles.forEach((f, i) => {
     const chip = document.createElement('div');
     chip.className = 'attach-chip';
-    chip.innerHTML = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21.44 11.05l-9.19 9.19a6 6 0 01-8.49-8.49l9.19-9.19a4 4 0 015.66 5.66L9.41 17.41a2 2 0 01-2.83-2.83l8.49-8.48"/></svg><span class="chip-name">${f.name}</span><div class="chip-del" data-idx="${i}">X</div>`;
+    chip.innerHTML = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21.44 11.05l-9.19 9.19a6 6 0 01-8.49-8.49l9.19-9.19a4 4 0 015.66 5.66L9.41 17.41a2 2 0 01-2.83-2.83l8.49-8.48"/></svg><span class="chip-name">${escapeHtml(f.name)}</span><div class="chip-del" data-idx="${i}">X</div>`;
     attachBar.appendChild(chip);
   });
   attachBar.querySelectorAll('.chip-del').forEach((btn) =>

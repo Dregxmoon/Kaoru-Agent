@@ -63,8 +63,8 @@ function testToolHandlerCoverage() {
     }
   }
 
-  assertEqual(schemas.length, 11, '11 herramientas OpenClaw en ToolRegistry');
-  assertEqual(serverHandlers.size, 8, '8 handlers en openclaw-server');
+  assertEqual(schemas.length, 13, '13 herramientas OpenClaw en ToolRegistry');
+  assertEqual(serverHandlers.size, 10, '10 handlers en openclaw-server');
 }
 
 // ── Test 2: Approval gate (isHighImpact) ─────────────────────────────────
@@ -225,6 +225,8 @@ function testBridgeToolRouting() {
     'code_execution',
     'grep',
     'glob',
+    'webfetch',
+    'websearch',
   ]) {
     bridgeSchemas[key] = true;
   }

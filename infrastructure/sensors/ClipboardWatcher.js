@@ -18,6 +18,7 @@
 'use strict';
 
 const { getEventBus } = require('../../infrastructure/event-bus/EventBus.js');
+const { BasePollingWatcher } = require('./BasePollingWatcher.js');
 
 const DEFAULT_POLL_MS = 5 * 1000;
 const MAX_SNIPPET = 200;
@@ -35,30 +36,16 @@ function _defaultReader() {
   }
 }
 
-class ClipboardWatcher {
+class ClipboardWatcher extends BasePollingWatcher {
   constructor({ pollMs = DEFAULT_POLL_MS, reader = _defaultReader, bus = getEventBus() } = {}) {
-    this._bus = bus;
-    this._pollMs = pollMs;
+    super({ pollMs, bus });
     this._reader = reader;
-    this._timer = null;
-    this._running = false;
     this._last = null;
     this._count = 0;
   }
 
-  start() {
-    if (this._running) return;
-    this._running = true;
+  async _scan() {
     this._tick();
-    this._timer = setInterval(() => this._tick(), this._pollMs);
-  }
-
-  stop() {
-    if (this._timer) {
-      clearInterval(this._timer);
-      this._timer = null;
-    }
-    this._running = false;
   }
 
   _tick() {

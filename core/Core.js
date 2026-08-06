@@ -4,11 +4,13 @@ const cp = require('child_process');
 const crypto = require('crypto');
 
 const { getIntentDetector } = require('./grounding/IntentDetector.js');
+const { readJsonFile } = require('./utils/fsUtils.js');
 const { getStateGraph } = require('./state-graph/StateGraph.js');
 const { GroundingEngine } = require('./grounding/GroundingEngine.js');
 const { SessionManager } = require('./state-graph/SessionManager.js');
 const { StateUpdater } = require('./state-graph/StateUpdater.js');
 const { getPluginManager } = require('./plugins/PluginManager.js');
+const { PermissionManager } = require('./security/PermissionManager.js');
 const { OSSensor } = require('../infrastructure/sensors/OSSensor.js');
 const { LinuxOSSensor } = require('../infrastructure/sensors/LinuxOSSensor.js');
 const { GitWatcher } = require('../infrastructure/sensors/GitWatcher.js');
@@ -39,17 +41,11 @@ const { buildRulesSection } = require('./rules/ProjectRules.js');
 // dentro de GroqSerializer.js y se aplicaba antes de pegar BehaviorModel,
 // las reglas de OpenClaw y el catálogo MCP. Ahora se aplica aquí, al
 // final de buildContext(), sobre el prompt ya ensamblado del todo.
-// Se puede cambiar en caliente vía setMaxSystemChars().
-let MAX_SYSTEM_CHARS = 14_000; // ~3.5k tokens — conservador pero amplio
+const MAX_SYSTEM_CHARS = 14_000; // ~3.5k tokens — conservador pero amplio
 const TRUNCATION_SUFFIX = '\n\n[contexto truncado por longitud]';
 const OPENCLAW_RETRIES = 15;
 const OPENCLAW_RETRY_MS = 400;
 const MCP_CATALOG_LIMIT = 40;
-
-function setMaxSystemChars(chars) {
-  MAX_SYSTEM_CHARS = Math.max(2000, Math.min(100_000, chars));
-  console.log(`[core] MAX_SYSTEM_CHARS = ${MAX_SYSTEM_CHARS}`);
-}
 
 let _graph = null;
 let _grounding = null;
@@ -90,11 +86,13 @@ let _lastProposal = null; // { id, type } de la última propuesta emitida (debug
 let _pruneTimer = null;
 let _pruneInitTimer = null;
 let _openclawKillTimer = null;
+let _openclawCheckTimer = null;
 let _initiativeUnsub = null;
 let _initialized = false;
 let _onInitiative = null;
 let _skillManager = null;
 let _pluginManager = null;
+let _permissionManager = null;
 
 // Migración: el archivo de memoria se llamaba march.db en versiones previas
 // (y en la carpeta de datos del usuario ~/.config/vtuber-overlay). Se renombra
@@ -128,9 +126,22 @@ function init(app) {
 
   const dbPath = app
     ? path.join(app.getPath('userData'), 'core.db')
-    : path.join(__dirname, '..', 'data', 'core.db');
+    : process.env.ASISTENTE_DATA_DIR
+      ? path.join(process.env.ASISTENTE_DATA_DIR, 'core.db')
+      : path.join(__dirname, '..', 'data', 'core.db');
 
   _configPath = app ? path.join(app.getPath('userData'), 'config.json') : null;
+
+  // Observabilidad: logger a archivo + usage tracker persistido a disco.
+  // Best-effort — si no hay app (tests/headless) queda en memoria.
+  const { setUsageTracker } = require('./llm/LLMProvider.js');
+  const { UsageTracker } = require('./observability/UsageTracker.js');
+  const logger = require('./observability/Logger.js');
+  if (app) {
+    const dataDir = app.getPath('userData');
+    setUsageTracker(new UsageTracker(path.join(dataDir, 'usage.jsonl')));
+    logger.attachFile(path.join(dataDir, 'logs', 'assistant.log'));
+  }
 
   _graph = getStateGraph(dbPath);
   if (process.env.DEBUG)
@@ -268,6 +279,22 @@ function init(app) {
     });
   } catch (e) {
     console.warn('[core] plugin manager no disponible:', e.message);
+  }
+
+  // ── Permisos granulares (allow/ask/deny, patrón opencode) ────────────────
+  // Reglas por herramienta + carpeta persistidas en userData/permissions.json.
+  // El AgentLoop las consulta ANTES de ejecutar cualquier
+  // herramienta; el default sigue siendo 'ask' para alto impacto (el flujo de
+  // aprobación existente), y el usuario puede elevar/denegar por regla.
+  try {
+    _permissionManager = new PermissionManager({
+      filePath: app ? path.join(app.getPath('userData'), 'permissions.json') : null,
+      defaultAction: 'ask',
+    });
+    console.log(`[core] permisos cargados: ${_permissionManager.list().length} regla(s)`);
+  } catch (e) {
+    console.warn('[core] permission manager no disponible:', e.message);
+    _permissionManager = null;
   }
 
   if (_osSensor) {
@@ -451,7 +478,7 @@ function setChatOpen(open) {
 function _loadLLMConfig() {
   try {
     if (!_configPath || !fs.existsSync(_configPath)) return;
-    const cfg = JSON.parse(fs.readFileSync(_configPath, 'utf-8'));
+    const cfg = readJsonFile(_configPath, null);
 
     // Merge con keys del llavero del sistema (máxima prioridad)
     if (cfg?.llm?.apiKeys) {
@@ -487,7 +514,7 @@ function _loadMCPConfig() {
       _mcpReadyPromise = Promise.resolve();
       return;
     }
-    const cfg = JSON.parse(fs.readFileSync(_configPath, 'utf-8'));
+    const cfg = readJsonFile(_configPath, null);
     const servers = cfg?.mcp?.servers || [];
     if (!servers.length) {
       _mcpReadyPromise = Promise.resolve();
@@ -503,23 +530,13 @@ function _loadMCPConfig() {
 }
 
 function _readSensorsConfig() {
-  try {
-    if (!_configPath || !fs.existsSync(_configPath)) return {};
-    const cfg = JSON.parse(fs.readFileSync(_configPath, 'utf-8'));
-    return (cfg && cfg.sensors) || {};
-  } catch (e) {
-    return {};
-  }
+  const cfg = readJsonFile(_configPath, null);
+  return (cfg && cfg.sensors) || {};
 }
 
 function _readAutonomyConfig() {
-  try {
-    if (!_configPath || !fs.existsSync(_configPath)) return 'suggest';
-    const cfg = JSON.parse(fs.readFileSync(_configPath, 'utf-8'));
-    return (cfg && cfg.autonomy) || 'suggest';
-  } catch (e) {
-    return 'suggest';
-  }
+  const cfg = readJsonFile(_configPath, null);
+  return (cfg && cfg.autonomy) || 'suggest';
 }
 
 // Fase A: el usuario respondió a una propuesta (aceptar/descartar) desde el
@@ -611,10 +628,6 @@ async function mcpSearchRegistry(query) {
   return _mcp ? _mcp.searchRegistry(query) : [];
 }
 
-function mcpListAllTools() {
-  return _mcp ? _mcp.listAllTools() : [];
-}
-
 // ── Workspace ──────────────────────────────────────────────────────────────
 // Cambia el repo/carpeta sobre el que el asistente trabaja como agente de código.
 // La usan tanto el picker del UI como el comando de terminal `asistente`.
@@ -701,6 +714,27 @@ async function closeSession() {
     await _session.close();
     _bus.emit('session:closed', { sessionId: null });
   }
+}
+
+/** Historial de la sesión activa (para checkpoints del CLI). */
+function getSessionHistory() {
+  return _session?.getHistory() ?? [];
+}
+
+/**
+ * Restaura una sesión desde un snapshot (checkpoint). Reemplaza el historial
+ * de la sesión activa (o crea una nueva si sessionId es null). El resultado
+ * devuelve { sessionId, turnCount } para que el llamador lo guarde en el
+ * snapshot junto con el historial.
+ * @param {Array<{ role: string, content: string }>} history
+ * @param {string | null} [sessionId]
+ */
+function restoreSessionHistory(history, sessionId = null) {
+  if (!_session) {
+    console.warn('[core] no inicializado');
+    return null;
+  }
+  return _session.restore(history, sessionId);
 }
 
 /**
@@ -948,10 +982,21 @@ function _startOpenClaw(workspacePath) {
   // Pasar el workspace como PATH permitido (evita "cwd outside allowed path")
   const allowedPath = workspacePath ? path.resolve(workspacePath) : getProjectCWD();
 
+  // Auditoría persistente del servidor de tools en userData (si hay app)
+  const auditDir = _app
+    ? path.join(_app.getPath('userData'), 'audit')
+    : path.join(require('os').tmpdir(), 'asistente-vtuber-audit');
+  const auditPath = path.join(auditDir, 'openclaw.jsonl');
+
   try {
     _openclawProcess = cp.fork(serverPath, [], {
       stdio: 'pipe',
-      env: { ...process.env, OPENCLAW_API_KEY: apiKey, OPENCLAW_ALLOWED_PATH: allowedPath },
+      env: {
+        ...process.env,
+        OPENCLAW_API_KEY: apiKey,
+        OPENCLAW_ALLOWED_PATH: allowedPath,
+        OPENCLAW_AUDIT_PATH: auditPath,
+      },
     });
 
     // No dejar la API key en el env del proceso padre
@@ -982,6 +1027,7 @@ function _startOpenClaw(workspacePath) {
 
     let retries = 0;
     const check = () => {
+      _openclawCheckTimer = null;
       retries++;
       _bridge.resetAvailabilityCache();
       _bridge
@@ -991,7 +1037,7 @@ function _startOpenClaw(workspacePath) {
             console.log('[core] OpenClaw listo — Fase 3 activa');
             _bus.emit('openclaw:available', { available: true });
           } else if (retries < OPENCLAW_RETRIES) {
-            setTimeout(check, OPENCLAW_RETRY_MS);
+            _openclawCheckTimer = setTimeout(check, OPENCLAW_RETRY_MS);
           } else {
             console.warn(`[core] OpenClaw no respondió después de ${OPENCLAW_RETRIES} intentos`);
             _openclawProcess?.kill();
@@ -1001,7 +1047,8 @@ function _startOpenClaw(workspacePath) {
           }
         })
         .catch(() => {
-          if (retries < OPENCLAW_RETRIES) setTimeout(check, OPENCLAW_RETRY_MS);
+          if (retries < OPENCLAW_RETRIES)
+            _openclawCheckTimer = setTimeout(check, OPENCLAW_RETRY_MS);
           else {
             _openclawStarting = false;
             _bus.emit('openclaw:available', { available: false });
@@ -1009,7 +1056,7 @@ function _startOpenClaw(workspacePath) {
         });
     };
 
-    setTimeout(check, 1500);
+    _openclawCheckTimer = setTimeout(check, 1500);
   } catch (e) {
     _openclawStarting = false;
     console.error('[core] error iniciando OpenClaw:', e.message);
@@ -1022,6 +1069,10 @@ function _stopOpenClaw() {
   if (_openclawKillTimer) {
     clearTimeout(_openclawKillTimer);
     _openclawKillTimer = null;
+  }
+  if (_openclawCheckTimer) {
+    clearTimeout(_openclawCheckTimer);
+    _openclawCheckTimer = null;
   }
   if (proc) {
     console.log('[core] deteniendo OpenClaw...');
@@ -1398,120 +1449,6 @@ async function isOpenClawAvailable() {
   return _bridge.isAvailable();
 }
 
-/**
- * Genera un plan estructurado para una tarea detectada.
- * Fase 1 del sistema de dos fases (plan → ejecución).
- *
- * @param {string} userGoal - El mensaje del usuario
- * @param {object} taskIntent - Resultado de TaskDetector.detect()
- * @param {Array} sessionHistory - Historial de la sesión
- * @returns {Promise<{plan: object|null, llmResponse: string|null, error: string|null}>}
- */
-async function generatePlan(userGoal, taskIntent, sessionHistory = []) {
-  if (!_planner) return { plan: null, llmResponse: null, error: 'Planner no disponible' };
-
-  try {
-    const { parsePlan } = require('./task/PlanParser.js');
-    const context = await buildContext(sessionHistory, null, { mode: 'plan' });
-    if (!context || !context.systemPrompt) {
-      return { plan: null, llmResponse: null, error: 'No se pudo construir contexto' };
-    }
-
-    console.log('[core] generando plan para:', userGoal.slice(0, 80));
-    const llmResponse = await LLMProvider.completeTask(
-      context.messages,
-      context.systemPrompt + '\n\n## Solicitud del usuario\n' + userGoal
-    );
-
-    if (!llmResponse) {
-      return { plan: null, llmResponse: null, error: 'LLM no respondió' };
-    }
-
-    console.log('[core] respuesta del plan:', llmResponse.slice(0, 200));
-    const plan = parsePlan(llmResponse);
-
-    if (plan && plan.steps?.length > 0) {
-      _bus.emit('plan:generated', { goal: userGoal, plan, llmResponse });
-      return { plan, llmResponse, error: null };
-    }
-
-    const fallbackPlan = _planner.planFromLLMResponse(llmResponse, userGoal, null);
-    if (fallbackPlan && fallbackPlan.steps?.length > 0) {
-      _bus.emit('plan:generated', { goal: userGoal, plan: fallbackPlan, llmResponse });
-      return {
-        plan: {
-          steps: fallbackPlan.steps.map((s) => ({
-            done: false,
-            description: s.description || s.tool,
-          })),
-        },
-        llmResponse,
-        error: null,
-      };
-    }
-
-    return { plan: null, llmResponse, error: 'No se pudo extraer un plan de la respuesta' };
-  } catch (e) {
-    console.error('[core] error generando plan:', e.message);
-    return { plan: null, llmResponse: null, error: e.message };
-  }
-}
-
-function parsePlanFromResponse(llmResponse, userGoal, toolIntent = null) {
-  if (!_planner) return null;
-  return _planner.planFromLLMResponse(llmResponse, userGoal, toolIntent);
-}
-
-async function executePlan(plan, opts = {}) {
-  if (!_planner) throw new Error('Planner no inicializado');
-
-  _bus.emit('plan:started', { planId: plan.id, goal: plan.goal, steps: plan.steps.length });
-
-  const onStepStart = (step) => {
-    _bus.emit('plan:step-start', { planId: plan.id, step });
-    opts.onStepStart?.(step);
-  };
-
-  const onStepDone = (step, result) => {
-    _bus.emit('plan:step-done', { planId: plan.id, step, result });
-    opts.onStepDone?.(step, result);
-  };
-
-  const result = await _planner.execute(plan, { ...opts, onStepStart, onStepDone });
-
-  _bus.emit('plan:finished', { planId: plan.id, status: result.status, result: result.result });
-  return result;
-}
-
-async function executeTool(tool, params) {
-  if (!_bridge) throw new Error('OpenClawBridge no inicializado');
-
-  // FIX — defensa en profundidad: executeTool() (vía IPC 'openclaw-execute-tool')
-  // es un camino directo a OpenClawBridge que NO pasa por Planner.execute() ni
-  // por su diálogo de aprobación (onApprovalNeeded). Hoy ningún renderer lo
-  // llama, pero es un IPC handler expuesto y con nodeIntegration activo
-  // cualquier script en el chat podría invocarlo. Para que este atajo no sea
-  // un bypass total y silencioso del sistema de aprobación, cualquier
-  // operación que Planner consideraría "alto impacto" queda bloqueada aquí
-  // — ese tipo de acción SOLO puede pasar por el flujo normal con plan +
-  // confirmación del usuario.
-  if (isHighImpact(tool, params || {})) {
-    console.warn(
-      `[core] executeTool bloqueado — "${tool}" requiere pasar por el flujo de plan con aprobación, no por el atajo directo`
-    );
-    return {
-      ok: false,
-      error:
-        'Esta acción requiere aprobación explícita — usa el flujo de plan (openclaw-parse-plan → openclaw-execute-plan) en vez de executeTool directo.',
-      tool,
-      result: null,
-      elapsed: 0,
-    };
-  }
-
-  return _bridge.execute(tool, params);
-}
-
 // ── AgentLoop (loop cerrado con tool-calling, skills y precedencia) ───────────
 
 /**
@@ -1563,10 +1500,55 @@ async function runAgent(userMessage, opts = {}) {
   const _t0 = Date.now();
   const sessionHistory = _session?.getHistory() || [];
 
+  // ── Hooks de plugins (patrón opencode): beforeAgentRun ──────────────────
+  // Los plugins pueden registrar hooks con registerHook('beforeAgentRun', fn)
+  // y reciben { userMessage, sessionHistory }. Pueden devolver:
+  //   { userMessage: string }        → reemplaza el mensaje efectivo
+  //   { systemPrompt: string }       → se anexa al system prompt
+  //   { block: string }              → bloquea la ejecución y devuelve esto
+  // Cualquier otro retorno se ignora. Los hooks nunca rompen el pipeline.
+  let effectiveMessage = userMessage;
+  let hookPrompt = null;
+  let blockedReason = null;
+  try {
+    if (_pluginManager && typeof _pluginManager.runHook === 'function') {
+      const hookOut = await _pluginManager.runHook('beforeAgentRun', {
+        userMessage,
+        sessionHistory,
+      });
+      if (hookOut && typeof hookOut === 'object') {
+        if (typeof hookOut.userMessage === 'string' && hookOut.userMessage.trim()) {
+          effectiveMessage = hookOut.userMessage;
+        }
+        if (typeof hookOut.systemPrompt === 'string' && hookOut.systemPrompt.trim()) {
+          hookPrompt = hookOut.systemPrompt;
+        }
+        if (typeof hookOut.block === 'string' && hookOut.block.trim()) {
+          blockedReason = hookOut.block;
+        }
+      }
+    }
+  } catch (e) {
+    console.warn('[core] hook beforeAgentRun falló:', e.message);
+  }
+
+  if (blockedReason) {
+    return {
+      response: blockedReason,
+      iterations: 0,
+      toolResults: [],
+      error: 'blocked_by_plugin',
+    };
+  }
+
   const context = await buildContext(sessionHistory, null, {
     mode: 'agent',
   });
   console.log(`[agent-timing] buildContext ${Date.now() - _t0}ms`);
+
+  if (hookPrompt && context?.systemPrompt) {
+    context.systemPrompt = context.systemPrompt + '\n\n' + hookPrompt;
+  }
 
   if (!context || !context.systemPrompt) {
     return {
@@ -1579,7 +1561,7 @@ async function runAgent(userMessage, opts = {}) {
 
   // ── Modo automático por intención: sin override explícito, TaskDetector
   //    decide entre 'fast' (charla, barato/rápido) y 'smart' (tarea, potente).
-  const { mode, maxIterations } = _resolveAgentMode(userMessage, opts);
+  const { mode, maxIterations } = _resolveAgentMode(effectiveMessage, opts);
   const loop = new AgentLoop({
     maxIterations,
     bridge: _bridge,
@@ -1594,6 +1576,8 @@ async function runAgent(userMessage, opts = {}) {
     skillManager: _skillManager || null,
     mcpManager: _mcp || null,
     skillDb: _graph && !_graph.usingFallback && _graph._db ? _graph._db : null,
+    pluginManager: _pluginManager || null,
+    permissionManager: _permissionManager || null,
   };
 
   // evalMode: benchmark headless — toda tool de alto impacto se auto-aprueba,
@@ -1604,7 +1588,7 @@ async function runAgent(userMessage, opts = {}) {
   }
 
   const result = await loop.run(
-    userMessage,
+    effectiveMessage,
     context.systemPrompt,
     context.messages || [],
     loopOpts
@@ -1657,10 +1641,6 @@ function getStats() {
   };
 }
 
-async function forceProactive(triggerType = 'long_silence') {
-  return _proactive?.forceEvaluate(triggerType);
-}
-
 function _scheduleDailyPrune() {
   const run = () => {
     try {
@@ -1681,23 +1661,14 @@ function getGraph() {
 function getOSSensor() {
   return _osSensor;
 }
-function getGrounding() {
-  return _grounding;
-}
 function getEventBus_() {
   return _bus;
-}
-function getBehaviorModel() {
-  return _behavior;
 }
 function getPlanner_() {
   return _planner;
 }
 function getBridge() {
   return _bridge;
-}
-function getTaskDetector_() {
-  return _taskDetector;
 }
 function listSkills() {
   if (!_skillManager) return [];
@@ -1714,26 +1685,58 @@ function storeFact({ type, label, content, importance = 0.85, tags = [] }) {
   }
 }
 
+// ── Permisos granulares (allow/ask/deny) ─────────────────────────────────────
+
+/**
+ * @param {object} rule
+ * @param {string} [rule.tool]
+ * @param {string} [rule.path]
+ * @param {string} rule.action - 'allow' | 'ask' | 'deny'
+ */
+function permissionsSetRule(rule) {
+  if (!_permissionManager) return { ok: false, error: 'permission manager no disponible' };
+  try {
+    const saved = _permissionManager.setRule(rule);
+    return { ok: true, rule: saved, list: _permissionManager.list() };
+  } catch (e) {
+    return { ok: false, error: e.message };
+  }
+}
+
+/**
+ * @param {object} rule
+ * @param {string} [rule.tool]
+ * @param {string} [rule.path]
+ */
+function permissionsRemoveRule(rule) {
+  if (!_permissionManager) return { ok: false, error: 'permission manager no disponible' };
+  const removed = _permissionManager.removeRule(rule);
+  return { ok: true, removed, list: _permissionManager.list() };
+}
+
+function permissionsList() {
+  if (!_permissionManager) return [];
+  return _permissionManager.list();
+}
+
 module.exports = {
   init,
   shutdown,
-  setMaxSystemChars,
   startSession,
   closeSession,
   listSessions,
   loadSession,
+  getSessionHistory,
+  restoreSessionHistory,
   addTurn,
   detectInstant,
   buildContext,
   getStats,
   getGraph,
   getOSSensor,
-  getGrounding,
   getEventBus: getEventBus_,
-  getBehaviorModel,
   getPlanner: getPlanner_,
   getBridge,
-  getTaskDetector: getTaskDetector_,
   onInitiative,
   onProposalResult,
   setChatOpen,
@@ -1746,21 +1749,19 @@ module.exports = {
   forgetMemory,
   pendingRecap,
   reloadLLMConfig,
-  forceProactive,
   isOpenClawAvailable,
-  generatePlan,
-  parsePlanFromResponse,
-  executePlan,
   runAgent,
-  executeTool,
   mcpListServers,
   mcpAddServer,
   mcpRemoveServer,
   mcpToggleServer,
   mcpSearchRegistry,
-  mcpListAllTools,
   setActiveWorkspace,
   getWorkspace,
   listSkills,
   storeFact,
+  permissionsSetRule,
+  permissionsRemoveRule,
+  permissionsList,
+  getUsageTracker: () => require('./llm/LLMProvider.js').getUsageTracker(),
 };

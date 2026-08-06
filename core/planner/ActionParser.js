@@ -137,6 +137,9 @@ function isHighImpact(tool, params) {
 
   if (tool === 'mcp') return true;
 
+  // ── Plugins: ejecutan código arbitrario del usuario, default = preguntar ──
+  if (tool === 'plugin' || (typeof tool === 'string' && tool.startsWith('plugin.'))) return true;
+
   // ── Git / GitHub nativos (§10): mutadores requieren aprobación ──────────
   if (tool === 'git_commit' || tool === 'git_merge' || tool === 'git_rebase') return true;
   if (tool === 'git_push') return true;
@@ -507,6 +510,19 @@ const ACTION_PATTERNS = [
   },
   {
     pattern:
+      /(?:lee(?:r)?(?:me)?|obt[ée]n(?: el contenido de)?|consulta(?:r)?)\s+(?:la\s+)?(?:url|p[áa]gina|web)?\s*(https?:\/\/[^\s\n]{2,300})/i,
+    tool: 'webfetch',
+    buildParams: (m) => ({ url: m[1].trim() }),
+    description: (m) => `Leer URL: ${m[1].trim()}`,
+  },
+  {
+    pattern: /busca(?:r|me)?\s+en\s+(?:duckduckgo|ddg)\s*[:-]?\s*(.+?)(?:\.|$)/i,
+    tool: 'websearch',
+    buildParams: (m) => ({ query: m[1].trim() }),
+    description: (m) => `Buscar en DuckDuckGo: "${m[1].trim()}"`,
+  },
+  {
+    pattern:
       /(?:navega(?:r)?\s+a|abre?\s+en\s+(?:el\s+)?navegador|visita(?:r)?)\s*[:-]?\s*(https?:\/\/[^\s\n]{2,300})/i,
     tool: 'browser',
     buildParams: (m) => ({ action: 'navigate', url: m[1].trim() }),
@@ -614,21 +630,9 @@ class ActionParser {
 
 module.exports = {
   ActionParser,
-  _cleanPath,
-  _cleanCommand,
-  _isValidPath,
-  _isValidCommand,
-  _isSensitivePath,
-  _isOutsideProject,
   isHighImpact,
   setProjectCWD,
   get PROJECT_CWD() {
     return PROJECT_CWD;
   },
-  _debug_cleanCommand: _cleanCommand,
-  _debug_cleanPath: _cleanPath,
-  _debug_trimNarrative: _trimNarrativeOutsideQuotes,
-  _debug_splitChained: _splitChainedGitCommand,
-  _debug_isSensitivePath: _isSensitivePath,
-  _debug_isOutsideProject: _isOutsideProject,
 };

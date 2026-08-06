@@ -38,8 +38,7 @@
 
 'use strict';
 
-const fs = require('fs');
-const path = require('path');
+const { getIdentity } = require('../../identity/IdentityStore.js');
 
 // Presupuesto de caracteres para el historial de sesión en el contexto del
 // LLM. Los turnos recientes se envían completos; el excedente se resume.
@@ -48,7 +47,7 @@ const MAX_HISTORY_CHARS = 8000;
 // ── Identity (cacheada) ───────────────────────────────────────────────────────
 // La identidad NO cambia entre turnos. Se serializa UNA SOLA VEZ al cargar
 // el módulo y se reusa en cada llamada, ahorrando ~400-600 tokens por turno.
-const IDENTITY_PATH = path.join(__dirname, '../../identity/identity.json');
+// El raw viene de IdentityStore (loader único de identity.json).
 
 /**
  * @typedef {{
@@ -109,11 +108,7 @@ let _identityRawCache = null;
 
 function _getIdentity() {
   if (_identityRawCache) return _identityRawCache;
-  try {
-    _identityRawCache = JSON.parse(fs.readFileSync(IDENTITY_PATH, 'utf-8'));
-  } catch {
-    _identityRawCache = { name: 'asistente', core: 'Soy tu asistente personal.' };
-  }
+  _identityRawCache = /** @type {Identity} */ (getIdentity());
   return _identityRawCache;
 }
 
@@ -123,7 +118,19 @@ function _getSerializedIdentity() {
   return _serializedIdentity;
 }
 
-// Acciones cuyo campo ARCHIVO puede referirse a una carpeta especial del
+/**
+ * Override de identidad en runtime (editar la personalidad sin reiniciar la
+ * app). Invalida ambas caches; la sección se reconstruye en la próxima llamada.
+ *
+ * @param {Identity} identity - Objeto de identidad nuevo (o raw del JSON).
+ * @returns {boolean} true si el override se aplicó.
+ */
+function setIdentityOverride(identity) {
+  if (!identity || typeof identity !== 'object') return false;
+  _identityRawCache = identity;
+  _serializedIdentity = null;
+  return true;
+} // Acciones cuyo campo ARCHIVO puede referirse a una carpeta especial del
 // usuario (Descargas, Escritorio, etc.) en vez de algo dentro del proyecto.
 const FILE_PATH_ACTIONS = new Set(['create_file', 'edit_file', 'read_file', 'delete_file']);
 
@@ -221,6 +228,8 @@ function _buildFormatExample(action) {
 
     // Acciones con query
     web_search: '```action\nACCIÓN: web_search | QUERY: lo que se busca\n```',
+    websearch: '```action\nACCIÓN: websearch | QUERY: lo que se busca\n```',
+    webfetch: '```action\nACCIÓN: webfetch | URL: https://ejemplo.com\n```',
     navigate_browser: '```action\nACCIÓN: navigate_browser | URL: https://ejemplo.com\n```',
 
     // Fallback genérico
@@ -549,4 +558,4 @@ class GroqSerializer {
   }
 }
 
-module.exports = { GroqSerializer };
+module.exports = { GroqSerializer, setIdentityOverride };

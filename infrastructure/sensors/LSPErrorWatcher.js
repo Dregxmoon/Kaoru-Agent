@@ -28,10 +28,12 @@
  */
 
 const crypto = require('crypto');
-const fs = require('fs');
 const path = require('path');
+const fs = require('fs');
+const { dirSet } = require('../../core/utils/ignoreDirs.js');
 
 const { getEventBus } = require('../../infrastructure/event-bus/EventBus.js');
+const { BasePollingWatcher } = require('./BasePollingWatcher.js');
 
 const DEFAULT_POLL_MS = 30 * 1000;
 const DEFAULT_MAX_SCAN = 6; // archivos diagnosticados por poll
@@ -40,19 +42,13 @@ const SEVERITY_ERROR = 1;
 const INDEX_TTL_MS = 30 * 1000;
 
 // Carpetas/globals que jamás se indexan (ruido o no-code).
-const IGNORED_DIRS = new Set([
-  'node_modules',
+const IGNORED_DIRS = dirSet([
   '.git',
-  'dist',
-  'build',
   'out',
   'coverage',
-  '.cache',
   'vendor',
   'target',
-  '.next',
   '.nuxt',
-  '__pycache__',
   '.venv',
   'venv',
 ]);
@@ -96,7 +92,7 @@ function _hashErrors(errors) {
   return crypto.createHash('sha1').update(JSON.stringify(errors)).digest('hex');
 }
 
-class LSPErrorWatcher {
+class LSPErrorWatcher extends BasePollingWatcher {
   constructor({
     lsp = null,
     getWorkspace = () => null,
@@ -111,6 +107,7 @@ class LSPErrorWatcher {
     bus = getEventBus(),
     extraOpenFiles = null, // () => string[] — archivos abiertos en el editor (inyección)
   } = {}) {
+    super({ pollMs, bus });
     this._lsp = lsp;
     this._getWorkspace = getWorkspace || (() => null);
     this._getCurrentTitle = getCurrentTitle || (() => '');
@@ -119,15 +116,9 @@ class LSPErrorWatcher {
       getDiagnostics || ((abs) => this._lsp?.getDiagnostics?.(abs) || Promise.resolve([]));
     this._listFiles = listFiles || ((ws) => _defaultListFiles(ws, DEFAULT_MAX_INDEXED));
     this._supportedExts = supportedExts;
-    this._pollMs = pollMs;
     this._maxScanPerPoll = maxScanPerPoll;
     this._severityThreshold = severityThreshold;
-    this._bus = bus;
     this._extraOpenFiles = extraOpenFiles || null;
-
-    this._timer = null;
-    this._running = false;
-    this._polling = false;
 
     this._workspace = null;
     this._filesIndex = []; // lista cacheada de archivos soportados
@@ -137,37 +128,7 @@ class LSPErrorWatcher {
     this._focusedFile = null; // absPath del archivo actualmente enfocado
     this._signals = new Map(); // absPath → hash del último error emitido
     this._lastErrors = new Map(); // absPath → errores del último scan
-    this._lastErrorMsg = null;
     this._emitted = 0;
-  }
-
-  start() {
-    if (this._running) return;
-    this._running = true;
-    this.poll().catch(() => {});
-    this._timer = setInterval(() => this.poll().catch(() => {}), this._pollMs);
-  }
-
-  stop() {
-    if (this._timer) {
-      clearInterval(this._timer);
-      this._timer = null;
-    }
-    this._running = false;
-  }
-
-  /** Fuerza un scan (debug/testing). */
-  async poll() {
-    if (this._polling) return;
-    this._polling = true;
-    try {
-      await this._scan();
-    } catch (e) {
-      this._lastErrorMsg = e.message;
-      if (process.env.DEBUG) console.warn('[lsp-watcher]', e.message);
-    } finally {
-      this._polling = false;
-    }
   }
 
   /**
@@ -362,7 +323,7 @@ class LSPErrorWatcher {
       openFiles: Array.from(this._openInEditor),
       signals: this._signals.size,
       emitted: this._emitted,
-      lastError: this._lastErrorMsg,
+      lastError: this._lastError,
     };
   }
 }

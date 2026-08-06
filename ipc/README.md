@@ -18,23 +18,22 @@ ventanas (`mainWindow`, `chatWindow`), `tray`, estado del overlay
 | Módulo | Canales que expone | Responsabilidad |
 |---|---|---|
 | `window-model-handlers.js` | overlay/modelo/vistas | ventana overlay, click-through, cambios de modelo Live2D, `broadcastViewsChanged` |
-| `memory-handlers.js` | `memory-add-turn`, `memory-stats`, `initiative-decision`, `grounding-build-context`, `generate-plan`, `os-get-context`, `os-get-today-*` | turnos, contexto, memoria, sensores del SO |
+| `memory-handlers.js` | `memory-add-turn`, `initiative-decision`, `grounding-build-context`, `sessions-*`, `memory-forget`, `list-skills`, `store-fact` | turnos, contexto, memoria, sesiones, skills |
 | `config-handlers.js` | config/keys/python-bin | leer/guardar `config.json`, API keys, binario de Python |
-| `init-vectors-handlers.js` | `init-vectors`, `proactive-*`, `exec-command` | indexado vectorial, comandos de ejecución |
-| `openclaw-handlers.js` | `openclaw-*`, `plan-*`, `agent-run` | puente OpenClaw, planes con aprobación, `runAgent` |
+| `init-vectors-handlers.js` | `exec-command` | comandos de ejecución permitidos |
+| `openclaw-handlers.js` | `openclaw-available`, `agent-run`, `agent-cancel` | puente OpenClaw, `runAgent`, cancelación |
 | `mcp-handlers.js` | MCP/workspace/telemetria | servidores MCP, workspace activo, telemetría |
 | `github-handlers.js` | `github-*` | login OAuth, issues/PRs |
 
 ## Flujo típico
 
-1. El renderer llama `ipcRenderer.invoke('memory-stats')` (canal `handle`) o envía `ipcRenderer.send(...)` (canal `on`).
+1. El renderer llama `ipcRenderer.invoke('...')` (canal `handle`) o envía `ipcRenderer.send(...)` (canal `on`).
 2. El handler invoca la API correspondiente de `core/` y devuelve el resultado.
 3. Los eventos del núcleo se propagan al renderer con `webContents.send(...)` (p. ej. propuestas proactivas, solicitudes de aprobación de herramientas).
 
-Los canales de aprobación (`plan-approval-needed` / `agent-approval-needed`) son
+El canal de aprobación (`agent-approval-needed` / `agent-approval-response`) es
 el único camino por el que una herramienta de alto impacto llega a ejecutarse:
-el renderer muestra el diálogo y la respuesta vuelve por
-`plan-approval-response` / `agent-approval-response`.
+el renderer muestra el diálogo y la respuesta vuelve por el mismo canal.
 
 ---
 

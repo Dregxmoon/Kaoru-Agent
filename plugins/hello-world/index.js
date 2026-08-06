@@ -41,6 +41,19 @@ module.exports = {
     ctx.registerHook('beforeAgentRun', async ({ userMessage }) => {
       if (userMessage && userMessage.toLowerCase().includes('saluda')) {
         ctx.logger('detectado "saluda" en el mensaje');
+        return {
+          systemPrompt:
+            'Nota de plugin hello-world: el usuario pidió un saludo — sé especialmente amable y empieza con un saludo animado.',
+        };
+      }
+      return undefined;
+    });
+
+    ctx.registerHook('beforeTool', async ({ tool, params }) => {
+      const command = (params && (params.command || params.cmd)) || '';
+      if (command.includes('rm -rf')) {
+        ctx.logger(`bloqueado "rm -rf" en exec (politica del plugin)`);
+        return { deny: true, reason: 'comando destructivo bloqueado por el plugin hello-world' };
       }
       return undefined;
     });

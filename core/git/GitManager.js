@@ -14,6 +14,7 @@
 const { execFile } = require('child_process');
 const path = require('path');
 const fs = require('fs');
+const { dirRegexes } = require('../utils/ignoreDirs.js');
 
 const DEFAULT_TIMEOUT = 30000;
 const MAX_DIFF_PATCH = 60000;
@@ -23,6 +24,10 @@ const MAX_DIFF_PATCH = 60000;
 const SAFE_BRANCH_RE = /^[A-Za-z0-9._/-]{1,200}$/;
 // Paths a commitear: relativo, sin `..`, sin guion inicial.
 const SAFE_PATH_RE = /^[A-Za-z0-9_./-]{1,240}$/;
+
+// Paths que git_commit NUNCA stagea automáticamente (dependencias, builds,
+// cachés, secrets, datos locales).
+const COMMIT_IGNORED_RE = [...dirRegexes(), /\.env(\.|$)/i, /(^|[\\/])data[\\/]/, /\.log$/];
 
 function _run(cwd, args, opts = {}) {
   return new Promise((resolve, reject) => {
@@ -269,6 +274,40 @@ class GitManager {
   }
 
   // ── git_commit (muta) ────────────────────────────────────────────────────────
+  // Paths que git_commit NUNCA stagea automáticamente: dependencias, builds,
+  // cachés, secrets y datos locales. Evita que un `add -A` comitee basura o
+  // credenciales por accidente.
+  async _stageSafeChanges(cwd) {
+    const status = await this._exec(cwd, ['status', '--short'], {
+      maxBuffer: 16 * 1024 * 1024,
+    });
+    if (status.code !== 0) throw _toError(status, 'git status falló');
+
+    const allPaths = (status.stdout || '')
+      .split('\n')
+      .map((l) => l.trim())
+      .filter(Boolean)
+      .map((l) => l.slice(3).trim())
+      .filter((p) => p && p !== '.' && !p.includes(' -> '));
+
+    const junk = allPaths.filter((p) => COMMIT_IGNORED_RE.some((re) => re.test(p)));
+
+    if (junk.length === 0) {
+      // Ruta rápida: nada que excluir → add -A (preserva renames/borrados).
+      const addR = await this._exec(cwd, ['add', '-A']);
+      if (addR.code !== 0) throw _toError(addR, 'git add falló');
+      return;
+    }
+
+    const safe = allPaths.filter((p) => !COMMIT_IGNORED_RE.some((re) => re.test(p)));
+    console.log(
+      `[git] git_commit ignora ${junk.length} ruta(s) sensible(s): ${junk.slice(0, 5).join(', ')}`
+    );
+    if (safe.length === 0) return; // todo es junk → no stagear nada
+    const addR = await this._exec(cwd, ['add', '--', ...safe]);
+    if (addR.code !== 0) throw _toError(addR, 'git add falló');
+  }
+
   async commit(cwd, opts = {}) {
     _assertDir(cwd);
     const message = typeof opts.message === 'string' ? opts.message.trim() : '';
@@ -276,8 +315,7 @@ class GitManager {
     if (message.length > 5000)
       throw new Error('El mensaje de commit es demasiado largo (máx 5000).');
 
-    const addR = await this._exec(cwd, ['add', '-A']);
-    if (addR.code !== 0) throw _toError(addR, 'git add falló');
+    await this._stageSafeChanges(cwd);
 
     const r = await this._exec(cwd, ['commit', '-m', message], { maxBuffer: 4 * 1024 * 1024 });
     if (r.code !== 0) throw _toError(r, 'git commit falló');

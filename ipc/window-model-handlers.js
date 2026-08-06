@@ -5,7 +5,7 @@ const fs = require('fs');
 const { app, ipcMain } = require('electron');
 
 function register(ctx) {
-  const { S, savedConfig, loadConfig, saveConfig } = ctx;
+  const { S, savedConfig, loadConfig, saveConfig, sendToChat } = ctx;
 
   // IPC: overlay
   ipcMain.on('drag-start', () => {
@@ -79,8 +79,7 @@ function register(ctx) {
     const payload = { ...info, models: listModels() };
     if (S.mainWindow && !S.mainWindow.isDestroyed())
       S.mainWindow.webContents.send('model-changed', payload);
-    if (S.chatWindow && !S.chatWindow.isDestroyed())
-      S.chatWindow.webContents.send('model-changed', payload);
+    sendToChat('model-changed', payload);
     broadcastViewsChanged();
   }
 
@@ -156,13 +155,11 @@ function register(ctx) {
     const payload = currentViewsState();
     if (S.mainWindow && !S.mainWindow.isDestroyed())
       S.mainWindow.webContents.send('views-changed', payload);
-    if (S.chatWindow && !S.chatWindow.isDestroyed())
-      S.chatWindow.webContents.send('views-changed', payload);
+    sendToChat('views-changed', payload);
   }
 
   ipcMain.handle('views-get', () => currentViewsState());
   ipcMain.handle('views-set', (e, { mode } = {}) => ctx.applyViewMode(mode));
-  ipcMain.handle('views-reset', () => ctx.applyViewMode('random'));
 
   // Exponer al resto de main.js
   ctx.listModels = listModels;

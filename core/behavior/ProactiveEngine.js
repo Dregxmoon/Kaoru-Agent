@@ -1473,7 +1473,7 @@ No expliques por qué escribes. No anuncies que eres proactiva. Solo di lo que d
     return lines.join('\n');
   }
 
-  // ── Testing manual (DevTools / IPC force-proactive) ─────────────────────────
+  // ── Evaluación forzada (testing) ────────────────────────────────────────────
   // Bypasea los cooldowns a propósito (es una prueba forzada), pero el LLM
   // sigue teniendo la última palabra — puede seguir respondiendo NO.
 

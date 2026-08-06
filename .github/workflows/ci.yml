@@ -62,12 +62,10 @@ jobs:
       - name: Regresión completa
         run: npm test
 
-  build-portable:
-    name: Build Windows portable (produccion)
+  e2e-ui:
+    name: E2E UI (Electron + Playwright)
     runs-on: ubuntu-latest
-    timeout-minutes: 30
-    if: github.ref == 'refs/heads/produccion'
-    continue-on-error: true
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v5
 
@@ -76,60 +74,107 @@ jobs:
           node-version: 20
           cache: npm
 
-      - name: Instalar wine
+      - name: Dependencias del sistema (Electron + xvfb para headless UI)
         run: |
-          sudo dpkg --add-architecture i386
           sudo apt-get update
-          sudo apt-get install -y --no-install-recommends wine64 wine32
+          sudo apt-get install -y build-essential python3 libnss3 libatk-bridge2.0-0 libgtk-3-0 libgbm1 libasound2t64 xvfb
 
       - name: Instalar dependencias
         run: npm ci
 
-      - name: Empaquetar ejecutable portable
-        run: npm run build-portable
+      - name: E2E UI (ventana de chat + overlay)
+        run: xvfb-run -a env ELECTRON_RUN_AS_NODE=1 ./node_modules/electron/dist/electron tests/e2e/test_ui_electron.js
+
+      - name: Subir screenshots
+        if: always()
+        uses: actions/upload-artifact@v5
+        with:
+          name: e2e-ui-screenshots
+          path: tests/e2e/artifacts/
+          if-no-files-found: ignore
+
+  # Build de instaladores en cada SO nativo (mejor que wine) + auto-update.
+  # En tags v* publica los binarios y los latest*.yml a GitHub Releases
+  # (electron-builder --publish always) → electron-updater encuentra la
+  # actualización. En produccion (sin tag) solo sube artifacts.
+  build:
+    name: Build ${{ matrix.os }} · auto-update
+    runs-on: ${{ matrix.os }}
+    needs: [quality, test]
+    timeout-minutes: 60
+    continue-on-error: true
+    if: github.ref == 'refs/heads/produccion' || startsWith(github.ref, 'refs/tags/v')
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            target: linux
+            artifact: asistente-linux
+            pattern: dist/*.AppImage dist/*.deb dist/latest-linux.yml
+          - os: macos-latest
+            target: mac
+            artifact: asistente-mac
+            pattern: dist/*.dmg dist/*.zip dist/latest-mac.yml
+          - os: windows-latest
+            target: win
+            artifact: asistente-win
+            pattern: dist/*.exe dist/latest.yml
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Dependencias del sistema (Linux — FUSE para AppImage)
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libfuse2
+
+      - name: Instalar dependencias (postinstall descarga Electron + rebuild de nativos)
+        run: npm ci
+
+      - name: Empaquetar y publicar (tags) / solo empaquetar (branch)
+        run: |
+          if [[ "${{ github.ref }}" == refs/tags/* ]]; then
+            npm run publish:${{ matrix.target }}
+          else
+            npm run build:${{ matrix.target }}
+          fi
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # macOS sin firma (identity null en build config); nunca intentar
+          # firmar/notarizar desde CI sin certificados.
+          CSC_IDENTITY_AUTO_DISCOVERY: false
 
       - uses: actions/upload-artifact@v5
         with:
-          name: asistente-portable-win
-          path: dist/*.exe
+          name: ${{ matrix.artifact }}
+          path: ${{ matrix.pattern }}
           if-no-files-found: warn
 
+  # En tags v* el job build ya publica; este paso solo deja notas y el
+  # cuerpo de la release para cuando electron-builder cree la release.
   release:
-    name: Release (tag v*)
+    name: Release notes (tag v*)
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 10
     if: startsWith(github.ref, 'refs/tags/v')
-    needs: [quality, test]
+    needs: [build]
     permissions:
       contents: write
     steps:
-      - uses: actions/checkout@v5
-
-      - uses: actions/setup-node@v5
-        with:
-          node-version: 20
-          cache: npm
-
-      - name: Instalar wine
-        run: |
-          sudo dpkg --add-architecture i386
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends wine64 wine32
-
-      - name: Instalar dependencias
-        run: npm ci
-
-      - name: Empaquetar ejecutable portable
-        run: npm run build-portable
-
-      - name: Extraer notas del tag
+      - name: Extraer versión del tag
         id: tag
         run: echo "name=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
 
-      - name: Crear GitHub Release
+      - name: Crear/completar GitHub Release
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ github.ref_name }}
           name: Asistente v${{ steps.tag.outputs.name }}
           generate_release_notes: true
-          files: dist/*.exe
+          append_body: true

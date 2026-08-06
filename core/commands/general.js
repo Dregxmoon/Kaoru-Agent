@@ -13,6 +13,39 @@ module.exports = function registerCommands(register) {
   });
 
   register({
+    name: 'mudo',
+    description: 'Activa/desactiva la voz (TTS)',
+    usage: '/mudo',
+    handler: async (args, ctx) => {
+      const muted = ctx.isTtsMuted ? ctx.isTtsMuted() : false;
+      const next = !muted;
+      if (ctx.setTtsMuted) ctx.setTtsMuted(next);
+      return next ? 'Voz silenciada (TTS apagado).' : 'Voz activada (TTS encendido).';
+    },
+  });
+
+  register({
+    name: 'contexto',
+    description: 'Muestra el presupuesto de contexto de la sesion',
+    usage: '/contexto',
+    handler: async (args, ctx) => {
+      const history = ctx.sessionHistory || [];
+      const chars = history.reduce((acc, m) => acc + String(m.content || '').length, 0);
+      const budget = 8000; // MAX_HISTORY_CHARS de GroqSerializer
+      const pct = history.length ? Math.min(100, Math.round((chars / budget) * 100)) : 0;
+      return [
+        '**Presupuesto de contexto:**',
+        `- Turnos en sesion: **${history.length}**`,
+        `- Caracteres: **${chars.toLocaleString()}** / ${budget.toLocaleString()} (${pct}%)`,
+        pct >= 80 ? '- ⚠️ Contexto casi lleno — usa /clear para empezar una sesion limpia.' : '',
+        '- El excedente se resume automaticamente (no se pierde memoria).',
+      ]
+        .filter(Boolean)
+        .join('\n');
+    },
+  });
+
+  register({
     name: 'memory',
     description: 'Muestra el historial reciente de la conversacion',
     usage: '/memory',

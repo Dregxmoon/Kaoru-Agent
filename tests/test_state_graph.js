@@ -112,7 +112,7 @@ function testSchema() {
   const tables = sqlAll(graph, "SELECT name FROM sqlite_master WHERE type='table'").map(
     (r) => r.name
   );
-  for (const t of ['nodes', 'node_relations', 'sessions', 'app_history']) {
+  for (const t of ['nodes', 'sessions', 'app_history']) {
     assert(tables.includes(t), `tabla ${t} existe`);
   }
   assert(
@@ -685,29 +685,8 @@ function testCleanup() {
 }
 
 // ── Test 9: Relaciones y fallback MemoryDB ─────────────────────────────────
-async function testRelationsAndFallback() {
-  console.log(C.bold('\nTest 9: Relaciones y modo memoria (fallback)'));
-
-  // crear una DB real para probar relaciones
-  const { graph } = makeGraph();
-  const a = graph.createNode({
-    type: 'User',
-    label: 'nombre_usuario',
-    content: 'A',
-    importance: 0.5,
-  });
-  const b = graph.createNode({
-    type: 'Project',
-    label: 'proyecto_principal',
-    content: 'B',
-    importance: 0.5,
-  });
-  graph.createRelation(a, b, 'works_on');
-  const rels = sqlAll(graph, 'SELECT * FROM node_relations');
-  assert(rels.length === 1 && rels[0].rel_type === 'works_on', 'createRelation escribe fila');
-  // NOTA: no hay lectores de node_relations en el código — es tabla de arquitectura futura.
-  graph.close();
-  fs.rmSync(path.dirname(graph._dbPath), { recursive: true, force: true });
+async function testFallbackMemoryMode() {
+  console.log(C.bold('\nTest 9: Modo memoria (fallback) sin better-sqlite3'));
 
   // MemoryDB fallback: mejor-sqlite3 no disponible → no debe truar nada.
   // Se borra el cache del módulo StateGraph y de better-sqlite3, se fuerza
@@ -822,7 +801,7 @@ async function main() {
   testInstant();
   await testSemanticRecall();
   testCleanup();
-  await testRelationsAndFallback();
+  await testFallbackMemoryMode();
   await testRetrievalKeywordFallback();
 
   console.log(

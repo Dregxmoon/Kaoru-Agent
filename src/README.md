@@ -43,7 +43,6 @@ Interfaz completa de conversación con el asistente.
 |---|---|
 | `init-theme` | Tema inicial (dark/sakura) |
 | `chat-message` | Mensaje entrante desde el main process |
-| `chat-speak` | Texto a sintetizar por TTS |
 | `memory-status` | Estado del banner de memoria |
 | `openclaw-status` | Disponibilidad de OpenClaw |
 | `initiative` | Mensaje iniciado proactivamente por el asistente |

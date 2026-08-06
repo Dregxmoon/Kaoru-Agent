@@ -65,6 +65,9 @@ const ACTION_TO_TOOL = {
   install_package: 'exec',
   exec: 'exec', // alias directo (algunos modelos usan "exec")
   web_search: 'web_search',
+  websearch: 'websearch',
+  webfetch: 'webfetch',
+  fetch_web: 'webfetch',
   navigate_browser: 'browser',
   browser_action: 'browser',
   apply_patch: 'apply_patch',
@@ -104,6 +107,10 @@ function _buildDescription(action, fields) {
       return `Instalar paquete: ${f.COMANDO || '(sin comando)'}`;
     case 'web_search':
       return `Buscar en la web: "${f.QUERY || ''}"`;
+    case 'websearch':
+      return `Buscar en la web (ligero): "${f.QUERY || ''}"`;
+    case 'webfetch':
+      return `Leer URL: ${f.URL || '(sin URL)'}`;
     case 'navigate_browser':
       return `Navegar a: ${f.URL || '(sin URL)'}`;
     case 'browser_action':
@@ -303,6 +310,12 @@ function _buildParams(action, fields, userGoal, projectCwd) {
     case 'web_search':
       return { query: fields.QUERY, max_results: 5 };
 
+    case 'websearch':
+      return { query: fields.QUERY, max_results: 5 };
+
+    case 'webfetch':
+      return { url: fields.URL };
+
     case 'navigate_browser':
     case 'browser_action':
       return {
@@ -493,6 +506,16 @@ class StructuredActionParser {
 
     if (action === 'web_search' && !fields.QUERY) {
       console.warn('[structured-parser] web_search sin campo QUERY');
+      return null;
+    }
+
+    if (action === 'websearch' && !fields.QUERY) {
+      console.warn('[structured-parser] websearch sin campo QUERY');
+      return null;
+    }
+
+    if (action === 'webfetch' && !fields.URL) {
+      console.warn('[structured-parser] webfetch sin campo URL');
       return null;
     }
 

@@ -8,11 +8,9 @@
  *   - Lo pasa al ContextAssembler para que el GroqSerializer lo inyecte
  */
 
-const fs = require('fs');
-const path = require('path');
-
 const { RetrievalPlanner } = require('./RetrievalPlanner.js');
 const { ContextAssembler } = require('./ContextAssembler.js');
+const { getIdentity } = require('../identity/IdentityStore.js');
 
 /**
  * @typedef {Array<{ role: string, content: string, ts?: number }>} SessionHistory
@@ -127,12 +125,12 @@ function getOSContextPublic() {
   return _contextEngine.getOSContext();
 }
 
-function getIdentity() {
-  try {
-    return JSON.parse(fs.readFileSync(path.join(__dirname, '../identity/identity.json'), 'utf-8'));
-  } catch (e) {
-    return { name: 'asistente', core: 'Soy tu asistente personal.' };
-  }
+function getIdentityPublic() {
+  return getIdentity();
 }
 
-module.exports = { GroundingEngine, getOSContext: getOSContextPublic, getIdentity };
+module.exports = {
+  GroundingEngine,
+  getOSContext: getOSContextPublic,
+  getIdentity: getIdentityPublic,
+};

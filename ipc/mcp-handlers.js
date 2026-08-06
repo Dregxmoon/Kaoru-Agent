@@ -29,15 +29,6 @@ function register(ctx) {
     }
   });
 
-  ipcMain.handle('mcp-list-tools', () => {
-    try {
-      return Core.mcpListAllTools();
-    } catch (err) {
-      console.error('[main] error en mcp-list-tools:', err.message);
-      return { error: err.message };
-    }
-  });
-
   ipcMain.handle('mcp-search-registry', async (e, { query }) => {
     try {
       return await Core.mcpSearchRegistry(query || '');
@@ -96,15 +87,6 @@ function register(ctx) {
 
   ipcMain.handle('telemetry-report', () => {
     return Core.getTelemetryReport();
-  });
-
-  ipcMain.handle('fase3-stats', () => {
-    const stats = Core.getStats();
-    return {
-      openclaw: stats.openclaw,
-      planner: stats.planner,
-      provider: stats.provider,
-    };
   });
 
   ipcMain.handle('get-bridge-stats', () => {

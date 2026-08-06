@@ -530,7 +530,74 @@ async function testNativeToolCallEmptyContent() {
   teardown();
 }
 
-// ── Test 8: compactación de contexto (G.1) ────────────────────────────────────
+// ── Test 8: múltiples tools por iteración (native tool calls) ────────────────
+
+async function testMultiToolPerIteration() {
+  console.log(C.bold('\n── Test 8: todas las tools de una respuesta se ejecutan ─────────'));
+
+  const { AgentLoop } = require('../core/planner/AgentLoop.js');
+  const AP = require('../core/planner/ActionParser.js');
+  const LLMProvider = require('../core/llm/LLMProvider.js');
+  const projectCwd = teardown() || setup();
+  AP.setProjectCWD(projectCwd);
+  const srcFile = path.join(projectCwd, 'a.txt');
+  const outFile = path.join(projectCwd, 'b.txt');
+  fs.writeFileSync(srcFile, 'AAA', 'utf-8');
+
+  // Una sola respuesta del modelo con DOS tool calls → ambas deben ejecutarse
+  // en la misma iteración (antes solo corría actions[0]).
+  const originalCompleteWithTools = LLMProvider.completeWithTools;
+  let calls = 0;
+  LLMProvider.completeWithTools = async () => {
+    calls++;
+    if (calls === 1) {
+      return {
+        content: null,
+        toolCalls: [
+          { tool: 'read', params: { path: srcFile } },
+          { tool: 'write', params: { path: outFile, content: 'BBB' } },
+        ],
+      };
+    }
+    return { content: 'Hice ambas cosas.', toolCalls: null };
+  };
+
+  try {
+    const loop = new AgentLoop({
+      maxIterations: 5,
+      llm: createMockLLM(['no se usa']),
+      bridge: createMockBridge(projectCwd),
+    });
+    const result = await loop.run('lee y escribe', 'Eres un asistente.', [], {
+      tools: [
+        { name: 'read', description: 'lee', inputSchema: { type: 'object', properties: {} } },
+        { name: 'write', description: 'escribe', inputSchema: { type: 'object', properties: {} } },
+      ],
+    });
+
+    assert(
+      result.toolResults.length === 2,
+      'Ambas tools se ejecutaron en la iteración',
+      `tools: ${result.toolResults.length}`
+    );
+    assert(
+      result.toolResults.every((r) => r.ok),
+      'Ambas tools tuvieron éxito',
+      result.toolResults
+        .map((r) => r.error)
+        .filter(Boolean)
+        .join(', ')
+    );
+    assert(fs.existsSync(outFile), 'b.txt fue escrito');
+    assert(fs.readFileSync(outFile, 'utf-8') === 'BBB', 'Contenido de b.txt correcto');
+  } finally {
+    LLMProvider.completeWithTools = originalCompleteWithTools;
+  }
+
+  teardown();
+}
+
+// ── Test 9: compactación de contexto (G.1) ────────────────────────────────────
 
 async function testContextCompaction() {
   console.log(C.bold('\n── Test 8: compactación de contexto ───────────────────────'));
@@ -800,6 +867,66 @@ async function testMemoryCompaction() {
   }
 }
 
+// ── Edit legacy (instrucción en lenguaje natural) se resuelve a diff exacto ─
+
+async function testResolvedLegacyEdit() {
+  console.log(C.bold('\n── edit_file legacy: instruction → old_text/new_text exactos ──────'));
+
+  const { AgentLoop } = require('../core/planner/AgentLoop.js');
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'agent-loop-resolve-edit-'));
+  const filePath = path.join(dir, 'src', 'demo.js');
+  fs.mkdirSync(path.join(dir, 'src'), { recursive: true });
+  fs.writeFileSync(filePath, 'const x = 1;\nconsole.log(x);\n', 'utf-8');
+
+  const mockLLM = createMockLLM([
+    '```action\nACCIÓN: edit_file | ARCHIVO: ' +
+      filePath +
+      '\nCONTENIDO: cambia "x = 1" por "y = 2" en la primera línea\n```',
+    JSON.stringify({ old_text: 'const x = 1;', new_text: 'const y = 2;' }),
+    'Listo, renombré la variable.',
+  ]);
+
+  const loop = new AgentLoop({
+    maxIterations: 5,
+    llm: mockLLM,
+    bridge: createMockBridge(dir),
+  });
+
+  const result = await loop.run('edita el archivo', 'Eres un asistente.', [], {
+    onApprovalNeeded: async () => true,
+  });
+
+  const edited = fs.readFileSync(filePath, 'utf-8');
+  assert(edited.includes('const y = 2;'), 'El archivo quedó editado (y = 2)');
+  assert(!edited.includes('const x = 1;'), 'El texto original fue reemplazado');
+  assert(
+    mockLLM.callCount() >= 2,
+    'Se usó una llamada LLM extra para resolver la instrucción',
+    `calls: ${mockLLM.callCount()}`
+  );
+
+  fs.rmSync(dir, { recursive: true, force: true });
+}
+
+// ── Plugin tools: default alto impacto (seguridad) ─────────────────────────
+
+function testPluginToolsAreHighImpact() {
+  console.log(C.bold('\n── Tools de plugins: alto impacto ─────────────────────────'));
+
+  const AP = require('../core/planner/ActionParser.js');
+
+  assert(AP.isHighImpact('plugin', {}), 'tool "plugin" → requiere aprobación');
+  assert(
+    AP.isHighImpact('plugin.myplugin.do_something', {}),
+    'tool "plugin.<nombre>.<tool>" → requiere aprobación'
+  );
+  assert(
+    AP.isHighImpact('plugin.secret_reader.read', {}),
+    'cualquier tool de plugin (con datos) → requiere aprobación'
+  );
+  assert(!AP.isHighImpact('read', { path: 'src/index.js' }), 'read normal dentro del proyecto NO');
+}
+
 // ── Main ──────────────────────────────────────────────────────────────────────
 
 async function main() {
@@ -813,10 +940,13 @@ async function main() {
   await testNoApprovalCallback();
   await testBridgeExecution();
   await testNativeToolCallEmptyContent();
+  await testMultiToolPerIteration();
   await testContextCompaction();
   await testSubagentDispatch();
   await testSubagentDepthLimit();
   await testMemoryCompaction();
+  await testResolvedLegacyEdit();
+  testPluginToolsAreHighImpact();
 
   console.log(C.bold('\n════════════════════════════════════════════════════════'));
   const total = passed + failed;

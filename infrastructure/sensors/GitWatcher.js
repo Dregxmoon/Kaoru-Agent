@@ -29,6 +29,7 @@ const path = require('path');
 const fs = require('fs');
 
 const { getEventBus } = require('../../infrastructure/event-bus/EventBus.js');
+const { BasePollingWatcher } = require('./BasePollingWatcher.js');
 
 const DEFAULT_POLL_MS = 5 * 60 * 1000;
 const UNCOMMITTED_THRESHOLD = 12; // archivos modificados a partir de los cuales es "demasiados"
@@ -48,23 +49,18 @@ function _defaultExec(args, opts, cb) {
   );
 }
 
-class GitWatcher {
+class GitWatcher extends BasePollingWatcher {
   constructor({
     workspace = null,
     pollMs = DEFAULT_POLL_MS,
     bus = getEventBus(),
     exec = _defaultExec,
   } = {}) {
-    this._bus = bus;
+    super({ pollMs, bus });
     this._workspace = workspace;
-    this._pollMs = pollMs;
     this._exec = exec;
-    this._timer = null;
-    this._running = false;
-    this._polling = false;
     this._branch = null;
     this._flags = {};
-    this._lastError = null;
   }
 
   setWorkspace(ws) {
@@ -73,36 +69,9 @@ class GitWatcher {
     this._flags = {};
   }
 
-  start() {
-    if (this._running) return;
-    this._running = true;
-    if (this._workspace) this.poll().catch(() => {});
-    this._timer = setInterval(() => this.poll().catch(() => {}), this._pollMs);
-  }
-
-  stop() {
-    if (this._timer) {
-      clearInterval(this._timer);
-      this._timer = null;
-    }
-    this._running = false;
-  }
-
-  async poll() {
-    if (this._polling || !this._workspace) return;
-    this._polling = true;
-    try {
-      await this._scan();
-    } catch (e) {
-      this._lastError = e.message;
-      if (process.env.DEBUG) console.warn('[git-watcher]', e.message);
-    } finally {
-      this._polling = false;
-    }
-  }
-
   async _scan() {
     const ws = this._workspace;
+    if (!ws) return;
     if (!fs.existsSync(path.join(ws, '.git'))) return;
 
     const repo = await this._git(['rev-parse', '--is-inside-work-tree']);

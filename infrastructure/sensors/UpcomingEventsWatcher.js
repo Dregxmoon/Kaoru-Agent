@@ -23,6 +23,7 @@
 'use strict';
 
 const { getEventBus } = require('../../infrastructure/event-bus/EventBus.js');
+const { BasePollingWatcher } = require('./BasePollingWatcher.js');
 
 const LOOKAHEAD_MS = 45 * 60 * 1000;
 const DEFAULT_POLL_MS = 5 * 60 * 1000;
@@ -133,33 +134,15 @@ function _localDayString(ts) {
   return `${d.getFullYear()}-${d.getMonth() + 1}-${d.getDate()}`;
 }
 
-class UpcomingEventsWatcher {
+class UpcomingEventsWatcher extends BasePollingWatcher {
   constructor({ graph, pollMs = DEFAULT_POLL_MS, bus = getEventBus() } = {}) {
+    super({ pollMs, bus });
     this._graph = graph;
-    this._bus = bus;
-    this._pollMs = pollMs;
-    this._timer = null;
-    this._running = false;
     this._emittedTime = {}; // nodeId → ts ya anunciado
     this._emittedDay = {}; // nodeId → día calendario ya anunciado
   }
 
-  start() {
-    if (this._running) return;
-    this._running = true;
-    this.poll().catch(() => {});
-    this._timer = setInterval(() => this.poll().catch(() => {}), this._pollMs);
-  }
-
-  stop() {
-    if (this._timer) {
-      clearInterval(this._timer);
-      this._timer = null;
-    }
-    this._running = false;
-  }
-
-  async poll(now = Date.now()) {
+  async _scan(now = Date.now()) {
     if (!this._graph?.isReady && !this._graph?._ready) return;
     let nodes = [];
     try {

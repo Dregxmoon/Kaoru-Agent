@@ -68,10 +68,7 @@ const { getStructuredActionParser } = require('./StructuredActionParser.js');
 const AP = require('./ActionParser.js');
 
 // ── LLM Provider ──────────────────────────────────────────────────────────────
-let _llmComplete = null;
-
 function _getLLMComplete() {
-  if (_llmComplete) return _llmComplete;
   try {
     const LLMProvider = require('../llm/LLMProvider.js');
     if (typeof LLMProvider.completeTask === 'function') {
@@ -80,16 +77,9 @@ function _getLLMComplete() {
     return LLMProvider.complete.bind(LLMProvider);
   } catch (e) {
     throw new Error(
-      'LLMProvider no encontrado. Asegúrate de que ../llm/LLMProvider.js existe, ' +
-        'o usa setLLMProvider(fn) para inyectar tu propio cliente.'
+      'LLMProvider no encontrado. Asegúrate de que ../llm/LLMProvider.js existe.'
     );
   }
-}
-
-function setLLMProvider(fn) {
-  if (typeof fn !== 'function') throw new Error('setLLMProvider: se esperaba una función');
-  _llmComplete = fn;
-  console.log('[planner] LLMProvider personalizado configurado');
 }
 
 let PROVIDER_LIMITS = {
@@ -931,17 +921,10 @@ function getPlanner() {
 }
 
 module.exports = {
-  _debug_cleanCommand: AP._debug_cleanCommand,
-  _debug_cleanPath: AP._debug_cleanPath,
-  _debug_trimNarrative: AP._debug_trimNarrative,
-  _debug_splitChained: AP._debug_splitChained,
-  _debug_isSensitivePath: AP._debug_isSensitivePath,
-  _debug_isOutsideProject: AP._debug_isOutsideProject,
   Planner,
   ActionParser: AP.ActionParser,
   getPlanner,
   isHighImpact: AP.isHighImpact,
   setProjectCWD: AP.setProjectCWD,
   getProjectCWD: () => AP.PROJECT_CWD,
-  setLLMProvider,
 };

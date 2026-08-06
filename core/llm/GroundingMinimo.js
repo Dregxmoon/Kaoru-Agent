@@ -11,23 +11,15 @@
  * Por ahora: mínimo funcional para que el asistente deje de responder con strings aleatorios.
  */
 
-const fs = require('fs');
-const path = require('path');
+const { getIdentity: getIdentityStore } = require('../identity/IdentityStore.js');
 
 // ── Cargar Identity Core ──────────────────────────────────────────────────────
-const IDENTITY_PATH = path.join(__dirname, '../identity/identity.json');
-
 let _identity = null;
 
 function getIdentity() {
   if (_identity) return _identity;
-  try {
-    _identity = JSON.parse(fs.readFileSync(IDENTITY_PATH, 'utf-8'));
-    console.log('[grounding] identity.json cargado');
-  } catch (e) {
-    console.error('[grounding] ERROR cargando identity.json:', e.message);
-    _identity = { name: 'asistente', core: 'Soy tu asistente personal.' };
-  }
+  _identity = getIdentityStore();
+  console.log('[grounding] identity.json cargado');
   return _identity;
 }
 

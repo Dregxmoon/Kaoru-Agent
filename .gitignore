@@ -33,6 +33,7 @@ test.txt
 *.orig
 *.rej
 tests/prueba_vivo_*.js
+tests/e2e/artifacts/
 
 # ── Python ────────────────────────────────────────────────────────────────────
 __pycache__/
