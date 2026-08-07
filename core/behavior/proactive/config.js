@@ -2,6 +2,8 @@
 // Se mantienen fuera de la clase para poder testear umbrales y cooldowns
 // sin instanciar el engine, y para que cada mixin importe solo lo que usa.
 
+const { DEFAULT_POLICY } = require('../../decision/DecisionCore.js');
+
 // ── Configuración general ───────────────────────────────────────────────────
 
 const EVAL_INTERVAL_MS = 5 * 60 * 1000; // heartbeat para triggers temporales
@@ -14,9 +16,13 @@ const RECENT_CHAT_MS = 2 * 60 * 1000; // no interrumpir si el usuario conversó 
 const FOLLOWUP_MULTIPLIER = 3; // cuántas veces el minSec antes de un follow-up
 const SESSION_END_MIN_SEC = 20 * 60; // mínimo de racha para trigger "fin de sesión"
 
-// Fase C: presupuesto diario duro de iniciativas proactivas ENVIADAS. Es el
-// freno macro ("conocer sin hartar"); el cooldown por tipo es el freno fino.
-const DAILY_BUDGET = 12;
+// Presupuesto diario de iniciativas proactivas ENVIADAS. Ya NO es un tope duro
+// en el gate: el techo real lo impone el presupuesto DINÁMICO del núcleo
+// (F-1), que oscila entre budget.min y budget.max según la receptividad del
+// usuario (receptividad buena → hasta 20/día). DAILY_BUDGET queda como
+// referencia del valor base (receptividad neutra) y se mantiene alineado con
+// `DEFAULT_POLICY.budget.base` para que no haya dos números que desincronizar.
+const DAILY_BUDGET = DEFAULT_POLICY.budget.base;
 const PENDING_LOOKAHEAD_MS = 45 * 60 * 1000; // pendientes a <45 min para el recap de arranque
 
 // G.1: proactividad de alta calidad. Mensajes "relleno" que no aportan nada

@@ -22,6 +22,15 @@ module.exports = {
     return this._autonomyMode;
   },
 
+  /** Shadow mode: el gate y el audit corren, pero nada se envía (dry-run). */
+  setShadowMode(on) {
+    this._shadowMode = !!on;
+  },
+
+  getShadowMode() {
+    return this._shadowMode;
+  },
+
   onUserMessage() {
     this._lastUserMsg = Date.now();
   },

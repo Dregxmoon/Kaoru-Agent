@@ -110,6 +110,7 @@ async function main() {
           iterations: res.iterations,
           elapsedMs: res.elapsedMs,
           error: res.error || null,
+          errorDetail: res.response || null,
           truncated: res.truncated || false,
           verify: verify.output.slice(0, 500),
         };

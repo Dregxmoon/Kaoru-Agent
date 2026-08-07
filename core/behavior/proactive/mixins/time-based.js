@@ -24,6 +24,16 @@ module.exports = {
   async _evaluateTimeBased() {
     const now = new Date();
 
+    // Fase F (P2/P4): el heartbeat es el barrido de mantenimiento. Aquí se
+    // drena la cola de diferidos QUEUE (reintenta con el contexto actual los
+    // candidatos que el gate difirió) y se marcan 'ignored' las propuestas
+    // enviadas sin respuesta tras el plazo. Antes ambos solo corrían como
+    // efecto colateral de _tryTrigger o al volver de una pausa; sin triggers
+    // ni idle→active en sesiones largas, la cola caducaba por TTL sin
+    // reintento y el SLO no aprendía de las ignoradas.
+    this._replayQueued();
+    this._markIgnoredStale();
+
     const specialDate = this._checkSpecialDate(now);
     if (specialDate) {
       await this._tryTrigger(specialDate);

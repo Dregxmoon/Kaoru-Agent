@@ -42,6 +42,27 @@ function pendingRecap() {
   return state.proactive?.pendingRecap() ?? Promise.resolve(null);
 }
 
+// ── Runtime del ProactiveEngine (comando /proactive) ───────────────────────
+
+/** Stats en vivo del engine (getStats de testing.js). */
+function getProactiveStats() {
+  return state.proactive?.getStats() ?? null;
+}
+
+/** Cambia el modo de autonomía (observe | suggest | act) en runtime. */
+function setAutonomyMode(mode) {
+  if (!state.proactive) return { ok: false, error: 'engine no inicializado' };
+  state.proactive.setAutonomyMode(mode);
+  return { ok: true, mode: state.proactive.getAutonomyMode() };
+}
+
+/** Cambia el shadow mode (gate/audit corren, nada se envía) en runtime. */
+function setShadowMode(on) {
+  if (!state.proactive) return { ok: false, error: 'engine no inicializado' };
+  state.proactive.setShadowMode(on);
+  return { ok: true, shadowMode: state.proactive.getShadowMode() };
+}
+
 // ── Getters ───────────────────────────────────────────────────────────────────
 
 function getGraph() {
@@ -82,6 +103,9 @@ module.exports = {
   isOpenClawAvailable,
   forgetMemory,
   pendingRecap,
+  getProactiveStats,
+  setAutonomyMode,
+  setShadowMode,
   getGraph,
   getOSSensor,
   getEventBus: getEventBus_,

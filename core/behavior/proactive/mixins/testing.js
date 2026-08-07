@@ -12,8 +12,8 @@ const {
   THRASH_MIN_SWITCHES,
   THRASH_MIN_DISTINCT_CATEGORY,
   RETURN_MIN_GAP_SEC,
-  DAILY_BUDGET,
 } = require('../config.js');
+const { dynamicBudget } = require('../../../decision/ContextGate.js');
 
 module.exports = {
   // ── Evaluación forzada (testing) ────────────────────────────────────────────
@@ -188,7 +188,9 @@ module.exports = {
       dailyBudget: {
         dayKey: this._store?.getDailyStats().dayKey ?? null,
         count: this._store?.dailyCount() ?? 0,
-        limit: DAILY_BUDGET,
+        // F-1: el techo real es el presupuesto dinámico según la receptividad
+        // actual (base 12 → hasta max 20), no una constante estática.
+        limit: dynamicBudget(this._receptivity ?? 0),
       },
       gate: {
         shadowMode: this._shadowMode,

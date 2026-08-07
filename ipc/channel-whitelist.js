@@ -61,6 +61,10 @@ const INVOKE_ALLOWLIST = new Set([
   // Stats / telemetría (vía comandos /)
   'get-bridge-stats',
   'telemetry-report',
+  // ProactiveEngine (vía comando /proactive)
+  'proactive:get-stats',
+  'proactive:set-autonomy',
+  'proactive:set-shadow-mode',
 ]);
 
 /** Canales permitidos para ipcRenderer.send(). */

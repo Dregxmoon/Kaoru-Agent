@@ -15,7 +15,6 @@ const { evaluate: evaluateGate } = require('../../../decision/ContextGate.js');
 const {
   RECENT_CHAT_MS,
   GLOBAL_MIN_GAP_MS,
-  DAILY_BUDGET,
   TRIGGER_COOLDOWN_MS,
   MAX_IDLE_TO_INTERRUPT,
 } = require('../config.js');
@@ -147,16 +146,11 @@ module.exports = {
     );
     if (now - this._lastProactive < adjustedGap) return { blocked: true };
 
-    // Fase C: presupuesto diario duro — si ya se gastaron todas las
-    // iniciativas de hoy, se frena ANTES de consultar al LLM (el silencio es
-    // respeto). El recuento se hace solo sobre envíos reales.
-    if (this._store && this._store.dailyCount() >= DAILY_BUDGET) {
-      logger.info(
-        'gate',
-        `[proactive] presupuesto diario agotado (${this._store.dailyCount()}/${DAILY_BUDGET})`
-      );
-      return { blocked: true };
-    }
+    // Fase F: el presupuesto diario lo impone el gate dinámico
+    // (ContextGate.evaluate → budgetLimit = dynamicBudget(receptividad)), que
+    // puede subir hasta `DEFAULT_POLICY.budget.max` (20) con buena
+    // receptividad. Aquí ya no hay tope estático duro (DAILY_BUDGET) que lo
+    // anule — el recuento real solo se hace sobre envíos efectivos.
 
     // Cooldown efectivo por tipo — crece si el usuario ha descartado este
     // tipo varias veces seguidas (Fase A: el rechazo enseña).
@@ -197,10 +191,10 @@ module.exports = {
       this._bus.emit('initiative:trigger', payload);
 
       // F-5: rastrear la propuesta enviada para marcarla "ignored" si el
-      // usuario no responde en el plazo. Solo las que tienen proposalId.
+      // usuario no responde en el plazo. El barrido de las vencidas lo hace el
+      // heartbeat (_evaluateTimeBased → _markIgnoredStale) cada 5 min.
       if (payload.proposalId) {
         this._sentFeedback.set(payload.proposalId, { type: trigger.type, at: Date.now() });
-        this._markIgnoredStale();
       }
 
       return message;

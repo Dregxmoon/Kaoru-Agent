@@ -547,7 +547,6 @@ function createChatWindow() {
 
   S.chatWindow.setMenuBarVisibility(false);
   S.chatWindow.loadFile(path.join(__dirname, 'src/chat.html'));
-  if (!app.isPackaged) S.chatWindow.webContents.openDevTools({ mode: 'detach' });
   attachCrashWatchdog(S.chatWindow, 'chat');
   S.chatWindow.webContents.on('console-message', (e, level, msg) => {
     if (
@@ -693,6 +692,7 @@ require('./ipc/openclaw-handlers.js').register(ctx);
 require('./ipc/mcp-handlers.js').register(ctx);
 require('./ipc/github-handlers.js').register(ctx);
 require('./ipc/security-handlers.js').register(ctx);
+require('./ipc/proactive-handlers.js').register(ctx);
 
 // Servidor HTTP local
 const VALID_EMOTIONS = ['happy', 'excited', 'sad', 'tired', 'gentle', 'default'];

@@ -27,6 +27,7 @@ const CATEGORIES = {
   stats: 'General',
   export: 'General',
   telemetria: 'General',
+  proactive: 'General',
   model: 'IA / LLM',
   provider: 'IA / LLM',
   agent: 'IA / LLM',
@@ -113,6 +114,7 @@ require('./config')(register);
 require('./dev')(register);
 require('./model')(register);
 require('./github')(register);
+require('./proactive')(register);
 
 register({
   name: 'help',
