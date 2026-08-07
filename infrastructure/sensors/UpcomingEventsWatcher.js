@@ -1,3 +1,4 @@
+// @ts-nocheck
 /**
  * UpcomingEventsWatcher.js — vigila los recordatorios que el usuario pidió
  * guardar ("recuerda que tengo reunión a las 5" → nodo recordar_* en memoria)

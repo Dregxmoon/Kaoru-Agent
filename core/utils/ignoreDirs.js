@@ -16,14 +16,7 @@
 'use strict';
 
 // Carpetas de dependencias/builds/cachés ignoradas en TODOS los contextos.
-const PROJECT_IGNORE_DIRS = [
-  'node_modules',
-  'dist',
-  'build',
-  '.next',
-  '.cache',
-  '__pycache__',
-];
+const PROJECT_IGNORE_DIRS = ['node_modules', 'dist', 'build', '.next', '.cache', '__pycache__'];
 
 /**
  * Set de nombres de carpeta ignorados (match exacto por entrada).
@@ -41,9 +34,7 @@ function dirSet(extras = []) {
  * @returns {Array<RegExp>}
  */
 function dirRegexes(extras = []) {
-  return [...PROJECT_IGNORE_DIRS, ...extras].map(
-    (name) => new RegExp(`(^|[\\\\/])${name}[\\\\/]`)
-  );
+  return [...PROJECT_IGNORE_DIRS, ...extras].map((name) => new RegExp(`(^|[\\\\/])${name}[\\\\/]`));
 }
 
 module.exports = { PROJECT_IGNORE_DIRS, dirSet, dirRegexes };

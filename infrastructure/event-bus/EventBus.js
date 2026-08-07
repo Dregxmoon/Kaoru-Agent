@@ -1,3 +1,5 @@
+// @ts-nocheck
+const logger = require('../../core/observability/Logger.js');
 /**
  * EventBus.js — Fase 2
  *
@@ -73,7 +75,7 @@ class EventBus {
       try {
         handler(payload);
       } catch (e) {
-        console.error(`[event-bus] error en handler de '${event}':`, e.message);
+        logger.error('EventBus', `[event-bus] error en handler de '${event}':`, e.message);
       }
     }
   }

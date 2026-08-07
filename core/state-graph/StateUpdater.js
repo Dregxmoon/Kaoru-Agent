@@ -1,3 +1,5 @@
+// @ts-nocheck
+const logger = require('../observability/Logger.js');
 /**
  * StateUpdater.js — con ContradictionResolver integrado + validación de labels
  *
@@ -277,10 +279,10 @@ class StateUpdater {
 
           this._resolver.resolve(nodeData);
           saved++;
-          console.log(`[state-updater] inmediato: ${nodeData.label}`);
+          logger.info('StateUpdater', `[state-updater] inmediato: ${nodeData.label}`);
         }
       } catch (e) {
-        console.warn('[state-updater] error regex:', e.message);
+        logger.warn('StateUpdater', '[state-updater] error regex:', e.message);
       }
     }
     return saved;
@@ -299,7 +301,7 @@ class StateUpdater {
    */
   async processSession(sessionId, history, turnCount) {
     if (!history || history.length < 2) {
-      console.log('[state-updater] sesión muy corta');
+      logger.info('StateUpdater', '[state-updater] sesión muy corta');
       this._graph.endSession(sessionId, { turnCount, summary: null });
       return { saved: 0, skipped: true };
     }
@@ -315,12 +317,13 @@ class StateUpdater {
     // Si no hay mensajes del usuario, no tiene sentido llamar al LLM
     const userMessages = history.filter((t) => t.role === 'user');
     if (userMessages.length === 0) {
-      console.log('[state-updater] sin mensajes de usuario — omitiendo LLM');
+      logger.info('StateUpdater', '[state-updater] sin mensajes de usuario — omitiendo LLM');
       this._graph.endSession(sessionId, { turnCount, summary: null });
       return { saved: instantSaved, skipped: true };
     }
 
-    console.log(
+    logger.info(
+      'StateUpdater',
       `[state-updater] analizando sesión (${history.length} mensajes, ${instantSaved} instantáneos)...`
     );
 
@@ -328,7 +331,7 @@ class StateUpdater {
     try {
       extracted = await this._extractMemories(history);
     } catch (e) {
-      console.error('[state-updater] error LLM:', e.message);
+      logger.error('StateUpdater', '[state-updater] error LLM:', e.message);
       this._graph.endSession(sessionId, { turnCount, summary: null });
       return { saved: instantSaved, error: e.message };
     }
@@ -346,7 +349,7 @@ class StateUpdater {
         const label = node.label.toLowerCase().replace(/\s+/g, '_').slice(0, 80);
 
         if (!isValidLabel(label)) {
-          console.warn(`[state-updater] label inválido descartado: ${label}`);
+          logger.warn('StateUpdater', `[state-updater] label inválido descartado: ${label}`);
           discarded++;
           continue;
         }
@@ -363,7 +366,7 @@ class StateUpdater {
         });
         saved++;
       } catch (e) {
-        console.warn('[state-updater] error guardando nodo:', e.message);
+        logger.warn('StateUpdater', '[state-updater] error guardando nodo:', e.message);
       }
     }
 
@@ -384,7 +387,8 @@ class StateUpdater {
     }
 
     this._graph.endSession(sessionId, { turnCount, summary: extracted.episode_summary, episodeId });
-    console.log(
+    logger.info(
+      'StateUpdater',
       `[state-updater] guardados: ${saved} nodos, descartados: ${discarded}, episodio: ${episodeId ? 'sí' : 'no'}`
     );
     return { saved, discarded, episodeId };
@@ -461,7 +465,8 @@ class StateUpdater {
         const lines = node.content.split(/\s*\|\s*Actualizado:\s*/);
         const allAreCommands = lines.length > 0 && lines.every((l) => _isCommandContent(l.trim()));
         if (allAreCommands) {
-          console.log(
+          logger.info(
+            'StateUpdater',
             `[state-updater] archivando nodo contaminado: ${node.label} — "${node.content.slice(0, 80)}"`
           );
           this._graph._archiveNode(node.id);
@@ -473,7 +478,8 @@ class StateUpdater {
         const filtered = lines.filter((l) => !_isCommandContent(l.trim()));
         if (filtered.length > 0 && filtered.length < lines.length) {
           const newContent = filtered.join(' | ');
-          console.log(
+          logger.info(
+            'StateUpdater',
             `[state-updater] limpiando nodo: ${node.label} — ${lines.length - filtered.length} segmento(s) de comando eliminados`
           );
           this._graph.updateNode(node.id, { content: newContent });
@@ -481,7 +487,7 @@ class StateUpdater {
         }
       }
     } catch (e) {
-      console.warn('[state-updater] error en cleanupMemoryArtifacts:', e.message);
+      logger.warn('StateUpdater', '[state-updater] error en cleanupMemoryArtifacts:', e.message);
     }
 
     return { archived, cleaned };

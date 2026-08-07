@@ -1,3 +1,4 @@
+// @ts-nocheck
 /**
  * GeminiSerializer.js — Fase 2
  *

@@ -1,3 +1,4 @@
+// @ts-nocheck
 // Panel de sesiones pasadas — picker para reanudar conversaciones anteriores.
 // Se apoya en los IPC 'sessions-list' / 'session-load' (ipc/memory-handlers.js)
 // que leen las sesiones cerradas del StateGraph. Al cargar una sesión se

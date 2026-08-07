@@ -1,4 +1,6 @@
+// @ts-nocheck
 'use strict';
+const logger = require('../observability/Logger.js');
 
 /**
  * ProposalStore.js — Fase A: persistencia del feedback de propuestas proactivas.
@@ -51,7 +53,7 @@ class ProposalStore {
         if (!this._data.byDay) this._data.byDay = {};
       }
     } catch (e) {
-      console.warn('[proposal-store] no se pudo leer feedback previo:', e.message);
+      logger.warn('ProposalStore', '[proposal-store] no se pudo leer feedback previo:', e.message);
       this._inMem = true;
     }
   }
@@ -62,7 +64,7 @@ class ProposalStore {
       fs.mkdirSync(path.dirname(this._filePath), { recursive: true });
       fs.writeFileSync(this._filePath, JSON.stringify(this._data, null, 2));
     } catch (e) {
-      console.warn('[proposal-store] no se pudo persistir feedback:', e.message);
+      logger.warn('ProposalStore', '[proposal-store] no se pudo persistir feedback:', e.message);
       this._inMem = true;
     }
   }

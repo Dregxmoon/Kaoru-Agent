@@ -1,4 +1,6 @@
+// @ts-nocheck
 'use strict';
+const logger = require('../core/observability/Logger.js');
 
 const { ipcMain } = require('electron');
 
@@ -25,7 +27,8 @@ function register(ctx) {
     'grounding-build-context',
     async (e, { sessionHistory, activeProvider, mode, plan }) => {
       const ctxRes = await Core.buildContext(sessionHistory, activeProvider, { mode, plan });
-      console.log(
+      logger.info(
+        'memory-handlers',
         '[grounding-ipc] provider:',
         activeProvider,
         '| mode:',
@@ -48,7 +51,7 @@ function register(ctx) {
     if (!primary) return;
     const LLMProvider = require('../core/llm/LLMProvider.js');
     LLMProvider.configure({ llm: { primary } });
-    console.log('[config] provedor cambiado a:', primary);
+    logger.info('memory-handlers', '[config] provedor cambiado a:', primary);
   });
 }
 

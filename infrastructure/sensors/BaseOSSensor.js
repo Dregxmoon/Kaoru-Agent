@@ -1,3 +1,4 @@
+// @ts-nocheck
 /**
  * BaseOSSensor.js — base común de los sensores de SO (Windows y Linux).
  *
@@ -22,6 +23,7 @@
  */
 
 'use strict';
+const logger = require('../../core/observability/Logger.js');
 
 const { getEventBus } = require('../event-bus/EventBus.js');
 
@@ -49,7 +51,10 @@ class BaseOSSensor {
   start() {
     if (this._running) return;
     this._running = true;
-    console.log(`[${this._logTag}] iniciado (poll cada ${Math.round(this._pollMs / 1000)}s)`);
+    logger.info(
+      'BaseOSSensor',
+      `[${this._logTag}] iniciado (poll cada ${Math.round(this._pollMs / 1000)}s)`
+    );
     this._poll();
     this._polling = setInterval(() => this._poll(), this._pollMs);
   }
@@ -60,7 +65,7 @@ class BaseOSSensor {
       this._polling = null;
     }
     this._running = false;
-    console.log(`[${this._logTag}] detenido`);
+    logger.info('BaseOSSensor', `[${this._logTag}] detenido`);
   }
 
   getCurrentContext() {
@@ -129,7 +134,10 @@ class BaseOSSensor {
         prev,
         prevFriendly: this._getFriendlyName(prev),
       });
-      console.log(`[${this._logTag}] → ${this._getFriendlyName(app)} — "${title.slice(0, 60)}"`);
+      logger.info(
+        'BaseOSSensor',
+        `[${this._logTag}] → ${this._getFriendlyName(app)} — "${title.slice(0, 60)}"`
+      );
     } else {
       this._currentTitle = title;
       this._bus.emit('os:app-tick', {
@@ -149,11 +157,14 @@ class BaseOSSensor {
     if (isIdle && !this._wasIdle) {
       this._wasIdle = true;
       this._bus.emit('os:idle-changed', { idle: true, idleSecs });
-      console.log(`[${this._logTag}] usuario idle (${this._formatElapsed(idleSecs)})`);
+      logger.info(
+        'BaseOSSensor',
+        `[${this._logTag}] usuario idle (${this._formatElapsed(idleSecs)})`
+      );
     } else if (!isIdle && this._wasIdle) {
       this._wasIdle = false;
       this._bus.emit('os:idle-changed', { idle: false, idleSecs: 0 });
-      console.log(`[${this._logTag}] usuario activo de nuevo`);
+      logger.info('BaseOSSensor', `[${this._logTag}] usuario activo de nuevo`);
     }
   }
 
@@ -170,7 +181,7 @@ class BaseOSSensor {
       this._saveToHistory(this._currentApp, this._currentTitle, this._appStart, Date.now());
     }
     if (this._currentApp !== null) {
-      console.log(`[${this._logTag}] foco en app ignorada — pausando tracking`);
+      logger.info('BaseOSSensor', `[${this._logTag}] foco en app ignorada — pausando tracking`);
     }
     this._currentApp = null;
     this._currentTitle = null;

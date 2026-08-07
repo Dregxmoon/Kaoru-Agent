@@ -1,4 +1,6 @@
+// @ts-nocheck
 'use strict';
+const logger = require('../observability/Logger.js');
 
 /**
  * TelemetryStore.js — Fase E: evaluación continua con datos locales.
@@ -73,7 +75,7 @@ class TelemetryStore {
         if (!this._data.meta) this._data.meta = { lastActivityTs: 0, lastUserTs: 0 };
       }
     } catch (e) {
-      console.warn('[telemetry] no se pudo leer telemetría previa:', e.message);
+      logger.warn('TelemetryStore', '[telemetry] no se pudo leer telemetría previa:', e.message);
       this._inMem = true;
     }
   }
@@ -84,7 +86,7 @@ class TelemetryStore {
       fs.mkdirSync(path.dirname(this._filePath), { recursive: true });
       fs.writeFileSync(this._filePath, JSON.stringify(this._data, null, 2));
     } catch (e) {
-      console.warn('[telemetry] no se pudo persistir:', e.message);
+      logger.warn('TelemetryStore', '[telemetry] no se pudo persistir:', e.message);
       this._inMem = true;
     }
   }

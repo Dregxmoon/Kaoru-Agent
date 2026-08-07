@@ -1,3 +1,5 @@
+// @ts-nocheck
+const logger = require('../observability/Logger.js');
 // shutdown.js — cierre ordenado del núcleo: procesos huérfanos, MCP, LSP,
 // sensores, ProactiveEngine y la base de datos.
 
@@ -13,7 +15,7 @@ const state = require('./state.js');
  * llama desde main.js en 'before-quit', con timeout, igual que closeSession.
  */
 async function shutdown() {
-  console.log('[core] cerrando...');
+  logger.info('shutdown', '[core] cerrando...');
 
   // Matar primero a los hijos externos (npx y sus servidores reales) — antes
   // de cualquier await, para que corra aunque shutdown() tarde después.
@@ -29,7 +31,7 @@ async function shutdown() {
     try {
       await state.mcp.disconnectAll();
     } catch (e) {
-      console.warn('[core] error desconectando MCP:', e.message);
+      logger.warn('shutdown', '[core] error desconectando MCP:', e.message);
     }
   }
   if (state.initiativeUnsub) {
@@ -47,7 +49,7 @@ async function shutdown() {
     try {
       await state.bridge.closeBrowser();
     } catch (e) {
-      console.warn('[core] error cerrando navegador:', e.message);
+      logger.warn('shutdown', '[core] error cerrando navegador:', e.message);
     }
   }
   stopOpenClaw();
@@ -55,21 +57,21 @@ async function shutdown() {
     try {
       state.osSensor.stop();
     } catch (e) {
-      console.warn('[core] error deteniendo sensor:', e.message);
+      logger.warn('shutdown', '[core] error deteniendo sensor:', e.message);
     }
   }
   if (state.lspManager) {
     try {
       await state.lspManager.stop();
     } catch (e) {
-      console.warn('[core] error cerrando LSP:', e.message);
+      logger.warn('shutdown', '[core] error cerrando LSP:', e.message);
     }
   }
   if (state.lspErrorWatcher) {
     try {
       state.lspErrorWatcher.stop();
     } catch (e) {
-      console.warn('[core] error deteniendo LSPErrorWatcher:', e.message);
+      logger.warn('shutdown', '[core] error deteniendo LSPErrorWatcher:', e.message);
     }
     state.lspErrorWatcher = null;
   }
@@ -84,7 +86,7 @@ async function shutdown() {
     try {
       sensor?.stop();
     } catch (e) {
-      console.warn(`[core] error deteniendo sensor ${name}:`, e.message);
+      logger.warn('shutdown', `[core] error deteniendo sensor ${name}:`, e.message);
     }
   }
   state.gitWatcher =
@@ -109,7 +111,7 @@ async function shutdown() {
     try {
       state.graph.close();
     } catch (e) {
-      console.warn('[core] error cerrando DB:', e.message);
+      logger.warn('shutdown', '[core] error cerrando DB:', e.message);
     }
   }
 

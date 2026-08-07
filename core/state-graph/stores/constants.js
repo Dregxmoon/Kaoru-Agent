@@ -1,3 +1,4 @@
+// @ts-nocheck
 'use strict';
 
 const { formatElapsed } = require('../../utils/format.js');

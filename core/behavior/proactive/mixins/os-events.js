@@ -1,3 +1,5 @@
+// @ts-nocheck
+const logger = require('../../../observability/Logger.js');
 // os-events.js — análisis de actividad del OS en tiempo real: cambios de app,
 // ticks de la app activa y regresos de pausa. Produce los triggers
 // sustained_focus, context_switch_thrash, session_end y return_from_break.
@@ -45,7 +47,9 @@ module.exports = {
           prevCategory: this._prevCategory,
           streakSec: this._prevCategoryStreakSec,
           context: `El usuario pasó ${streakMinutes} minutos ${FOCUS_RULES[this._prevCategory]?.label || 'trabajando'} y acaba de cambiar a ${category || 'otra cosa'}.`,
-        }).catch((e) => console.warn('[proactive] error en trigger de session-end:', e.message));
+        }).catch((e) =>
+          logger.warn('os-events', '[proactive] error en trigger de session-end:', e.message)
+        );
       }
 
       // Nueva racha de enfoque (solo cuando cambia la categoría)
@@ -67,7 +71,9 @@ module.exports = {
         switchCount: this._recentSwitches.length,
         categories: distinctCategories,
         context: `El usuario cambió de aplicación ${this._recentSwitches.length} veces en los últimos ${windowMin} minutos, saltando entre: ${distinctCategories.join(', ')}.`,
-      }).catch((e) => console.warn('[proactive] error en trigger de thrash:', e.message));
+      }).catch((e) =>
+        logger.warn('os-events', '[proactive] error en trigger de thrash:', e.message)
+      );
     }
   },
 
@@ -95,7 +101,7 @@ module.exports = {
           context: `El usuario lleva ${elapsedFormatted} ${rule.label} en ${friendlyName}${title ? ` ("${title.slice(0, 80)}")` : ''}.`,
         });
       } catch (e) {
-        console.warn('[proactive] error en trigger de enfoque sostenido:', e.message);
+        logger.warn('os-events', '[proactive] error en trigger de enfoque sostenido:', e.message);
       }
       if (outcome && outcome.blocked) return;
       this._categoryStreakFired = true;
@@ -122,7 +128,11 @@ module.exports = {
         context: `El usuario sigue concentrado después de ${elapsedFormatted} ${rule.label} en ${friendlyName}${title ? ` ("${title.slice(0, 80)}")` : ''}.`,
       });
     } catch (e) {
-      console.warn('[proactive] error en trigger de enfoque sostenido (follow-up):', e.message);
+      logger.warn(
+        'os-events',
+        '[proactive] error en trigger de enfoque sostenido (follow-up):',
+        e.message
+      );
     }
     if (outcome && outcome.blocked) return;
     this._categoryStreakFollowupFired = true;
@@ -158,7 +168,9 @@ module.exports = {
       type: 'return_from_break',
       gapSec,
       context: `El usuario estuvo alejado de la PC unos ${minutes} minutos y acaba de volver a estar activo.`,
-    }).catch((e) => console.warn('[proactive] error en trigger de regreso:', e.message));
+    }).catch((e) =>
+      logger.warn('os-events', '[proactive] error en trigger de regreso:', e.message)
+    );
   },
 
   /**
@@ -168,14 +180,16 @@ module.exports = {
   _replayQueued() {
     const ready = this._queue.poll(this._buildGateContext(Date.now()));
     if (!ready.length) return;
-    console.log(`[proactive] reintentando ${ready.length} diferido(s) de la cola...`);
+    logger.info('os-events', `[proactive] reintentando ${ready.length} diferido(s) de la cola...`);
     for (const { candidate, decision } of ready) {
       this._tryTrigger({
         type: candidate.tipo,
         kind: candidate.kind,
         ...candidate.payload,
         context: candidate.payload.message || candidate.payload.title || '',
-      }).catch((e) => console.warn('[proactive] error reintentando diferido:', e.message));
+      }).catch((e) =>
+        logger.warn('os-events', '[proactive] error reintentando diferido:', e.message)
+      );
     }
   },
 };

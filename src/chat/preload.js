@@ -1,3 +1,4 @@
+// @ts-nocheck
 'use strict';
 
 // Preload del chat (src/chat.html).

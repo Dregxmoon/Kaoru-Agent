@@ -1,3 +1,4 @@
+// @ts-nocheck
 // OpenClaw badge
 function updateOpenClawBadge(available) {
   openclawAvailable = available;

@@ -1,3 +1,4 @@
+// @ts-nocheck
 // mcp.js — API pública de servidores MCP (listar, añadir, quitar, alternar y
 // buscar en el registro).
 

@@ -81,6 +81,7 @@
  */
 
 'use strict';
+const logger = require('../../core/observability/Logger.js');
 
 // ── Dependencias ──────────────────────────────────────────────────────────────
 let Database, sqliteVec, pipeline;
@@ -480,15 +481,17 @@ function _loadCustomCatalog(customPath = CUSTOM_CATALOG_PATH) {
     const raw = fs.readFileSync(customPath, 'utf-8');
     const parsed = JSON.parse(raw);
     if (!Array.isArray(parsed)) {
-      console.warn(`[init-vectors] ${customPath} no es un array — se ignora.`);
+      logger.warn('init_vectors', `[init-vectors] ${customPath} no es un array — se ignora.`);
       return [];
     }
-    console.log(
+    logger.info(
+      'init_vectors',
       `[init-vectors] catálogo personalizado cargado: ${customPath} (${parsed.length} entradas)`
     );
     return parsed;
   } catch (e) {
-    console.warn(
+    logger.warn(
+      'init_vectors',
       `[init-vectors] error leyendo catálogo personalizado (${customPath}): ${e.message}`
     );
     return [];
@@ -512,7 +515,11 @@ function _mergeCatalogs(base, extra) {
   }
   for (const intent of extra) {
     if (!intent || typeof intent.action !== 'string' || !Array.isArray(intent.phrases)) {
-      console.warn('[init-vectors] entrada inválida en catálogo personalizado, se ignora:', intent);
+      logger.warn(
+        'init_vectors',
+        '[init-vectors] entrada inválida en catálogo personalizado, se ignora:',
+        intent
+      );
       continue;
     }
     if (byAction.has(intent.action)) {
@@ -566,8 +573,11 @@ async function getEmbedder() {
 
   await loadPipeline();
 
-  console.log('[init-vectors] Cargando modelo all-MiniLM-L6-v2...');
-  console.log('[init-vectors] Primera carga: ~5-10s. Las siguientes serán instantáneas.');
+  logger.info('init_vectors', '[init-vectors] Cargando modelo all-MiniLM-L6-v2...');
+  logger.info(
+    'init_vectors',
+    '[init-vectors] Primera carga: ~5-10s. Las siguientes serán instantáneas.'
+  );
 
   _embedder = await pipeline('feature-extraction', 'Xenova/all-MiniLM-L6-v2', {
     progress_callback: (info) => {
@@ -582,7 +592,7 @@ async function getEmbedder() {
     },
   });
 
-  console.log('[init-vectors] Modelo listo.');
+  logger.info('init_vectors', '[init-vectors] Modelo listo.');
   return _embedder;
 }
 
@@ -619,7 +629,8 @@ async function embed(text) {
         return await IntentDetector.embedText(text);
       }
     } catch (e) {
-      console.warn(
+      logger.warn(
+        'init_vectors',
         '[init-vectors] no se pudo reusar el embedder de IntentDetector.js, usando pipeline propio:',
         e.message
       );
@@ -685,7 +696,7 @@ function createTables(db) {
     );
   `);
 
-  console.log('[init-vectors] Tablas creadas (o ya existían).');
+  logger.info('init_vectors', '[init-vectors] Tablas creadas (o ya existían).');
 }
 
 function clearTables(db) {
@@ -693,7 +704,7 @@ function clearTables(db) {
   db.exec(`DELETE FROM intent_vectors;`);
   db.exec(`DELETE FROM skill_catalog;`);
   db.exec(`DELETE FROM skill_vectors;`);
-  console.log('[init-vectors] Tablas limpiadas para repoblar.');
+  logger.info('init_vectors', '[init-vectors] Tablas limpiadas para repoblar.');
 }
 
 function hasData(db) {
@@ -765,7 +776,8 @@ async function populateCatalog(db, catalog = INTENT_CATALOG) {
   }
 
   process.stdout.write('\n');
-  console.log(
+  logger.info(
+    'init_vectors',
     `[init-vectors] ${totalPhrases} frases vectorizadas (${totalSkipped} ya existían) para ${catalog.length} intenciones.`
   );
   return { inserted: totalPhrases, skipped: totalSkipped, actions: catalog.length };
@@ -792,7 +804,8 @@ async function populateDatabase(db, { catalog = INTENT_CATALOG, force = false } 
 
   if (hasData(db) && !force) {
     const count = db.prepare('SELECT COUNT(*) as n FROM intent_catalog').get().n;
-    console.log(
+    logger.info(
+      'init_vectors',
       `[init-vectors] Ya existen ${count} frases en el catálogo. Usa force:true para repoblar.`
     );
     return { populated: false, existing: count };
@@ -842,7 +855,10 @@ async function addPhrase(db, action, phrase, opts = {}) {
     .run(action, tool, description, clean);
 
   if (info.changes === 0) {
-    console.log(`[init-vectors] la frase ya existía para "${action}" — no se agregó de nuevo.`);
+    logger.info(
+      'init_vectors',
+      `[init-vectors] la frase ya existía para "${action}" — no se agregó de nuevo.`
+    );
     return { added: false, reason: 'duplicate' };
   }
 
@@ -852,7 +868,7 @@ async function addPhrase(db, action, phrase, opts = {}) {
     float32ToBuffer(vector)
   );
 
-  console.log(`[init-vectors] + frase agregada a "${action}": "${clean}"`);
+  logger.info('init_vectors', `[init-vectors] + frase agregada a "${action}": "${clean}"`);
   return { added: true };
 }
 
@@ -872,12 +888,16 @@ function verifyIntegrity(db) {
   const ok = catalogCount === vectorsCount;
 
   if (!ok) {
-    console.warn(
+    logger.warn(
+      'init_vectors',
       `[init-vectors] ⚠ DESINCRONIZADO: intent_catalog tiene ${catalogCount} filas, ` +
         `intent_vectors tiene ${vectorsCount}. Corre con --force para repoblar desde cero.`
     );
   } else {
-    console.log(`[init-vectors] ✓ Integridad OK (${catalogCount} filas en ambas tablas).`);
+    logger.info(
+      'init_vectors',
+      `[init-vectors] ✓ Integridad OK (${catalogCount} filas en ambas tablas).`
+    );
   }
   return { ok, catalogCount, vectorsCount };
 }
@@ -936,8 +956,8 @@ async function main() {
   const testArg = process.argv.find((a) => a.startsWith('--test='));
   const addArg = process.argv.find((a) => a.startsWith('--add-phrase='));
 
-  console.log('[init-vectors] Iniciando...');
-  console.log(`[init-vectors] Base de datos: ${DB_PATH}`);
+  logger.info('init_vectors', '[init-vectors] Iniciando...');
+  logger.info('init_vectors', `[init-vectors] Base de datos: ${DB_PATH}`);
 
   await loadDeps();
 
@@ -950,11 +970,13 @@ async function main() {
 
   if (doStats) {
     const stats = getStats(db);
-    console.log(
+    logger.info(
+      'init_vectors',
       `\n[init-vectors] === Cobertura (${stats.totalActions} acciones, ${stats.totalPhrases} frases) ===`
     );
     for (const row of stats.byAction) {
-      console.log(
+      logger.info(
+        'init_vectors',
         `  ${row.action.padEnd(20)} tool=${String(row.tool).padEnd(16)} ${row.phrases} frases`
       );
     }
@@ -963,10 +985,11 @@ async function main() {
   if (testArg) {
     const query = testArg.slice('--test='.length);
     const results = await testDetect(db, query);
-    console.log(`\n[init-vectors] === Resultados para "${query}" ===`);
+    logger.info('init_vectors', `\n[init-vectors] === Resultados para "${query}" ===`);
     results.forEach((r, i) => {
       const sim = Math.max(0, 1 - (r.distance * r.distance) / 2);
-      console.log(
+      logger.info(
+        'init_vectors',
         `  ${i + 1}. [${r.action}] "${r.phrase}"  (distancia: ${r.distance.toFixed(4)}, sim: ${sim.toFixed(4)})`
       );
     });
@@ -976,7 +999,10 @@ async function main() {
     const raw = addArg.slice('--add-phrase='.length);
     const sep = raw.indexOf(':');
     if (sep === -1) {
-      console.error('[init-vectors] Formato esperado: --add-phrase="accion:frase nueva"');
+      logger.error(
+        'init_vectors',
+        '[init-vectors] Formato esperado: --add-phrase="accion:frase nueva"'
+      );
     } else {
       const action = raw.slice(0, sep).trim();
       const phrase = raw.slice(sep + 1).trim();
@@ -985,12 +1011,12 @@ async function main() {
   }
 
   db.close();
-  console.log('[init-vectors] ✓ Listo.');
+  logger.info('init_vectors', '[init-vectors] ✓ Listo.');
 }
 
 if (require.main === module) {
   main().catch((e) => {
-    console.error('[init-vectors] ERROR FATAL:', e.message);
+    logger.error('init_vectors', '[init-vectors] ERROR FATAL:', e.message);
     process.exit(1);
   });
 }

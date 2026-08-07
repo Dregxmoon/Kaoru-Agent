@@ -1,3 +1,4 @@
+// @ts-nocheck
 // Mensajes
 const messagesEl = document.getElementById('messages');
 

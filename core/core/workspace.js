@@ -1,3 +1,5 @@
+// @ts-nocheck
+const logger = require('../observability/Logger.js');
 // workspace.js — gestión del workspace activo (repo/carpeta sobre la que el
 // asistente trabaja como agente de código).
 
@@ -41,9 +43,9 @@ async function setActiveWorkspace(newPath) {
       } catch {}
       try {
         await state.lspManager.start(resolved);
-        console.log('[core] LSP listo para', resolved);
+        logger.info('workspace', '[core] LSP listo para', resolved);
       } catch (e) {
-        console.warn('[core] LSP no disponible:', e.message);
+        logger.warn('workspace', '[core] LSP no disponible:', e.message);
       }
     })();
   }
@@ -54,7 +56,9 @@ async function setActiveWorkspace(newPath) {
     if (readSensorsConfig().lsp !== false)
       state.lspErrorWatcher
         .poll()
-        .catch((e) => console.warn('[core] scan LSP falló:', e && e.message ? e.message : e));
+        .catch((e) =>
+          logger.warn('workspace', '[core] scan LSP falló:', e && e.message ? e.message : e)
+        );
   }
 
   // ── FIX (auditoría Fase D): OpenClaw corre con OPENCLAW_ALLOWED_PATH fijado
@@ -68,7 +72,7 @@ async function setActiveWorkspace(newPath) {
   if (state.gitWatcher) {
     state.gitWatcher.setWorkspace(resolved);
   }
-  console.log('[core] workspace activo:', resolved);
+  logger.info('workspace', '[core] workspace activo:', resolved);
   return { ok: true, path: resolved };
 }
 

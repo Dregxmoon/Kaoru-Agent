@@ -1,4 +1,6 @@
+// @ts-nocheck
 'use strict';
+const logger = require('../observability/Logger.js');
 
 const commands = new Map();
 
@@ -12,7 +14,7 @@ function _parse(text) {
 
 function register(def) {
   if (commands.has(def.name)) {
-    console.warn(`[commands] comando "${def.name}" ya registrado — se reemplaza`);
+    logger.warn('CommandRegistry', `[commands] comando "${def.name}" ya registrado — se reemplaza`);
   }
   commands.set(def.name, def);
 }

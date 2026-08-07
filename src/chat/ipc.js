@@ -1,3 +1,4 @@
+// @ts-nocheck
 // IPC listeners
 document
   .getElementById('close-btn')

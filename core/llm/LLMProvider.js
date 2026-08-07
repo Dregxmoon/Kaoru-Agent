@@ -1,4 +1,6 @@
+// @ts-nocheck
 'use strict';
+const logger = require('../observability/Logger.js');
 
 const https = require('https');
 const http = require('http');
@@ -70,7 +72,7 @@ const _registry = new Map();
 
 function registerProvider(def) {
   if (_registry.has(def.id)) {
-    console.warn(`[llm] provider "${def.id}" ya registrado — se reemplaza`);
+    logger.warn('LLMProvider', `[llm] provider "${def.id}" ya registrado — se reemplaza`);
   }
   _registry.set(def.id, { ...def });
 }
@@ -510,7 +512,8 @@ async function callOpenAI(providerId, messages, systemPrompt, mode = 'fast', opt
   const msgs = [{ role: 'system', content: systemPrompt }, ...history];
   const startedAt = Date.now();
 
-  console.log(
+  logger.info(
+    'LLMProvider',
     `[llm] ${providerId} model: ${model} (${safeMode}, max_tokens=${maxTokens}, history=${history.length}msg, timeout=${timeoutMs}ms)${opts.onToken ? ' [stream]' : ''}`
   );
 
@@ -551,7 +554,8 @@ async function callGeminiProvider(providerId, messages, systemPrompt, mode = 'fa
   }));
   const startedAt = Date.now();
 
-  console.log(
+  logger.info(
+    'LLMProvider',
     `[llm] ${providerId} model: ${model} (${safeMode}, max_tokens=${maxTokens}, history=${history.length}msg, timeout=${timeoutMs}ms)${opts.onToken ? ' [stream]' : ''}`
   );
 
@@ -635,7 +639,8 @@ async function callAnthropic(providerId, messages, systemPrompt, mode = 'fast') 
     content: m.content,
   }));
 
-  console.log(
+  logger.info(
+    'LLMProvider',
     `[llm] ${providerId} model: ${model} (${safeMode}, max_tokens=${maxTokens}, history=${history.length}msg, timeout=${timeoutMs}ms)`
   );
 
@@ -773,7 +778,8 @@ async function callOpenAIWithTools(providerId, messages, systemPrompt, mode, too
   };
   if (opts.onToken) body.stream = true;
 
-  console.log(
+  logger.info(
+    'LLMProvider',
     `[llm] ${providerId} tool-calling model: ${model} (${mode}, ${tools.length} tools)${opts.onToken ? ' [stream]' : ''}`
   );
 
@@ -836,7 +842,8 @@ async function callGeminiWithTools(providerId, messages, systemPrompt, mode, too
   };
   if (opts.onToken) body.stream = true;
 
-  console.log(
+  logger.info(
+    'LLMProvider',
     `[llm] ${providerId} tool-calling model: ${model} (${mode}, ${tools.length} tools)${opts.onToken ? ' [stream]' : ''}`
   );
 
@@ -977,12 +984,14 @@ async function _callWithFallback(messages, systemPrompt, mode = 'fast', opts = {
             break;
           }
           const waitMs = ra > 0 ? ra : _backoffWithJitter(attempt - 1);
-          console.log(
+          logger.info(
+            'LLMProvider',
             `[llm] reintentando ${providerName} en ${waitMs}ms (intento ${attempt + 1}/${MAX_RETRIES_PER_PROVIDER + 1})...`
           );
           await _sleepAbortable(waitMs, opts.signal);
         }
-        console.log(
+        logger.info(
+          'LLMProvider',
           `[llm] intentando ${providerName} (${mode})${attempt > 0 ? ` [retry ${attempt}]` : ''}...`
         );
         const result = await _enqueueProviderCall(
@@ -990,13 +999,14 @@ async function _callWithFallback(messages, systemPrompt, mode = 'fast', opts = {
           () => fn(messages, systemPrompt, mode, opts),
           opts
         );
-        console.log(`[llm] respuesta de ${providerName} (${result.length} chars)`);
+        logger.info('LLMProvider', `[llm] respuesta de ${providerName} (${result.length} chars)`);
         return result;
       } catch (e) {
         lastErr = e;
         if (e?.code === 'ABORTED' || e?.name === 'AbortError') throw e;
         const retryable = _isRetryableError(e);
-        console.log(
+        logger.info(
+          'LLMProvider',
           `[llm] ${providerName} falló${retryable ? ' (transitorio)' : ' (no reintentable)'}: ${e.message}`
         );
         if (retryable && /(\b429\b|rate limit|quota|too many requests)/i.test(e.message)) {
@@ -1076,7 +1086,8 @@ async function _callWithFallbackTools(messages, systemPrompt, mode = 'smart', to
     }
   }
 
-  console.warn(
+  logger.warn(
+    'LLMProvider',
     `[llm] tool-calling falló en todos los providers (${tried.join(', ')})${missingKeys.length ? ` — sin key: ${missingKeys.join(', ')}` : ''}, fallback a texto`
   );
   const text = await _callWithFallback(messages, systemPrompt, mode, opts);

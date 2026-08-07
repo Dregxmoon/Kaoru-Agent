@@ -1,3 +1,5 @@
+// @ts-nocheck
+const logger = require('../../../observability/Logger.js');
 // gate.js — árbitro central de decisión: gate de contexto determinista
 // (Fase F), filtros baratos (cooldowns, chat abierto, idle, presupuesto) y la
 // consulta al LLM. El LLM produce el mensaje cuando el gate admite la señal.
@@ -117,13 +119,15 @@ module.exports = {
     const gate = this._evaluateTrigger(trigger);
     if (gate) {
       if (this._shadowMode) {
-        console.log(
+        logger.info(
+          'gate',
           `[proactive][shadow] gate: ${gate.verdict} (${gate.reason}) score=${gate.score?.toFixed(3)} — sin enviar`
         );
         return { blocked: true, shadow: true, gate };
       }
       if (gate.verdict === 'DROP' || gate.verdict === 'QUEUE') {
-        console.log(
+        logger.info(
+          'gate',
           `[proactive] gate: ${gate.verdict} (${gate.reason}) score=${gate.score?.toFixed(3)} — ${gate.verdict === 'QUEUE' ? 'diferido' : 'silencio'}`
         );
         return { blocked: true, gate };
@@ -147,7 +151,8 @@ module.exports = {
     // iniciativas de hoy, se frena ANTES de consultar al LLM (el silencio es
     // respeto). El recuento se hace solo sobre envíos reales.
     if (this._store && this._store.dailyCount() >= DAILY_BUDGET) {
-      console.log(
+      logger.info(
+        'gate',
         `[proactive] presupuesto diario agotado (${this._store.dailyCount()}/${DAILY_BUDGET})`
       );
       return { blocked: true };
@@ -169,12 +174,12 @@ module.exports = {
 
     this._lastAttemptByType[trigger.type] = now;
     this._deciding = true;
-    console.log(`[proactive] trigger: ${trigger.type} — consultando LLM...`);
+    logger.info('gate', `[proactive] trigger: ${trigger.type} — consultando LLM...`);
 
     try {
       const message = await this._generateMessage(trigger);
       if (!message) {
-        console.log('[proactive] LLM decidió no enviar mensaje');
+        logger.info('gate', '[proactive] LLM decidió no enviar mensaje');
         return null;
       }
 
@@ -188,7 +193,7 @@ module.exports = {
 
       const payload = await this._buildPayload(trigger, message);
 
-      console.log(`[proactive] emitiendo: "${message.slice(0, 60)}..."`);
+      logger.info('gate', `[proactive] emitiendo: "${message.slice(0, 60)}..."`);
       this._bus.emit('initiative:trigger', payload);
 
       // F-5: rastrear la propuesta enviada para marcarla "ignored" si el

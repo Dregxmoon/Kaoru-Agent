@@ -1,3 +1,5 @@
+// @ts-nocheck
+const logger = require('../observability/Logger.js');
 /**
  * StateGraph.js — Fase 2 + Quick Fixes + Fase 3b (separación en stores)
  *
@@ -25,8 +27,11 @@ let Database;
 try {
   Database = require('better-sqlite3');
 } catch (e) {
-  console.warn('[state-graph] better-sqlite3 no disponible, usando modo memoria');
-  console.warn('[state-graph]   Solución: npm install (reconstruye módulos nativos para Electron)');
+  logger.warn('StateGraph', '[state-graph] better-sqlite3 no disponible, usando modo memoria');
+  logger.warn(
+    'StateGraph',
+    '[state-graph]   Solución: npm install (reconstruye módulos nativos para Electron)'
+  );
   Database = null;
 }
 
@@ -345,7 +350,8 @@ class MemoryDB {
       _memoryDBSilentWarningShown = true;
       setInterval(
         () => {
-          console.warn(
+          logger.warn(
+            'StateGraph',
             '[state-graph] MemoryDB activo — los datos NO persisten en disco. better-sqlite3 no está disponible.'
           );
         },
@@ -401,10 +407,13 @@ class StateGraph {
       this._createSchema();
       this._migrateSchema();
       this._ready = true;
-      console.log('[state-graph] inicializado (Fase 2):', this._dbPath);
+      logger.info('StateGraph', '[state-graph] inicializado (Fase 2):', this._dbPath);
     } catch (e) {
-      console.error('[state-graph] ERROR CRÍTICO — cayendo a MemoryDB:', e.message);
-      console.error('[state-graph] La memoria del asistente NO se esta guardando en disco.');
+      logger.error('StateGraph', '[state-graph] ERROR CRÍTICO — cayendo a MemoryDB:', e.message);
+      logger.error(
+        'StateGraph',
+        '[state-graph] La memoria del asistente NO se esta guardando en disco.'
+      );
       this._db = new MemoryDB();
       this.usingFallback = true;
       this._createSchema();
@@ -486,7 +495,7 @@ class StateGraph {
         .get();
 
       if (!tableExists) {
-        console.log('[state-graph] migrando schema a Fase 2...');
+        logger.info('StateGraph', '[state-graph] migrando schema a Fase 2...');
         this._db.exec(`
           CREATE TABLE IF NOT EXISTS app_history (
             id            INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -504,16 +513,16 @@ class StateGraph {
           CREATE INDEX IF NOT EXISTS idx_app_history_app ON app_history(app);
           CREATE INDEX IF NOT EXISTS idx_app_history_ts  ON app_history(start_ts DESC);
         `);
-        console.log('[state-graph] migración Fase 2 completada');
+        logger.info('StateGraph', '[state-graph] migración Fase 2 completada');
       }
 
       const sessionCols = this._db.prepare(`PRAGMA table_info(sessions)`).all();
       if (!sessionCols.some((c) => c.name === 'history_json')) {
-        console.log('[state-graph] migrando schema: sessions.history_json...');
+        logger.info('StateGraph', '[state-graph] migrando schema: sessions.history_json...');
         this._db.exec(`ALTER TABLE sessions ADD COLUMN history_json TEXT;`);
       }
     } catch (e) {
-      console.warn('[state-graph] error en migración (no crítico):', e.message);
+      logger.warn('StateGraph', '[state-graph] error en migración (no crítico):', e.message);
     }
   }
 
@@ -539,7 +548,7 @@ class StateGraph {
       const vec = await embedText(content.slice(0, 2000));
       this._vectors._upsertNodeVector(id, float32ToBuffer(vec));
     } catch (e) {
-      console.warn(`[state-graph] no se pudo embedear nodo ${id}:`, e.message);
+      logger.warn('StateGraph', `[state-graph] no se pudo embedear nodo ${id}:`, e.message);
     }
   }
 
@@ -675,7 +684,7 @@ class StateGraph {
     try {
       this._db?.close();
     } catch (e) {
-      console.warn('[state-graph] error al cerrar db:', e.message);
+      logger.warn('StateGraph', '[state-graph] error al cerrar db:', e.message);
     }
   }
 }

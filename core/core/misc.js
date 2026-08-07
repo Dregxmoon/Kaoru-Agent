@@ -1,3 +1,5 @@
+// @ts-nocheck
+const logger = require('../observability/Logger.js');
 // misc.js — funciones varias del núcleo: callbacks del bus de iniciativa,
 // canal del chat, memoria y getters expuestos a main.js / IPC.
 
@@ -67,7 +69,7 @@ function storeFact({ type, label, content, importance = 0.85, tags = [] }) {
   try {
     return state.graph.createNode({ type, label, content, importance, tags });
   } catch (e) {
-    console.warn('[core] error guardando hecho:', e.message);
+    logger.warn('misc', '[core] error guardando hecho:', e.message);
     return null;
   }
 }

@@ -1,4 +1,5 @@
 // @ts-check
+const logger = require('../observability/Logger.js');
 /**
  * SessionManager.js — con deduplicación al inicio de sesión
  */
@@ -57,7 +58,8 @@ class SessionManager {
 
     const resumable = this._graph.findResumableSession(this._resumeMaxAgeHours);
     if (resumable) {
-      console.log(
+      logger.info(
+        'SessionManager',
         `[session] reanudando sesión interrumpida ${resumable.id} (${resumable.history.length} mensajes)`
       );
       this._sessionId = resumable.id;
@@ -72,7 +74,7 @@ class SessionManager {
     this._sessionId = this._graph.startSession();
     this._history = [];
     this._turnCount = 0;
-    console.log(`[session] sesión ${this._sessionId} iniciada`);
+    logger.info('SessionManager', `[session] sesión ${this._sessionId} iniciada`);
 
     this._resolver.deduplicateNodes();
     this._updater.cleanupMemoryArtifacts();
@@ -118,7 +120,8 @@ class SessionManager {
     if (this._sessionId) {
       this._graph.updateSessionHistory(this._sessionId, this._history);
     }
-    console.log(
+    logger.info(
+      'SessionManager',
       `[session] checkpoint restaurado: sesión ${this._sessionId} (${this._history.length} mensajes)`
     );
     return { sessionId: this._sessionId, turnCount: this._turnCount };
@@ -133,16 +136,19 @@ class SessionManager {
     const turnCount = this._turnCount;
     this._sessionId = null;
 
-    console.log(`[session] cerrando sesión ${sessionId} (${turnCount} turnos)...`);
+    logger.info(
+      'SessionManager',
+      `[session] cerrando sesión ${sessionId} (${turnCount} turnos)...`
+    );
 
     this._closePromise = this._updater
       .processSession(sessionId, history, turnCount)
       .then((result) => {
-        console.log(`[session] memoria guardada: ${result.saved} nodos`);
+        logger.info('SessionManager', `[session] memoria guardada: ${result.saved} nodos`);
         return result;
       })
       .catch((err) => {
-        console.error('[session] error:', err.message);
+        logger.error('SessionManager', '[session] error:', err.message);
         try {
           this._graph.endSession(sessionId, { turnCount, summary: null });
         } catch (_) {}
@@ -172,12 +178,12 @@ class SessionManager {
       }
       const hoursSince = (Date.now() - lastRun) / (1000 * 60 * 60);
       if (hoursSince >= DECAY_INTERVAL_HOURS) {
-        console.log('[session] corriendo decay diario...');
+        logger.info('SessionManager', '[session] corriendo decay diario...');
         this._updater.runDecay();
         fs.writeFileSync(marker, JSON.stringify({ ts: Date.now() }), 'utf-8');
       }
     } catch (e) {
-      console.warn('[session] error decay:', /** @type {Error} */ (e).message);
+      logger.warn('SessionManager', '[session] error decay:', /** @type {Error} */ (e).message);
     }
   }
 

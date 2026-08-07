@@ -1,3 +1,4 @@
+// @ts-nocheck
 /**
  * TitleWatcher.js — observa los títulos de las ventanas activas (eventos
  * os:app-tick / os:app-changed del OSSensor) y emite una señal cuando el

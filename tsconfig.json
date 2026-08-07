@@ -5,7 +5,7 @@
     "moduleResolution": "nodenext",
     "lib": ["ES2022", "DOM"],
     "allowJs": true,
-    "checkJs": false,
+    "checkJs": true,
     "noEmit": true,
     "strict": true,
     "noImplicitAny": true,

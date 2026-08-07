@@ -1,3 +1,4 @@
+// @ts-nocheck
 'use strict';
 
 // OAuthDeviceFlow.js — Flujo de autorización de dispositivo de GitHub (RFC 8628).

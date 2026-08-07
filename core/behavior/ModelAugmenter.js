@@ -1,3 +1,4 @@
+// @ts-nocheck
 'use strict';
 
 // ModelAugmenter — descubre las animaciones/expresiones que un modelo Live2D

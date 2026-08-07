@@ -1,4 +1,6 @@
+// @ts-nocheck
 'use strict';
+const logger = require('../observability/Logger.js');
 
 const path = require('path');
 
@@ -625,7 +627,7 @@ class ActionParser {
             }
           }
         } catch (e) {
-          console.warn('[action-parser] error:', e.message);
+          logger.warn('ActionParser', '[action-parser] error:', e.message);
         }
         if (!multi) break;
       }

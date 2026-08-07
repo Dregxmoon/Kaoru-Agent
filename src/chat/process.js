@@ -1,3 +1,4 @@
+// @ts-nocheck
 // Compresión de historial
 // Comprime mensajes de assistant repetitivos (fallos, "lo siento"s) para no
 // saturar el contexto del LLM con ruido auto-generado.

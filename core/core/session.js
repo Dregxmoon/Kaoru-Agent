@@ -1,3 +1,5 @@
+// @ts-nocheck
+const logger = require('../observability/Logger.js');
 // session.js — gestión de sesiones de chat (SessionManager): arranque,
 // cierre, historial, snapshots (checkpoints) y registro de turnos.
 
@@ -7,7 +9,7 @@ const state = require('./state.js');
 
 async function startSession() {
   if (!state.session) {
-    console.warn('[core] no inicializado');
+    logger.warn('session', '[core] no inicializado');
     return null;
   }
   const result = await state.session.start(state.app);
@@ -37,7 +39,7 @@ function getSessionHistory() {
  */
 function restoreSessionHistory(history, sessionId = null) {
   if (!state.session) {
-    console.warn('[core] no inicializado');
+    logger.warn('session', '[core] no inicializado');
     return null;
   }
   return state.session.restore(history, sessionId);
@@ -66,7 +68,7 @@ function listSessions(limit = 10) {
       };
     });
   } catch (e) {
-    console.warn('[core] error listando sesiones:', e.message);
+    logger.warn('session', '[core] error listando sesiones:', e.message);
     return [];
   }
 }
@@ -95,7 +97,7 @@ function loadSession(sessionId) {
       history,
     };
   } catch (e) {
-    console.warn('[core] error cargando sesión:', e.message);
+    logger.warn('session', '[core] error cargando sesión:', e.message);
     return null;
   }
 }

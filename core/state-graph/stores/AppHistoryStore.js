@@ -1,4 +1,6 @@
+// @ts-nocheck
 'use strict';
+const logger = require('../../observability/Logger.js');
 
 const { _formatSec } = require('./constants');
 
@@ -29,7 +31,7 @@ class AppHistoryStore {
           dayKey
         );
     } catch (e) {
-      console.warn('[state-graph] error guardando app_history:', e.message);
+      logger.warn('AppHistoryStore', '[state-graph] error guardando app_history:', e.message);
     }
   }
 
@@ -46,7 +48,7 @@ class AppHistoryStore {
         )
         .all(dayKey);
     } catch (e) {
-      console.warn('[state-graph] error leyendo app_history:', e.message);
+      logger.warn('AppHistoryStore', '[state-graph] error leyendo app_history:', e.message);
       return [];
     }
   }
@@ -67,7 +69,7 @@ class AppHistoryStore {
         )
         .all(since);
     } catch (e) {
-      console.warn('[state-graph] error en app usage summary:', e.message);
+      logger.warn('AppHistoryStore', '[state-graph] error en app usage summary:', e.message);
       return [];
     }
   }
@@ -87,10 +89,13 @@ class AppHistoryStore {
     try {
       const result = this._db.prepare('DELETE FROM app_history WHERE start_ts < ?').run(cutoff);
       if (result.changes > 0) {
-        console.log(`[state-graph] app_history pruned: ${result.changes} entradas eliminadas`);
+        logger.info(
+          'AppHistoryStore',
+          `[state-graph] app_history pruned: ${result.changes} entradas eliminadas`
+        );
       }
     } catch (e) {
-      console.warn('[state-graph] error en pruneAppHistory:', e.message);
+      logger.warn('AppHistoryStore', '[state-graph] error en pruneAppHistory:', e.message);
     }
   }
 }

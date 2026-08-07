@@ -1,3 +1,4 @@
+// @ts-nocheck
 'use strict';
 
 // GestureHeuristic — traduce un estado de ánimo (o el nombre exacto de un

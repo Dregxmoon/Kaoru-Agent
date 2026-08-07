@@ -1,3 +1,4 @@
+// @ts-nocheck
 'use strict';
 
 // github-handlers.js — IPC para las operaciones de GitHub.

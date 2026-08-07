@@ -1,3 +1,5 @@
+// @ts-nocheck
+const logger = require('../../../observability/Logger.js');
 // message-gen.js — generación del mensaje proactivo con el LLM: prompt de
 // identidad + memoria, anti-repetición y filtro de relleno (G.1).
 
@@ -76,7 +78,8 @@ No expliques por qué escribes. No anuncies que eres proactiva. Solo di lo que d
       // genérico que degrada la experiencia (el LLM a veces "saluda" en vez de
       // decir algo con sustancia).
       if (productionMode && _isLowValueMessage(trimmed)) {
-        console.log(
+        logger.info(
+          'message-gen',
           '[proactive] mensaje descartado por relleno (producción):',
           JSON.stringify(trimmed)
         );
@@ -85,7 +88,7 @@ No expliques por qué escribes. No anuncies que eres proactiva. Solo di lo que d
 
       return trimmed;
     } catch (e) {
-      console.warn('[proactive] error generando mensaje:', e.message);
+      logger.warn('message-gen', '[proactive] error generando mensaje:', e.message);
       return null;
     }
   },
@@ -142,7 +145,7 @@ No expliques por qué escribes. No anuncies que eres proactiva. Solo di lo que d
         });
       }
     } catch (e) {
-      console.warn('[proactive] error leyendo memoria:', e.message);
+      logger.warn('message-gen', '[proactive] error leyendo memoria:', e.message);
     }
 
     return lines.join('\n');

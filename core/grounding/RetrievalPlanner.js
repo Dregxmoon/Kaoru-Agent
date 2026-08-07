@@ -1,3 +1,4 @@
+// @ts-nocheck
 /**
  * RetrievalPlanner.js — Fase 3 (actualizado)
  *
@@ -34,6 +35,7 @@
  */
 
 'use strict';
+const logger = require('../observability/Logger.js');
 
 // ── Patrones de intención para StateGraph (sin cambios de Fase 2) ──────────────
 const INTENT_PATTERNS = [
@@ -255,7 +257,11 @@ class RetrievalPlanner {
       try {
         semantic = await this._graph.queryNodesSemantic(userMessage, { limit: 8 });
       } catch (e) {
-        console.warn('[retrieval] error en recall semántico, cayendo a keywords:', e.message);
+        logger.warn(
+          'RetrievalPlanner',
+          '[retrieval] error en recall semántico, cayendo a keywords:',
+          e.message
+        );
       }
       if (semantic.length > 0) {
         addAll(semantic);
@@ -290,7 +296,8 @@ class RetrievalPlanner {
           ? `semantic:${keywords.slice(0, 2).join(',')}`
           : 'default';
 
-    console.log(
+    logger.info(
+      'RetrievalPlanner',
       `[retrieval] strategy=${strategy}` +
         ` nodes=${sortedNodes.length}` +
         ` episodes=${episodes.length}` +
@@ -329,7 +336,7 @@ class RetrievalPlanner {
     try {
       return await this._detector.detect(userMessage);
     } catch (e) {
-      console.warn('[retrieval] Error en IntentDetector:', e.message);
+      logger.warn('RetrievalPlanner', '[retrieval] Error en IntentDetector:', e.message);
       return { ..._noDetector, description: `Error: ${e.message}` };
     }
   }

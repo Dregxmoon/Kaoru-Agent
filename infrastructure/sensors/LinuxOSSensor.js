@@ -1,4 +1,6 @@
+// @ts-nocheck
 'use strict';
+const logger = require('../../core/observability/Logger.js');
 
 const { spawn } = require('child_process');
 const { BaseOSSensor } = require('./BaseOSSensor.js');
@@ -198,7 +200,10 @@ class LinuxOSSensor extends BaseOSSensor {
     super(stateGraph, { logTag: 'linux-os-sensor' });
     this._hyprctlOk = _checkBinary('hyprctl');
     if (!this._hyprctlOk) {
-      console.warn('[linux-os-sensor] hyprctl no encontrado — sensor no funcionará');
+      logger.warn(
+        'LinuxOSSensor',
+        '[linux-os-sensor] hyprctl no encontrado — sensor no funcionará'
+      );
     }
   }
 
@@ -248,7 +253,7 @@ class LinuxOSSensor extends BaseOSSensor {
       this._processFocus(app, title);
       this._processIdle(idleSecs);
     } catch (e) {
-      console.warn('[linux-os-sensor] error en poll:', e.message);
+      logger.warn('LinuxOSSensor', '[linux-os-sensor] error en poll:', e.message);
     }
 
     this._pollBusy = false;

@@ -1,3 +1,4 @@
+// @ts-nocheck
 /**
  * BrowserBridge.js — navegador propio del asistente (Playwright headless)
  *
@@ -15,6 +16,7 @@
  */
 
 'use strict';
+const logger = require('../observability/Logger.js');
 
 // Límite de confianza anti prompt-injection (P3): el texto que el navegador
 // extrae de páginas web de terceros NO es confiable — una página maliciosa
@@ -48,13 +50,13 @@ async function _ensureBrowser() {
       );
     }
 
-    console.log('[browser-bridge] lanzando Chromium headless...');
+    logger.info('BrowserBridge', '[browser-bridge] lanzando Chromium headless...');
     _browser = await _playwright.chromium.launch({ headless: true });
     _page = await _browser.newPage({
       userAgent:
         'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36',
     });
-    console.log('[browser-bridge] navegador listo');
+    logger.info('BrowserBridge', '[browser-bridge] navegador listo');
     return _page;
   })();
 
@@ -73,7 +75,7 @@ async function closeBrowser() {
     await _browser.close().catch(() => {});
     _browser = null;
     _page = null;
-    console.log('[browser-bridge] navegador cerrado');
+    logger.info('BrowserBridge', '[browser-bridge] navegador cerrado');
   }
 }
 
@@ -144,7 +146,7 @@ async function executeWebSearch(input) {
   const page = await _ensureBrowser();
   const searchUrl = `https://www.google.com/search?q=${encodeURIComponent(query)}&hl=es`;
 
-  console.log(`[browser-bridge] web_search: "${query}"`);
+  logger.info('BrowserBridge', `[browser-bridge] web_search: "${query}"`);
   await page.goto(searchUrl, { waitUntil: 'domcontentloaded', timeout: 20000 });
 
   // Extraer resultados orgánicos del DOM de Google.
@@ -182,7 +184,7 @@ async function executeWebSearch(input) {
 
   // P3: los snippets de resultados son contenido de terceros → límite de
   // confianza (delimitación + neutralización de patrones de inyección).
-  console.log(`[browser-bridge] web_search: ${results.length} resultados`);
+  logger.info('BrowserBridge', `[browser-bridge] web_search: ${results.length} resultados`);
   return { result: wrapUntrustedItems(results) };
 }
 

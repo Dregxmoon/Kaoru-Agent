@@ -1,5 +1,6 @@
 // @ts-check
 'use strict';
+const logger = require('../observability/Logger.js');
 
 /**
  * PluginManager — carga plugins locales que extienden el asistente con tools
@@ -77,7 +78,7 @@ class PluginManager {
    */
   constructor(opts = {}) {
     this._pluginDir = opts.pluginDir || DEFAULT_PLUGIN_DIR;
-    this._logger = opts.logger || ((msg) => console.log(msg));
+    this._logger = opts.logger || ((msg) => logger.info('PluginManager', msg));
     /** @type {Array<LoadedPlugin>} */
     this._plugins = [];
     /** @type {Map<string, Array<Function>>} */

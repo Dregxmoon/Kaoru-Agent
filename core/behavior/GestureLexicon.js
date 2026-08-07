@@ -1,3 +1,4 @@
+// @ts-nocheck
 'use strict';
 
 // GestureLexicon — vocabulario multilingüe de estados de ánimo/acciones que el

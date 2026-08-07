@@ -1,4 +1,6 @@
+// @ts-nocheck
 'use strict';
+const logger = require('../observability/Logger.js');
 
 const TONE_RULES = [
   {
@@ -46,7 +48,8 @@ class BehaviorModel {
 
     const ctx = { tone, responseLength, urgency, notes, proactiveScore };
 
-    console.log(
+    logger.info(
+      'BehaviorModel',
       `[behavior] tone=${tone} length=${responseLength}` +
         ` urgency=${urgency} proactive=${proactiveScore.toFixed(2)}`
     );

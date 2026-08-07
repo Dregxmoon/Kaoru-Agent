@@ -1,3 +1,5 @@
+// @ts-nocheck
+const logger = require('../../core/observability/Logger.js');
 // KeychainManager.js
 //
 // Fix de seguridad (CWE-78, command injection): la versión anterior armaba
@@ -175,7 +177,7 @@ const KeychainManager = {
       if (PLATFORM === 'win32') return _winGetKey(keyName);
       return null;
     } catch (e) {
-      console.warn(`[keychain] getKey rechazado: ${e.message}`);
+      logger.warn('KeychainManager', `[keychain] getKey rechazado: ${e.message}`);
       return null;
     }
   },
@@ -186,7 +188,7 @@ const KeychainManager = {
       if (PLATFORM === 'win32') return _winSetKey(keyName, value);
       return false;
     } catch (e) {
-      console.warn(`[keychain] setKey rechazado: ${e.message}`);
+      logger.warn('KeychainManager', `[keychain] setKey rechazado: ${e.message}`);
       return false;
     }
   },
@@ -197,7 +199,7 @@ const KeychainManager = {
       if (PLATFORM === 'win32') return _winDeleteKey(keyName);
       return false;
     } catch (e) {
-      console.warn(`[keychain] deleteKey rechazado: ${e.message}`);
+      logger.warn('KeychainManager', `[keychain] deleteKey rechazado: ${e.message}`);
       return false;
     }
   },

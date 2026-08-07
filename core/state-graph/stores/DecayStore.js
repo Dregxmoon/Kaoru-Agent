@@ -1,4 +1,6 @@
+// @ts-nocheck
 'use strict';
+const logger = require('../../observability/Logger.js');
 
 const { ARCHIVE_THRESHOLD } = require('./constants');
 
@@ -36,7 +38,10 @@ class DecayStore {
       }
 
       if (decayed + archived > 0) {
-        console.log(`[state-graph] decay: ${decayed} actualizados, ${archived} archivados`);
+        logger.info(
+          'DecayStore',
+          `[state-graph] decay: ${decayed} actualizados, ${archived} archivados`
+        );
       }
     });
 

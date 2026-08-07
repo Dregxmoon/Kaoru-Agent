@@ -100,6 +100,10 @@ const ON_ALLOWLIST = new Set([
   'workspace-changed',
 ]);
 
+/**
+ * @param {'invoke'|'send'|'on'} kind
+ * @param {unknown} channel
+ */
 function _checkChannel(kind, channel) {
   if (typeof channel !== 'string' || channel.length === 0) {
     throw new Error(`[ipc-whitelist] canal ${kind} inválido`);
@@ -113,9 +117,12 @@ function _checkChannel(kind, channel) {
  */
 function assertAllowed(kind, channel) {
   _checkChannel(kind, channel);
-  const list = kind === 'invoke' ? INVOKE_ALLOWLIST : kind === 'send' ? SEND_ALLOWLIST : ON_ALLOWLIST;
+  const list =
+    kind === 'invoke' ? INVOKE_ALLOWLIST : kind === 'send' ? SEND_ALLOWLIST : ON_ALLOWLIST;
   if (!list.has(channel)) {
-    throw new Error(`[ipc-whitelist] canal '${channel}' no permitido para ${kind}() desde el renderer`);
+    throw new Error(
+      `[ipc-whitelist] canal '${channel}' no permitido para ${kind}() desde el renderer`
+    );
   }
 }
 

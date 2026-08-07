@@ -1,3 +1,4 @@
+// @ts-nocheck
 /**
  * StructuredActionParser.js — Fase 3
  *
@@ -38,6 +39,7 @@
  */
 
 'use strict';
+const logger = require('../observability/Logger.js');
 
 const path = require('path');
 
@@ -143,7 +145,8 @@ function _sanitizeShellArg(value) {
   const trimmed = value.trim();
   if (!trimmed) return null;
   if (SHELL_METACHAR_RE.test(trimmed)) {
-    console.warn(
+    logger.warn(
+      'StructuredActionParser',
       '[structured-parser] valor rechazado por caracteres de shell sospechosos:',
       JSON.stringify(trimmed)
     );
@@ -231,7 +234,11 @@ function _buildParams(action, fields, userGoal, projectCwd) {
       const server = fields.SERVIDOR || fields.SERVER;
       const toolName = fields.HERRAMIENTA || fields.TOOL;
       if (!server || !toolName) {
-        console.warn('[structured-parser] mcp_call sin SERVIDOR o HERRAMIENTA:', fields);
+        logger.warn(
+          'StructuredActionParser',
+          '[structured-parser] mcp_call sin SERVIDOR o HERRAMIENTA:',
+          fields
+        );
         return null;
       }
       let mcpArgs = {};
@@ -239,7 +246,8 @@ function _buildParams(action, fields, userGoal, projectCwd) {
         try {
           mcpArgs = JSON.parse(fields.PARAMS);
         } catch (e) {
-          console.warn(
+          logger.warn(
+            'StructuredActionParser',
             '[structured-parser] PARAMS de mcp_call no es JSON válido, se ignora:',
             fields.PARAMS
           );
@@ -252,7 +260,11 @@ function _buildParams(action, fields, userGoal, projectCwd) {
     case 'plugin_call': {
       const toolId = fields.HERRAMIENTA || fields.TOOL || fields.NOMBRE;
       if (!toolId) {
-        console.warn('[structured-parser] plugin_call sin HERRAMIENTA/TOOL:', fields);
+        logger.warn(
+          'StructuredActionParser',
+          '[structured-parser] plugin_call sin HERRAMIENTA/TOOL:',
+          fields
+        );
         return null;
       }
       let pluginArgs = {};
@@ -260,7 +272,8 @@ function _buildParams(action, fields, userGoal, projectCwd) {
         try {
           pluginArgs = JSON.parse(fields.PARAMS);
         } catch (e) {
-          console.warn(
+          logger.warn(
+            'StructuredActionParser',
             '[structured-parser] PARAMS de plugin_call no es JSON válido, se ignora:',
             fields.PARAMS
           );
@@ -358,7 +371,8 @@ class StructuredActionParser {
     // ── 1. Intentar parsear bloque estructurado ───────────────────────────────
     const structured = this._parseStructuredBlock(llmResponse, userGoal);
     if (structured.length > 0) {
-      console.log(
+      logger.info(
+        'StructuredActionParser',
         `[structured-parser] Bloque estructurado encontrado: ${structured.map((a) => a.tool).join(', ')}`
       );
       return structured;
@@ -371,19 +385,25 @@ class StructuredActionParser {
       const legacyActions = ActionParser.parse(llmResponse, userGoal);
 
       if (legacyActions.length > 0) {
-        console.log(
+        logger.info(
+          'StructuredActionParser',
           `[structured-parser] Fallback a ActionParser legacy: ${legacyActions.map((a) => a.tool).join(', ')}`
         );
         return legacyActions.map((a) => ({ ...a, source: 'legacy_regex' }));
       }
     } catch (e) {
-      console.warn('[structured-parser] Error en ActionParser legacy:', e.message);
+      logger.warn(
+        'StructuredActionParser',
+        '[structured-parser] Error en ActionParser legacy:',
+        e.message
+      );
     }
 
     // ── 3. Si el IntentDetector detectó algo con alta confianza pero el LLM
     //       no respondió con formato estructurado, lo reportamos para debug.
     if (toolIntent?.detected && toolIntent.level === 'high') {
-      console.warn(
+      logger.warn(
+        'StructuredActionParser',
         `[structured-parser] El LLM ignoró el bloque de acción. ` +
           `Intent detectado: ${toolIntent.action} (${(toolIntent.confidence * 100).toFixed(0)}%). ` +
           `El system prompt puede necesitar ajuste.`
@@ -472,7 +492,11 @@ class StructuredActionParser {
     // ACCIÓN es obligatorio
     const rawAction = fields['ACCIÓN'] || fields['ACCION'] || fields['ACTION'];
     if (!rawAction) {
-      console.warn('[structured-parser] Bloque sin campo ACCIÓN:', content);
+      logger.warn(
+        'StructuredActionParser',
+        '[structured-parser] Bloque sin campo ACCIÓN:',
+        content
+      );
       return null;
     }
 
@@ -485,60 +509,66 @@ class StructuredActionParser {
       if (action === 'answer_question' || action === 'explain_code') {
         return null; // No hay herramienta que ejecutar
       }
-      console.warn(`[structured-parser] Acción no reconocida: "${action}"`);
+      logger.warn(
+        'StructuredActionParser',
+        `[structured-parser] Acción no reconocida: "${action}"`
+      );
       return null;
     }
 
     // Validaciones mínimas por tipo de acción
     if (['create_file', 'edit_file', 'read_file', 'delete_file'].includes(action)) {
       if (!fields.ARCHIVO) {
-        console.warn(`[structured-parser] ${action} sin campo ARCHIVO`);
+        logger.warn('StructuredActionParser', `[structured-parser] ${action} sin campo ARCHIVO`);
         return null;
       }
     }
 
     if (['run_command', 'run_script', 'git_action', 'install_package'].includes(action)) {
       if (!fields.COMANDO) {
-        console.warn(`[structured-parser] ${action} sin campo COMANDO`);
+        logger.warn('StructuredActionParser', `[structured-parser] ${action} sin campo COMANDO`);
         return null;
       }
     }
 
     if (action === 'web_search' && !fields.QUERY) {
-      console.warn('[structured-parser] web_search sin campo QUERY');
+      logger.warn('StructuredActionParser', '[structured-parser] web_search sin campo QUERY');
       return null;
     }
 
     if (action === 'websearch' && !fields.QUERY) {
-      console.warn('[structured-parser] websearch sin campo QUERY');
+      logger.warn('StructuredActionParser', '[structured-parser] websearch sin campo QUERY');
       return null;
     }
 
     if (action === 'webfetch' && !fields.URL) {
-      console.warn('[structured-parser] webfetch sin campo URL');
+      logger.warn('StructuredActionParser', '[structured-parser] webfetch sin campo URL');
       return null;
     }
 
     if (action === 'navigate_browser' || action === 'browser_action') {
       if (!fields.URL && !fields.ACCION && !fields.ACTION) {
-        console.warn('[structured-parser] browser sin URL ni ACCION');
+        logger.warn('StructuredActionParser', '[structured-parser] browser sin URL ni ACCION');
         return null;
       }
     }
 
     if (action === 'apply_patch' && !fields.ARCHIVO) {
-      console.warn('[structured-parser] apply_patch sin campo ARCHIVO');
+      logger.warn('StructuredActionParser', '[structured-parser] apply_patch sin campo ARCHIVO');
       return null;
     }
 
     if (action === 'run_code' && !fields.CÓDIGO && !fields.CODIGO && !fields.CODE) {
-      console.warn('[structured-parser] run_code sin campo CÓDIGO');
+      logger.warn('StructuredActionParser', '[structured-parser] run_code sin campo CÓDIGO');
       return null;
     }
 
     const params = _buildParams(action, fields, userGoal, this._cwd);
     if (!params) {
-      console.warn(`[structured-parser] ${action} descartado — params inválidos tras sanitización`);
+      logger.warn(
+        'StructuredActionParser',
+        `[structured-parser] ${action} descartado — params inválidos tras sanitización`
+      );
       return null;
     }
     const description = _buildDescription(action, fields);

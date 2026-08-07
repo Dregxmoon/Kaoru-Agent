@@ -1,3 +1,5 @@
+// @ts-nocheck
+const logger = require('../../core/observability/Logger.js');
 /**
  * OSSensor.js — Fase 2 (con FIX Bug 13 + FIX tracking de tiempo en apps ignoradas)
  *
@@ -261,7 +263,7 @@ class OSSensor extends BaseOSSensor {
 
   _poll() {
     if (this._pollBusy) {
-      console.warn('[os-sensor] poll anterior todavía en curso, saltando...');
+      logger.warn('OSSensor', '[os-sensor] poll anterior todavía en curso, saltando...');
       return;
     }
     this._pollBusy = true;
@@ -365,7 +367,7 @@ class OSSensor extends BaseOSSensor {
       try {
         this._graph.saveAppHistory(entry);
       } catch (e) {
-        console.warn('[os-sensor] error guardando historial:', e.message);
+        logger.warn('OSSensor', '[os-sensor] error guardando historial:', e.message);
       }
     }
     this._bus.emit('os:history-updated', {
@@ -439,7 +441,7 @@ class OSSensor extends BaseOSSensor {
     }
     const timeout = setTimeout(() => {
       if (done) return;
-      console.warn('[os-sensor] PowerShell timeout (>8s), matando proceso');
+      logger.warn('OSSensor', '[os-sensor] PowerShell timeout (>8s), matando proceso');
       try {
         proc.kill();
       } catch (_) {}

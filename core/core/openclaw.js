@@ -1,3 +1,5 @@
+// @ts-nocheck
+const logger = require('../observability/Logger.js');
 // openclaw.js — ciclo de vida del servidor local de tools (openclaw-server.js):
 // arranque con allowed-path, watchdog de disponibilidad, parada ordenada y
 // limpieza de procesos huérfanos.
@@ -78,13 +80,13 @@ function killDescendants(signal) {
 function startOpenClaw(workspacePath) {
   const serverPath = path.join(__dirname, '..', '..', 'openclaw-server.js');
   if (!fs.existsSync(serverPath)) {
-    console.warn('[core] openclaw-server.js no encontrado — herramientas desactivadas');
+    logger.warn('openclaw', '[core] openclaw-server.js no encontrado — herramientas desactivadas');
     state.bus.emit('openclaw:available', { available: false });
     return;
   }
 
   if (state.openclawStarting) {
-    console.warn('[core] OpenClaw ya está iniciando — ignorando');
+    logger.warn('openclaw', '[core] OpenClaw ya está iniciando — ignorando');
     return;
   }
   state.openclawStarting = true;
@@ -122,12 +124,12 @@ function startOpenClaw(workspacePath) {
 
     state.openclawProcess.stdout?.on('data', (d) => {
       const msg = d.toString().trim();
-      if (msg) console.log('[openclaw-server]', msg);
+      if (msg) logger.info('openclaw', '[openclaw-server]', msg);
     });
 
     state.openclawProcess.stderr?.on('data', (d) => {
       const msg = d.toString().trim();
-      if (msg) console.error('[openclaw-server]', msg);
+      if (msg) logger.error('openclaw', '[openclaw-server]', msg);
     });
 
     state.openclawProcess.on('exit', (code) => {
@@ -152,12 +154,15 @@ function startOpenClaw(workspacePath) {
         .isAvailable()
         .then((available) => {
           if (available) {
-            console.log('[core] OpenClaw listo — Fase 3 activa');
+            logger.info('openclaw', '[core] OpenClaw listo — Fase 3 activa');
             state.bus.emit('openclaw:available', { available: true });
           } else if (retries < OPENCLAW_RETRIES) {
             state.openclawCheckTimer = setTimeout(check, OPENCLAW_RETRY_MS);
           } else {
-            console.warn(`[core] OpenClaw no respondió después de ${OPENCLAW_RETRIES} intentos`);
+            logger.warn(
+              'openclaw',
+              `[core] OpenClaw no respondió después de ${OPENCLAW_RETRIES} intentos`
+            );
             state.openclawProcess?.kill();
             state.openclawStarting = false;
             state.openclawProcess = null;
@@ -177,7 +182,7 @@ function startOpenClaw(workspacePath) {
     state.openclawCheckTimer = setTimeout(check, 1500);
   } catch (e) {
     state.openclawStarting = false;
-    console.error('[core] error iniciando OpenClaw:', e.message);
+    logger.error('openclaw', '[core] error iniciando OpenClaw:', e.message);
     state.bus.emit('openclaw:available', { available: false });
   }
 }
@@ -193,7 +198,7 @@ function stopOpenClaw() {
     state.openclawCheckTimer = null;
   }
   if (proc) {
-    console.log('[core] deteniendo OpenClaw...');
+    logger.info('openclaw', '[core] deteniendo OpenClaw...');
     state.openclawProcess = null;
     state.openclawStarting = false;
     try {
@@ -210,7 +215,7 @@ function stopOpenClaw() {
         state.openclawKillTimer = null;
       }, 3000);
     } catch (e) {
-      console.warn('[core] error deteniendo OpenClaw:', e.message);
+      logger.warn('openclaw', '[core] error deteniendo OpenClaw:', e.message);
     }
   }
   getOpenClawBridge().resetAvailabilityCache();
@@ -225,11 +230,14 @@ function restartOpenClawForWorkspace(ws) {
   const resolved = path.resolve(ws);
   if (state.openclawWorkspace === resolved) return; // mismo workspace → no tocar nada
   if (!state.openclawStarting && state.openclawProcess) {
-    console.log('[core] workspace cambió — reiniciando OpenClaw para el nuevo allowed path');
+    logger.info(
+      'openclaw',
+      '[core] workspace cambió — reiniciando OpenClaw para el nuevo allowed path'
+    );
     try {
       stopOpenClaw();
     } catch (e) {
-      console.warn('[core] falló al detener OpenClaw:', e && e.message ? e.message : e);
+      logger.warn('openclaw', '[core] falló al detener OpenClaw:', e && e.message ? e.message : e);
     }
   }
   if (!state.openclawProcess && !state.openclawStarting) {

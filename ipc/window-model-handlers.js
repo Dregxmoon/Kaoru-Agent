@@ -1,4 +1,6 @@
+// @ts-nocheck
 'use strict';
+const logger = require('../core/observability/Logger.js');
 
 const path = require('path');
 const fs = require('fs');
@@ -27,7 +29,7 @@ function register(ctx) {
   ipcMain.on('model-dblclick', () => ctx.toggleChatWindow());
 
   ipcMain.on('chat-close', () => {
-    console.log('[main] chat cerrado — saliendo del asistente');
+    logger.info('window-model-handlers', '[main] chat cerrado — saliendo del asistente');
     app.quit();
   });
 

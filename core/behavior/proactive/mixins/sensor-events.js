@@ -1,3 +1,5 @@
+// @ts-nocheck
+const logger = require('../../../observability/Logger.js');
 // sensor-events.js — conversión de señales de sensores (GitWatcher,
 // SystemWatcher, TitleWatcher, ClipboardWatcher, UpcomingEventsWatcher,
 // LSPErrorWatcher) en triggers del pipeline proactivo.
@@ -17,7 +19,9 @@ module.exports = {
       count,
       file,
       context: message,
-    }).catch((e) => console.warn('[proactive] error en trigger git_redflag:', e.message));
+    }).catch((e) =>
+      logger.warn('sensor-events', '[proactive] error en trigger git_redflag:', e.message)
+    );
   },
 
   _onSystemWarning({ kind, message } = {}) {
@@ -26,7 +30,9 @@ module.exports = {
       type: 'system_warning',
       kind,
       context: message,
-    }).catch((e) => console.warn('[proactive] error en trigger system_warning:', e.message));
+    }).catch((e) =>
+      logger.warn('sensor-events', '[proactive] error en trigger system_warning:', e.message)
+    );
   },
 
   _onErrorTitle({ title, app, category } = {}) {
@@ -36,7 +42,9 @@ module.exports = {
       app,
       category,
       context: `La ventana activa parece mostrar un error: "${title.slice(0, 120)}".`,
-    }).catch((e) => console.warn('[proactive] error en trigger error_title:', e.message));
+    }).catch((e) =>
+      logger.warn('sensor-events', '[proactive] error en trigger error_title:', e.message)
+    );
   },
 
   _onClipboard({ kind, snippet } = {}) {
@@ -48,7 +56,9 @@ module.exports = {
         kind === 'stacktrace'
           ? `El usuario acaba de copiar un stacktrace de error: "${snippet.slice(0, 120)}".`
           : `El usuario acaba de copiar una URL: "${snippet.slice(0, 120)}".`,
-    }).catch((e) => console.warn('[proactive] error en trigger clipboard_context:', e.message));
+    }).catch((e) =>
+      logger.warn('sensor-events', '[proactive] error en trigger clipboard_context:', e.message)
+    );
   },
 
   _onUpcomingEvent({ content, when } = {}) {
@@ -59,7 +69,9 @@ module.exports = {
     this._tryTrigger({
       type: 'upcoming_event',
       context: `El usuario pidió que recordaras: "${content}".${timeStr ? ` Es alrededor de las ${timeStr}.` : ''}`,
-    }).catch((e) => console.warn('[proactive] error en trigger upcoming_event:', e.message));
+    }).catch((e) =>
+      logger.warn('sensor-events', '[proactive] error en trigger upcoming_event:', e.message)
+    );
   },
 
   // ── Fase D: errores del LSP como señal proactiva ──────────────────────────
@@ -81,7 +93,9 @@ module.exports = {
       languageId,
       fileType,
       context: `Hay ${errors.length} error(es) de código en "${file}"${focused ? ' — es el archivo que estás viendo' : ''}. El primero: "${first.message.slice(0, 120)}" (línea ${(first.line ?? 0) + 1}).`,
-    }).catch((e) => console.warn('[proactive] error en trigger lsp_error:', e.message));
+    }).catch((e) =>
+      logger.warn('sensor-events', '[proactive] error en trigger lsp_error:', e.message)
+    );
   },
 
   /**
@@ -163,7 +177,7 @@ Genera el parche JSON.`;
       if (!changes.length) return null;
       return { changes };
     } catch (e) {
-      console.warn('[proactive] error generando parche:', e.message);
+      logger.warn('sensor-events', '[proactive] error generando parche:', e.message);
       return null;
     }
   },

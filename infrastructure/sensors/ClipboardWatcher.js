@@ -1,3 +1,4 @@
+// @ts-nocheck
 /**
  * ClipboardWatcher.js — detecta contenido de alto valor copiado al
  * portapapeles (un stacktrace de error o una URL) y emite:

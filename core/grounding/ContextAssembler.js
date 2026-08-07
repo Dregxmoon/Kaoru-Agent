@@ -1,3 +1,5 @@
+// @ts-nocheck
+const logger = require('../observability/Logger.js');
 /**
  * ContextAssembler.js — Fase 3 (actualizado)
  *
@@ -180,7 +182,8 @@ class ContextAssembler {
     const result = serializer.serialize(contextPackage, { includeMemory });
     const estimatedTokens = Math.round(result.systemPrompt.length / 4);
 
-    console.log(
+    logger.info(
+      'ContextAssembler',
       `[context-assembler] provider=${activeProvider}` +
         ` tokens≈${estimatedTokens}` +
         ` nodes=${retrievalResult?.nodes?.length ?? 0}` +

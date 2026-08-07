@@ -1,3 +1,5 @@
+// @ts-nocheck
+const logger = require('../observability/Logger.js');
 // context.js — construcción del context para el LLM (buildContext): ensambla
 // el system prompt desde BehaviorModel, IntentDetector, TaskDetector,
 // GroundingEngine, reglas del proyecto, herramientas, skills y modos
@@ -38,7 +40,7 @@ async function buildContext(sessionHistory, activeProvider, options = {}) {
       behaviorCtx = state.behavior.evaluate(userText, osCtx, sessionHistory);
       state.bus.emit('behavior:evaluated', behaviorCtx);
     } catch (e) {
-      console.warn('[core] error en BehaviorModel:', e.message);
+      logger.warn('context', '[core] error en BehaviorModel:', e.message);
     }
   }
 
@@ -48,13 +50,14 @@ async function buildContext(sessionHistory, activeProvider, options = {}) {
     try {
       toolIntent = await state.detector.detect(userText);
       if (toolIntent.detected) {
-        console.log(
+        logger.info(
+          'context',
           `[core] toolIntent: ${toolIntent.action}` +
             ` (${(toolIntent.confidence * 100).toFixed(0)}%, ${toolIntent.level})`
         );
       }
     } catch (e) {
-      console.warn('[core] IntentDetector error:', e.message);
+      logger.warn('context', '[core] IntentDetector error:', e.message);
     }
   }
 
@@ -63,13 +66,14 @@ async function buildContext(sessionHistory, activeProvider, options = {}) {
   try {
     taskIntent = state.taskDetector.detect(userText);
     if (taskIntent.isTask) {
-      console.log(
+      logger.info(
+        'context',
         `[core] taskIntent: ${taskIntent.domain?.id || 'indefinido'}` +
           ` (confianza: ${taskIntent.confidence})`
       );
     }
   } catch (e) {
-    console.warn('[core] TaskDetector error:', e.message);
+    logger.warn('context', '[core] TaskDetector error:', e.message);
   }
 
   // GroundingEngine
@@ -118,7 +122,7 @@ async function buildContext(sessionHistory, activeProvider, options = {}) {
     });
     toolCatalog = resolvedTools?.promptCatalog || null;
   } catch (e) {
-    console.warn('[core] error en resolución de herramientas:', e.message);
+    logger.warn('context', '[core] error en resolución de herramientas:', e.message);
   }
   if (!toolCatalog) {
     toolCatalog = state.toolRegistry.serializeToPrompt(taskIntent?.domain || null);
@@ -131,7 +135,10 @@ async function buildContext(sessionHistory, activeProvider, options = {}) {
     if (result.systemPrompt.length > MAX_SYSTEM_CHARS) {
       result.systemPrompt =
         result.systemPrompt.slice(0, MAX_SYSTEM_CHARS) + '\n\n[contexto truncado por longitud]';
-      console.warn(`[core] system prompt truncado modo agent: ${result.systemPrompt.length} chars`);
+      logger.warn(
+        'context',
+        `[core] system prompt truncado modo agent: ${result.systemPrompt.length} chars`
+      );
     }
     return {
       ...result,
@@ -154,7 +161,7 @@ async function buildContext(sessionHistory, activeProvider, options = {}) {
         result.systemPrompt += '\n\n' + skillBlock;
       }
     } catch (e) {
-      console.warn('[core] error inyectando skills:', e.message);
+      logger.warn('context', '[core] error inyectando skills:', e.message);
     }
   }
 
@@ -252,7 +259,8 @@ async function buildContext(sessionHistory, activeProvider, options = {}) {
   // secciones COMPLETAS empezando por la menos importante, en vez de cortar
   // a mitad de una instrucción (que rompe el formato estructurado).
   if (result.systemPrompt.length > MAX_SYSTEM_CHARS) {
-    console.warn(
+    logger.warn(
+      'context',
       `[core] system prompt excede: ${result.systemPrompt.length} > ${MAX_SYSTEM_CHARS} chars, recortando...`
     );
     // Orden de sacrificio: MCP → OpenClaw → episodios → memoria → OS → comportamiento → tools intent → identidad
@@ -281,12 +289,16 @@ async function buildContext(sessionHistory, activeProvider, options = {}) {
       const sectionText = result.systemPrompt.slice(from, sectionEnd);
       result.systemPrompt =
         result.systemPrompt.slice(0, from) + result.systemPrompt.slice(sectionEnd);
-      console.log(`[core] sección "${section.name}" eliminada (${sectionText.length} chars)`);
+      logger.info(
+        'context',
+        `[core] sección "${section.name}" eliminada (${sectionText.length} chars)`
+      );
     }
     // Si sigue excediendo después de eliminar secciones opcionales, truncado duro al final
     if (result.systemPrompt.length > MAX_SYSTEM_CHARS) {
       const budget = MAX_SYSTEM_CHARS - TRUNCATION_SUFFIX.length;
-      console.warn(
+      logger.warn(
+        'context',
         `[core] truncado duro: ${result.systemPrompt.length} → ${MAX_SYSTEM_CHARS} chars (solo identidad)`
       );
       result.systemPrompt = result.systemPrompt.slice(0, Math.max(0, budget)) + TRUNCATION_SUFFIX;

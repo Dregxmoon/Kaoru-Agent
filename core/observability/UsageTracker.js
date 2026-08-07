@@ -1,5 +1,6 @@
 // @ts-check
 'use strict';
+const logger = require('./Logger.js');
 
 /**
  * UsageTracker — registro y agregación de uso de LLM (tokens + coste).
@@ -134,7 +135,7 @@ class UsageTracker {
       } catch (e) {
         if (this.verbose) {
           const m = e instanceof Error ? e.message : String(e);
-          console.log(`[usage] no se pudo persistir evento: ${m}`);
+          logger.info('UsageTracker', `[usage] no se pudo persistir evento: ${m}`);
         }
       }
     }

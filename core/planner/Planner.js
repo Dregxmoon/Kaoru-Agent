@@ -1,3 +1,4 @@
+// @ts-nocheck
 /**
  * Planner.js — Fase 3 v9
  *
@@ -62,6 +63,7 @@
  */
 
 'use strict';
+const logger = require('../observability/Logger.js');
 
 const { getOpenClawBridge } = require('./OpenClawBridge.js');
 const { getStructuredActionParser } = require('./StructuredActionParser.js');
@@ -76,9 +78,7 @@ function _getLLMComplete() {
     }
     return LLMProvider.complete.bind(LLMProvider);
   } catch (e) {
-    throw new Error(
-      'LLMProvider no encontrado. Asegúrate de que ../llm/LLMProvider.js existe.'
-    );
+    throw new Error('LLMProvider no encontrado. Asegúrate de que ../llm/LLMProvider.js existe.');
   }
 }
 
@@ -222,7 +222,8 @@ async function _llmTransform(originalContent, instruction, filePath) {
   ].join(' ');
 
   if (originalContent.length <= limit) {
-    console.log(
+    logger.info(
+      'Planner',
       `[planner] _llmTransform: modo completo (${originalContent.length} chars, límite ${limit})`
     );
 
@@ -247,14 +248,16 @@ async function _llmTransform(originalContent, instruction, filePath) {
     return newContent;
   }
 
-  console.log(
+  logger.info(
+    'Planner',
     `[planner] _llmTransform: modo chunking (${originalContent.length} chars > límite ${limit})`
   );
 
   const sections = _splitIntoSections(originalContent, filePath);
   const relevantIndices = _findRelevantSections(sections, instruction);
 
-  console.log(
+  logger.info(
+    'Planner',
     `[planner] chunking: ${sections.length} secciones, relevantes: [${relevantIndices.join(', ')}]`
   );
 
@@ -322,7 +325,8 @@ async function _llmTransform(originalContent, instruction, filePath) {
   // el resto del archivo quedaba intacto sin avisar. Ahora se procesa
   // CADA sección relevante con su propia llamada al LLM, y solo esas se
   // reemplazan; las demás secciones se conservan exactamente igual.
-  console.log(
+  logger.info(
+    'Planner',
     `[planner] _llmTransform: ${relevantIndices.length} secciones afectadas, procesando cada una por separado`
   );
 
@@ -476,7 +480,10 @@ class Planner {
     this._planQueue = this._planQueue.filter((p) => p !== plan);
     if (this._activePlan) {
       this._planQueue.push(plan);
-      console.log(`[planner] plan ${plan.id} encolado (${this._planQueue.length} pendientes)`);
+      logger.info(
+        'Planner',
+        `[planner] plan ${plan.id} encolado (${this._planQueue.length} pendientes)`
+      );
       return { ...plan, status: 'queued', info: 'Encolado hasta que el plan activo termine' };
     }
 
@@ -547,7 +554,7 @@ class Planner {
 
           step.status = 'running';
           opts.onStepStart?.(step);
-          console.log(`[planner] ejecutando paso: ${step.description}`);
+          logger.info('Planner', `[planner] ejecutando paso: ${step.description}`);
 
           let res;
           try {
@@ -608,7 +615,7 @@ class Planner {
     this._archivePlan(plan);
     this._dequeueNext(opts);
 
-    console.log(`[planner] plan ${plan.id} → ${plan.status}`);
+    logger.info('Planner', `[planner] plan ${plan.id} → ${plan.status}`);
     return plan;
   }
 
@@ -650,7 +657,7 @@ class Planner {
         tool: `plugin:${toolId}`,
       };
     } catch (e) {
-      console.warn(`[planner] error plugin ${toolId}:`, e.message);
+      logger.warn('Planner', `[planner] error plugin ${toolId}:`, e.message);
       return { ok: false, error: e.message, result: null, tool: `plugin:${toolId}` };
     }
   }
@@ -681,7 +688,7 @@ class Planner {
           .join('\n') || JSON.stringify(result);
       return { ok: true, result: text, tool: `mcp:${server}:${tool}` };
     } catch (e) {
-      console.warn(`[planner] error ejecutando mcp:${server}:${tool}:`, e.message);
+      logger.warn('Planner', `[planner] error ejecutando mcp:${server}:${tool}:`, e.message);
       return { ok: false, error: e.message, result: null, tool: `mcp:${server}:${tool}` };
     }
   }
@@ -698,7 +705,7 @@ class Planner {
         elapsed: 0,
       };
     const instr = instruction || 'Realiza los cambios necesarios en el archivo.';
-    console.log(`[planner] paso 1: Leer ${filePath}`);
+    logger.info('Planner', `[planner] paso 1: Leer ${filePath}`);
     const readResult = await this._bridge.execute('read', { path: filePath });
 
     if (!readResult.ok) {
@@ -714,7 +721,7 @@ class Planner {
     const originalContent =
       typeof readResult.result === 'string' ? readResult.result : JSON.stringify(readResult.result);
 
-    console.log(`[planner] paso 2: Generar contenido actualizado para ${filePath}`);
+    logger.info('Planner', `[planner] paso 2: Generar contenido actualizado para ${filePath}`);
     let newContent;
     try {
       newContent = await _llmTransform(originalContent, instr, filePath);
@@ -728,7 +735,7 @@ class Planner {
       };
     }
 
-    console.log(`[planner] paso 3: Escribir ${filePath}`);
+    logger.info('Planner', `[planner] paso 3: Escribir ${filePath}`);
     const writeResult = await this._bridge.execute('write', {
       path: filePath,
       content: newContent,
@@ -744,7 +751,7 @@ class Planner {
       };
     }
 
-    console.log(`[planner] plan completado — ${filePath} modificado correctamente`);
+    logger.info('Planner', `[planner] plan completado — ${filePath} modificado correctamente`);
 
     return {
       ok: true,
@@ -770,7 +777,7 @@ class Planner {
         tool: 'create_file',
         elapsed: 0,
       };
-    console.log(`[planner] paso 1: Generar contenido para ${filePath}`);
+    logger.info('Planner', `[planner] paso 1: Generar contenido para ${filePath}`);
 
     const complete = _getLLMComplete();
     const systemPrompt = [
@@ -812,7 +819,7 @@ class Planner {
       };
     }
 
-    console.log(`[planner] paso 2: Escribir ${filePath}`);
+    logger.info('Planner', `[planner] paso 2: Escribir ${filePath}`);
     const writeResult = await this._bridge.execute('write', { path: filePath, content });
 
     if (!writeResult.ok) {
@@ -825,7 +832,7 @@ class Planner {
       };
     }
 
-    console.log(`[planner] plan completado — ${filePath} creado correctamente`);
+    logger.info('Planner', `[planner] plan completado — ${filePath} creado correctamente`);
 
     return {
       ok: true,
@@ -838,9 +845,12 @@ class Planner {
   _dequeueNext(opts) {
     if (this._planQueue.length === 0) return;
     const next = this._planQueue.shift();
-    console.log(`[planner] desencolando plan ${next.id} (${this._planQueue.length} pendientes)`);
+    logger.info(
+      'Planner',
+      `[planner] desencolando plan ${next.id} (${this._planQueue.length} pendientes)`
+    );
     this._runPlan(next, opts || {}).catch((e) => {
-      console.error(`[planner] plan encolado ${next.id} falló:`, e.message);
+      logger.error('Planner', `[planner] plan encolado ${next.id} falló:`, e.message);
       next.status = 'failed';
       next.error = e.message;
     });

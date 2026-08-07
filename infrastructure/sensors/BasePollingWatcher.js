@@ -1,3 +1,4 @@
+// @ts-nocheck
 /**
  * BasePollingWatcher.js — base común para los watchers de polling
  * (GitWatcher, SystemWatcher, ClipboardWatcher, UpcomingEventsWatcher,
@@ -15,6 +16,7 @@
  */
 
 'use strict';
+const logger = require('../../core/observability/Logger.js');
 
 const { getEventBus } = require('../../infrastructure/event-bus/EventBus.js');
 
@@ -50,7 +52,8 @@ class BasePollingWatcher {
       await this._scan(...args);
     } catch (e) {
       this._lastError = e.message;
-      if (process.env.DEBUG) console.warn(`[${this.constructor.name.toLowerCase()}]`, e.message);
+      if (process.env.DEBUG)
+        logger.warn('BasePollingWatcher', `[${this.constructor.name.toLowerCase()}]`, e.message);
     } finally {
       this._polling = false;
     }

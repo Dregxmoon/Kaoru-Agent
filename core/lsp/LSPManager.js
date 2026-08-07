@@ -1,4 +1,6 @@
+// @ts-nocheck
 'use strict';
+const logger = require('../observability/Logger.js');
 
 const { spawn } = require('child_process');
 const { EventEmitter } = require('events');
@@ -22,7 +24,11 @@ function loadServersTable() {
   try {
     _serversCache = JSON.parse(fs.readFileSync(SERVERS_PATH, 'utf-8'));
   } catch (e) {
-    console.warn(`[lsp] no se pudo cargar la tabla de servidores (${SERVERS_PATH}):`, e.message);
+    logger.warn(
+      'LSPManager',
+      `[lsp] no se pudo cargar la tabla de servidores (${SERVERS_PATH}):`,
+      e.message
+    );
     _serversCache = {};
   }
   return _serversCache;
@@ -115,11 +121,15 @@ class _LSPInstance {
       this._process = proc;
 
       proc.on('error', async (err) => {
-        console.warn(
+        logger.warn(
+          'LSPManager',
           `[lsp:${this._languageKey}] no se pudo lanzar ${config.command}: ${err.message}`
         );
         if (config.installCmd && !config.autoInstall) {
-          console.warn(`[lsp:${this._languageKey}] instalalo con: ${config.installCmd}`);
+          logger.warn(
+            'LSPManager',
+            `[lsp:${this._languageKey}] instalalo con: ${config.installCmd}`
+          );
         }
         this._process = null;
         this._started = false;
@@ -129,7 +139,8 @@ class _LSPInstance {
         if (retriesLeft > 0) {
           started = true;
           try {
-            console.log(
+            logger.info(
+              'LSPManager',
               `[lsp:${this._languageKey}] ${config.command} no existe — ejecutando instalación: ${config.installCmd}`
             );
             await this._runInstall(config.installCmd);
@@ -155,7 +166,7 @@ class _LSPInstance {
 
       proc.stderr.on('data', (data) => {
         const msg = data.toString().trim();
-        if (msg) console.log(`[lsp:${this._languageKey}] ${msg}`);
+        if (msg) logger.info('LSPManager', `[lsp:${this._languageKey}] ${msg}`);
       });
 
       proc.on('exit', (code) => this._handleExit(code));
@@ -261,7 +272,7 @@ class _LSPInstance {
   _handleExit(code) {
     const stable = this._startedAt && Date.now() - this._startedAt > this._stableMs;
     if (stable) this._restartAttempts = 0;
-    console.log(`[lsp:${this._languageKey}] proceso terminado (código ${code})`);
+    logger.info('LSPManager', `[lsp:${this._languageKey}] proceso terminado (código ${code})`);
     this._process = null;
     this._started = false;
     this._rejectAllPending(`LSP server exited with code ${code}`);
@@ -290,7 +301,8 @@ class _LSPInstance {
         new Promise((res) => setTimeout(res, 2500)),
       ]);
     } catch (e) {
-      console.warn(
+      logger.warn(
+        'LSPManager',
         `[lsp:${this._languageKey}] shutdown request falló:`,
         e && e.message ? e.message : e
       );
@@ -301,12 +313,17 @@ class _LSPInstance {
     try {
       _killTree(this._process.pid);
     } catch (e) {
-      console.warn(`[lsp:${this._languageKey}] killTree falló:`, e && e.message ? e.message : e);
+      logger.warn(
+        'LSPManager',
+        `[lsp:${this._languageKey}] killTree falló:`,
+        e && e.message ? e.message : e
+      );
     }
     try {
       this._process.kill();
     } catch (e) {
-      console.warn(
+      logger.warn(
+        'LSPManager',
         `[lsp:${this._languageKey}] kill del proceso falló:`,
         e && e.message ? e.message : e
       );
@@ -756,7 +773,8 @@ class _LSPInstance {
   _scheduleRestart() {
     if (this._restartTimer || this._stopping) return;
     if (this._restartAttempts >= this._maxRestartAttempts) {
-      console.error(
+      logger.error(
+        'LSPManager',
         `[lsp:${this._languageKey}] servidor no se recupera tras ${this._maxRestartAttempts} reinicios — LSP de ${this._languageKey} desactivado.`
       );
       this._emitter.emit('crashed', this._languageKey);
@@ -767,7 +785,8 @@ class _LSPInstance {
       this._baseRestartDelayMs * Math.pow(2, this._restartAttempts - 1),
       this._maxRestartDelayMs
     );
-    console.log(
+    logger.info(
+      'LSPManager',
       `[lsp:${this._languageKey}] reinicio programado en ${delay}ms (intento ${this._restartAttempts}/${this._maxRestartAttempts})`
     );
     this._restartTimer = setTimeout(async () => {
@@ -776,9 +795,9 @@ class _LSPInstance {
       try {
         await this.start(this._workspacePath);
         await this._reopenAfterRestart();
-        console.log(`[lsp:${this._languageKey}] servidor reiniciado`);
+        logger.info('LSPManager', `[lsp:${this._languageKey}] servidor reiniciado`);
       } catch (e) {
-        console.warn(`[lsp:${this._languageKey}] error en reinicio: ${e.message}`);
+        logger.warn('LSPManager', `[lsp:${this._languageKey}] error en reinicio: ${e.message}`);
       }
     }, delay);
   }
@@ -796,11 +815,15 @@ class _LSPInstance {
         const filePath = decodeURIComponent(uri.replace(/^file:\/\//, ''));
         await this.openDocument(filePath);
       } catch (e) {
-        console.warn(`[lsp:${this._languageKey}] no se pudo re-abrir ${uri}: ${e.message}`);
+        logger.warn(
+          'LSPManager',
+          `[lsp:${this._languageKey}] no se pudo re-abrir ${uri}: ${e.message}`
+        );
       }
     }
     if (uris.length > 0) {
-      console.log(
+      logger.info(
+        'LSPManager',
         `[lsp:${this._languageKey}] ${uris.length} documento(s) re-abierto(s) tras el reinicio`
       );
     }
@@ -878,12 +901,13 @@ class LSPManager {
     // G.5: si una instancia se rinde tras los reinicios, el manager lo reporta
     // una vez (no loguear por instancia cada intento).
     inst.on('crashed', (lang) => {
-      console.error(
+      logger.error(
+        'LSPManager',
         `[lsp] sin server LSP para '${lang}' tras agotar reinicios — las tools de ese lenguaje devolverán error explícito.`
       );
     });
     inst.start(workspacePath).catch((e) => {
-      console.warn(`[lsp:${languageKey}] no disponible:`, e.message);
+      logger.warn('LSPManager', `[lsp:${languageKey}] no disponible:`, e.message);
       this._instances.delete(languageKey);
     });
     return inst;

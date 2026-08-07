@@ -1,3 +1,5 @@
+// @ts-nocheck
+const logger = require('../../../observability/Logger.js');
 // lifecycle.js — ciclo de vida del ProactiveEngine: arranque/parada,
 // setters públicos y registro de listeners del bus.
 
@@ -27,7 +29,10 @@ module.exports = {
   start() {
     if (this._running) return;
     this._running = true;
-    console.log('[proactive] iniciado (eventos del OS en vivo + heartbeat cada 5 min)');
+    logger.info(
+      'lifecycle',
+      '[proactive] iniciado (eventos del OS en vivo + heartbeat cada 5 min)'
+    );
     setTimeout(() => this._evaluateTimeBased(), 2 * 60 * 1000);
     this._timer = setInterval(() => this._evaluateTimeBased(), EVAL_INTERVAL_MS);
   },
@@ -50,7 +55,7 @@ module.exports = {
     this._bus.off('lsp:error', this._boundOnLspError);
     this._bus.off('initiative:decision', this._boundOnDecision);
     this._running = false;
-    console.log('[proactive] detenido');
+    logger.info('lifecycle', '[proactive] detenido');
   },
 
   // ── Listeners de eventos del OS (análisis en vivo, sin esperar timer) ──────

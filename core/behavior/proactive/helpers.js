@@ -1,3 +1,4 @@
+// @ts-nocheck
 // helpers.js — funciones puras del ProactiveEngine (sin estado de instancia).
 
 const { getIdentity } = require('../../grounding/GroundingEngine.js');

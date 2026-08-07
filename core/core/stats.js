@@ -1,3 +1,5 @@
+// @ts-nocheck
+const logger = require('../observability/Logger.js');
 // stats.js — estadísticas del núcleo, telemetría y helpers de debug/testing
 // (Control API local).
 
@@ -55,7 +57,7 @@ function scheduleDailyPrune() {
     try {
       state.graph?.pruneAppHistory(30);
     } catch (e) {
-      console.warn('[core] error en prune diario:', e.message);
+      logger.warn('stats', '[core] error en prune diario:', e.message);
     }
   };
   state.pruneInitTimer = setTimeout(run, 10_000);

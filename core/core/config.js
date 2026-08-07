@@ -1,3 +1,5 @@
+// @ts-nocheck
+const logger = require('../observability/Logger.js');
 // config.js — carga de configuración del núcleo (LLM, MCP, sensores y
 // autonomía) desde config.json, con merge de claves del llavero del sistema.
 
@@ -24,10 +26,14 @@ function loadLLMConfig() {
 
     if (cfg?.llm) {
       LLMProvider.configure(cfg);
-      console.log('[core] LLMProvider configurado, provider:', LLMProvider.getActiveProvider());
+      logger.info(
+        'config',
+        '[core] LLMProvider configurado, provider:',
+        LLMProvider.getActiveProvider()
+      );
     }
   } catch (e) {
-    console.warn('[core] error cargando config:', e.message);
+    logger.warn('config', '[core] error cargando config:', e.message);
   }
 }
 
@@ -56,9 +62,9 @@ function loadMCPConfig() {
     }
     state.mcpReadyPromise = state.mcp
       .init(servers)
-      .catch((e) => console.warn('[core] error inicializando servidores MCP:', e.message));
+      .catch((e) => logger.warn('config', '[core] error inicializando servidores MCP:', e.message));
   } catch (e) {
-    console.warn('[core] error leyendo config de MCP:', e.message);
+    logger.warn('config', '[core] error leyendo config de MCP:', e.message);
     state.mcpReadyPromise = Promise.resolve();
   }
 }

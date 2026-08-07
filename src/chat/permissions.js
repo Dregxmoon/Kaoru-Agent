@@ -1,3 +1,4 @@
+// @ts-nocheck
 // Panel de permisos granulares (allow/ask/deny) — patrón opencode.
 // Muestra las reglas persistentes y permite agregar/quitar. Todo pasa por
 // IPC a core/security/PermissionManager.js (userData/permissions.json).

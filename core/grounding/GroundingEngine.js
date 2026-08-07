@@ -1,4 +1,5 @@
 // @ts-check
+const logger = require('../observability/Logger.js');
 // @ts-check
 /**
  * GroundingEngine.js — Fase 3 (actualizado)
@@ -37,7 +38,7 @@ class GroundingEngine {
   setOSSensor(osSensor) {
     this._osSensor = osSensor;
     this._assembler.setOSSensor(osSensor);
-    console.log('[grounding] OSSensor conectado');
+    logger.info('GroundingEngine', '[grounding] OSSensor conectado');
   }
 
   /**
@@ -69,7 +70,8 @@ class GroundingEngine {
 
       return result;
     } catch (e) {
-      console.error(
+      logger.error(
+        'GroundingEngine',
         '[grounding] error en pipeline, usando fallback:',
         /** @type {Error} */ (e).message
       );
@@ -86,7 +88,11 @@ class GroundingEngine {
       const Fallback = require('../llm/GroundingMinimo.js');
       return Fallback.buildContext(sessionHistory);
     } catch (e2) {
-      console.error('[grounding] fallback también falló:', /** @type {Error} */ (e2).message);
+      logger.error(
+        'GroundingEngine',
+        '[grounding] fallback también falló:',
+        /** @type {Error} */ (e2).message
+      );
       return {
         systemPrompt: 'Eres la asistente personal. Responde con tu personalidad habitual.',
         messages: sessionHistory.slice(-1),

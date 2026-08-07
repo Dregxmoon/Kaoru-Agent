@@ -1,3 +1,5 @@
+// @ts-nocheck
+const logger = require('../observability/Logger.js');
 // agent.js — ejecución del agente: el loop cerrado con tool-calling
 // (AgentLoop), resolución de modo automático por intención y hooks de
 // plugins (beforeAgentRun).
@@ -88,7 +90,7 @@ async function runAgent(userMessage, opts = {}) {
       }
     }
   } catch (e) {
-    console.warn('[core] hook beforeAgentRun falló:', e.message);
+    logger.warn('agent', '[core] hook beforeAgentRun falló:', e.message);
   }
 
   if (blockedReason) {
@@ -103,7 +105,7 @@ async function runAgent(userMessage, opts = {}) {
   const context = await buildContext(sessionHistory, null, {
     mode: 'agent',
   });
-  console.log(`[agent-timing] buildContext ${Date.now() - _t0}ms`);
+  logger.info('agent', `[agent-timing] buildContext ${Date.now() - _t0}ms`);
 
   if (hookPrompt && context?.systemPrompt) {
     context.systemPrompt = context.systemPrompt + '\n\n' + hookPrompt;
@@ -163,7 +165,10 @@ async function runAgent(userMessage, opts = {}) {
   );
 
   state.bus.emit('agent:completed', { iterations: result.iterations, error: result.error });
-  console.log(`[agent-timing] loop total ${Date.now() - _t0}ms (${result.iterations} iteraciones)`);
+  logger.info(
+    'agent',
+    `[agent-timing] loop total ${Date.now() - _t0}ms (${result.iterations} iteraciones)`
+  );
   return result;
 }
 

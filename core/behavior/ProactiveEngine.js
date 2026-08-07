@@ -1,3 +1,4 @@
+// @ts-nocheck
 /**
  * ProactiveEngine.js — v2: proactividad autónoma basada en eventos reales del OS
  *

@@ -1,3 +1,5 @@
+// @ts-nocheck
+const logger = require('../../../observability/Logger.js');
 // time-based.js — triggers que dependen del paso del tiempo (no de un evento
 // puntual del OS): fecha especial, madrugada, silencio largo, recap de
 // pendientes al arrancar, y el saneo de propuestas "ignored".
@@ -121,7 +123,7 @@ module.exports = {
         }
       }
     } catch (e) {
-      console.warn('[proactive] error revisando fechas especiales:', e.message);
+      logger.warn('time-based', '[proactive] error revisando fechas especiales:', e.message);
     }
 
     return null;
@@ -139,7 +141,7 @@ module.exports = {
     try {
       nodes = this._graph.queryNodes({ type: 'Belief', limit: 50 }) || [];
     } catch (e) {
-      console.warn('[proactive] error leyendo recordatorios:', e.message);
+      logger.warn('time-based', '[proactive] error leyendo recordatorios:', e.message);
       return [];
     }
 

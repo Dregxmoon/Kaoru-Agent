@@ -1,3 +1,4 @@
+// @ts-nocheck
 // Input
 const input = document.getElementById('msg-input');
 const sendBtn = document.getElementById('send-btn');

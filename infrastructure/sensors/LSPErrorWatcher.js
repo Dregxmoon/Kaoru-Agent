@@ -1,4 +1,6 @@
+// @ts-nocheck
 'use strict';
+const logger = require('../../core/observability/Logger.js');
 
 /**
  * LSPErrorWatcher.js — Fase D: errores del LSP como señal proactiva.
@@ -172,7 +174,11 @@ class LSPErrorWatcher extends BasePollingWatcher {
         diagnostics = await this._getDiagnostics(abs);
       } catch (e) {
         if (process.env.DEBUG)
-          console.warn(`[lsp-watcher] diagnóstico ${path.basename(abs)}:`, e.message);
+          logger.warn(
+            'LSPErrorWatcher',
+            `[lsp-watcher] diagnóstico ${path.basename(abs)}:`,
+            e.message
+          );
         continue;
       }
       const errors = (Array.isArray(diagnostics) ? diagnostics : [])
@@ -195,7 +201,11 @@ class LSPErrorWatcher extends BasePollingWatcher {
         try {
           symbols = await this._getSymbols(abs);
         } catch (e) {
-          console.warn('[lsp] falló al obtener símbolos:', e && e.message ? e.message : e);
+          logger.warn(
+            'LSPErrorWatcher',
+            '[lsp] falló al obtener símbolos:',
+            e && e.message ? e.message : e
+          );
         }
       }
       this._emitted += 1;

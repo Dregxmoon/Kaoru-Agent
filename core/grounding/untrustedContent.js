@@ -1,6 +1,5 @@
-'use strict';
-
 // @ts-check
+'use strict';
 
 // untrustedContent.js — límite de confianza anti prompt-injection para
 // contenido de terceros (P3).
@@ -72,10 +71,16 @@ const INJECTION_PATTERNS_EXPORT = INJECTION_PATTERNS;
 
 // Caracteres de control invisibles que a veces se usan para ocultar texto a
 // la vista humana pero que el LLM interpreta como marca de sección.
-// eslint-disable-next-line no-control-regex
 const CONTROL_CHARS_RE =
+  // eslint-disable-next-line no-control-regex
   /[\u0000-\u0008\u000B\u000C\u000E-\u001F\u0080-\u009F\u200B-\u200F\u2028-\u202E\u2060\uFEFF]/g;
 
+/**
+ * Elimina caracteres de control invisibles (zero-width, bi-di, etc.).
+ *
+ * @param {string} text
+ * @returns {string}
+ */
 function _stripControlChars(text) {
   return String(text || '').replace(CONTROL_CHARS_RE, ' ');
 }
@@ -102,9 +107,9 @@ function sanitizeUntrusted(text) {
  * nota al modelo. Aplica sanitización de patrones de inyección además del
  * wrapping (defensa en profundidad).
  *
- * @param {string} text          — contenido crudo de una página/resultado.
+ * @param {string} text          - contenido crudo de una página/resultado.
  * @param {object} [opts]
- * @param {boolean} [opts.delimit=true]  — envolver con los marcadores.
+ * @param {boolean} [opts.delimit=true]  - envolver con los marcadores.
  * @returns {string}
  */
 function wrapUntrusted(text, opts = {}) {
@@ -119,8 +124,8 @@ function wrapUntrusted(text, opts = {}) {
 /**
  * Aplica el límite de confianza a un array de resultados (p.ej. búsqueda web).
  *
- * @param {Array<object>} items  — cada item con campos de texto (title/snippet).
- * @returns {Array<object>}
+ * @param {Array<Record<string, unknown>>} items — cada item con campos title/snippet/text.
+ * @returns {Array<Record<string, unknown>>}
  */
 function wrapUntrustedItems(items) {
   if (!Array.isArray(items)) return items;

@@ -1,3 +1,4 @@
+// @ts-nocheck
 /**
  * IntentDetector.js — Fase 3 (Semántica de Herramientas)
  *
@@ -27,6 +28,7 @@
  */
 
 'use strict';
+const logger = require('../observability/Logger.js');
 
 const path = require('path');
 
@@ -62,11 +64,11 @@ async function _getEmbedder() {
 
   _embedderPromise = (async () => {
     const { pipeline } = await import('@xenova/transformers');
-    console.log('[intent-detector] Cargando modelo all-MiniLM-L6-v2...');
+    logger.info('IntentDetector', '[intent-detector] Cargando modelo all-MiniLM-L6-v2...');
     _embedder = await pipeline('feature-extraction', 'Xenova/all-MiniLM-L6-v2', {
       progress_callback: undefined, // silenciar en producción
     });
-    console.log('[intent-detector] Modelo listo.');
+    logger.info('IntentDetector', '[intent-detector] Modelo listo.');
     _embedderPromise = null;
     return _embedder;
   })();
@@ -148,8 +150,11 @@ class IntentDetector {
         .get();
 
       if (!row) {
-        console.warn('[intent-detector] Tablas de intenciones no encontradas.');
-        console.warn('[intent-detector] Ejecuta: node infrastructure/database/init_vectors.js');
+        logger.warn('IntentDetector', '[intent-detector] Tablas de intenciones no encontradas.');
+        logger.warn(
+          'IntentDetector',
+          '[intent-detector] Ejecuta: node infrastructure/database/init_vectors.js'
+        );
         this._ready = false;
         return;
       }
@@ -157,7 +162,7 @@ class IntentDetector {
       const count = this._db.prepare('SELECT COUNT(*) as n FROM intent_catalog').get().n;
 
       if (count === 0) {
-        console.warn('[intent-detector] Catálogo vacío. Ejecuta init_vectors.js');
+        logger.warn('IntentDetector', '[intent-detector] Catálogo vacío. Ejecuta init_vectors.js');
         this._ready = false;
         return;
       }
@@ -179,9 +184,9 @@ class IntentDetector {
       `);
 
       this._ready = true;
-      console.log(`[intent-detector] Listo. ${count} frases en el catálogo.`);
+      logger.info('IntentDetector', `[intent-detector] Listo. ${count} frases en el catálogo.`);
     } catch (e) {
-      console.warn('[intent-detector] Error al inicializar:', e.message);
+      logger.warn('IntentDetector', '[intent-detector] Error al inicializar:', e.message);
       this._ready = false;
     }
   }
@@ -238,7 +243,7 @@ class IntentDetector {
     try {
       queryVector = await _embed(userMessage);
     } catch (e) {
-      console.warn('[intent-detector] Error generando embedding:', e.message);
+      logger.warn('IntentDetector', '[intent-detector] Error generando embedding:', e.message);
       return _none(`Error al embedear: ${e.message}`);
     }
 
@@ -249,7 +254,7 @@ class IntentDetector {
     try {
       rows = this._queryVec.all(_float32ToBuffer(queryVector), TOP_K);
     } catch (e) {
-      console.warn('[intent-detector] Error en búsqueda vectorial:', e.message);
+      logger.warn('IntentDetector', '[intent-detector] Error en búsqueda vectorial:', e.message);
       return _none(`Error en búsqueda: ${e.message}`);
     }
 
@@ -343,7 +348,8 @@ class IntentDetector {
     this._cache.set(cacheKey, result);
 
     const logScore = (best.score * 100).toFixed(1);
-    console.log(
+    logger.info(
+      'IntentDetector',
       `[intent-detector] "${userMessage.slice(0, 40)}..." ` +
         `→ ${best.action} (${logScore}%, ${level}) en ${result.elapsed}ms`
     );
@@ -355,9 +361,9 @@ class IntentDetector {
   async warmup() {
     try {
       await _embed('hola');
-      console.log('[intent-detector] Modelo precalentado.');
+      logger.info('IntentDetector', '[intent-detector] Modelo precalentado.');
     } catch (e) {
-      console.warn('[intent-detector] Error en warmup:', e.message);
+      logger.warn('IntentDetector', '[intent-detector] Error en warmup:', e.message);
     }
   }
 

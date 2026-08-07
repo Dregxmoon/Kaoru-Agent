@@ -1,4 +1,6 @@
+// @ts-nocheck
 'use strict';
+const logger = require('../core/observability/Logger.js');
 
 const { ipcMain } = require('electron');
 
@@ -18,13 +20,13 @@ function register(ctx) {
     if (activeAbort) {
       activeAbort.abort();
       activeAbort = null;
-      console.log('[main] agent-run cancelado por el usuario');
+      logger.info('openclaw-handlers', '[main] agent-run cancelado por el usuario');
     }
   });
 
   ipcMain.handle('agent-run', async (e, { text }) => {
-    console.log(`[main] agent-run: text="${text?.slice(0, 80)}"`);
-    const _t = (l) => console.log(`[agent-timing] ${Date.now() - _t0}ms ${l}`);
+    logger.info('openclaw-handlers', `[main] agent-run: text="${text?.slice(0, 80)}"`);
+    const _t = (l) => logger.info('openclaw-handlers', `[agent-timing] ${Date.now() - _t0}ms ${l}`);
     const _t0 = Date.now();
 
     if (!text || !text.trim()) {
@@ -88,7 +90,7 @@ function register(ctx) {
         cancelled: result.cancelled || false,
       };
     } catch (err) {
-      console.error('[main] error en agent-run:', err.message);
+      logger.error('openclaw-handlers', '[main] error en agent-run:', err.message);
       return { response: null, iterations: 0, toolResults: [], error: err.message };
     } finally {
       if (activeAbort === abort) activeAbort = null;

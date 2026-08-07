@@ -1,3 +1,5 @@
+// @ts-nocheck
+const logger = require('../../../observability/Logger.js');
 // testing.js — evaluación forzada (bypass de cooldowns, para testing en vivo)
 // y estadísticas del engine (getStats).
 
@@ -136,7 +138,8 @@ module.exports = {
         };
     }
 
-    console.log(
+    logger.info(
+      'testing',
       '[proactive] evaluación forzada:',
       triggerType,
       trigger.forcedMismatch
@@ -152,7 +155,7 @@ module.exports = {
       this._lastProactiveTrigger = trigger.type;
       this._bus.emit('initiative:trigger', await this._buildPayload(trigger, message));
     } else {
-      console.log('[proactive] LLM no generó mensaje en evaluación forzada');
+      logger.info('testing', '[proactive] LLM no generó mensaje en evaluación forzada');
     }
     return message;
   },

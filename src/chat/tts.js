@@ -1,3 +1,4 @@
+// @ts-nocheck
 // Input
 let _ttsMuted = false;
 

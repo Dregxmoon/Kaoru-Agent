@@ -1,3 +1,4 @@
+// @ts-nocheck
 // permissions.js — reglas granulares de permisos (allow/ask/deny, patrón
 // opencode) expuestas a la UI y al Control API.
 

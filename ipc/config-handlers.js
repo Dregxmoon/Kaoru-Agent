@@ -1,4 +1,6 @@
+// @ts-nocheck
 'use strict';
+const logger = require('../core/observability/Logger.js');
 
 const { ipcMain } = require('electron');
 
@@ -50,7 +52,8 @@ function register(ctx) {
       },
     });
 
-    console.log(
+    logger.info(
+      'config-handlers',
       '[config] keys LLM actualizadas',
       keychainActive ? '(llavero del sistema)' : '(config.json)'
     );

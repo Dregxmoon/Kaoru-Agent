@@ -1,3 +1,5 @@
+// @ts-nocheck
+const logger = require('../observability/Logger.js');
 /**
  * ContradictionResolver.js — adelantado de Fase 2
  *
@@ -86,7 +88,7 @@ class ContradictionResolver {
     // Si no existe, crear directamente
     if (!existing) {
       const id = this._graph.createNode({ type, label, content, importance, tags });
-      console.log(`[resolver] creado nuevo nodo: ${label}`);
+      logger.info('ContradictionResolver', `[resolver] creado nuevo nodo: ${label}`);
       return id;
     }
 
@@ -121,14 +123,20 @@ class ContradictionResolver {
           content: content,
           importance: Math.max(importance, existing.importance),
         });
-        console.log(`[resolver] overwrite: ${label} → "${content.slice(0, 60)}"`);
+        logger.info(
+          'ContradictionResolver',
+          `[resolver] overwrite: ${label} → "${content.slice(0, 60)}"`
+        );
         return existing.id;
       }
 
       case 'archive_and_replace': {
         this._graph._archiveNode(existing.id);
         const newId = this._graph.createNode({ type, label, content, importance, tags });
-        console.log(`[resolver] archive_and_replace: ${label} — viejo archivado, nuevo creado`);
+        logger.info(
+          'ContradictionResolver',
+          `[resolver] archive_and_replace: ${label} — viejo archivado, nuevo creado`
+        );
         return newId;
       }
 
@@ -136,7 +144,8 @@ class ContradictionResolver {
         // Si el contenido nuevo parece un comando técnico, descartarlo —
         // esos son artefactos del agente, no memoria del usuario
         if (_isCommandContent(content)) {
-          console.log(
+          logger.info(
+            'ContradictionResolver',
             `[resolver] append ignorado — contenido parece comando: "${content.slice(0, 60)}"`
           );
           return existing.id;
@@ -155,7 +164,8 @@ class ContradictionResolver {
           content: merged,
           importance: Math.max(importance, existing.importance),
         });
-        console.log(
+        logger.info(
+          'ContradictionResolver',
           `[resolver] append: ${label} (${trimmed.length}/${segments.length} fragmentos conservados)`
         );
         return existing.id;
@@ -186,13 +196,14 @@ class ContradictionResolver {
         }
 
         if (toArchive.length > 0) {
-          console.log(
+          logger.info(
+            'ContradictionResolver',
             `[resolver] dedup: ${label} — ${toArchive.length} nodo(s) duplicado(s) archivado(s)`
           );
         }
       }
     } catch (e) {
-      console.warn('[resolver] error en dedup:', e.message);
+      logger.warn('ContradictionResolver', '[resolver] error en dedup:', e.message);
     }
   }
 }

@@ -1,3 +1,5 @@
+// @ts-nocheck
+const logger = require('../../../observability/Logger.js');
 // proposals.js — propuestas con consentimiento (Fase A/B): ensamblado del
 // payload de iniciativa, generación del bloque `proposal` determinista y el
 // manejo de la decisión del usuario (aceptar/descartar → ejecutar).
@@ -77,7 +79,7 @@ module.exports = {
           if (p.diff) diff = p.diff;
         }
       } catch (e) {
-        console.warn('[proactive] error generando preview de acción:', e.message);
+        logger.warn('proposals', '[proactive] error generando preview de acción:', e.message);
       }
     }
 
@@ -138,11 +140,12 @@ module.exports = {
     if (this._store) {
       try {
         state = this._store.record({ proposalId, type, decision, reason });
-        console.log(
+        logger.info(
+          'proposals',
           `[proactive] feedback ${decision} para "${type}" (factor cooldown ahora ×${this._store.cooldownMultiplier(type)})`
         );
       } catch (e) {
-        console.warn('[proactive] error registrando decisión:', e.message);
+        logger.warn('proposals', '[proactive] error registrando decisión:', e.message);
       }
     }
 
@@ -151,7 +154,7 @@ module.exports = {
       if (pending && this._executor) {
         this._pendingActions.delete(proposalId);
         this._executeProposal(pending, proposalId, type).catch((e) =>
-          console.warn('[proactive] error ejecutando propuesta:', e.message)
+          logger.warn('proposals', '[proactive] error ejecutando propuesta:', e.message)
         );
       }
     } else {

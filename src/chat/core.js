@@ -1,3 +1,4 @@
+// @ts-nocheck
 // Sandbox: la página no tiene require() ni Node. Todo llega acotado desde el
 // preload vía window.assistant (contextBridge). ipcRenderer es el wrapper con
 // la misma firma (invoke/send/on) que el original; marked/DOMPurify ya se

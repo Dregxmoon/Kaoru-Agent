@@ -1,5 +1,6 @@
 // @ts-check
 'use strict';
+const logger = require('../observability/Logger.js');
 
 /**
  * ConfigManager — carga/valida/cachea config.json con schema tipado.
@@ -254,7 +255,8 @@ class ConfigManager {
         const msg = e instanceof Error ? e.message : String(e);
         report.ok = false;
         report.errors.push(`config.json corrupto: ${msg}`);
-        if (this.verbose) console.log(`[config] error leyendo config.json: ${msg}`);
+        if (this.verbose)
+          logger.info('ConfigManager', `[config] error leyendo config.json: ${msg}`);
       }
     } else if (this.filePath) {
       report.warnings.push('config.json no existe — usando defaults');
@@ -267,8 +269,8 @@ class ConfigManager {
     this.report = report;
 
     if (this.verbose) {
-      for (const err of result.errors) console.log(`[config] error: ${err}`);
-      for (const warn of result.warnings) console.log(`[config] warning: ${warn}`);
+      for (const err of result.errors) logger.info('ConfigManager', `[config] error: ${err}`);
+      for (const warn of result.warnings) logger.info('ConfigManager', `[config] warning: ${warn}`);
     }
 
     this._cache = result.normalized;
@@ -313,7 +315,8 @@ class ConfigManager {
       } catch (e) {
         const msg = e instanceof Error ? e.message : String(e);
         result.errors.push(`no se pudo escribir config.json: ${msg}`);
-        if (this.verbose) console.log(`[config] error guardando config.json: ${msg}`);
+        if (this.verbose)
+          logger.info('ConfigManager', `[config] error guardando config.json: ${msg}`);
       }
     }
 

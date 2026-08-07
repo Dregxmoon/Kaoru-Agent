@@ -1,3 +1,4 @@
+// @ts-nocheck
 'use strict';
 
 // net.js — Transport de red para los módulos de GitHub.

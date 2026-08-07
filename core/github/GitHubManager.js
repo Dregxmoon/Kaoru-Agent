@@ -1,3 +1,4 @@
+// @ts-nocheck
 'use strict';
 
 // GitHubManager.js — Cliente REST nativo de GitHub.

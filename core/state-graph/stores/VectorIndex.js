@@ -1,4 +1,6 @@
+// @ts-nocheck
 'use strict';
+const logger = require('../../observability/Logger.js');
 
 const { RECENCY_HALFLIFE_DAYS, SEMANTIC_CANDIDATES } = require('./constants');
 
@@ -21,13 +23,17 @@ class VectorIndex {
             embedding FLOAT[384]
           );
         `);
-        console.log('[state-graph] node_vectors creada — recall semántico habilitado');
+        logger.info(
+          'VectorIndex',
+          '[state-graph] node_vectors creada — recall semántico habilitado'
+        );
       }
 
       this._g._vectorReady = true;
       return true;
     } catch (e) {
-      console.warn(
+      logger.warn(
+        'VectorIndex',
         '[state-graph] no se pudo habilitar recall semántico (se sigue usando LIKE):',
         e.message
       );
@@ -106,7 +112,11 @@ class VectorIndex {
 
       return top;
     } catch (e) {
-      console.warn('[state-graph] error en recall semántico, cayendo a LIKE:', e.message);
+      logger.warn(
+        'VectorIndex',
+        '[state-graph] error en recall semántico, cayendo a LIKE:',
+        e.message
+      );
       return this._g._nodes.queryNodes({ type, search: searchText, limit, includeArchived });
     }
   }
@@ -117,7 +127,11 @@ class VectorIndex {
     try {
       this._db.prepare('SELECT rowid FROM node_vectors LIMIT 1').get();
     } catch (e) {
-      console.warn('[state-graph] backfill abortado — node_vectors no existe:', e.message);
+      logger.warn(
+        'VectorIndex',
+        '[state-graph] backfill abortado — node_vectors no existe:',
+        e.message
+      );
       return { embedded: 0, error: 'node_vectors table not found' };
     }
 
@@ -135,10 +149,13 @@ class VectorIndex {
         this._db.prepare('DELETE FROM node_vectors WHERE rowid=?').run(BigInt(row.rowid));
       }
       if (orphaned.length > 0) {
-        console.log(`[state-graph] backfill: ${orphaned.length} vectores huérfanos eliminados`);
+        logger.info(
+          'VectorIndex',
+          `[state-graph] backfill: ${orphaned.length} vectores huérfanos eliminados`
+        );
       }
     } catch (e) {
-      console.warn('[state-graph] error limpiando vectores huérfanos:', e.message);
+      logger.warn('VectorIndex', '[state-graph] error limpiando vectores huérfanos:', e.message);
     }
 
     try {
@@ -154,7 +171,10 @@ class VectorIndex {
 
       if (!pending.length) return { embedded: 0 };
 
-      console.log(`[state-graph] backfill de embeddings: ${pending.length} nodos pendientes...`);
+      logger.info(
+        'VectorIndex',
+        `[state-graph] backfill de embeddings: ${pending.length} nodos pendientes...`
+      );
       const { embedText, float32ToBuffer } = require('../../grounding/IntentDetector.js');
 
       let done = 0;
@@ -166,16 +186,23 @@ class VectorIndex {
             this._upsertNodeVector(node.id, float32ToBuffer(vec));
             done++;
           } catch (e) {
-            console.warn(`[state-graph] backfill: error embedeando nodo ${node.id}:`, e.message);
+            logger.warn(
+              'VectorIndex',
+              `[state-graph] backfill: error embedeando nodo ${node.id}:`,
+              e.message
+            );
           }
         }
         if (i + batchSize < pending.length) await new Promise((r) => setTimeout(r, 50));
       }
 
-      console.log(`[state-graph] backfill completado: ${done}/${pending.length} nodos embedeados`);
+      logger.info(
+        'VectorIndex',
+        `[state-graph] backfill completado: ${done}/${pending.length} nodos embedeados`
+      );
       return { embedded: done, total: pending.length };
     } catch (e) {
-      console.error('[state-graph] error en backfillEmbeddings:', e.message);
+      logger.error('VectorIndex', '[state-graph] error en backfillEmbeddings:', e.message);
       return { embedded: 0, error: e.message };
     }
   }

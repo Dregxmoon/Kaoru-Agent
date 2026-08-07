@@ -1,4 +1,6 @@
+// @ts-nocheck
 'use strict';
+const logger = require('../../observability/Logger.js');
 
 const { DECAY_RATES, NODE_TYPES } = require('./constants');
 
@@ -150,7 +152,8 @@ class NodeStore {
         )
         .run(now, ...ids);
     } catch (e) {
-      console.warn(
+      logger.warn(
+        'NodeStore',
         `[state-graph] error actualizando last_accessed_at (${label || 'touch'}):`,
         e.message
       );

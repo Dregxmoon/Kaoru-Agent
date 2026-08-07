@@ -1,3 +1,4 @@
+// @ts-nocheck
 'use strict';
 
 // GestureEngine — orquesta la reproducción de gestos sobre una instancia

@@ -1,3 +1,4 @@
+// @ts-nocheck
 // Live2D
 const viewIndicator = document.getElementById('view-indicator');
 

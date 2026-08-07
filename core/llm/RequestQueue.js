@@ -1,3 +1,4 @@
+// @ts-nocheck
 'use strict';
 
 // ── Cola de requests por provider (Fase J) ──────────────────────────────────

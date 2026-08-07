@@ -1,3 +1,4 @@
+// @ts-nocheck
 'use strict';
 
 // Handlers IPC del sistema de permisos granulares (allow/ask/deny).

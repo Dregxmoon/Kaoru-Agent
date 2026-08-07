@@ -1,4 +1,6 @@
+// @ts-nocheck
 'use strict';
+const logger = require('../observability/Logger.js');
 
 const fs = require('fs');
 const path = require('path');
@@ -118,7 +120,8 @@ class SkillManager {
         const raw = fs.readFileSync(skillFile, 'utf-8');
         const { meta, body } = _parseFrontmatter(raw);
         if (!meta.description) {
-          console.warn(
+          logger.warn(
+            'SkillManager',
             `[skills] SKILL.md en "${entry.name}" no tiene description en frontmatter, ignorando`
           );
           continue;
@@ -132,7 +135,7 @@ class SkillManager {
           content: body || meta.description || '',
         });
       } catch (e) {
-        console.warn(`[skills] Error leyendo skill "${entry.name}": ${e.message}`);
+        logger.warn('SkillManager', `[skills] Error leyendo skill "${entry.name}": ${e.message}`);
       }
     }
 

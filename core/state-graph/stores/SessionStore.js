@@ -1,4 +1,6 @@
+// @ts-nocheck
 'use strict';
+const logger = require('../../observability/Logger.js');
 
 class SessionStore {
   constructor(db) {
@@ -39,7 +41,7 @@ class SessionStore {
         .prepare('UPDATE sessions SET history_json=? WHERE id=?')
         .run(JSON.stringify(history || []), sessionId);
     } catch (e) {
-      console.warn('[state-graph] error guardando history_json:', e.message);
+      logger.warn('SessionStore', '[state-graph] error guardando history_json:', e.message);
     }
   }
 
@@ -73,7 +75,7 @@ class SessionStore {
         startedAt: row.started_at,
       };
     } catch (e) {
-      console.warn('[state-graph] error buscando sesión resumible:', e.message);
+      logger.warn('SessionStore', '[state-graph] error buscando sesión resumible:', e.message);
       return null;
     }
   }

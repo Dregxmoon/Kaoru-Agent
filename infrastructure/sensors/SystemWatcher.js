@@ -1,3 +1,4 @@
+// @ts-nocheck
 /**
  * SystemWatcher.js — vigila el estado del sistema y emite señales cuando algo
  * supera un umbral de riesgo:

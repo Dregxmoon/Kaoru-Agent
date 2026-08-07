@@ -1,4 +1,6 @@
+// @ts-nocheck
 'use strict';
+const logger = require('../core/observability/Logger.js');
 
 const { ipcMain, dialog } = require('electron');
 
@@ -15,7 +17,7 @@ function register(ctx) {
     try {
       return Core.getWorkspace();
     } catch (err) {
-      console.warn('[main] error en get-workspace:', err.message);
+      logger.warn('mcp-handlers', '[main] error en get-workspace:', err.message);
       return null;
     }
   });
@@ -24,7 +26,7 @@ function register(ctx) {
     try {
       return await Core.mcpListServers();
     } catch (err) {
-      console.error('[main] error en mcp-list-servers:', err.message);
+      logger.error('mcp-handlers', '[main] error en mcp-list-servers:', err.message);
       return { error: err.message };
     }
   });
@@ -33,7 +35,7 @@ function register(ctx) {
     try {
       return await Core.mcpSearchRegistry(query || '');
     } catch (err) {
-      console.error('[main] error en mcp-search-registry:', err.message);
+      logger.error('mcp-handlers', '[main] error en mcp-search-registry:', err.message);
       return { error: err.message };
     }
   });
@@ -49,7 +51,7 @@ function register(ctx) {
       });
       return { ok: true, status };
     } catch (err) {
-      console.error('[main] error en mcp-add-server:', err.message);
+      logger.error('mcp-handlers', '[main] error en mcp-add-server:', err.message);
       return { ok: false, error: err.message };
     }
   });
@@ -62,7 +64,7 @@ function register(ctx) {
       saveConfig({ mcp: { servers } });
       return { ok: true };
     } catch (err) {
-      console.error('[main] error en mcp-remove-server:', err.message);
+      logger.error('mcp-handlers', '[main] error en mcp-remove-server:', err.message);
       return { ok: false, error: err.message };
     }
   });
@@ -80,7 +82,7 @@ function register(ctx) {
       saveConfig({ mcp: { servers: updated } });
       return { ok: true };
     } catch (err) {
-      console.error('[main] error en mcp-toggle-server:', err.message);
+      logger.error('mcp-handlers', '[main] error en mcp-toggle-server:', err.message);
       return { ok: false, error: err.message };
     }
   });

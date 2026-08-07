@@ -1,3 +1,5 @@
+// @ts-nocheck
+const logger = require('../observability/Logger.js');
 /**
  * GroundingMinimo.js — Fase 0
  *
@@ -19,7 +21,7 @@ let _identity = null;
 function getIdentity() {
   if (_identity) return _identity;
   _identity = getIdentityStore();
-  console.log('[grounding] identity.json cargado');
+  logger.info('GroundingMinimo', '[grounding] identity.json cargado');
   return _identity;
 }
 

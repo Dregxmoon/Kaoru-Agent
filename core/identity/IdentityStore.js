@@ -1,3 +1,4 @@
+// @ts-nocheck
 /**
  * IdentityStore.js — loader único de la identidad del asistente.
  *

@@ -1,3 +1,4 @@
+// @ts-nocheck
 'use strict';
 
 // Preload del overlay (src/index.html).

@@ -1,4 +1,6 @@
+// @ts-nocheck
 'use strict';
+const logger = require('../observability/Logger.js');
 
 const path = require('path');
 const fs = require('fs');
@@ -164,7 +166,7 @@ class AgentLoop {
     this._compactionPersisted = false;
     const rawMode = opts.mode || 'smart';
     if (!VALID_MODES.has(rawMode)) {
-      console.warn(`[agent-loop] modo "${rawMode}" no reconocido, usando "smart"`);
+      logger.warn('AgentLoop', `[agent-loop] modo "${rawMode}" no reconocido, usando "smart"`);
       this._mode = 'smart';
     } else {
       this._mode = MODE_ALIAS[rawMode] || rawMode;
@@ -237,15 +239,17 @@ class AgentLoop {
         if (resolved.nativeToolSchemas) tools = resolved.nativeToolSchemas;
         if (resolved.promptCatalog) toolCatalog = resolved.promptCatalog;
         if (resolved.excluded.length > 0) {
-          console.log(
+          logger.info(
+            'AgentLoop',
             `[agent-loop] precedencia: ${resolved.precedence}, herramientas excluidas: ${resolved.excluded.map((e) => `${e.source}/${e.tool}`).join(', ')}`
           );
         }
-        console.log(
+        logger.info(
+          'AgentLoop',
           `[agent-loop] precedencia de herramientas: ${resolved.precedence}${resolved.matchedSkills.length > 0 ? ` (skills: ${resolved.matchedSkills.map((s) => s.name).join(', ')})` : ''}`
         );
       } catch (e) {
-        console.warn(`[agent-loop] error en resolución de herramientas: ${e.message}`);
+        logger.warn('AgentLoop', `[agent-loop] error en resolución de herramientas: ${e.message}`);
       }
     }
 
@@ -265,7 +269,7 @@ class AgentLoop {
           agentPrompt += '\n\n' + memoryContext;
         }
       } catch (e) {
-        console.warn(`[agent-loop] recall de memoria falló: ${e.message}`);
+        logger.warn('AgentLoop', `[agent-loop] recall de memoria falló: ${e.message}`);
       }
     }
 
@@ -276,10 +280,10 @@ class AgentLoop {
         const skillBlock = await skillManager.buildInjection(userMessage, opts.skillDb || null);
         if (skillBlock) {
           agentPrompt = agentPrompt + '\n\n' + skillBlock;
-          console.log(`[agent-loop] skills activas inyectadas en el prompt`);
+          logger.info('AgentLoop', `[agent-loop] skills activas inyectadas en el prompt`);
         }
       } catch (e) {
-        console.warn(`[agent-loop] error inyectando skills: ${e.message}`);
+        logger.warn('AgentLoop', `[agent-loop] error inyectando skills: ${e.message}`);
       }
     }
 
@@ -339,7 +343,11 @@ class AgentLoop {
               error: 'cancelled',
             };
           }
-          console.warn('[agent-loop] tool-calling nativo falló, usando fallback texto:', e.message);
+          logger.warn(
+            'AgentLoop',
+            '[agent-loop] tool-calling nativo falló, usando fallback texto:',
+            e.message
+          );
           try {
             const fallback = await llm(llmMessages, agentPrompt, llmOpts);
             responseText = typeof fallback === 'string' ? fallback : fallback?.content || '';
@@ -386,7 +394,8 @@ class AgentLoop {
 
       const hasNativeToolCalls = toolCalls && toolCalls.length > 0;
       if (process.env.DEBUG)
-        console.log(
+        logger.info(
+          'AgentLoop',
           `[agent-loop-timing] iter ${i}: LLM ${Date.now() - _itStart}ms, toolCalls=${hasNativeToolCalls ? toolCalls.length : 0}`
         );
       if (!responseText || !responseText.trim()) {
@@ -440,7 +449,8 @@ class AgentLoop {
           if (critique && critique.continue && !(signal && signal.aborted)) {
             critiqueRounds++;
             iterationHistory.push({ role: 'user', content: critique.message });
-            console.log(
+            logger.info(
+              'AgentLoop',
               `[agent-loop] auto-crítica ronda ${critiqueRounds}/${SELF_CRITIQUE_MAX_ROUNDS}: tarea incompleta, continuando`
             );
             continue;
@@ -512,7 +522,8 @@ class AgentLoop {
           });
           permissionAction = perm.action;
           if (process.env.DEBUG && perm.rule) {
-            console.log(
+            logger.info(
+              'AgentLoop',
               `[agent-loop] permiso "${perm.action}" para ${action.tool} (regla: ${perm.rule.id})`
             );
           }
@@ -545,7 +556,7 @@ class AgentLoop {
               requiresApproval,
             });
           } catch (e) {
-            console.warn(`[agent-loop] hook beforeTool falló: ${e.message}`);
+            logger.warn('AgentLoop', `[agent-loop] hook beforeTool falló: ${e.message}`);
           }
           if (hookOut && hookOut.deny) {
             iterationHistory.push({
@@ -603,7 +614,8 @@ class AgentLoop {
         toolResults.push(result);
         lastToolResult = result;
         if (process.env.DEBUG)
-          console.log(
+          logger.info(
+            'AgentLoop',
             `[agent-loop-timing] iter ${i}: tool=${action.tool} ${Date.now() - _itStart}ms`
           );
 
@@ -641,7 +653,8 @@ class AgentLoop {
           resultSummary = `[ERROR en ${action.tool}]: ${result.error || 'desconocido'}`;
         }
 
-        console.log(
+        logger.info(
+          'AgentLoop',
           `[agent-loop] iteración ${i + 1}: ${action.tool} → ${result.ok ? 'OK' : 'FALLÓ'}`
         );
         resultSummaries.push(resultSummary);
@@ -684,7 +697,7 @@ class AgentLoop {
       const diagnostics = await this._lsp.waitForDiagnostics(abs);
       return { filePath: abs, diagnostics: Array.isArray(diagnostics) ? diagnostics : [] };
     } catch (e) {
-      console.warn(`[agent-loop] feedback LSP post-edit falló: ${e.message}`);
+      logger.warn('AgentLoop', `[agent-loop] feedback LSP post-edit falló: ${e.message}`);
       return null;
     }
   }
@@ -1143,7 +1156,7 @@ class AgentLoop {
       }
     } catch (e) {
       if (e?.code === 'ABORTED' || e?.name === 'AbortError') throw e;
-      console.warn(`[agent-loop] auto-crítica falló: ${e.message}`);
+      logger.warn('AgentLoop', `[agent-loop] auto-crítica falló: ${e.message}`);
     }
     return null;
   }
@@ -1247,7 +1260,7 @@ class AgentLoop {
       }
       this._compactionPersisted = true;
     } catch (e) {
-      console.warn(`[agent-loop] persistir compactación falló: ${e.message}`);
+      logger.warn('AgentLoop', `[agent-loop] persistir compactación falló: ${e.message}`);
     }
   }
 
@@ -1282,7 +1295,7 @@ class AgentLoop {
         ...lines,
       ].join('\n');
     } catch (e) {
-      console.warn(`[agent-loop] recall de memoria falló: ${e.message}`);
+      logger.warn('AgentLoop', `[agent-loop] recall de memoria falló: ${e.message}`);
       return null;
     }
   }

@@ -1,3 +1,4 @@
+// @ts-nocheck
 /**
  * GitWatcher.js — vigila el repositorio del workspace activo y emite
  * señales cuando hay algo que vale la pena saber:

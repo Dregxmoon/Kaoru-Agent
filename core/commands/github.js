@@ -1,3 +1,4 @@
+// @ts-nocheck
 'use strict';
 
 // Comando /github — conectar la cuenta de GitHub del usuario.

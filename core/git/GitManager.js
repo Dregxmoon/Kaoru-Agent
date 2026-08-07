@@ -1,4 +1,6 @@
+// @ts-nocheck
 'use strict';
+const logger = require('../observability/Logger.js');
 
 // GitManager.js — Tool propia de Git (no exec crudo).
 //
@@ -300,7 +302,8 @@ class GitManager {
     }
 
     const safe = allPaths.filter((p) => !COMMIT_IGNORED_RE.some((re) => re.test(p)));
-    console.log(
+    logger.info(
+      'GitManager',
       `[git] git_commit ignora ${junk.length} ruta(s) sensible(s): ${junk.slice(0, 5).join(', ')}`
     );
     if (safe.length === 0) return; // todo es junk → no stagear nada

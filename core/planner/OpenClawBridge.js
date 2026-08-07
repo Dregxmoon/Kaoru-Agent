@@ -1,3 +1,4 @@
+// @ts-nocheck
 /**
  * OpenClawBridge.js — Fase 3 v2
  *
@@ -33,6 +34,7 @@
  */
 
 'use strict';
+const logger = require('../observability/Logger.js');
 
 const http = require('http');
 const BrowserBridge = require('./BrowserBridge.js');
@@ -240,9 +242,9 @@ class OpenClawBridge {
     this._lastPing = now;
 
     if (!this._available) {
-      console.warn('[openclaw] no disponible en', _openclawBase());
+      logger.warn('OpenClawBridge', '[openclaw] no disponible en', _openclawBase());
     } else {
-      console.log('[openclaw] disponible');
+      logger.info('OpenClawBridge', '[openclaw] disponible');
     }
 
     return this._available;
@@ -265,7 +267,8 @@ class OpenClawBridge {
     // ── browser / web_search → BrowserBridge (Playwright real) ───────────────
     if (BROWSER_TOOLS.has(tool)) {
       try {
-        console.log(
+        logger.info(
+          'OpenClawBridge',
           `[openclaw] ejecutando vía BrowserBridge: ${tool}`,
           JSON.stringify(params).slice(0, 120)
         );
@@ -276,7 +279,10 @@ class OpenClawBridge {
 
         const elapsed = Date.now() - t0;
         this._log({ tool, params, ok: true, result: browserResult.result, elapsed });
-        console.log(`[openclaw] ${tool} completado en ${elapsed}ms (BrowserBridge)`);
+        logger.info(
+          'OpenClawBridge',
+          `[openclaw] ${tool} completado en ${elapsed}ms (BrowserBridge)`
+        );
 
         return {
           ok: true,
@@ -308,7 +314,11 @@ class OpenClawBridge {
       return this._err(tool, `Parámetros inválidos: ${e.message}`, t0);
     }
 
-    console.log(`[openclaw] ejecutando: ${tool}`, JSON.stringify(params).slice(0, 120));
+    logger.info(
+      'OpenClawBridge',
+      `[openclaw] ejecutando: ${tool}`,
+      JSON.stringify(params).slice(0, 120)
+    );
 
     let res;
     try {
@@ -329,7 +339,7 @@ class OpenClawBridge {
     const result = res.body?.result ?? res.body;
 
     this._log({ tool, params, ok: true, result, elapsed });
-    console.log(`[openclaw] ${tool} completado en ${elapsed}ms`);
+    logger.info('OpenClawBridge', `[openclaw] ${tool} completado en ${elapsed}ms`);
 
     return { ok: true, result, error: null, tool, elapsed };
   }
@@ -373,7 +383,7 @@ class OpenClawBridge {
   _err(tool, error, t0) {
     const elapsed = Date.now() - t0;
     this._log({ tool, ok: false, error, elapsed });
-    console.warn(`[openclaw] error en ${tool}: ${error}`);
+    logger.warn('OpenClawBridge', `[openclaw] error en ${tool}: ${error}`);
     return { ok: false, result: null, error, tool, elapsed };
   }
 

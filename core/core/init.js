@@ -1,3 +1,4 @@
+// @ts-nocheck
 // init.js — secuencia de arranque del núcleo: migración de la BD, creación de
 // graph/grounding/session, sensores, ProactiveEngine, BehaviorModel, planner,
 // MCP, LSP, skills, plugins, permisos, telemetría, IntentDetector y workspace
@@ -63,12 +64,12 @@ function migrateLegacyDb(dir) {
     const from = legacy + suffix;
     if (fs.existsSync(from)) fs.renameSync(from, path.join(dir, 'core.db') + suffix);
   }
-  console.log('[core] BD legacy migrada a core.db');
+  logger.info('init', '[core] BD legacy migrada a core.db');
 }
 
 function init(app) {
   if (state.initialized) {
-    console.warn('[core] init() llamado más de una vez — ignorando');
+    logger.warn('init', '[core] init() llamado más de una vez — ignorando');
     return { graph: state.graph, grounding: state.grounding, session: state.session };
   }
   state.initialized = true;
@@ -96,7 +97,8 @@ function init(app) {
 
   state.graph = getStateGraph(dbPath);
   if (process.env.DEBUG)
-    console.log(
+    logger.info(
+      'init',
       '[core] graph.usingFallback:',
       state.graph.usingFallback,
       '| _graph._db:',
@@ -112,10 +114,10 @@ function init(app) {
   if (SensorClass) {
     state.osSensor = new SensorClass(state.graph);
     state.osSensor.start();
-    console.log(`[core] ${SensorClass.name} iniciado (${process.platform})`);
+    logger.info('init', `[core] ${SensorClass.name} iniciado (${process.platform})`);
   } else {
     state.osSensor = null;
-    console.log(`[core] OSSensor no disponible para ${process.platform}`);
+    logger.info('init', `[core] OSSensor no disponible para ${process.platform}`);
   }
 
   state.proactive = new ProactiveEngine(state.graph, {
@@ -151,7 +153,7 @@ function init(app) {
     })),
   });
   state.proactive.setAutonomyMode(readAutonomyConfig());
-  console.log(`[core] autonomía: ${state.proactive.getAutonomyMode()}`);
+  logger.info('init', `[core] autonomía: ${state.proactive.getAutonomyMode()}`);
 
   state.behavior = new BehaviorModel(state.graph);
   state.planner = getPlanner();
@@ -188,15 +190,15 @@ function init(app) {
     state.skillManager
       .scan(true)
       .then(() => {
-        console.log('[core] skills escaneadas');
+        logger.info('init', '[core] skills escaneadas');
         state.skillManager
           .index()
           .then(() => {
-            console.log('[core] skills indexadas');
+            logger.info('init', '[core] skills indexadas');
           })
-          .catch((e) => console.warn('[core] error indexando skills:', e.message));
+          .catch((e) => logger.warn('init', '[core] error indexando skills:', e.message));
       })
-      .catch((e) => console.warn('[core] error escaneando skills:', e.message));
+      .catch((e) => logger.warn('init', '[core] error escaneando skills:', e.message));
   }
 
   const projectCWD = app ? app.getAppPath() : process.cwd();
@@ -230,11 +232,11 @@ function init(app) {
           workspace: () => state.activeWorkspace,
           mcp: state.mcp,
         });
-        console.log(`[core] plugins registrados: ${registered.join(', ')}`);
+        logger.info('init', `[core] plugins registrados: ${registered.join(', ')}`);
       }
     });
   } catch (e) {
-    console.warn('[core] plugin manager no disponible:', e.message);
+    logger.warn('init', '[core] plugin manager no disponible:', e.message);
   }
 
   // ── Permisos granulares (allow/ask/deny, patrón opencode) ────────────────
@@ -247,9 +249,12 @@ function init(app) {
       filePath: app ? path.join(app.getPath('userData'), 'permissions.json') : null,
       defaultAction: 'ask',
     });
-    console.log(`[core] permisos cargados: ${state.permissionManager.list().length} regla(s)`);
+    logger.info(
+      'init',
+      `[core] permisos cargados: ${state.permissionManager.list().length} regla(s)`
+    );
   } catch (e) {
-    console.warn('[core] permission manager no disponible:', e.message);
+    logger.warn('init', '[core] permission manager no disponible:', e.message);
     state.permissionManager = null;
   }
 
@@ -272,7 +277,7 @@ function init(app) {
       s.start();
       return s;
     } catch (e) {
-      console.warn(`[core] sensor ${label} no disponible:`, e.message);
+      logger.warn('init', `[core] sensor ${label} no disponible:`, e.message);
       return null;
     }
   };
@@ -294,7 +299,8 @@ function init(app) {
       () => new UpcomingEventsWatcher({ graph: state.graph })
     );
   }
-  console.log(
+  logger.info(
+    'init',
     `[core] sensores de señales: git=${state.gitWatcher ? 'on' : 'off'} system=${state.systemWatcher ? 'on' : 'off'} title=${state.titleWatcher ? 'on' : 'off'} clipboard=${state.clipboardWatcher ? 'on' : 'off'} eventos=${state.eventsWatcher ? 'on' : 'off'}`
   );
 
@@ -314,16 +320,16 @@ function init(app) {
     try {
       const sqliteVec = require('sqlite-vec');
       sqliteVec.load(state.graph._db);
-      console.log('[core] sqlite-vec cargado en StateGraph DB');
+      logger.info('init', '[core] sqlite-vec cargado en StateGraph DB');
 
       state.detector = getIntentDetector(state.graph._db);
       state.detector
         .warmup()
         .then(() => {
-          console.log('[core] IntentDetector listo');
+          logger.info('init', '[core] IntentDetector listo');
         })
         .catch((e) => {
-          console.warn('[core] IntentDetector warmup falló:', e.message);
+          logger.warn('init', '[core] IntentDetector warmup falló:', e.message);
         });
 
       // Recall semántico de memoria (StateGraph.queryNodesSemantic) — misma
@@ -333,18 +339,19 @@ function init(app) {
       if (state.graph.enableVectorSearch()) {
         state.graph
           .backfillEmbeddings()
-          .catch((e) => console.warn('[core] backfill de embeddings falló:', e.message));
+          .catch((e) => logger.warn('init', '[core] backfill de embeddings falló:', e.message));
       }
     } catch (e) {
-      console.warn('[core] IntentDetector no disponible:', e.message);
+      logger.warn('init', '[core] IntentDetector no disponible:', e.message);
       state.detector = null;
     }
   } else {
-    console.warn('[core] IntentDetector desactivado (DB no disponible)');
+    logger.warn('init', '[core] IntentDetector desactivado (DB no disponible)');
   }
 
   state.initiativeUnsub = state.bus.on('initiative:trigger', (payload) => {
-    if (process.env.DEBUG) console.log(`[core] initiative: "${payload.suggestion?.slice(0, 60)}"`);
+    if (process.env.DEBUG)
+      logger.info('init', `[core] initiative: "${payload.suggestion?.slice(0, 60)}"`);
     state.lastProposal = payload.proposal
       ? { id: payload.proposal.id, type: payload.proposal.type }
       : null;
@@ -356,7 +363,7 @@ function init(app) {
   // confirme en el bubble de la propuesta con la verificación REAL.
   state.proposalExecutedUnsub = state.bus.on('proposal:executed', (payload) => {
     if (process.env.DEBUG)
-      console.log(`[core] proposal:executed ok=${payload.ok} "${payload.detail || ''}"`);
+      logger.info('init', `[core] proposal:executed ok=${payload.ok} "${payload.detail || ''}"`);
     if (state.onProposalResult) state.onProposalResult(payload);
   });
 
@@ -380,7 +387,8 @@ function init(app) {
       .then(() => setActiveWorkspace(_initialWorkspace))
       .then((r) => {
         if (r.ok) {
-          console.log(
+          logger.info(
+            'init',
             `[core] workspace inicial (${_envWorkspace ? 'ASISTENTE_WORKSPACE' : 'default (directorio de la app)'}):`,
             r.path
           );
@@ -388,32 +396,32 @@ function init(app) {
           // Fase C: ofrecer retomar lo pendiente (recordatorios) al arrancar.
           state.proactive
             .pendingRecap()
-            .catch((e) => console.warn('[core] error en recap de pendientes:', e.message));
+            .catch((e) => logger.warn('init', '[core] error en recap de pendientes:', e.message));
           // Fase D: watcher de errores LSP (con su propio scope).
           if (readSensorsConfig().lsp !== false && state.lspErrorWatcher) {
             state.lspErrorWatcher.start();
-            console.log('[core] LSPErrorWatcher activo');
+            logger.info('init', '[core] LSPErrorWatcher activo');
           }
-        } else console.warn('[core] workspace inicial inválido:', r.error);
+        } else logger.warn('init', '[core] workspace inicial inválido:', r.error);
       });
   }
 
   if (state.graph.usingFallback) {
-    console.error('');
-    console.error('╔══════════════════════════════════════════════════════════╗');
-    console.error('║  ADVERTENCIA CRITICA — MEMORIA NO PERSISTENTE        ║');
-    console.error('║                                                          ║');
-    console.error('║  better-sqlite3 no pudo inicializarse.                  ║');
-    console.error('║  El asistente está usando MemoryDB (RAM temporal).       ║');
-    console.error('║  Todo lo aprendido esta sesión se perderá al cerrar.    ║');
-    console.error('║                                                          ║');
-    console.error('║  Solución: npm install                                    ║');
-    console.error('╚══════════════════════════════════════════════════════════╝');
-    console.error('');
+    logger.error('init', '');
+    logger.error('init', '╔══════════════════════════════════════════════════════════╗');
+    logger.error('init', '║  ADVERTENCIA CRITICA — MEMORIA NO PERSISTENTE        ║');
+    logger.error('init', '║                                                          ║');
+    logger.error('init', '║  better-sqlite3 no pudo inicializarse.                  ║');
+    logger.error('init', '║  El asistente está usando MemoryDB (RAM temporal).       ║');
+    logger.error('init', '║  Todo lo aprendido esta sesión se perderá al cerrar.    ║');
+    logger.error('init', '║                                                          ║');
+    logger.error('init', '║  Solución: npm install                                    ║');
+    logger.error('init', '╚══════════════════════════════════════════════════════════╝');
+    logger.error('init', '');
     state.bus.emit('memory-status', { usingFallback: true });
   }
 
-  console.log('[core] inicializado (Fase 3)');
+  logger.info('init', '[core] inicializado (Fase 3)');
   return { graph: state.graph, grounding: state.grounding, session: state.session };
 }
 

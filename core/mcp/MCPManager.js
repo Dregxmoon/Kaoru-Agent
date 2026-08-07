@@ -1,3 +1,4 @@
+// @ts-nocheck
 /**
  * MCPManager.js — Cliente MCP (Model Context Protocol) para el asistente
  *
@@ -27,6 +28,7 @@
  */
 
 'use strict';
+const logger = require('../observability/Logger.js');
 
 const crypto = require('crypto');
 const { Client } = require('@modelcontextprotocol/sdk/client/index.js');
@@ -154,7 +156,7 @@ class MCPServerConnection {
       // nosotros" (no reconectar) de "se cayó solo" (sí reconectar).
       this.client.onclose = () => this._handleUnexpectedClose();
       this.client.onerror = (err) => {
-        console.warn(`[mcp] error en servidor "${this.name}":`, err.message);
+        logger.warn('MCPManager', `[mcp] error en servidor "${this.name}":`, err.message);
       };
 
       await Promise.race([
@@ -176,13 +178,14 @@ class MCPServerConnection {
       this.tools = listed.tools || [];
       this.status = 'connected';
       this._reconnectAttempts = 0; // conexión sana — resetea el presupuesto de reintentos
-      console.log(
+      logger.info(
+        'MCPManager',
         `[mcp] conectado: "${this.name}" (${this.tools.length} tools: ${this.tools.map((t) => t.name).join(', ')})`
       );
     } catch (e) {
       this.status = 'error';
       this.error = e.message;
-      console.warn(`[mcp] error conectando a "${this.name}":`, e.message);
+      logger.warn('MCPManager', `[mcp] error conectando a "${this.name}":`, e.message);
       try {
         await this.transport?.close();
       } catch (_) {
@@ -198,7 +201,7 @@ class MCPServerConnection {
     if (this._intentionalDisconnect) return; // fuimos nosotros — nada que hacer
     if (this.status === 'connecting' || this.status === 'reconnecting') return; // ya en proceso
 
-    console.warn(`[mcp] "${this.name}" se desconectó inesperadamente`);
+    logger.warn('MCPManager', `[mcp] "${this.name}" se desconectó inesperadamente`);
     this.client = null;
     this._scheduleReconnect();
   }
@@ -212,7 +215,7 @@ class MCPServerConnection {
     if (this._reconnectAttempts >= MAX_RECONNECT_ATTEMPTS) {
       this.status = 'error';
       this.error = `Se perdió la conexión y no se pudo recuperar tras ${MAX_RECONNECT_ATTEMPTS} intentos. Reconecta manualmente desde el panel.`;
-      console.warn(`[mcp] "${this.name}" agotó los intentos de reconexión`);
+      logger.warn('MCPManager', `[mcp] "${this.name}" agotó los intentos de reconexión`);
       this._reconnectInProgress = false;
       this._onStatusChange?.();
       return;
@@ -223,7 +226,8 @@ class MCPServerConnection {
     this._onStatusChange?.();
 
     const waitMs = _reconnectBackoff(this._reconnectAttempts - 1);
-    console.log(
+    logger.info(
+      'MCPManager',
       `[mcp] "${this.name}" — reintentando en ${waitMs}ms (intento ${this._reconnectAttempts}/${MAX_RECONNECT_ATTEMPTS})`
     );
     await _cancellableSleep(waitMs, (cb) => {
@@ -299,10 +303,13 @@ class MCPManager {
   async init(serverConfigs = []) {
     const enabled = serverConfigs.filter((s) => s.enabled !== false);
     if (!enabled.length) {
-      console.log('[mcp] sin servidores configurados — el asistente sigue igual que siempre');
+      logger.info(
+        'MCPManager',
+        '[mcp] sin servidores configurados — el asistente sigue igual que siempre'
+      );
       return;
     }
-    console.log(`[mcp] conectando ${enabled.length} servidor(es) configurado(s)...`);
+    logger.info('MCPManager', `[mcp] conectando ${enabled.length} servidor(es) configurado(s)...`);
     for (const cfg of enabled) {
       await this._connectOne(cfg);
     }
@@ -429,7 +436,11 @@ class MCPManager {
       if (normalized.length) return normalized;
       throw new Error('sin resultados instalables vía npx en la respuesta del registro');
     } catch (e) {
-      console.warn('[mcp] registro en vivo no disponible, usando catálogo estático:', e.message);
+      logger.warn(
+        'MCPManager',
+        '[mcp] registro en vivo no disponible, usando catálogo estático:',
+        e.message
+      );
       const q = query.toLowerCase().trim();
       const filtered = q
         ? FALLBACK_CATALOG.filter(
