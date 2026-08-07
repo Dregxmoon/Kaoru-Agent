@@ -31,7 +31,7 @@ function testAgentModeAlwaysResolvesTools() {
   // Verificamos estructuralmente que el código de Core.buildContext()
   // para modo 'agent' ya no retorna nativeToolSchemas: null
   const src = require('fs').readFileSync(
-    require('path').join(__dirname, '..', 'core', 'Core.js'),
+    require('path').join(__dirname, '..', 'core', 'core', 'context.js'),
     'utf-8'
   );
 
@@ -62,7 +62,7 @@ function testAgentModeAlwaysResolvesTools() {
   const chatSection = src.match(/mode === 'chat'[\s\S]{0,1700}(?=\n {2}\/\/ Truncado inteligente)/);
   if (chatSection) {
     const hasIntentGate = chatSection[0].includes('toolIntent?.detected');
-    const hasBridgeCheck = chatSection[0].includes('_bridge?.getStats()?.available');
+    const hasBridgeCheck = chatSection[0].includes('state.bridge?.getStats()?.available');
     assert(
       !hasIntentGate,
       'modo chat ya no gatilla OpenClaw en toolIntent?.detected',

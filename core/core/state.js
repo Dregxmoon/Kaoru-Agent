@@ -1,0 +1,53 @@
+// state.js — estado mutable compartido del núcleo (Core). Centraliza las
+// variables de módulo que antes vivían en Core.js para que cada submódulo de
+// `core/core/` las comparta sin dependencias circulares.
+
+const state = {
+  graph: null,
+  grounding: null,
+  session: null,
+  updater: null,
+  osSensor: null,
+  proactive: null,
+  behavior: null,
+  planner: null,
+  bridge: null,
+  bus: null,
+  app: null,
+  configPath: null,
+  detector: null,
+  mcp: null,
+  mcpReadyPromise: Promise.resolve(),
+  openclawProcess: null,
+  openclawStarting: false,
+  openclawWorkspace: null,
+  taskDetector: null,
+  toolRegistry: null,
+  lspManager: null,
+  gitWatcher: null,
+  systemWatcher: null,
+  titleWatcher: null,
+  clipboardWatcher: null,
+  eventsWatcher: null,
+  proposalStore: null,
+  proactiveExecutor: null,
+  lspErrorWatcher: null,
+  symbolIndex: null,
+  telemetry: null,
+  activeWorkspace: null,
+  onProposalResult: null,
+  proposalExecutedUnsub: null,
+  lastProposal: null, // { id, type } de la última propuesta emitida (debug/testing)
+  pruneTimer: null,
+  pruneInitTimer: null,
+  openclawKillTimer: null,
+  openclawCheckTimer: null,
+  initiativeUnsub: null,
+  initialized: false,
+  onInitiative: null,
+  skillManager: null,
+  pluginManager: null,
+  permissionManager: null,
+};
+
+module.exports = state;

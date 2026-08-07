@@ -1,0 +1,337 @@
+// context.js — construcción del context para el LLM (buildContext): ensambla
+// el system prompt desde BehaviorModel, IntentDetector, TaskDetector,
+// GroundingEngine, reglas del proyecto, herramientas, skills y modos
+// (chat/plan/execute/agent), con truncado inteligente por secciones.
+
+const LLMProvider = require('../llm/LLMProvider.js');
+const { BehaviorModel } = require('../behavior/BehaviorModel.js');
+const { buildRulesSection } = require('../rules/ProjectRules.js');
+const { resolveToolset } = require('../task/ToolResolver.js');
+const { getProjectCWD } = require('../planner/Planner.js');
+
+const state = require('./state.js');
+
+// FIX: presupuesto de tokens del system prompt COMPLETO — antes vivía
+// dentro de GroqSerializer.js y se aplicaba antes de pegar BehaviorModel,
+// las reglas de OpenClaw y el catálogo MCP. Ahora se aplica aquí, al
+// final de buildContext(), sobre el prompt ya ensamblado del todo.
+const MAX_SYSTEM_CHARS = 14_000; // ~3.5k tokens — conservador pero amplio
+const TRUNCATION_SUFFIX = '\n\n[contexto truncado por longitud]';
+const MCP_CATALOG_LIMIT = 40;
+
+// ── Context ───────────────────────────────────────────────────────────────────
+
+async function buildContext(sessionHistory, activeProvider, options = {}) {
+  const provider = activeProvider || LLMProvider.getActiveProvider() || 'groq';
+  const mode = options.mode || 'chat'; // 'plan' | 'execute' | 'chat'
+  const approvedPlan = options.plan || null;
+
+  const lastUserMsg = [...sessionHistory].reverse().find((m) => m.role === 'user');
+  const userText = lastUserMsg?.content || '';
+
+  const osCtx = state.osSensor?.getCurrentContext() ?? null;
+
+  // BehaviorModel
+  let behaviorCtx = null;
+  if (state.behavior) {
+    try {
+      behaviorCtx = state.behavior.evaluate(userText, osCtx, sessionHistory);
+      state.bus.emit('behavior:evaluated', behaviorCtx);
+    } catch (e) {
+      console.warn('[core] error en BehaviorModel:', e.message);
+    }
+  }
+
+  // IntentDetector
+  let toolIntent = null;
+  if (state.detector) {
+    try {
+      toolIntent = await state.detector.detect(userText);
+      if (toolIntent.detected) {
+        console.log(
+          `[core] toolIntent: ${toolIntent.action}` +
+            ` (${(toolIntent.confidence * 100).toFixed(0)}%, ${toolIntent.level})`
+        );
+      }
+    } catch (e) {
+      console.warn('[core] IntentDetector error:', e.message);
+    }
+  }
+
+  // TaskDetector — detecta si el usuario quiere hacer una tarea (no solo charlar)
+  let taskIntent = null;
+  try {
+    taskIntent = state.taskDetector.detect(userText);
+    if (taskIntent.isTask) {
+      console.log(
+        `[core] taskIntent: ${taskIntent.domain?.id || 'indefinido'}` +
+          ` (confianza: ${taskIntent.confidence})`
+      );
+    }
+  } catch (e) {
+    console.warn('[core] TaskDetector error:', e.message);
+  }
+
+  // GroundingEngine
+  let result;
+  if (state.grounding) {
+    result = await state.grounding.buildContext(sessionHistory, provider, toolIntent);
+  } else {
+    const Fallback = require('../llm/GroundingMinimo.js');
+    result = Fallback.buildContext(sessionHistory);
+  }
+
+  // BehaviorModel — inyectar sección
+  if (behaviorCtx) {
+    const behaviorSection = BehaviorModel.serialize(behaviorCtx);
+    if (behaviorSection) {
+      result.systemPrompt = result.systemPrompt + '\n\n' + behaviorSection;
+    }
+  }
+
+  // ── Reglas del proyecto (AGENTS.md) — patrón opencode ──────────────────
+  // Se leen del workspace activo con caché por mtime y se inyectan ANTES del
+  // early-return del modo agent, así llegan a todos los modos (chat, plan,
+  // execute, agent). Tienen prioridad sobre las reglas generales.
+  const rulesSection = buildRulesSection(getProjectCWD());
+  if (rulesSection) {
+    result.systemPrompt = result.systemPrompt + '\n\n' + rulesSection;
+  }
+
+  // ── Tool Resolution (Fase 1): siempre resolver herramientas ─────────────
+  // Fase 1: el toolset completo está disponible en TODOS los modos, sin
+  // importar el nivel de confianza de IntentDetector. La intención detectada
+  // solo influye en CÓMO se sugieren las acciones en el texto del prompt,
+  // nunca en SI el modelo puede ejecutar herramientas.
+  let toolCatalog = null;
+  let resolvedTools = null;
+  try {
+    resolvedTools = await resolveToolset({
+      userMessage: userText,
+      domain: taskIntent?.domain || null,
+      toolRegistry: state.toolRegistry,
+      skillManager: state.skillManager || null,
+      mcpManager: state.mcp || null,
+      db: state.graph && !state.graph.usingFallback && state.graph._db ? state.graph._db : null,
+    });
+    toolCatalog = resolvedTools?.promptCatalog || null;
+  } catch (e) {
+    console.warn('[core] error en resolución de herramientas:', e.message);
+  }
+  if (!toolCatalog) {
+    toolCatalog = state.toolRegistry.serializeToPrompt(taskIntent?.domain || null);
+  }
+
+  // ── MODE: AGENT (loop cerrado) ─────────────────────────────────────────
+  // Fase 1: nativeToolSchemas se pasa al AgentLoop para completeWithTools()
+  // en todos los turnos, filtrado solo por precedencia (Skill > MCP > OpenClaw).
+  if (mode === 'agent') {
+    if (result.systemPrompt.length > MAX_SYSTEM_CHARS) {
+      result.systemPrompt =
+        result.systemPrompt.slice(0, MAX_SYSTEM_CHARS) + '\n\n[contexto truncado por longitud]';
+      console.warn(`[core] system prompt truncado modo agent: ${result.systemPrompt.length} chars`);
+    }
+    return {
+      ...result,
+      behaviorCtx,
+      toolIntent,
+      taskIntent,
+      mode,
+      nativeToolSchemas: resolvedTools?.nativeToolSchemas || null,
+    };
+  }
+
+  // ── Skill knowledge injection (Fase 4) ──────────────────────────────────
+  if (state.skillManager && typeof state.skillManager.buildInjection === 'function') {
+    try {
+      const skillBlock = await state.skillManager.buildInjection(
+        userText,
+        state.graph && !state.graph.usingFallback && state.graph._db ? state.graph._db : null
+      );
+      if (skillBlock) {
+        result.systemPrompt += '\n\n' + skillBlock;
+      }
+    } catch (e) {
+      console.warn('[core] error inyectando skills:', e.message);
+    }
+  }
+
+  // ── MODE: PLAN ─────────────────────────────────────────────────────────────
+  // Cuando el modo es 'plan', se inyecta el catálogo de herramientas pero
+  // con instrucciones de SOLO planificar, sin ejecutar nada. El LLM debe
+  // devolver un bloque ```plan con los pasos.
+  if (mode === 'plan') {
+    if (toolCatalog) {
+      result.systemPrompt += '\n\n' + toolCatalog;
+    }
+    result.systemPrompt +=
+      '\n\n# MODO PLAN — SOLO PLANIFICA, NO EJECUTES\n' +
+      'Estás en MODO PLAN. Tu única tarea es GENERAR UN PLAN con los pasos necesarios.\n' +
+      'NO ejecutes ninguna acción. NO uses herramientas. NO anuncies comandos.\n' +
+      'Solamente genera el plan en este formato:\n' +
+      '```plan\n' +
+      '- [ ] Paso 1: Descripción clara\n' +
+      '- [ ] Paso 2: Siguiente acción\n' +
+      '```\n' +
+      'Cada paso debe ser una acción concreta y ejecutable.\n';
+    if (approvedPlan) {
+      result.systemPrompt +=
+        '\nPlan ya aprobado por el usuario — continúa con los siguientes pasos pendientes:\n' +
+        approvedPlan.steps
+          .filter((s) => !s.done)
+          .map((s, i) => `  ${i + 1}. ${s.description}`)
+          .join('\n') +
+        '\n';
+    }
+  }
+
+  // ── MODE: EXECUTE ──────────────────────────────────────────────────────────
+  // Cuando el modo es 'execute', se inyecta el catálogo con instrucciones de
+  // ejecución y el plan aprobado como contexto.
+  if (mode === 'execute') {
+    if (toolCatalog) {
+      result.systemPrompt += '\n\n' + toolCatalog;
+    }
+    result.systemPrompt +=
+      '\n\n# MODO EJECUCIÓN\n' +
+      'Ejecuta el siguiente plan paso a paso.\n' +
+      'Usa las herramientas disponibles para completar cada paso.\n' +
+      'Anuncia cada acción antes de ejecutarla.\n' +
+      'Espera el resultado de cada paso antes de continuar con el siguiente.\n';
+    if (approvedPlan) {
+      result.systemPrompt +=
+        '\n## Plan a ejecutar\n' +
+        approvedPlan.steps
+          .filter((s) => !s.done)
+          .map((s, i) => `  ${i + 1}. ${s.description}`)
+          .join('\n') +
+        '\n';
+    }
+  }
+
+  // ── MODE: CHAT (modo normal, sin planificación) ────────────────────────────
+  // Fase 1: las herramientas están disponibles siempre que OpenClaw esté
+  // activo, sin importar el nivel de intención detectado. IntentDetector
+  // solo influye en las sugerencias textuales (GroqSerializer), no en el
+  // acceso a herramientas.
+  if (mode === 'chat') {
+    if (state.bridge?.getStats()?.available) {
+      result.systemPrompt +=
+        '\n\n# HERRAMIENTAS DISPONIBLES — REGLAS ESTRICTAS\n' +
+        'Tienes acceso a OpenClaw para ejecutar acciones reales en el PC del usuario.\n\n' +
+        'REGLA 1 — ANUNCIA, NO EJECUTES EN PROSA:\n' +
+        'Para ejecutar un comando di EXACTAMENTE: "Ejecutar: git status"\n' +
+        'Para leer un archivo di EXACTAMENTE: "Voy a leer el archivo README.md"\n' +
+        'Para editar un archivo di EXACTAMENTE: "Voy a escribir el archivo README.md"\n\n' +
+        'REGLA 2 — NUNCA INVENTES RESULTADOS:\n' +
+        'JAMÁS describas el resultado de un comando antes de ejecutarlo.\n' +
+        'JAMÁS escribas output de comandos inventado (hashes de commit, listas de archivos, etc).\n' +
+        'Si el usuario pide git add + git commit, anuncia cada comando por separado.\n' +
+        'El sistema ejecutará los comandos y tú recibirás el resultado real.\n\n' +
+        'REGLA 3 — SECUENCIA DE COMANDOS:\n' +
+        'Si el usuario pide varios comandos en orden, anúncialos TODOS en la misma respuesta, uno por línea.\n' +
+        'Formato exacto para múltiples comandos:\n' +
+        'Ejecutar: git add .\n' +
+        'Ejecutar: git commit -m "mensaje"\n' +
+        'Ejecutar: git push origin main\n' +
+        'El sistema los ejecutará en orden automáticamente.';
+    }
+
+    // MCP — independiente de toolIntent y de si OpenClaw está disponible.
+    if (state.mcp?.hasConnectedServers()) {
+      const mcpTools = state.mcp.listAllTools();
+      if (mcpTools.length) {
+        result.systemPrompt += buildMCPCatalogPrompt(mcpTools);
+      }
+    }
+  }
+
+  // Truncado inteligente: si el prompt excede MAX_SYSTEM_CHARS, elimina
+  // secciones COMPLETAS empezando por la menos importante, en vez de cortar
+  // a mitad de una instrucción (que rompe el formato estructurado).
+  if (result.systemPrompt.length > MAX_SYSTEM_CHARS) {
+    console.warn(
+      `[core] system prompt excede: ${result.systemPrompt.length} > ${MAX_SYSTEM_CHARS} chars, recortando...`
+    );
+    // Orden de sacrificio: MCP → OpenClaw → episodios → memoria → OS → comportamiento → tools intent → identidad
+    const sectionMarkers = [
+      { name: 'MCP', marker: '# HERRAMIENTAS MCP', keepIf: null },
+      { name: 'OpenClaw', marker: '# HERRAMIENTAS DISPONIBLES', keepIf: null },
+      { name: 'Plan', marker: '# MODO PLAN', keepIf: null },
+      { name: 'Execute', marker: '# MODO EJECUCIÓN', keepIf: null },
+      { name: 'Episodios', marker: '## Episodios recientes', keepIf: null },
+      { name: 'Memoria', marker: '## Lo que sé del usuario', keepIf: null },
+      { name: 'OS', marker: '## Contexto actual', keepIf: null },
+      { name: 'Behavior', marker: '# COMPORTAMIENTO ESTE TURNO', keepIf: null },
+      { name: 'Intent', marker: '## INTENCIÓN DE HERRAMIENTA', keepIf: null },
+    ];
+    for (const section of sectionMarkers) {
+      if (result.systemPrompt.length <= MAX_SYSTEM_CHARS) break;
+      const markerIdx = result.systemPrompt.indexOf(section.marker);
+      if (markerIdx === -1) continue;
+      // Encontrar el inicio de la sección (línea anterior ---\n\n o principio)
+      const sectionStart = result.systemPrompt.lastIndexOf('\n\n---\n\n', markerIdx);
+      const from = sectionStart >= 0 ? sectionStart + 6 : markerIdx;
+      // Encontrar el fin (siguiente --- o fin del string)
+      const remaining = result.systemPrompt.slice(from + 1);
+      const nextSep = remaining.indexOf('\n\n---\n\n');
+      const sectionEnd = nextSep >= 0 ? from + 1 + nextSep : result.systemPrompt.length;
+      const sectionText = result.systemPrompt.slice(from, sectionEnd);
+      result.systemPrompt =
+        result.systemPrompt.slice(0, from) + result.systemPrompt.slice(sectionEnd);
+      console.log(`[core] sección "${section.name}" eliminada (${sectionText.length} chars)`);
+    }
+    // Si sigue excediendo después de eliminar secciones opcionales, truncado duro al final
+    if (result.systemPrompt.length > MAX_SYSTEM_CHARS) {
+      const budget = MAX_SYSTEM_CHARS - TRUNCATION_SUFFIX.length;
+      console.warn(
+        `[core] truncado duro: ${result.systemPrompt.length} → ${MAX_SYSTEM_CHARS} chars (solo identidad)`
+      );
+      result.systemPrompt = result.systemPrompt.slice(0, Math.max(0, budget)) + TRUNCATION_SUFFIX;
+    }
+  }
+
+  return {
+    ...result,
+    behaviorCtx,
+    toolIntent,
+    taskIntent,
+    mode,
+    nativeToolSchemas: resolvedTools?.nativeToolSchemas || null,
+  };
+}
+
+/**
+ * Construye el bloque de system prompt que le enseña al LLM qué tools MCP
+ * hay disponibles ahora mismo y el formato exacto para usarlas. Se limita
+ * a 40 tools para no inflar el prompt si hay muchos servidores conectados.
+ */
+function buildMCPCatalogPrompt(mcpTools) {
+  const lines = mcpTools.slice(0, MCP_CATALOG_LIMIT).map((t) => {
+    const desc = (t.description || '').replace(/\s+/g, ' ').slice(0, 100);
+    return `  - SERVIDOR=${t.server} | HERRAMIENTA=${t.tool}${desc ? ' — ' + desc : ''}`;
+  });
+
+  return (
+    '\n\n# HERRAMIENTAS MCP DISPONIBLES\n' +
+    'Tienes acceso a estas herramientas de servidores MCP conectados. ' +
+    'SOLO debes usarlas si el comando que necesitas NO se puede ejecutar con OpenClaw ' +
+    '(Ejecutar: <comando>). Para listar archivos, leer archivos, o escribir archivos ' +
+    'usa SIEMPRE OpenClaw (Ejecutar: ls <ruta>, Ejecutar: cat <archivo>, etc.).\n\n' +
+    'Herramientas disponibles (copia EXACTAMENTE el SERVIDOR y HERRAMIENTA de esta lista):\n' +
+    lines.join('\n') +
+    '\n\n' +
+    'Para usar una herramienta MCP, responde con este formato EXACTO (sin comillas alrededor de SERVIDOR y HERRAMIENTA):\n' +
+    '```action\n' +
+    'ACCIÓN: mcp_call | SERVIDOR: filesystem | HERRAMIENTA: list_directory | PARAMS: {"path": "/ruta"}\n' +
+    '```\n' +
+    'El SERVIDOR y HERRAMIENTA deben coincidir EXACTAMENTE con la lista de arriba, incluyendo mayúsculas. ' +
+    'PARAMS debe ser JSON válido en una sola línea. ' +
+    'El sistema pedirá confirmación al usuario antes de ejecutar cualquier herramienta MCP.'
+  );
+}
+
+module.exports = {
+  buildContext,
+  buildMCPCatalogPrompt,
+};
