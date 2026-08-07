@@ -17,7 +17,31 @@ const { getRendererFetch } = require('./net.js');
 const DEVICE_CODE_URL = 'https://github.com/login/device/code';
 const ACCESS_TOKEN_URL = 'https://github.com/login/oauth/access_token';
 const GRANT_TYPE = 'urn:ietf:params:oauth:grant-type:device_code';
+// Scope MÍNIMO que las tools nativas de GitHubManager realmente necesitan:
+//   - `repo`         → issues/PRs (crear, comentar, revisar), repo_info,
+//                      actions_status sobre repos (públicos Y privados).
+//   - `read:user`    → whoami (login/name/html_url).
+// Pedir más amplio (delete_repo, workflow, admin:org, gist, etc.) ampliaría
+// la superficie si el token se compromete SIN que ninguna tool lo use.
 const DEFAULT_SCOPE = 'repo read:user';
+const MIN_REQUIRED_SCOPES = ['repo', 'read:user'];
+
+/**
+ * Valida que el scope devuelto por GitHub cubra el mínimo que las tools
+ * nativas necesitan. GitHub no normaliza el orden ni garantiza separadores,
+ * así que se compara por token de scope.
+ * @param {string | null | undefined} scope — el valor `scope` de la respuesta.
+ * @returns {{ ok: boolean, missing: string[] }}
+ */
+function validateScopes(scope) {
+  const granted = new Set(
+    String(scope || '')
+      .split(/\s*,\s*|\s+/)
+      .filter(Boolean)
+  );
+  const missing = MIN_REQUIRED_SCOPES.filter((s) => !granted.has(s));
+  return { ok: missing.length === 0, missing };
+}
 
 function _jsonHeaders(extra = {}) {
   return {
@@ -84,11 +108,17 @@ class OAuthDeviceFlow {
     });
     const data = await res.json().catch(() => ({}));
     if (res.ok && data.access_token) {
+      // P4: verificar que el token que GitHub devolvió cubre el scope mínimo.
+      // Si GitHub recortó el scope (usuario desmarcó permisos) avisamos —
+      // un token sin `repo` fallará en todas las tools mutadoras.
+      const scopeCheck = validateScopes(data.scope);
       return {
         ok: true,
         accessToken: data.access_token,
         tokenType: data.token_type,
         scope: data.scope,
+        scopeValid: scopeCheck.ok,
+        missingScopes: scopeCheck.missing,
       };
     }
     // Errores del estándar: authorization_pending, slow_down, expired_token,
@@ -101,4 +131,11 @@ class OAuthDeviceFlow {
   }
 }
 
-module.exports = { OAuthDeviceFlow, DEVICE_CODE_URL, ACCESS_TOKEN_URL, DEFAULT_SCOPE };
+module.exports = {
+  OAuthDeviceFlow,
+  DEVICE_CODE_URL,
+  ACCESS_TOKEN_URL,
+  DEFAULT_SCOPE,
+  MIN_REQUIRED_SCOPES,
+  validateScopes,
+};

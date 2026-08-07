@@ -305,6 +305,44 @@ async function testExecNoShell(apiKey) {
   assert(res.body.result.stdout.length > 0, 'ls -la produce salida');
 }
 
+// ── Test 11: env de procesos hijos sin secretos (P2) ────────────────────────
+
+function testSafeChildEnv() {
+  console.log(C.bold('\n── Test 11: _safeChildEnv no filtra secretos al hijo ───────────'));
+
+  const srv = require(path.resolve(__dirname, '..', 'openclaw-server.js'));
+
+  // Env con secretos conocidos + variables normales.
+  const original = process.env;
+  process.env.GITHUB_TOKEN = 'gho_fake_secret';
+  process.env.OPENAI_API_KEY = 'sk-fake';
+  process.env.MY_APP_SECRET = 's3cr3t';
+  process.env.AWS_ACCESS_KEY_ID = 'AKIAFAKE';
+  process.env.PATH = original.PATH;
+  process.env.LANG = original.LANG || 'C.UTF-8';
+  process.env.HOME = original.HOME || '/tmp';
+
+  const env = srv._safeChildEnv();
+
+  assert(env.GITHUB_TOKEN === undefined, 'GITHUB_TOKEN no está en el env del hijo');
+  assert(env.OPENAI_API_KEY === undefined, 'OPENAI_API_KEY no está');
+  assert(env.MY_APP_SECRET === undefined, 'MY_APP_SECRET no está');
+  assert(env.AWS_ACCESS_KEY_ID === undefined, 'AWS_ACCESS_KEY_ID no está');
+  assert(env.PATH !== undefined, 'PATH se conserva (herramientas necesitan el binario)');
+  assert(env.HOME !== undefined, 'HOME se conserva');
+  assert(env.LANG !== undefined, 'LANG se conserva');
+
+  // No hay ningún valor que sea una de las claves "fake".
+  const leaked = Object.values(env).some(
+    (v) =>
+      typeof v === 'string' &&
+      (v.includes('gho_fake_secret') || v.includes('sk-fake') || v.includes('s3cr3t'))
+  );
+  assert(!leaked, 'ningún valor de secreto fake quedó en el env');
+
+  process.env = original;
+}
+
 // ── Main ────────────────────────────────────────────────────────────────────
 
 async function main() {
@@ -349,6 +387,7 @@ async function main() {
     await testBlockedCommands(apiKey);
     await testSafeCommands(apiKey);
     await testExecNoShell(apiKey);
+    testSafeChildEnv();
   } finally {
     serverProcess.kill();
   }

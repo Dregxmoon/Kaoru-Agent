@@ -8,6 +8,12 @@ const Diff = require('diff');
 const crypto = require('crypto');
 const { dirSet } = require('./core/utils/ignoreDirs.js');
 
+// P3: límite de confianza anti prompt-injection — el texto de páginas web de
+// terceros NO es confiable (una página puede llevar instrucciones ocultas
+// para el agente). webfetch/websearch devuelven contenido delimitado como
+// no confiable y neutralizan patrones de inyección antes de que entre al LLM.
+const { wrapUntrusted, wrapUntrustedItems } = require('./core/grounding/untrustedContent.js');
+
 // G.1: puerto configurable vía OPENCLAW_PORT (para tests y despliegues
 // embebidos); default 18789 mantiene compatibilidad.
 const DEFAULT_PORT = 18789;
@@ -137,6 +143,48 @@ const BLOCKED_COMMAND_PATTERNS = [
 
 function _isBlockedCommand(command) {
   return BLOCKED_COMMAND_PATTERNS.some((re) => re.test(command));
+}
+
+// P2: env limpio para procesos hijos. El proceso hijo hereda process.env por
+// defecto — si la app corre con GITHUB_TOKEN, OPENAI_API_KEY u otras
+// credenciales en el entorno, un comando aprobado (o el script de
+// code_execution) podría exfiltra-las. Construimos un env mínimo que conserva
+// lo necesario para herramientas habituales (PATH, HOME, LANG, locales) pero
+// ELIMINA variables que son claves/tokens. Esto NO es un sandbox de proceso
+// (ver nota de BLOCKED_COMMAND_PATTERNS): es defensa en profundidad para no
+// exponer credenciales del entorno a comandos que no las necesitan.
+const STRIPPED_ENV_KEY_RE =
+  /(^|_)(KEY|TOKEN|SECRET|PASSWORD|PASSWD|API_?KEY|PAT|CREDENTIALS?|AUTH)(\b|_|$)/i;
+const KEEP_ENV_KEYS = [
+  'PATH',
+  'HOME',
+  'LANG',
+  'LC_ALL',
+  'LC_CTYPE',
+  'TZ',
+  'TERM',
+  'SHELL',
+  'USER',
+  'LOGNAME',
+  'HOSTNAME',
+  'DISPLAY',
+  'XDG_RUNTIME_DIR',
+  'GPG_TTY',
+  'EDITOR',
+  'VISUAL',
+];
+
+function _safeChildEnv() {
+  const env = {};
+  for (const key of KEEP_ENV_KEYS) {
+    if (process.env[key] !== undefined) env[key] = process.env[key];
+  }
+  for (const [key, value] of Object.entries(process.env)) {
+    if (env[key] !== undefined) continue;
+    if (STRIPPED_ENV_KEY_RE.test(key)) continue;
+    env[key] = value;
+  }
+  return env;
 }
 
 function _buildCommandArgs(fullCommand) {
@@ -424,6 +472,7 @@ const HANDLERS = {
         cwd,
         stdio: 'pipe',
         windowsHide: true,
+        env: _safeChildEnv(),
       });
       const stdout = [];
       const stderr = [];
@@ -634,6 +683,7 @@ const HANDLERS = {
       const child = spawn('python3', ['-c', code], {
         stdio: 'pipe',
         windowsHide: true,
+        env: _safeChildEnv(),
       });
       const stdout = [];
       const stderr = [];
@@ -698,7 +748,7 @@ const HANDLERS = {
           statusCode: res.statusCode,
           contentType: res.contentType,
           truncated: res.truncated,
-          text: text.slice(0, MAX_WEB_BYTES),
+          text: wrapUntrusted(text.slice(0, MAX_WEB_BYTES)),
         },
       };
     } catch (e) {
@@ -715,7 +765,7 @@ const HANDLERS = {
       const url = `https://html.duckduckgo.com/html/?q=${encodeURIComponent(query)}`;
       const res = await _httpGet(url);
       const results = _parseDuckDuckGoHTML(res.body).slice(0, max);
-      return { result: { query, results } };
+      return { result: { query, results: wrapUntrustedItems(results) } };
     } catch (e) {
       return { error: e.message };
     }
@@ -863,6 +913,7 @@ module.exports = {
   _isOutsideAllowed,
   _isImmutablePath,
   _isBlockedCommand,
+  _safeChildEnv,
   HANDLERS,
   handleTool,
   _checkRateLimit,

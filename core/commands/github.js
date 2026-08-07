@@ -17,7 +17,7 @@
 
 const KeychainManager = require('../../infrastructure/keychain/KeychainManager.js');
 const { getGitHubManager, GITHUB_TOKEN_KEY } = require('../github/GitHubManager.js');
-const { OAuthDeviceFlow } = require('../github/OAuthDeviceFlow.js');
+const { OAuthDeviceFlow, MIN_REQUIRED_SCOPES } = require('../github/OAuthDeviceFlow.js');
 
 const CLIENT_ID_KEY = 'github_client_id';
 const MIN_PAT_LENGTH = 20;
@@ -226,7 +226,15 @@ async function _pollDeviceFlow(ctx, gh, K, flow, info, sleep) {
       const persistNote = persisted
         ? ''
         : '\n No se pudo persistir en el llavero — el token quedará activo solo durante esta sesión.';
-      _notify(ctx, `Conectado a GitHub${who}.${persistNote}`);
+      // P4: si GitHub devolvió un token con scope recortado (el usuario desmarcó
+      // permisos), avisamos qué faltaría — sin `repo` las tools mutadoras
+      // (issues/PRs) fallarán. No bloquea la conexión: whoami y lecturas
+      // públicas sí funcionan con menos scope.
+      const scopeNote =
+        res.scopeValid === false && res.missingScopes && res.missingScopes.length > 0
+          ? `\n⚠️ El token quedó con scope incompleto (faltan: ${res.missingScopes.join(', ')}). Las tools de issues/PRs requieren ${MIN_REQUIRED_SCOPES.join(' + ')}. Reautorizá con /github logout y /github login marcando todos los permisos.`
+          : '';
+      _notify(ctx, `Conectado a GitHub${who}.${persistNote}${scopeNote}`);
       return;
     }
     if (res.error === 'access_denied') {

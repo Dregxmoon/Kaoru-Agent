@@ -147,6 +147,91 @@ async function testStartError() {
   assert(err.status === 422, 'status preservado');
 }
 
+// ── Test 6: validación de scopes (P4) ─────────────────────────────────────────
+
+function testValidateScopes() {
+  console.log(C.bold('\n── Test 6: validateScopes — scope mínimo vs. lo que devolvió GitHub ──'));
+
+  const {
+    validateScopes,
+    DEFAULT_SCOPE,
+    MIN_REQUIRED_SCOPES,
+  } = require('../core/github/OAuthDeviceFlow.js');
+
+  assert(
+    Array.isArray(MIN_REQUIRED_SCOPES) && MIN_REQUIRED_SCOPES.includes('repo'),
+    'repo es scope mínimo'
+  );
+  assert(MIN_REQUIRED_SCOPES.includes('read:user'), 'read:user es scope mínimo (whoami)');
+  assert(
+    DEFAULT_SCOPE === 'repo read:user',
+    'DEFAULT_SCOPE es exactamente el mínimo que las tools necesitan',
+    DEFAULT_SCOPE
+  );
+
+  const full = validateScopes('repo read:user');
+  assert(full.ok === true && full.missing.length === 0, 'repo read:user → ok');
+
+  const reordered = validateScopes('read:user repo');
+  assert(reordered.ok === true, 'orden distinto → ok (set de scopes)');
+
+  const commaSep = validateScopes('repo, read:user');
+  assert(commaSep.ok === true, 'separador por comas → ok');
+
+  const reduced = validateScopes('repo');
+  assert(
+    reduced.ok === false && reduced.missing.includes('read:user'),
+    'solo repo → falta read:user'
+  );
+
+  const publicOnly = validateScopes('public_repo');
+  assert(
+    publicOnly.ok === false && publicOnly.missing.includes('repo'),
+    'solo public_repo → falta repo'
+  );
+
+  const nullScope = validateScopes(null);
+  assert(nullScope.ok === false && nullScope.missing.length === 2, 'scope null → faltan todos');
+
+  const empty = validateScopes('');
+  assert(empty.ok === false, 'scope vacío → no ok');
+}
+
+async function testPollTokenWithReducedScope() {
+  console.log(C.bold('\n── Test 7: poll() reporta scope recortado por GitHub (P4) ────────'));
+
+  const { OAuthDeviceFlow, ACCESS_TOKEN_URL } = require('../core/github/OAuthDeviceFlow.js');
+
+  // GitHub devolvió el token pero con scope reducido (usuario desmarcó permisos).
+  let called = false;
+  const fakeFetch = async (url) => {
+    called = true;
+    if (url === ACCESS_TOKEN_URL) {
+      return {
+        ok: true,
+        json: async () => ({
+          access_token: 'gho_partial',
+          token_type: 'bearer',
+          scope: 'public_repo',
+        }),
+      };
+    }
+    throw new Error('unexpected url');
+  };
+
+  const flow = new OAuthDeviceFlow({ clientId: 'Iv1.abc', fetch: fakeFetch });
+  const res = await flow.poll('dc_partial');
+
+  assert(called, 'se llamó al endpoint de token');
+  assert(res.ok === true, 'el token se devuelve (no bloquea conexión)');
+  assert(res.accessToken === 'gho_partial', 'accessToken presente');
+  assert(res.scopeValid === false, 'scopeValid:false cuando GitHub recorta el scope');
+  assert(
+    Array.isArray(res.missingScopes) && res.missingScopes.includes('repo'),
+    'missingScopes incluye repo'
+  );
+}
+
 // ── Main ───────────────────────────────────────────────────────────────────────
 
 async function main() {
@@ -159,6 +244,8 @@ async function main() {
   await testPollToken();
   await testPollStates();
   await testStartError();
+  testValidateScopes();
+  await testPollTokenWithReducedScope();
 
   console.log(C.bold('\n════════════════════════════════════════════════════════'));
   const total = passed + failed;

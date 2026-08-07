@@ -16,6 +16,13 @@
 
 'use strict';
 
+// Límite de confianza anti prompt-injection (P3): el texto que el navegador
+// extrae de páginas web de terceros NO es confiable — una página maliciosa
+// puede incluir instrucciones ocultas para el agente. Todo contenido de
+// terceros que entra al contexto del LLM pasa por wrapUntrusted (delimitación
+// + neutralización de patrones de inyección).
+const { wrapUntrusted, wrapUntrustedItems } = require('../grounding/untrustedContent.js');
+
 let _playwright = null;
 let _browser = null;
 let _page = null;
@@ -102,11 +109,12 @@ async function executeBrowserAction(input) {
       if (selector) {
         const text = await page.textContent(selector).catch(() => null);
         if (text === null) throw new Error(`No se encontró el elemento: ${selector}`);
-        return { result: text.trim() };
+        // Contenido de terceros → límite de confianza antes de entrar al prompt.
+        return { result: wrapUntrusted(text.trim()) };
       }
       // Sin selector → texto completo del body, recortado para no inflar contexto
       const bodyText = await page.evaluate(() => document.body?.innerText || '');
-      return { result: bodyText.slice(0, 5000) };
+      return { result: wrapUntrusted(bodyText.slice(0, 5000)) };
     }
 
     case 'screenshot': {
@@ -172,8 +180,10 @@ async function executeWebSearch(input) {
     };
   }
 
+  // P3: los snippets de resultados son contenido de terceros → límite de
+  // confianza (delimitación + neutralización de patrones de inyección).
   console.log(`[browser-bridge] web_search: ${results.length} resultados`);
-  return { result: results };
+  return { result: wrapUntrustedItems(results) };
 }
 
 module.exports = {
