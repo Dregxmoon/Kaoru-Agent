@@ -139,6 +139,15 @@ async function runAgent(userMessage, opts = {}) {
     permissionManager: state.permissionManager || null,
   };
 
+  // Self-critique: en modo tarea (smart), al terminar el run con una respuesta
+  // de texto el loop compara el resultado contra la intención original del
+  // usuario y corrige si hay brecha (acotado a SELF_CRITIQUE_MAX_ROUNDS).
+  // No aplica en conversación rápida (fast): duplicaría la latencia de una
+  // charla sin herramientas que ejecutar.
+  if (opts.selfCritique === undefined && mode === 'smart') {
+    loopOpts.selfCritique = true;
+  }
+
   // evalMode: benchmark headless — toda tool de alto impacto se auto-aprueba,
   // sin callback de aprobación (el loop ya la ejecuta si no hay handler).
   if (opts.evalMode) {

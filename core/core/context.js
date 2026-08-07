@@ -75,7 +75,9 @@ async function buildContext(sessionHistory, activeProvider, options = {}) {
   // GroundingEngine
   let result;
   if (state.grounding) {
-    result = await state.grounding.buildContext(sessionHistory, provider, toolIntent);
+    result = await state.grounding.buildContext(sessionHistory, provider, toolIntent, {
+      includeMemory: options.includeMemory === true,
+    });
   } else {
     const Fallback = require('../llm/GroundingMinimo.js');
     result = Fallback.buildContext(sessionHistory);

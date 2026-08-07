@@ -69,6 +69,14 @@ const EDIT_TOOLS = new Set(['write', 'edit', 'apply_patch', 'create_file', 'edit
 const MAX_ITERATIONS = 25;
 const RESULT_TRUNCATE_LIMIT = 800;
 
+// Self-critique (opcional, opts.selfCritique): al terminar el loop con una
+// respuesta de texto, un paso extra le pide al LLM comparar el resultado
+// contra la INTENCIÓN original del usuario (no solo criterios técnicos como
+// tests/lint). Si el veredicto es INCOMPLETA y quedan iteraciones, el
+// feedback vuelve al loop para corregir/continuar. Acotado para no abrir un
+// bucle infinito.
+const SELF_CRITIQUE_MAX_ROUNDS = 2;
+
 // G.1: compactación de contexto. Cuando la historia de iteraciones crece, los
 // turnos viejos se condensan en un resumen determinista (no se re-envía todo
 // el historial crudo a cada turno): el objetivo + lista de acciones ejecutadas.
@@ -279,6 +287,9 @@ class AgentLoop {
     let lastToolResult = null;
     const toolResults = [];
     let lastResponseText = null; // guarda último output del LLM para max_iterations
+    // Self-critique (opts.selfCritique): cuántas pasadas de crítica se
+    // agotaron en este run — acota el bucle de corrección (no infinito).
+    let critiqueRounds = 0;
 
     for (let i = 0; i < this.maxIterations; i++) {
       // Cancelación por el usuario (AbortController): se revisa en cada
@@ -412,6 +423,29 @@ class AgentLoop {
       }
 
       if (actions.length === 0) {
+        // Self-critique (opcional): antes de dar por terminado el run con una
+        // respuesta de texto, un paso extra le pide al LLM comparar el
+        // resultado contra la INTENCIÓN original del usuario (no solo tests/
+        // lint). Si el veredicto es INCOMPLETA, el feedback vuelve al loop
+        // para cerrar la brecha. Acotado a SELF_CRITIQUE_MAX_ROUNDS.
+        if (opts.selfCritique && critiqueRounds < SELF_CRITIQUE_MAX_ROUNDS) {
+          const critique = await this._selfCritique({
+            userMessage,
+            responseText,
+            toolResults,
+            llm,
+            llmOpts,
+            signal,
+          });
+          if (critique && critique.continue && !(signal && signal.aborted)) {
+            critiqueRounds++;
+            iterationHistory.push({ role: 'user', content: critique.message });
+            console.log(
+              `[agent-loop] auto-crítica ronda ${critiqueRounds}/${SELF_CRITIQUE_MAX_ROUNDS}: tarea incompleta, continuando`
+            );
+            continue;
+          }
+        }
         return {
           response: responseText,
           iterations: i + 1,
@@ -1028,6 +1062,90 @@ class AgentLoop {
       old_text: resolved.old_text,
       new_text: resolved.new_text,
     });
+  }
+
+  /**
+   * Self-critique (opcional, opts.selfCritique): paso extra al terminar el
+   * run con una respuesta de texto. Pide al LLM comparar el resultado contra
+   * la INTENCIÓN original del usuario (no solo criterios técnicos) y devuelve
+   * { continue: true, message } si el veredicto es INCOMPLETA — el loop usa
+   * ese mensaje para continuar corrigiendo. Devuelve null si COMPLETA o si la
+   * llamada falla (la auto-crítica nunca rompe ni bloquea el run).
+   *
+   * @param {object} p
+   * @param {string} p.userMessage - intención original del usuario
+   * @param {string} p.responseText - respuesta final del agente
+   * @param {Array} p.toolResults - acciones ejecutadas
+   * @param {Function} p.llm - función LLM resuelta del run
+   * @param {object} p.llmOpts - { signal } ya preparado
+   * @param {AbortSignal|null} p.signal
+   */
+  async _selfCritique({ userMessage, responseText, toolResults, llm, llmOpts, signal }) {
+    const actionsSummary =
+      (toolResults || [])
+        .map((t) => {
+          const brief = t._action?.params || {};
+          const params = Object.entries(brief)
+            .map(
+              ([k, v]) =>
+                `${k}=${typeof v === 'string' ? v.slice(0, 60) : JSON.stringify(v)?.slice(0, 60)}`
+            )
+            .join(' ');
+          return `  - ${t.tool}${params ? ' · ' + params : ''} → ${t.ok ? 'OK' : `FALLÓ: ${t.error || ''}`}`;
+        })
+        .join('\n') || '  (ninguna acción ejecutada)';
+
+    const critiquePrompt = [
+      `# AUTO-CRÍTICA — verificación contra la intención original`,
+      ``,
+      `Intención original del usuario:`,
+      String(userMessage).slice(0, 600),
+      ``,
+      `Acciones ejecutadas:`,
+      actionsSummary,
+      ``,
+      `Respuesta final del agente:`,
+      String(responseText || '').slice(0, 800),
+      ``,
+      `¿El resultado satisface COMPLETAMENTE la intención original del usuario?`,
+      `Responde EXACTAMENTE una de estas dos líneas (sin texto extra):`,
+      `VEREDICTO: COMPLETA`,
+      `VEREDICTO: INCOMPLETA`,
+      `Si es INCOMPLETA, añade una línea "RAZÓN: <qué falta o qué corregir>".`,
+    ].join('\n');
+
+    const critiqueSystem = [
+      'Eres un crítico riguroso del agente. Evalúa el resultado final contra la',
+      'intención original del usuario, NO solo contra criterios técnicos (tests,',
+      'lint, diagnósticos). Si la tarea quedó incompleta, mal resuelta o se desvió',
+      'de lo pedido, marca INCOMPLETA con una razón específica y accionable.',
+      'Sé estricto pero justo: solo INCOMPLETA si hay una brecha real.',
+    ].join('\n');
+
+    try {
+      // La auto-crítica NO streamiea al chat: es un paso interno de control.
+      const critiqueSignal = signal || llmOpts?.signal || null;
+      const raw = await llm(
+        [{ role: 'user', content: critiquePrompt }],
+        critiqueSystem,
+        critiqueSignal ? { signal: critiqueSignal } : {}
+      );
+      const text = typeof raw === 'string' ? raw : raw?.content || '';
+      if (/VEREDICTO:\s*INCOMPLETA/i.test(text)) {
+        const reasonMatch = text.match(/RAZÓN:\s*([^\n]+)/i);
+        const reason = reasonMatch
+          ? reasonMatch[1].trim()
+          : 'El resultado no cubre la intención original.';
+        return {
+          continue: true,
+          message: `[Auto-crítica del agente] La tarea quedó incompleta: ${reason}.\nRevisa y corrige/termina lo que haga falta.`,
+        };
+      }
+    } catch (e) {
+      if (e?.code === 'ABORTED' || e?.name === 'AbortError') throw e;
+      console.warn(`[agent-loop] auto-crítica falló: ${e.message}`);
+    }
+    return null;
   }
 
   _buildToolResultMessage(lastResult) {

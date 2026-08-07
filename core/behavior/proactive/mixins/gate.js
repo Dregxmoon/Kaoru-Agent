@@ -3,7 +3,10 @@
 // consulta al LLM. El LLM produce el mensaje cuando el gate admite la señal.
 
 const LLMProvider = require('../../../llm/LLMProvider.js');
-const { scoreRelevancia } = require('../../../decision/DecisionCore.js');
+const {
+  scoreRelevancia,
+  ajustarScorePorAprendizaje,
+} = require('../../../decision/DecisionCore.js');
 const { candidateFromTrigger } = require('../../../decision/SignalNormalizer.js');
 const { evaluate: evaluateGate } = require('../../../decision/ContextGate.js');
 
@@ -33,7 +36,12 @@ module.exports = {
 
     const now = Date.now();
     const ctx = this._buildGateContext(now);
-    const score = scoreRelevancia(candidate.signal);
+    const baseScore = scoreRelevancia(candidate.signal);
+    // F-G: aprendizaje por tipo — el historial de aceptación/rechazo que
+    // persiste ProposalStore (por trigger.type) ajusta la relevancia. Sin
+    // muestras suficientes devuelve la R base sin cambios.
+    const typeStats = this._store?.getStats?.()?.byType?.[trigger.type] || null;
+    const score = typeStats ? ajustarScorePorAprendizaje(baseScore, typeStats) : baseScore;
     candidate.score = score;
 
     const result = evaluateGate(candidate, ctx);

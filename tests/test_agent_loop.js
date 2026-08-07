@@ -908,6 +908,89 @@ async function testResolvedLegacyEdit() {
   fs.rmSync(dir, { recursive: true, force: true });
 }
 
+// ── Self-critique: verifica contra la intención original ───────────────────
+
+async function testSelfCritique() {
+  console.log(C.bold('\n── Test 14: Self-critique corrige una tarea incompleta ─────────'));
+
+  const { AgentLoop } = require('../core/planner/AgentLoop.js');
+
+  // Secuencia de respuestas:
+  //  1. El agente responde con texto pero SIN ejecutar lo pedido (respuesta
+  //     vaga "Tarea lista").
+  //  2. La auto-crítica detecta que no se cumplió la intención → INCOMPLETA.
+  //  3. El agente, con el feedback, corrige y da una respuesta completa.
+  //  4. La segunda auto-crítica confirma COMPLETA → termina el run.
+  const mockLLM = createMockLLM([
+    'Tarea lista, espero haberte ayudado.',
+    'VEREDICTO: INCOMPLETA\nRAZÓN: la intención pedía revisar config.json y nunca se leyó el archivo.',
+    'Revisé el archivo config.json y contiene la clave "key" con el valor "value".',
+    'VEREDICTO: COMPLETA',
+  ]);
+
+  const loop = new AgentLoop({
+    maxIterations: 10,
+    llm: mockLLM,
+    bridge: createMockBridge('/tmp'),
+  });
+
+  const result = await loop.run(
+    'Revisa config.json y dime qué contiene',
+    'Eres un asistente útil.',
+    [],
+    { selfCritique: true }
+  );
+
+  assert(
+    result.iterations === 2,
+    'Ocupa una iteración extra para corregir',
+    `iter: ${result.iterations}`
+  );
+  assert(
+    mockLLM.callCount() === 4,
+    '4 llamadas LLM (2 respuestas + 2 críticas)',
+    `calls: ${mockLLM.callCount()}`
+  );
+  assert(!result.error, 'Sin error');
+  assert(
+    result.response.includes('config.json') && result.response.includes('value'),
+    'Respuesta final cubre la intención original',
+    result.response.slice(0, 120)
+  );
+}
+
+async function testSelfCritiqueCompleteNoExtraRounds() {
+  console.log(C.bold('\n── Test 15: Self-critique no consume rondas si la tarea está completa ─'));
+
+  const { AgentLoop } = require('../core/planner/AgentLoop.js');
+
+  const mockLLM = createMockLLM([
+    'config.json contiene la clave "key" con el valor "value".',
+    'VEREDICTO: COMPLETA',
+  ]);
+
+  const loop = new AgentLoop({
+    maxIterations: 10,
+    llm: mockLLM,
+    bridge: createMockBridge('/tmp'),
+  });
+
+  const result = await loop.run(
+    'Revisa config.json y dime qué contiene',
+    'Eres un asistente útil.',
+    [],
+    { selfCritique: true }
+  );
+
+  assert(result.iterations === 1, 'Termina en 1 iteración', `iter: ${result.iterations}`);
+  assert(
+    mockLLM.callCount() === 2,
+    '2 llamadas (1 respuesta + 1 crítica)',
+    `calls: ${mockLLM.callCount()}`
+  );
+  assert(!result.error, 'Sin error');
+}
+
 // ── Plugin tools: default alto impacto (seguridad) ─────────────────────────
 
 function testPluginToolsAreHighImpact() {
@@ -946,6 +1029,8 @@ async function main() {
   await testSubagentDepthLimit();
   await testMemoryCompaction();
   await testResolvedLegacyEdit();
+  await testSelfCritique();
+  await testSelfCritiqueCompleteNoExtraRounds();
   testPluginToolsAreHighImpact();
 
   console.log(C.bold('\n════════════════════════════════════════════════════════'));

@@ -139,6 +139,58 @@ function testNoIntentNoFabricationBlock() {
   );
 }
 
+// ── Memoria persistente: excluida por defecto de proveedores externos ───────
+
+const MEMORY_SAMPLE = {
+  nodes: [{ type: 'Dato', content: 'El usuario trabaja en el Proyecto X' }],
+  episodes: [{ content: 'Conversación sobre refactor del módulo Y', created_at: '2026-01-01' }],
+};
+
+function testMemoryExcludedByDefault() {
+  console.log(C.bold('\n── Memoria: excluida por defecto de proveedores externos ──'));
+
+  const { GroqSerializer } = require('../core/grounding/serializers/GroqSerializer.js');
+  const serializer = new GroqSerializer();
+
+  const base = {
+    identity: null,
+    osContext: null,
+    sessionHistory: [],
+    currentMessage: { role: 'user', content: '¿qué sabes de mí?' },
+    toolIntent: null,
+  };
+
+  const defaultResult = serializer.serialize({ ...base, persistentMemory: MEMORY_SAMPLE });
+  assert(
+    !defaultResult.systemPrompt.includes('Lo que sé del usuario'),
+    'Por defecto NO se incluye la sección de memoria'
+  );
+  assert(
+    !defaultResult.systemPrompt.includes('Episodios recientes'),
+    'Por defecto NO se incluyen episodios'
+  );
+
+  const withMemory = serializer.serialize(
+    { ...base, persistentMemory: MEMORY_SAMPLE },
+    { includeMemory: true }
+  );
+  assert(
+    withMemory.systemPrompt.includes('Lo que sé del usuario'),
+    'Con includeMemory:true la memoria se incluye'
+  );
+  assert(withMemory.systemPrompt.includes('Proyecto X'), 'El nodo de memoria llega al prompt');
+
+  // Gemini/OpenAI heredan el flag (ambos extienden GroqSerializer).
+  const {
+    GeminiSerializer,
+    OpenAISerializer,
+  } = require('../core/grounding/serializers/GeminiOpenAISerializer.js');
+  const gem = new GeminiSerializer().serialize({ ...base, persistentMemory: MEMORY_SAMPLE });
+  const oai = new OpenAISerializer().serialize({ ...base, persistentMemory: MEMORY_SAMPLE });
+  assert(!gem.systemPrompt.includes('Lo que sé del usuario'), 'Gemini: excluida por defecto');
+  assert(!oai.systemPrompt.includes('Lo que sé del usuario'), 'OpenAI: excluida por defecto');
+}
+
 // ── Run ─────────────────────────────────────────────────────────────────────
 
 console.log(C.bold(C.cyan('\n════════════════════════════════════════════════════════')));
@@ -148,6 +200,7 @@ console.log(C.bold(C.cyan('═════════════════�
 testHighLevelHasAntiFabrication();
 testMediumLevelHasAntiFabrication();
 testNoIntentNoFabricationBlock();
+testMemoryExcludedByDefault();
 
 console.log(C.bold('\n════════════════════════════════════════════════════════'));
 const total = passed + failed + skipped;

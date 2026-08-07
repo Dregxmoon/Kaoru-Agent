@@ -150,12 +150,14 @@ class ContextAssembler {
    * @param {object} opts.retrievalResult
    * @param {string} opts.activeProvider
    * @param {object} opts.toolIntent       — resultado de IntentDetector (Fase 3)
+   * @param {boolean} [opts.includeMemory] — incluir memoria persistente en el prompt
    */
   build({
     sessionHistory = [],
     retrievalResult = null,
     activeProvider = 'groq',
     toolIntent = null,
+    includeMemory = false,
   }) {
     const identity = getIdentityStore();
     const osCtx = buildOSContext(this._osSensor);
@@ -175,7 +177,7 @@ class ContextAssembler {
     };
 
     const serializer = SERIALIZERS[activeProvider] ?? SERIALIZERS.groq;
-    const result = serializer.serialize(contextPackage);
+    const result = serializer.serialize(contextPackage, { includeMemory });
     const estimatedTokens = Math.round(result.systemPrompt.length / 4);
 
     console.log(

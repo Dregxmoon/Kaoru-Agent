@@ -44,9 +44,11 @@ class GroundingEngine {
    * @param {SessionHistory} sessionHistory
    * @param {string} activeProvider
    * @param {ToolIntent | null} [toolIntent] - resultado de IntentDetector (Fase 3, opcional)
+   * @param {object} [opts]
+   * @param {boolean} [opts.includeMemory] - incluir memoria persistente en el prompt
    * @returns {Promise<ContextResult>}
    */
-  async buildContext(sessionHistory = [], activeProvider = 'groq', toolIntent = null) {
+  async buildContext(sessionHistory = [], activeProvider = 'groq', toolIntent = null, opts = {}) {
     try {
       const currentMsg = sessionHistory[sessionHistory.length - 1];
       const userText = currentMsg?.role === 'user' ? currentMsg.content : '';
@@ -62,6 +64,7 @@ class GroundingEngine {
         retrievalResult,
         activeProvider,
         toolIntent: /** @type {object} */ (toolIntent),
+        includeMemory: opts.includeMemory === true,
       });
 
       return result;

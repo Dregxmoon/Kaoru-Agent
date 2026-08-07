@@ -467,9 +467,14 @@ class GroqSerializer {
    *   toolIntent?: ToolIntentData | null,
    * }} contextPackage
    *
+   * @param {{ includeMemory?: boolean }} [opts]
+   *   includeMemory: incluye la sección de memoria persistente en el prompt.
+   *   Por defecto NO — la memoria local del usuario (nodos/episodios del
+   *   StateGraph) no se envía a proveedores externos por defecto.
+   *
    * @returns {{ systemPrompt: string, messages: Array<HistoryTurn> }}
    */
-  serialize(contextPackage) {
+  serialize(contextPackage, opts = {}) {
     const {
       identity = null,
       osContext = null,
@@ -478,6 +483,7 @@ class GroqSerializer {
       currentMessage = null,
       toolIntent = null, // ← nuevo en Fase 3
     } = contextPackage;
+    const includeMemory = opts.includeMemory === true;
 
     // Construir secciones del system prompt
     // Identidad: cacheada (se genera UNA VEZ), NO se recalcula por turno
@@ -485,7 +491,7 @@ class GroqSerializer {
     const sections = [
       _getSerializedIdentity(),
       _buildOSSection(osContext),
-      _buildMemorySection(persistentMemory),
+      includeMemory ? _buildMemorySection(persistentMemory) : '',
       _buildToolIntentSection(toolIntent), // ← inyección Fase 3
     ].filter(Boolean);
 

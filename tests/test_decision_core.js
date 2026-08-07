@@ -316,6 +316,112 @@ function testAudit() {
   assert(last.outcome === 'accepted', 'outcome se registra en el audit');
 }
 
+// ── Test 6: ajustarScorePorAprendizaje (F-G) ────────────────────────────────
+
+function testLearning() {
+  console.log(C.bold('\nTest 6: ajustarScorePorAprendizaje — aprendizaje por tipo'));
+
+  const { ajustarScorePorAprendizaje } = require('../core/decision/DecisionCore.js');
+  const R = 0.5;
+
+  // Sin muestras suficientes → R sin tocar.
+  assert(
+    ajustarScorePorAprendizaje(R, { accepted: 1, rejected: 0, ignored: 0 }) === R,
+    'sin muestras → R intacto'
+  );
+  assert(
+    ajustarScorePorAprendizaje(R, { accepted: 0, rejected: 2, ignored: 0 }) === R,
+    'rechazos sin mínimo de muestras → R intacto'
+  );
+  assert(ajustarScorePorAprendizaje(R, null) === R, 'stats null → R intacto');
+  assert(ajustarScorePorAprendizaje(R) === R, 'sin stats → R intacto');
+
+  // Tipo bien recibido → sube (hasta +maxBias).
+  const well = ajustarScorePorAprendizaje(R, {
+    accepted: 8,
+    rejected: 1,
+    ignored: 1,
+    rejectsInRow: 0,
+  });
+  assert(well > R, 'ratio alto de aceptación → R sube', `R=${R} → ${well.toFixed(4)}`);
+
+  // Tipo mal recibido → baja.
+  const bad = ajustarScorePorAprendizaje(R, {
+    accepted: 1,
+    rejected: 8,
+    ignored: 1,
+    rejectsInRow: 0,
+  });
+  assert(bad < R, 'ratio alto de rechazo → R baja', `R=${R} → ${bad.toFixed(4)}`);
+
+  // Rechazos consecutivos penalizan más.
+  const inRow = ajustarScorePorAprendizaje(R, {
+    accepted: 4,
+    rejected: 4,
+    ignored: 0,
+    rejectsInRow: 4,
+  });
+  const noRow = ajustarScorePorAprendizaje(R, {
+    accepted: 4,
+    rejected: 4,
+    ignored: 0,
+    rejectsInRow: 0,
+  });
+  assert(inRow < noRow, 'rejectsInRow penaliza más que rechazos dispersos');
+
+  // Resultado siempre en [0, 1].
+  const clampedHigh = ajustarScorePorAprendizaje(0.99, {
+    accepted: 9,
+    rejected: 0,
+    ignored: 0,
+    rejectsInRow: 0,
+  });
+  const clampedLow = ajustarScorePorAprendizaje(0.01, {
+    accepted: 0,
+    rejected: 9,
+    ignored: 0,
+    rejectsInRow: 9,
+  });
+  assert(
+    clampedHigh <= 1 && clampedHigh >= 0,
+    'clamp superior respetado',
+    `→ ${clampedHigh.toFixed(4)}`
+  );
+  assert(
+    clampedLow >= 0 && clampedLow <= 1,
+    'clamp inferior respetado',
+    `→ ${clampedLow.toFixed(4)}`
+  );
+
+  // Ajuste acotado por maxBias (sin importar historial extremo).
+  const maxAdj = ajustarScorePorAprendizaje(R, {
+    accepted: 99,
+    rejected: 0,
+    ignored: 0,
+    rejectsInRow: 0,
+  });
+  assert(
+    maxAdj - R <= 0.1 + 1e-9,
+    'el sesgo no supera maxBias (0.1)',
+    `Δ=${(maxAdj - R).toFixed(4)}`
+  );
+
+  // Determinista: mismo historial → mismo ajuste.
+  const a = ajustarScorePorAprendizaje(R, {
+    accepted: 5,
+    rejected: 3,
+    ignored: 2,
+    rejectsInRow: 1,
+  });
+  const b = ajustarScorePorAprendizaje(R, {
+    accepted: 5,
+    rejected: 3,
+    ignored: 2,
+    rejectsInRow: 1,
+  });
+  assert(a === b, 'mismo historial → mismo ajuste (determinista)');
+}
+
 // ── Run ─────────────────────────────────────────────────────────────────────
 
 testScore();
@@ -323,6 +429,7 @@ testReceptivity();
 testBudget();
 testDecide();
 testAudit();
+testLearning();
 
 console.log(`\n${C.bold(`Resultado: ${C.green(`${passed} ✓`)} / ${C.red(`${failed} ✗`)}`)}`);
 process.exit(failed ? 1 : 0);

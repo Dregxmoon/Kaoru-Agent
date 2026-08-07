@@ -30,7 +30,7 @@
 
 - ✅ **Unificar credenciales en el KeychainManager** — `LLMProvider` ahora resuelve las keys por sí mismo con prioridad **llavero > env > config.json** (`_applyKeychainOverlay`), con helpers `storeProviderApiKey` / `removeProviderApiKey` / `migrateApiKeysToKeychain`. `main.js` migra al arranque las keys que sigan en texto plano en `config.json` y las elimina del archivo; `save-llm-keys` con llavero activo ya no persiste keys en texto plano (y al desactivarlo limpia el llavero). Suite `test_keychain_integration` 19/19. [implementado]
 - ✅ **Revisión de `webSecurity: false`** — la ventana de chat pasa a `webSecurity: true` (sin `allowRunningInsecureContent`); verificado que carga su Live2D local sin errores. El overlay se mantiene en `webSecurity: false` porque el SDK Live2D depende de fetch `file://` relajado para cargar `.model3.json`/texturas; resolverlo bien es reemplazar por protocolo custom, no un toggle. [implementado]
-- ⚠️ **`contextIsolation: false` / `nodeIntegration: true`** — pendiente. `chat.html` (2502 líneas) usa `require()` directo de core (LLMProvider 16×, GestureEngine 17×, AgentManager, CommandRegistry, FileResolver) + `child_process`, así que resolverlo es **mover AgentManager/LLMProvider/CommandRegistry al proceso principal** y exponer una API acotada por `contextBridge` (preload). Es un refactor grande, no un toggle. **Bloqueante solo cuando arranque §10.** [papel]
+- ✅ **`contextIsolation` / `nodeIntegration`** — **resuelto.** Verificado en produccion: ambas ventanas (index y chat) corren con `contextIsolation: true`, `nodeIntegration: false` y `webSecurity: true` (main.js ~448 y ~538), con preloads acotados (`src/preload.js`, `src/chat/preload.js`) que exponen SOLO `window.assistant` vía `contextBridge`. El renderer ya no usa `require()` directo. Queda `sandbox: false` porque los preloads cargan módulos core de Node (contextBridge + require del proceso de preload); subir el sandbox sería un refactor del preload, no un toggle — mismo tratamiento que el `webSecurity` del overlay Live2D. [implementado]
 
 ## 4. Fase 2 — CI (implementada)
 
@@ -61,6 +61,7 @@
 ## 7. Fase G — Loop de calidad + contexto real del proyecto
 
 ### G.1 — LSP para todos los lenguajes, no solo JS/TS ✅ [implementado]
+
 - ✅ Tabla externa `infrastructure/lsp/servers.json` con configuración por lenguaje: command, args, filePatterns, manifests, installCmd, npx, heavy.
 - ✅ Detección por manifiesto: `package.json` → TS/JS, `pyproject.toml` → Python, `go.mod` → Go, `Cargo.toml` → Rust, `pom.xml`/`build.gradle` → Java, `Gemfile` → Ruby, `composer.json` → PHP.
 - ✅ `LSPManager` multi-instancia (`Map<language, instance>`) con routing por extensión de archivo.
@@ -70,18 +71,21 @@
 - Compat: `_serverConfig` getter público para LSPErrorWatcher (línea 254). `detectLanguagesForWorkspace` retorna array de lenguajes detectados (repos poliglota).
 
 ### G.2 — Test runner estructurado ✅ [implementado]
+
 - ✅ `tests/run_tests.sh` — produce JSON a stdout con la misma lógica que `run-all.sh`.
 - Salida: `{passed, failed, total, exitCode, suites:[{name, passed, failed, total, exitCode}]}`.
 - `--pretty` para formato indentado, sin flag para JSON compacto (más fácil de parsear).
 - Exit code 0 si todo pasa, 1 si hay fallos. Usado por CI (`.github/workflows/ci.yml`).
 
 ### G.3 — Índice de workspace (2 capas) ✅ [implementado - capa estructural]
+
 - ✅ `WorkspaceIndex` — analiza workspace vía manifiestos de G.1.
 - Detecta: lenguajes, package manager (npm/yarn/pnpm/bun/cargo/go/bundler/composer/pip), test runner (jest/vitest/mocha/ava/npm-scripts), frameworks (react/vue/svelte/next/nuxt/electron), config files.
 - Cache con TTL 5min, `invalidate()`, `getStats()`.
 - 🔍 Capa semántica (embeddings en sqlite-vec, .gitignore, reindexado incremental) pendiente.
 
 ### G.4 — Generalizar ProactiveExecutor vía catálogo de herramientas ✅ [implementado]
+
 - ✅ `TOOL_CATALOG` — cada tool declara: `validate`, `preview`, `execute`, `normalizeResult`.
 - `preview()` y `execute()` despachan genéricamente vía el catálogo (sin if/switch por tool).
 - `normalizeResult` permite tools con resultado raw diferente a `detail` (ej: git_status).
@@ -132,14 +136,17 @@
 ## 11. Autenticación de la aplicación
 
 ### 11.1 — Bloqueo local de la app (tiene sentido ya, bajo costo) 🧠 [papel]
+
 - PIN o contraseña simple para abrir la ventana principal (lock local, como el PIN de una app de notas).
 - El hash vive en el Keychain, nunca en `config.json` en texto plano.
 - Timeout de sesión opcional (re-pedir PIN tras N minutos de inactividad), configurable desde §9.
 
 ### 11.2 — Patrón de auth reutilizable ya existente
+
 - 🔍 Ya hay dos implementaciones locales sólidas: el token de `openclaw-server.js` (fail-closed, comparación timing-safe, rate limiting, audit log) y el `CONTROL_API_TOKEN` del puerto 3131 (mismo patrón + validación de Origin/Referer para bloquear `<img src="http://localhost:3131/…">`). El PIN de 11.1 se apoya en el mismo criterio de diseño.
 
 ### 11.3 — Cuentas/licencias (solo si vendés, no antes) 🧠 [papel], condicionado
+
 - No se construye salvo camino de venta con backend propio. Con modelo BYOK como producto de escritorio, un archivo de licencia local verificado offline alcanza. No priorizarlo hasta tener claro el camino de venta.
 
 ## 12. Subagentes auto-detectados 🧠 [papel] — después del Benchmark
@@ -201,29 +208,29 @@ Backlog visual (§16)
 
 ## Resumen de esfuerzo (v3, estados al día)
 
-| Fase | Bloquea release | Riesgo | Urgencia | Madurez |
-|---|---|---|---|---|
-| 0 — Bugs GestureEngine + ModelAugmenter | No | Bajo | Hecho | [implementado] 🔍 |
-| 1 — Seguridad (keychain + webSecurity) | No → bloqueante con §10 | Medio-alto | Alta | [implementado] parcial |
-| 1 — contextIsolation | No → bloqueante con §10 | Medio-alto | Alta → crítica con §10 | [papel] |
-| 2 — CI | No | Bajo | Hecho | [implementado] |
-| 3 — Separación de archivos | No | Bajo por ítem | Media | [implementado] (3a-3d + limpieza) |
-| 4 — Mejoras internas | No | Bajo | Baja-media | [papel] |
-| G.1 — LSP multi-lenguaje | No | Bajo | Hecho | [implementado] |
-| G.2 — Test runner estructurado | No | Bajo-medio | Hecho (usado por CI) | [implementado] |
-| G.3 — Índice de workspace | No | Medio | Hecho (capa estructural) | [implementado] parcial |
-| G.4 — Generalizar ProactiveExecutor | No | Medio | Hecho | [implementado] |
-| G.5 — LSP nivel opencode (LSP.0–LSP.3) | No | Bajo | Alta (falta e2e real) | [implementado] parcial |
-| Benchmark de tareas reales | No | Bajo | Alta (gate de decisión) | [spike → recurrente] |
-| 9 — Configuración de la app | No | Bajo | Media-alta (destraba §10/§11) | [papel] |
-| 10 — Git/GitHub nativo + MCP | No | Medio | Alta | [implementado] parcial |
-| 11.1/11.2 — Auth local (PIN) | No | Bajo (reusa patrón existente) | Media | [papel] |
-| 11.3 — Cuentas/licencia | Solo si hay venta con backend | Medio | Baja, condicionada | [papel] |
-| 15 — Hardening de ejecución | Sí, para distribuir | Medio-alto | Media | [papel] |
-| J — Rate-limit con cola | No | Bajo-medio | Prerequisito duro de §12 | [implementado] |
-| 12 — Subagentes | No | Alto | Media, condicionada al Benchmark | [papel] |
-| 13 — Continuidad de contexto | No | Medio-alto | Media, condicionada al Benchmark | [papel] |
-| 16 — Backlog visual | No | Bajo-medio | Baja (pausado) | — |
+| Fase                                    | Bloquea release               | Riesgo                        | Urgencia                         | Madurez                           |
+| --------------------------------------- | ----------------------------- | ----------------------------- | -------------------------------- | --------------------------------- |
+| 0 — Bugs GestureEngine + ModelAugmenter | No                            | Bajo                          | Hecho                            | [implementado] 🔍                 |
+| 1 — Seguridad (keychain + webSecurity)  | No → bloqueante con §10       | Medio-alto                    | Alta                             | [implementado] parcial            |
+| 1 — contextIsolation                    | No → bloqueante con §10       | Medio-alto                    | Alta → crítica con §10           | [papel]                           |
+| 2 — CI                                  | No                            | Bajo                          | Hecho                            | [implementado]                    |
+| 3 — Separación de archivos              | No                            | Bajo por ítem                 | Media                            | [implementado] (3a-3d + limpieza) |
+| 4 — Mejoras internas                    | No                            | Bajo                          | Baja-media                       | [papel]                           |
+| G.1 — LSP multi-lenguaje                | No                            | Bajo                          | Hecho                            | [implementado]                    |
+| G.2 — Test runner estructurado          | No                            | Bajo-medio                    | Hecho (usado por CI)             | [implementado]                    |
+| G.3 — Índice de workspace               | No                            | Medio                         | Hecho (capa estructural)         | [implementado] parcial            |
+| G.4 — Generalizar ProactiveExecutor     | No                            | Medio                         | Hecho                            | [implementado]                    |
+| G.5 — LSP nivel opencode (LSP.0–LSP.3)  | No                            | Bajo                          | Alta (falta e2e real)            | [implementado] parcial            |
+| Benchmark de tareas reales              | No                            | Bajo                          | Alta (gate de decisión)          | [spike → recurrente]              |
+| 9 — Configuración de la app             | No                            | Bajo                          | Media-alta (destraba §10/§11)    | [papel]                           |
+| 10 — Git/GitHub nativo + MCP            | No                            | Medio                         | Alta                             | [implementado] parcial            |
+| 11.1/11.2 — Auth local (PIN)            | No                            | Bajo (reusa patrón existente) | Media                            | [papel]                           |
+| 11.3 — Cuentas/licencia                 | Solo si hay venta con backend | Medio                         | Baja, condicionada               | [papel]                           |
+| 15 — Hardening de ejecución             | Sí, para distribuir           | Medio-alto                    | Media                            | [papel]                           |
+| J — Rate-limit con cola                 | No                            | Bajo-medio                    | Prerequisito duro de §12         | [implementado]                    |
+| 12 — Subagentes                         | No                            | Alto                          | Media, condicionada al Benchmark | [papel]                           |
+| 13 — Continuidad de contexto            | No                            | Medio-alto                    | Media, condicionada al Benchmark | [papel]                           |
+| 16 — Backlog visual                     | No                            | Bajo-medio                    | Baja (pausado)                   | —                                 |
 
 ## Changelog
 

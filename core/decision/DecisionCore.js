@@ -59,6 +59,16 @@ const DEFAULT_POLICY = {
     min: 2,
     max: 20,
   },
+  // F-G: aprendizaje por tipo. El historial de aceptación/rechazo que persiste
+  // ProposalStore retroalimenta el scoring: un tipo bien recibido sube su R, un
+  // tipo rechazado seguido la baja. Requiere un mínimo de muestras (evita
+  // aprender de un único dato) y está acotado para no descalibrar el gate.
+  learning: {
+    minSamples: 3, // decisiones registradas antes de que el ajuste actúe
+    maxBias: 0.1, // sesgo máximo por ratio de aceptación (±)
+    perRejectPenalty: 0.02, // por cada rechazo consecutivo
+    maxRejectsTracked: 4, // topes de la penalidad por rechazos en fila
+  },
 };
 
 /**
@@ -121,6 +131,41 @@ function presupuesto(rec, policy = {}) {
   const norm = _norm(rec, -1, 1); // [-1,1] → [0,1]
   const target = b.base * (0.4 + 1.2 * norm); // neutro (0.5) → base
   return Math.round(clamp(target, b.min, b.max));
+}
+
+/**
+ * F-G. Ajuste de la relevancia por aprendizaje del tipo (aceptación/rechazo).
+ *
+ * El historial que persiste ProposalStore por tipo retroalimenta el scoring:
+ *   - sin suficientes muestras → devuelve R sin tocar (no aprende de un dato).
+ *   - con muestras → un ratio alto de aceptación suma hasta +maxBias, y cada
+ *     rechazo consecutivo resta hasta perRejectPenalty × maxRejectsTracked.
+ *
+ * Es un sesgo acotado y determinista (mismo historial → mismo ajuste); los
+ * pesos del gate siguen viviendo en DEFAULT_POLICY, calibráveis sin código.
+ *
+ * @param {number} R                score base de scoreRelevancia ∈ [0,1]
+ * @param {object} stats            { accepted, rejected, ignored, rejectsInRow }
+ * @param {object} [policy]         override parcial de DEFAULT_POLICY
+ * @returns {number} R ajustado ∈ [0,1]
+ */
+function ajustarScorePorAprendizaje(R, stats = {}, policy = {}) {
+  if (typeof R !== 'number' || !isFinite(R)) return 0;
+  if (!stats || typeof stats !== 'object') return R;
+  const lp = { ...DEFAULT_POLICY.learning, ...(policy.learning || {}) };
+  const accepted = stats.accepted || 0;
+  const rejected = stats.rejected || 0;
+  const ignored = stats.ignored || 0;
+  const total = accepted + rejected + ignored;
+  if (total < lp.minSamples) return R;
+
+  const acceptRatio = total > 0 ? accepted / total : 0;
+  // Ratio [0,1] → sesgo lineal [−maxBias, +maxBias] centrado en 0.5.
+  let bias = lp.maxBias * (2 * acceptRatio - 1);
+  // Penalidad por rechazos consecutivos: el usuario se está cansando del tipo.
+  const rejectsInRow = Math.min(stats.rejectsInRow || 0, lp.maxRejectsTracked);
+  bias -= rejectsInRow * lp.perRejectPenalty;
+  return clamp(R + bias, 0, 1);
 }
 
 // ── Reason codes ────────────────────────────────────────────────────────────
@@ -276,6 +321,7 @@ module.exports = {
   REASON,
   clamp,
   scoreRelevancia,
+  ajustarScorePorAprendizaje,
   receptividad,
   presupuesto,
   decide,

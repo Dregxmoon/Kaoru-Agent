@@ -2,9 +2,39 @@
 
 Todas las versiones notables de este proyecto se documentan en este archivo.
 
+## [1.1.0] — 2026-08-06
+
+### Agregado
+
+- **Self-critique (punto 2):** `AgentLoop` gana un paso opcional (`opts.selfCritique`)
+  que, al terminar el run con una respuesta de texto, pide al LLM comparar el
+  resultado contra la **intención original** del usuario (no solo tests/lint). Si el
+  veredicto es `INCOMPLETA` con razón, el feedback vuelve al loop para cerrar la brecha,
+  acotado a `SELF_CRITIQUE_MAX_ROUNDS` (2). Se habilita automáticamente en el modo
+  `smart` (tareas); queda opt-in para el resto (no duplica latencia de una charla).
+- **Aprendizaje por tipo en proactividad (punto 3):** `DecisionCore` expone
+  `ajustarScorePorAprendizaje(R, stats, policy)`. El historial de aceptación/rechazo
+  que persiste `ProposalStore` (por `trigger.type`) ahora retroalimenta la relevancia
+  en `gate.js`: un tipo bien recibido sube su R (hasta `learning.maxBias = 0.1`) y un
+  tipo rechazado seguido la baja. Requiere un mínimo de muestras (3) y es determinista
+  y acotado — los pesos del gate siguen en `DEFAULT_POLICY`.
+- **Memoria fuera de proveedores externos (punto 4):** la sección de memoria persistente
+  (nodos/episodios del StateGraph) ya no se envía a los proveedores externos por
+  defecto. `GroqSerializer.serialize(contextPackage, { includeMemory })` omite
+  `_buildMemorySection` salvo que el flag venga en `true`, y el flag se propaga desde
+  `buildContext` (core/core/context.js) → `GroundingEngine.buildContext` →
+  `ContextAssembler.build`. Gemini/OpenAI (que heredan de GroqSerializer) quedan
+  cubiertos. La memoria local del StateGraph sigue intacta.
+- **Docs de seguridad (punto 5):** `ROADMAP.md` corrige el estado de `contextIsolation`:
+  verificado que ambas ventanas corren con `contextIsolation: true`,
+  `nodeIntegration: false` y `webSecurity: true` (ya estaba implementado; el roadmap lo
+  daba por pendiente). `sandbox: false` queda documentado como tradeoff del preload que
+  carga módulos core de Node.
+
 ## [1.0.0] — 2026-08-04
 
 ### Corregido
+
 - **LSP post-edit (Bug 1):** el `initialize` ya no envía `rootPath` + `workspaceFolders`
   por defecto. pyright (y servers similares) dejan de publicar `publishDiagnostics` cuando
   el cliente declara soporte de workspace folders y nunca inicializa el workspace
@@ -21,6 +51,7 @@ Todas las versiones notables de este proyecto se documentan en este archivo.
   producción (gate admitió), para que el asistente no moleste con ruido.
 
 ### Agregado
+
 - **LSP para más lenguajes:** `servers.json` ampliado a 20 lenguajes (c/cpp via clangd,
   csharp, kotlin, swift, dart, bash, lua, html/css/json via vscode-langservers-extracted,
   markdown via marksman, además de python, typescript/javascript, go, java, rust, ruby,
@@ -42,6 +73,7 @@ Todas las versiones notables de este proyecto se documentan en este archivo.
   `format`/`format:check`, y este `CHANGELOG.md`.
 
 ### Pruebas
+
 - Suite completa: **1452 pruebas en verde** (`npm test`).
 - Nuevos tests: timeout del pull de diagnósticos, CONTENIDO multilínea, compactación de
   contexto, filtro de relleno en modo producción, edit determinista, grep/glob,
@@ -50,6 +82,7 @@ Todas las versiones notables de este proyecto se documentan en este archivo.
 ## [1.2.0] — 2026-08-04
 
 ### Experiencia de agente (patrón opencode)
+
 - **Streaming de tokens al chat:** el LLM ahora responde con `stream: true` y cada
   fragmento viaja por un canal IPC nuevo (`agent-token`) hasta la ventana de chat, que lo
   pinta en vivo en la burbuja del asistente mientras se genera (con render de Markdown al
@@ -62,6 +95,7 @@ Todas las versiones notables de este proyecto se documentan en este archivo.
   se bloquea mientras corre una herramienta.
 
 ### Sesiones multi-turno
+
 - **Contexto incremental en el historial:** el serializer inyecta un presupuesto de
   `8000` caracteres para el historial de sesión — los turnos recientes entran completos y
   el excedente se condensa en un único mensaje `system` de resumen al inicio. El multi-turno
@@ -69,6 +103,7 @@ Todas las versiones notables de este proyecto se documentan en este archivo.
   crash); ahora la conversación larga no se come el presupuesto de tokens de la tarea.
 
 ### Tipado
+
 - **JSDoc estricto con `tsc`:** nuevo `tsconfig.json` + script `npm run typecheck`.
   `// @ts-check` adoptado incrementalmente en el pipeline de contexto/grounding
   (`GroundingEngine`, `SessionManager`, `GroqSerializer` + serializers heredados) con
@@ -76,6 +111,7 @@ Todas las versiones notables de este proyecto se documentan en este archivo.
   `@types/node` como devDependencies.
 
 ### CI y releases
+
 - **CI ampliado:** nuevo job `quality` (ESLint + `tsc` + Prettier) además del job de
   tests con Electron; el build Windows portable sigue en `produccion`.
 - **Release automática:** job `release` que se dispara con un tag `v*` — empaqueta el
@@ -84,12 +120,14 @@ Todas las versiones notables de este proyecto se documentan en este archivo.
   un solo comando.
 
 ### Pruebas
+
 - Suite completa: **1371 pruebas en verde** (`npm test`; 2 suites de seguridad requieren
   el puerto `:18789` libre — cierran la app antes de correr).
 
 ## [1.1.0] — 2026-08-04
 
 ### Seguridad
+
 - **Sandbox por defecto (renderers):** ambas ventanas pasan a `nodeIntegration:false` +
   `contextIsolation:true` con preloads acotados (`src/preload.js` y `src/chat/preload.js`)
   que exponen una API mínima vía `contextBridge` (`window.assistant`). La página —incluidos
@@ -110,12 +148,14 @@ Todas las versiones notables de este proyecto se documentan en este archivo.
   bug latente (`projectCWD` fuera de scope en `Core.js`) y 22 escapes innecesarios.
 
 ### Fiabilidad
+
 - **Edición determinista:** `edit` del server ahora aplica reemplazos por coincidencia
   exacta única. Si `old_text` no se encuentra o aparece más de una vez, falla SIN modificar
   el archivo y pide más contexto (patrón opencode). Acepta alias `oldString`/`newString`
   (schema del ToolRegistry) además de `old_text`/`new_text`.
 
 ### Masa de herramientas
+
 - **`grep`:** búsqueda regex por contenido de archivos del proyecto (línea + texto,
   excluye `node_modules`/`.git`/`dist` por defecto, `include`/`ignore`/`max_results`).
 - **`glob`:** listado de archivos por patrón glob.
@@ -124,14 +164,15 @@ Todas las versiones notables de este proyecto se documentan en este archivo.
   despacha en proceso (no por HTTP).
 
 ### Contexto largo
+
 - **Compactación con memoria vectorial:** cuando `AgentLoop` compacta la historia, persiste
   el resumen como nodo `Episode` (tag `context-compaction`) en el StateGraph/sqlite-vec y,
   al inicio de cada run, inyecta en el prompt el recall semántico de episodios previos
   relevantes al objetivo actual — reconstruye contexto en tareas largas o retomadas.
 
 ### Pruebas
+
 - Suite completa: **1371 pruebas en verde** (`npm test`; 2 suites de seguridad requieren
   el puerto `:18789` libre — cierran la app antes de correr).
 - Nuevos tests: edición determinista (ambiguo/único/ausente), grep/glob, subagente
   (dispatch y límite de profundidad), compactación ↔ memoria.
-
