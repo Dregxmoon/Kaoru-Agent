@@ -20,12 +20,22 @@
  * como fallback — compatibilidad hacia atrás total.
  *
  * Campos que puede devolver el bloque:
- *   ACCIÓN        — nombre de la intención (siempre presente)
+ *   ACCIÓN        — nombre de la intención (siempre presente, salvo con MCP_TOOL)
  *   ARCHIVO       — path de archivo (para create/edit/read/delete_file)
  *   RUTA          — directorio (para list_directory, create_directory)
  *   COMANDO       — comando shell (para run_command, git_action, etc.)
  *   QUERY         — búsqueda web (para web_search)
  *   URL           — URL (para navigate_browser)
+ *   MCP_TOOL      — tool MCP como "servidor.herramienta" (p.ej.
+ *                   filesystem.write_file). Cuando la precedencia activa es
+ *                   MCP y el tool-calling nativo falla, el LLM la usa para
+ *                   expresar "llamar write_file del servidor filesystem".
+ *                   Se traduce a la pseudo-tool 'mcp' con params
+ *                   { server, tool, args } para MCPManager.callTool().
+ *                   Los campos genéricos (ARCHIVO→path, RUTA→path,
+ *                   CONTENIDO→content, COMANDO→command, QUERY→query,
+ *                   URL→url) se convierten en argumentos de la tool, y
+ *                   PARAMS (JSON) si viene los sobreescribe.
  *
  * Contrato de salida (mismo que ActionParser original):
  * [
@@ -122,6 +132,7 @@ function _buildDescription(action, fields) {
     case 'run_code':
       return `Ejecutar código: ${(f.CÓDIGO || f.CODIGO || f.CODE || '').slice(0, 60)}`;
     case 'mcp_call':
+      if (f.MCP_TOOL) return `MCP · ${f.MCP_TOOL}`;
       return `MCP · ${f.SERVIDOR || f.SERVER || '?'}: ${f.HERRAMIENTA || f.TOOL || '?'}`;
     case 'plugin_call':
       return `Plugin · ${f.HERRAMIENTA || f.TOOL || f.NOMBRE || '?'}`;
@@ -204,6 +215,70 @@ function _extractBalancedJSON(content, label) {
   return null; // JSON sin cerrar — se ignora, no se intenta adivinar
 }
 
+// ── Parseo de MCP_TOOL: "servidor.herramienta" ───────────────────────────────
+// Formato: filesystem.write_file, filesystem/write_file, mcp__filesystem__write_file.
+// Se parte por el PRIMER separador ('.' o '/') — el nombre de la herramienta
+// puede contener puntos (p.ej. server.tool.tool2) pero el servidor nunca.
+function _parseMCPTool(value) {
+  if (typeof value !== 'string') return null;
+  const trimmed = value.trim();
+  if (!trimmed) return null;
+  const dotIdx = trimmed.indexOf('.');
+  const slashIdx = trimmed.indexOf('/');
+  let sepIdx = -1;
+  if (dotIdx === -1) sepIdx = slashIdx;
+  else if (slashIdx === -1) sepIdx = dotIdx;
+  else sepIdx = Math.min(dotIdx, slashIdx);
+  if (sepIdx === -1) return null;
+  const server = trimmed.slice(0, sepIdx).trim();
+  const tool = trimmed.slice(sepIdx + 1).trim();
+  if (!server || !tool) return null;
+  return { server, tool };
+}
+
+// ── Args MCP desde campos genéricos del bloque estructurado ──────────────────
+// El LLM en fallback textual conoce el vocabulario del bloque (ARCHIVO,
+// CONTENIDO, ...) pero no el nombre de cada parámetro del schema MCP. Se
+// traducen los campos genéricos a los nombres de parámetro más comunes de las
+// tools MCP del servidor filesystem/código. PARAMS (JSON explícito) gana sobre
+// el mapeo genérico si ambos vienen.
+const MCP_FIELD_TO_ARG = {
+  ARCHIVO: 'path',
+  RUTA: 'path',
+  CONTENIDO: 'content',
+  COMANDO: 'command',
+  QUERY: 'query',
+  URL: 'url',
+};
+
+function _buildMCPArgs(fields) {
+  const args = {};
+  for (const [field, param] of Object.entries(MCP_FIELD_TO_ARG)) {
+    if (fields[field]) args[param] = fields[field];
+  }
+  if (fields.PARAMS) {
+    try {
+      Object.assign(args, JSON.parse(fields.PARAMS));
+    } catch (e) {
+      logger.warn(
+        'StructuredActionParser',
+        '[structured-parser] PARAMS de mcp_call no es JSON válido, se ignora:',
+        fields.PARAMS
+      );
+      return null;
+    }
+  }
+  return args;
+}
+
+// Construye el objeto params que espera la pseudo-tool 'mcp' de
+// AgentLoop/Planner._executeMCP: { server, tool, args }.
+function _mcpParams(server, tool, fields) {
+  const args = _buildMCPArgs(fields);
+  if (args === null) return null;
+  return { server, tool, args };
+}
+
 // ── Construcción de params para OpenClawBridge ────────────────────────────────
 function _buildParams(action, fields, userGoal, projectCwd) {
   const cwd = projectCwd || process.cwd();
@@ -232,7 +307,29 @@ function _buildParams(action, fields, userGoal, projectCwd) {
 
     case 'mcp_call': {
       const server = fields.SERVIDOR || fields.SERVER;
-      const toolName = fields.HERRAMIENTA || fields.TOOL;
+      let toolName = fields.HERRAMIENTA || fields.TOOL;
+      if (!toolName && fields.MCP_TOOL) {
+        const parsed = _parseMCPTool(fields.MCP_TOOL);
+        if (!parsed) {
+          logger.warn(
+            'StructuredActionParser',
+            '[structured-parser] MCP_TOOL no es "servidor.herramienta":',
+            fields.MCP_TOOL
+          );
+          return null;
+        }
+        toolName = parsed.tool;
+        // Si el bloque trae SERVIDOR y MCP_TOOL, SERVIDOR manda (el LLM pudo
+        // usar el atajo y a la vez fijar el servidor explícito).
+        if (server && server !== parsed.server) {
+          logger.warn(
+            'StructuredActionParser',
+            `[structured-parser] SERVIDOR "${server}" difiere del de MCP_TOOL "${parsed.server}", se usa SERVIDOR`
+          );
+        }
+        // SIN server explícito, se toma el del MCP_TOOL.
+        if (!server) return _mcpParams(parsed.server, toolName, fields);
+      }
       if (!server || !toolName) {
         logger.warn(
           'StructuredActionParser',
@@ -241,20 +338,7 @@ function _buildParams(action, fields, userGoal, projectCwd) {
         );
         return null;
       }
-      let mcpArgs = {};
-      if (fields.PARAMS) {
-        try {
-          mcpArgs = JSON.parse(fields.PARAMS);
-        } catch (e) {
-          logger.warn(
-            'StructuredActionParser',
-            '[structured-parser] PARAMS de mcp_call no es JSON válido, se ignora:',
-            fields.PARAMS
-          );
-          return null;
-        }
-      }
-      return { server, tool: toolName, args: mcpArgs };
+      return _mcpParams(server, toolName, fields);
     }
 
     case 'plugin_call': {
@@ -489,19 +573,23 @@ class StructuredActionParser {
       if (key && value) fields[key] = value;
     }
 
-    // ACCIÓN es obligatorio
+    // ACCIÓN es obligatorio — salvo que venga MCP_TOOL, que identifica la
+    // tool MCP directamente y prescinde del nombre de intención OpenClaw.
     const rawAction = fields['ACCIÓN'] || fields['ACCION'] || fields['ACTION'];
-    if (!rawAction) {
+    let action;
+    if (fields['MCP_TOOL']) {
+      action = 'mcp_call';
+    } else if (rawAction) {
+      // Normalizar nombre de acción (el LLM a veces usa mayúsculas o espacios)
+      action = rawAction.toLowerCase().trim().replace(/\s+/g, '_');
+    } else {
       logger.warn(
         'StructuredActionParser',
-        '[structured-parser] Bloque sin campo ACCIÓN:',
+        '[structured-parser] Bloque sin campo ACCIÓN ni MCP_TOOL:',
         content
       );
       return null;
     }
-
-    // Normalizar nombre de acción (el LLM a veces usa mayúsculas o espacios)
-    const action = rawAction.toLowerCase().trim().replace(/\s+/g, '_');
 
     const tool = ACTION_TO_TOOL[action];
     if (!tool) {

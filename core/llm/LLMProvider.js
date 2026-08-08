@@ -84,8 +84,11 @@ function getProviders() {
 // ── Built-in providers ─────────────────────────────────────────────────────────
 // Catálogo estático de modelos por proveedor. Es el fallback de la lista
 // "todos los modelos disponibles" que muestra el selector: si el proveedor
-// expone GET /models (OpenAI-compatible), refreshProviderModels() la reemplaza
-// en memoria por la lista viva; si no, esta es la que se muestra.
+// expone GET /models (OpenAI-compatible), refreshProviderModels() consulta la
+// lista viva y la interseca con este catálogo estático (solo se ofrecen
+// modelos curados que la cuenta del usuario realmente tiene accesibles — evita
+// listar modelos que devuelven 404 "Function not found" por no estar
+// desplegados en la cuenta); si no, esta es la que se muestra.
 const MODEL_CATALOG = {
   groq: [
     'llama-3.1-8b-instant',
@@ -142,7 +145,6 @@ const MODEL_CATALOG = {
     'meta/llama-3.2-11b-vision-instruct',
     'mistralai/mistral-large-2-instruct',
     'mistralai/mixtral-8x22b-v0.1',
-    'moonshotai/kimi-k2.6',
     'minimaxai/minimax-m3',
     'nvidia/nemotron-3-nano-30b-a3b',
     'nvidia/nemotron-3-super-120b-a12b',
@@ -264,6 +266,11 @@ const RETRY_BASE_MS = 2000;
 // final le avisa al usuario cuánto esperar o que cambie de proveedor.
 const MAX_RETRY_WAIT_MS = 30_000;
 
+// TTL del catálogo validado contra el endpoint del provider: evitar pegarle a
+// la API en cada invocación de /model <provider> o del selector de modelos.
+// Pasado el TTL, refreshProviderModels() re-valida contra GET /models.
+const CATALOG_REFRESH_TTL_MS = 5 * 60 * 1000;
+
 function _resolveMode(mode) {
   return VALID_MODES.has(mode) ? mode : 'fast';
 }
@@ -284,6 +291,10 @@ let _config = {
   // presupuesto de espera por request). Desactivable con queue.enabled=false.
   queue: { enabled: true, concurrency: 1, maxWaitMs: MAX_RETRY_WAIT_MS, priority: 0 },
 };
+
+// Marca de tiempo del último refresh exitoso del catálogo por provider
+// (Date.now). Permite aplicar el TTL sin re-consultar la API en cada uso.
+const _catalogRefreshedAt = {};
 
 function configure(cfg) {
   if (!cfg) return;
@@ -458,26 +469,54 @@ function listModels(providerId) {
 }
 
 // Fase Q: refresca el catálogo consultando GET /models del provider
-// (OpenAI-compatible) con la key configurada. Si falla (proveedor sin
-// endpoint, sin key, red) devuelve el catálogo estático sin tocar nada.
-async function refreshProviderModels(providerId) {
+// (OpenAI-compatible) con la key configurada. El resultado NO reemplaza la
+// lista completa del endpoint: se interseca con el catálogo estático curado,
+// de modo que solo se ofrecen modelos que la cuenta realmente tiene accesibles
+// (los proveedores tipo NVIDIA Build listan modelos en /models que devuelven
+// 404 "Function not found" si la cuenta no tiene la función desplegada). Si
+// falla (proveedor sin endpoint, sin key, red) devuelve el catálogo estático
+// sin tocar nada. Con TTL: dentro de CATALOG_REFRESH_TTL_MS no re-consulta la
+// API y devuelve el catálogo ya validado en memoria.
+// @param {string} providerId
+// @param {function(string, object, number, AbortSignal|null): Promise<{status:number, body:any}>} [fetcher]
+async function refreshProviderModels(providerId, fetcher = get) {
   const def = _registry.get(providerId);
   if (!def) return listModels(providerId);
   if (def.type !== 'openai') return listModels(providerId);
   const key = _getApiKey(providerId);
   if (!key) return listModels(providerId);
+  const lastRefreshed = _catalogRefreshedAt[providerId];
+  if (lastRefreshed && Date.now() - lastRefreshed < CATALOG_REFRESH_TTL_MS) {
+    return listModels(providerId);
+  }
   try {
-    const res = await get(`${def.baseURL}/models`, key ? { Authorization: `Bearer ${key}` } : {});
+    const res = await fetcher(
+      `${def.baseURL}/models`,
+      { Authorization: `Bearer ${key}` },
+      20_000,
+      null
+    );
     if (res.status !== 200) return listModels(providerId);
     const data = Array.isArray(res.body?.data) ? res.body.data : [];
-    const ids = data
+    const live = data
       .map((m) => (typeof m === 'string' ? m : m?.id))
       .filter((m) => typeof m === 'string' && m.trim());
-    if (ids.length === 0) return listModels(providerId);
+    if (live.length === 0) return listModels(providerId);
+    // Intersección: solo modelos del catálogo estático que también están en
+    // la lista viva del endpoint (validación por cuenta). Si el provider no
+    // tiene catálogo estático (custom sin catalog), se acepta la lista viva.
+    const staticCatalog = Array.isArray(def.catalog) ? def.catalog : [];
+    const validated =
+      staticCatalog.length > 0 ? staticCatalog.filter((m) => live.includes(m)) : live;
+    if (validated.length === 0) return listModels(providerId);
     if (!_config.providers[providerId]) _config.providers[providerId] = {};
-    _config.providers[providerId].catalog = ids;
-    logger.info('LLMProvider', `[llm] catálogo de ${providerId} refrescado: ${ids.length} modelos`);
-    return ids;
+    _config.providers[providerId].catalog = validated;
+    _catalogRefreshedAt[providerId] = Date.now();
+    logger.info(
+      'LLMProvider',
+      `[llm] catálogo de ${providerId} validado contra la API: ${validated.length} modelos disponibles`
+    );
+    return validated;
   } catch {
     return listModels(providerId);
   }
@@ -491,8 +530,26 @@ function _abortError() {
   return err;
 }
 
+// Adjunta un listener de abort al request y devuelve una función que lo
+// remueve cuando el request termina (end/error/timeout). Sin cleanup, cada
+// llamada que reutilice la misma AbortSignal — el agent-run comparte un único
+// AbortController para TODAS sus requests de LLM, incluidos los reintentos del
+// loop y las llamadas de iteraciones sucesivas — acumularía listeners para
+// siempre: fuga de memoria + MaxListenersExceededWarning. Devuelve null si no
+// hay signal (nada que limpiar).
+function _attachAbortListener(req, signal, reject) {
+  if (!signal) return null;
+  const onAbort = () => {
+    req.destroy();
+    reject(_abortError());
+  };
+  signal.addEventListener('abort', onAbort, { once: true });
+  return () => signal.removeEventListener('abort', onAbort);
+}
+
 function post(url, headers, body, timeoutMs = 20_000, signal = null) {
   return new Promise((resolve, reject) => {
+    let cleanupAbort = null;
     const parsed = new URL(url);
     const lib = parsed.protocol === 'https:' ? https : http;
     const payload = JSON.stringify(body);
@@ -513,6 +570,7 @@ function post(url, headers, body, timeoutMs = 20_000, signal = null) {
       let data = '';
       res.on('data', (c) => (data += c));
       res.on('end', () => {
+        cleanupAbort?.();
         try {
           resolve({ status: res.statusCode, body: JSON.parse(data) });
         } catch (e) {
@@ -527,25 +585,20 @@ function post(url, headers, body, timeoutMs = 20_000, signal = null) {
       });
     });
     req.setTimeout(timeoutMs, () => {
+      cleanupAbort?.();
       req.destroy();
       reject(new Error(`Timeout después de ${timeoutMs}ms`));
     });
-    req.on('error', reject);
-    if (signal) {
-      if (signal.aborted) {
-        req.destroy();
-        reject(_abortError());
-        return;
-      }
-      signal.addEventListener(
-        'abort',
-        () => {
-          req.destroy();
-          reject(_abortError());
-        },
-        { once: true }
-      );
+    req.on('error', (e) => {
+      cleanupAbort?.();
+      reject(e);
+    });
+    if (signal && signal.aborted) {
+      req.destroy();
+      reject(_abortError());
+      return;
     }
+    cleanupAbort = _attachAbortListener(req, signal, reject);
     req.write(payload);
     req.end();
   });
@@ -555,6 +608,7 @@ function post(url, headers, body, timeoutMs = 20_000, signal = null) {
 // consultar /models. Devuelve { status, body }.
 function get(url, headers = {}, timeoutMs = 20_000, signal = null) {
   return new Promise((resolve, reject) => {
+    let cleanupAbort = null;
     const parsed = new URL(url);
     const lib = parsed.protocol === 'https:' ? https : http;
     const options = {
@@ -570,6 +624,7 @@ function get(url, headers = {}, timeoutMs = 20_000, signal = null) {
       let data = '';
       res.on('data', (c) => (data += c));
       res.on('end', () => {
+        cleanupAbort?.();
         try {
           resolve({ status: res.statusCode, body: JSON.parse(data) });
         } catch (e) {
@@ -578,25 +633,20 @@ function get(url, headers = {}, timeoutMs = 20_000, signal = null) {
       });
     });
     req.setTimeout(timeoutMs, () => {
+      cleanupAbort?.();
       req.destroy();
       reject(new Error(`Timeout después de ${timeoutMs}ms`));
     });
-    req.on('error', reject);
-    if (signal) {
-      if (signal.aborted) {
-        req.destroy();
-        reject(_abortError());
-        return;
-      }
-      signal.addEventListener(
-        'abort',
-        () => {
-          req.destroy();
-          reject(_abortError());
-        },
-        { once: true }
-      );
+    req.on('error', (e) => {
+      cleanupAbort?.();
+      reject(e);
+    });
+    if (signal && signal.aborted) {
+      req.destroy();
+      reject(_abortError());
+      return;
     }
+    cleanupAbort = _attachAbortListener(req, signal, reject);
     req.end();
   });
 }
@@ -609,6 +659,7 @@ function get(url, headers = {}, timeoutMs = 20_000, signal = null) {
 // de un fallo real del provider).
 function postStream(url, headers, body, onToken, timeoutMs = 20_000, signal = null) {
   return new Promise((resolve, reject) => {
+    let cleanupAbort = null;
     const parsed = new URL(url);
     const lib = parsed.protocol === 'https:' ? https : http;
     const payload = JSON.stringify(body);
@@ -630,6 +681,7 @@ function postStream(url, headers, body, onToken, timeoutMs = 20_000, signal = nu
         let data = '';
         res.on('data', (c) => (data += c));
         res.on('end', () => {
+          cleanupAbort?.();
           let parsed;
           try {
             parsed = JSON.parse(data);
@@ -681,6 +733,7 @@ function postStream(url, headers, body, onToken, timeoutMs = 20_000, signal = nu
         }
       });
       res.on('end', () => {
+        cleanupAbort?.();
         const toolCallsOut = toolCalls
           .filter((tc) => tc && tc.name && tc.arguments)
           .map((tc) => ({ id: tc.id, function: { name: tc.name, arguments: tc.arguments } }));
@@ -691,25 +744,20 @@ function postStream(url, headers, body, onToken, timeoutMs = 20_000, signal = nu
       });
     });
     req.setTimeout(timeoutMs, () => {
+      cleanupAbort?.();
       req.destroy();
       reject(new Error(`Timeout después de ${timeoutMs}ms`));
     });
-    req.on('error', reject);
-    if (signal) {
-      if (signal.aborted) {
-        req.destroy();
-        reject(_abortError());
-        return;
-      }
-      signal.addEventListener(
-        'abort',
-        () => {
-          req.destroy();
-          reject(_abortError());
-        },
-        { once: true }
-      );
+    req.on('error', (e) => {
+      cleanupAbort?.();
+      reject(e);
+    });
+    if (signal && signal.aborted) {
+      req.destroy();
+      reject(_abortError());
+      return;
     }
+    cleanupAbort = _attachAbortListener(req, signal, reject);
     req.write(payload);
     req.end();
   });
@@ -1432,6 +1480,8 @@ module.exports = {
   _debug_buildOpenAITools: _buildOpenAITools,
   _debug_buildGeminiTools: _buildGeminiTools,
   _debug_postStream: postStream,
+  _debug_post: post,
+  _debug_get: get,
   setUsageTracker,
   getUsageTracker,
   _debug_recordUsage: _recordUsage,

@@ -32,6 +32,7 @@ const CATEGORIES = {
   mcp: 'General',
   permisos: 'General',
   dir: 'General',
+  uso: 'IA / LLM',
   model: 'IA / LLM',
   provider: 'IA / LLM',
   agent: 'IA / LLM',

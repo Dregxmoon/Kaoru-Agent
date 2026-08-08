@@ -152,6 +152,10 @@ function testModel() {
       const p = mockProviders.find((x) => x.id === id);
       return p ? p.catalog : [];
     },
+    refreshProviderModels: async (id) => {
+      const p = mockProviders.find((x) => x.id === id);
+      return p ? p.catalog : [];
+    },
   };
 
   const ctx = { LLMProvider: mockLLMProvider };
@@ -558,6 +562,59 @@ function testEdgeCases() {
     });
 }
 
+// ── Test 16: /uso ─────────────────────────────────────────────────────────────
+
+function testUso() {
+  console.log(C.bold('\n── Test 16: /uso (getUsageTracker) ───────────────────────'));
+  const { UsageTracker } = require('../core/observability/UsageTracker.js');
+  const LLMProvider = require('../core/llm/LLMProvider.js');
+
+  const tracker = new UsageTracker(null);
+  LLMProvider.setUsageTracker(tracker);
+  tracker.record({
+    provider: 'groq',
+    model: 'llama-3.1-8b-instant',
+    mode: 'fast',
+    promptTokens: 100,
+    completionTokens: 200,
+  });
+  tracker.record({
+    provider: 'nvidia',
+    model: 'minimax-m3',
+    mode: 'smart',
+    promptTokens: 50,
+    completionTokens: 80,
+  });
+
+  return execute('/uso', {})
+    .then((r) => {
+      assert(!r.error, 'uso sin error');
+      assert(r.result.includes('Llamadas: **2**'), 'uso muestra total de llamadas');
+      assert(r.result.includes('Tokens: **430**'), 'uso muestra tokens totales');
+      assert(r.result.includes('Por proveedor'), 'uso muestra desglose por proveedor');
+      assert(r.result.includes('`groq`'), 'uso lista proveedor groq');
+      assert(r.result.includes('`nvidia`'), 'uso lista proveedor nvidia');
+    })
+    .then(() => {
+      return execute('/uso recientes', {});
+    })
+    .then((r) => {
+      assert(!r.error, 'uso recientes sin error');
+      assert(r.result.includes('Eventos de uso recientes'), 'recientes muestra la cabecera');
+      assert(r.result.includes('groq'), 'recientes muestra el evento groq');
+      assert(r.result.includes('nvidia'), 'recientes muestra el evento nvidia');
+    })
+    .then(() => {
+      return execute('/uso reset', {});
+    })
+    .then((r) => {
+      assert(!r.error, 'uso reset sin error');
+      assert(r.result.includes('reiniciado'), 'uso reset confirma el reinicio');
+      const s = tracker.getSummary();
+      assert(s.totalRequests === 0, 'el tracker quedó vacío tras /uso reset');
+    });
+}
+
 // ── Main ────────────────────────────────────────────────────────────────────
 
 async function main() {
@@ -585,6 +642,7 @@ async function main() {
   testNewRegisteredCommands();
   await testUnknownCommand();
   await testEdgeCases();
+  await testUso();
 
   console.log(C.bold('\n════════════════════════════════════════════════════════'));
   const total = passed + failed;

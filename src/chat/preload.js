@@ -41,6 +41,7 @@ function _boundedLLM() {
     getAvailableProviders: () => LLMProvider.getAvailableProviders(),
     listModels: (providerId) => LLMProvider.listModels(providerId),
     refreshProviderModels: (providerId) => LLMProvider.refreshProviderModels(providerId),
+    getUsageTracker: () => LLMProvider.getUsageTracker(),
   };
 }
 function _boundedCommands() {

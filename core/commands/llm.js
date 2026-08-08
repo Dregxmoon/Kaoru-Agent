@@ -32,6 +32,11 @@ module.exports = function registerCommands(register) {
       if (!args[1]) {
         LLMProvider.configure({ llm: { primary: valid.id } });
         if (ctx.sendIPC) ctx.sendIPC('set-provider', { primary: valid.id });
+        // Valida el catálogo contra el endpoint real (con TTL) antes de
+        // listar: descarta modelos que la cuenta no tiene accesibles (p.ej.
+        // 404 "Function not found" en NVIDIA Build). Sin key no hace red y
+        // usa el catálogo estático.
+        await LLMProvider.refreshProviderModels(valid.id);
         const catalog = LLMProvider.listModels(valid.id);
         const active = valid.activeModel || valid.models || {};
         const modelLines = catalog

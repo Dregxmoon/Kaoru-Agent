@@ -161,6 +161,67 @@ function createMockBridge(projectCwd) {
   };
 }
 
+// ── Mock MCP Manager (catálogo + callTool sobre FS) ──────────────────────────
+
+function createMockMCP(projectCwd) {
+  const calls = [];
+  const tools = [
+    {
+      server: 'filesystem',
+      serverId: 'filesystem-1',
+      tool: 'write_file',
+      description: 'Escribe un archivo',
+      inputSchema: {
+        properties: { path: { type: 'string' }, content: { type: 'string' } },
+        required: ['path', 'content'],
+      },
+    },
+    {
+      server: 'filesystem',
+      serverId: 'filesystem-1',
+      tool: 'list_directory',
+      description: 'Lista un directorio',
+      inputSchema: { properties: { path: { type: 'string' } }, required: ['path'] },
+    },
+  ];
+  return {
+    tools,
+    calls,
+    listAllTools: () => tools,
+    callTool: async (server, tool, args) => {
+      calls.push({ server, tool, args });
+      if (server !== 'filesystem') throw new Error(`servidor no conectado: ${server}`);
+      if (tool === 'write_file') {
+        const dir = path.dirname(args.path);
+        if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+        fs.writeFileSync(args.path, args.content || '', 'utf-8');
+        return { content: [{ type: 'text', text: `Escrito ${args.path}` }] };
+      }
+      if (tool === 'list_directory') {
+        const entries = fs.readdirSync(args.path || projectCwd).join('\n');
+        return { content: [{ type: 'text', text: entries }] };
+      }
+      throw new Error(`tool no soportada por el mock: ${tool}`);
+    },
+  };
+}
+
+// ToolResolver mock que reporta precedencia MCP (Skill > MCP > OpenClaw).
+function createMCPPrecedenceResolver() {
+  return {
+    resolveToolset: async () => ({
+      precedence: 'mcp',
+      nativeToolSchemas: [
+        { name: 'write_file', description: 'Escribe un archivo', parameters: {} },
+      ],
+      promptCatalog:
+        '# HERRAMIENTAS DISPONIBLES\n\n## Herramientas MCP\n  Servidor: filesystem\n    - write_file — Escribe un archivo',
+      excluded: [],
+      matchedSkills: [],
+    }),
+  };
+}
+
 // ── Test 1: Loop termina en respuesta de texto ────────────────────────────────
 
 async function testTextResponse() {
@@ -523,6 +584,333 @@ async function testNativeToolCallEmptyContent() {
       'Respuesta final es el texto de cierre',
       result.response.slice(0, 60)
     );
+  } finally {
+    LLMProvider.completeWithTools = originalCompleteWithTools;
+  }
+
+  teardown();
+}
+
+// ── Test 7b: fallo de LLM en iter > 0 conserva tools completadas ────────────
+
+async function testLLMFailureKeepsCompletedTools() {
+  console.log(C.bold('\n── Test 7b: fallo de LLM en iter>0 conserva tools completadas ─────'));
+
+  const { AgentLoop } = require('../core/planner/AgentLoop.js');
+  const AP = require('../core/planner/ActionParser.js');
+  const LLMProvider = require('../core/llm/LLMProvider.js');
+
+  const projectCwd = teardown() || setup();
+  AP.setProjectCWD(projectCwd);
+  const outFile = path.join(projectCwd, 'salida.txt');
+
+  // Iter 1: la tool write se ejecuta con éxito. Iter 2: el LLM falla en
+  // tool-calling nativo Y en el fallback textual → el response debe incluir
+  // tanto la confirmación de la tool exitosa como el aviso de error.
+  const originalCompleteWithTools = LLMProvider.completeWithTools;
+  let calls = 0;
+  LLMProvider.completeWithTools = async () => {
+    calls++;
+    if (calls === 1) {
+      return {
+        content: null,
+        toolCalls: [{ tool: 'write', params: { path: outFile, content: 'hecho' } }],
+      };
+    }
+    throw new Error('todos los proveedores caídos');
+  };
+
+  const failingLLM = async () => {
+    throw new Error('fallback textual caído');
+  };
+
+  try {
+    const loop = new AgentLoop({
+      maxIterations: 5,
+      llm: failingLLM,
+      bridge: createMockBridge(projectCwd),
+    });
+
+    const result = await loop.run('creá salida.txt', 'Eres un asistente.', [], {
+      tools: [
+        {
+          name: 'write',
+          description: 'escribe un archivo',
+          inputSchema: { type: 'object', properties: {} },
+        },
+      ],
+    });
+
+    assert(result.error === 'llm_failure', 'error = llm_failure', `error: ${result.error}`);
+    assert(
+      result.toolResults.length === 1,
+      'la tool de la iter 1 se ejecutó',
+      `tools: ${result.toolResults.length}`
+    );
+    assert(result.toolResults[0].tool === 'write', 'tool ejecutada: write');
+    assert(result.toolResults[0].ok, 'write tuvo éxito', result.toolResults[0].error || '');
+    assert(
+      result.response.includes('Llegué a completar esto'),
+      'response incluye el resumen de lo ya logrado',
+      result.response
+    );
+    assert(
+      result.response.includes('✓ write'),
+      'response menciona la tool exitosa',
+      result.response
+    );
+    assert(
+      result.response.includes('No pude continuar'),
+      'response incluye el aviso de error',
+      result.response
+    );
+    assert(
+      result.response.includes('fallback textual caído'),
+      'response conserva el mensaje de la excepción',
+      result.response
+    );
+    assert(
+      result.response.indexOf('✓ write') < result.response.indexOf('No pude continuar'),
+      'el éxito aparece antes que el aviso de error',
+      result.response
+    );
+    assert(
+      fs.existsSync(outFile) && fs.readFileSync(outFile, 'utf-8') === 'hecho',
+      'el archivo de la tool exitosa quedó escrito en disco'
+    );
+  } finally {
+    LLMProvider.completeWithTools = originalCompleteWithTools;
+  }
+
+  teardown();
+}
+
+// ── Test 7c: precedencia mcp + tool-calling nativo caído → MCP_TOOL en texto ─
+
+async function testMCPToolTextFallback() {
+  console.log(C.bold('\n── Test 7c: precedencia mcp, tool-calling nativo caído → MCP_TOOL ─'));
+
+  const { AgentLoop } = require('../core/planner/AgentLoop.js');
+  const AP = require('../core/planner/ActionParser.js');
+  const LLMProvider = require('../core/llm/LLMProvider.js');
+
+  const projectCwd = teardown() || setup();
+  AP.setProjectCWD(projectCwd);
+  const outFile = path.join(projectCwd, 'calc.py');
+
+  // Escenario exacto del bug: precedencia mcp (mcpManager + toolResolver),
+  // completeWithTools falla en todos los providers, y el modelo cae al
+  // formato de texto estructurado usando MCP_TOOL: filesystem.write_file.
+  const originalCompleteWithTools = LLMProvider.completeWithTools;
+  LLMProvider.completeWithTools = async () => {
+    throw new Error('todos los proveedores caídos');
+  };
+
+  const mockMCP = createMockMCP(projectCwd);
+  const mockLLM = createMockLLM([
+    `Creo el archivo con el servidor filesystem.
+\`\`\`action
+MCP_TOOL: filesystem.write_file | ARCHIVO: ${outFile}
+CONTENIDO: print("hola")
+\`\`\``,
+    'Listo, archivo creado.',
+  ]);
+
+  try {
+    const loop = new AgentLoop({
+      maxIterations: 5,
+      llm: mockLLM,
+      bridge: createMockBridge(projectCwd),
+      mcpManager: mockMCP,
+    });
+
+    const result = await loop.run('creá un archivo calc.py', 'Eres un asistente.', [], {
+      tools: [{ name: 'write_file', description: 'Escribe un archivo', parameters: {} }],
+      toolResolver: createMCPPrecedenceResolver(),
+      onApprovalNeeded: async () => true,
+    });
+
+    assert(!result.error, 'Sin error', `error: ${result.error}`);
+    assert(
+      result.toolResults.length === 1,
+      'la tool MCP se ejecutó',
+      `tools: ${result.toolResults.length}`
+    );
+    assert(
+      result.toolResults[0].tool === 'mcp:filesystem:write_file',
+      'resultado vía MCPManager (no OpenClawBridge)',
+      result.toolResults[0].tool
+    );
+    assert(result.toolResults[0].ok, 'write_file tuvo éxito', result.toolResults[0].error || '');
+    assert(mockMCP.calls.length === 1, 'callTool llamado 1 vez', `calls: ${mockMCP.calls.length}`);
+    assert(
+      mockMCP.calls[0].server === 'filesystem' && mockMCP.calls[0].tool === 'write_file',
+      'callTool(server="filesystem", tool="write_file")',
+      JSON.stringify(mockMCP.calls[0])
+    );
+    assert(
+      mockMCP.calls[0].args.path === outFile && mockMCP.calls[0].args.content === 'print("hola")',
+      'args MCP mapeados desde ARCHIVO/CONTENIDO',
+      JSON.stringify(mockMCP.calls[0].args)
+    );
+    assert(
+      fs.existsSync(outFile) && fs.readFileSync(outFile, 'utf-8') === 'print("hola")',
+      'el archivo quedó escrito en disco por la tool MCP'
+    );
+  } finally {
+    LLMProvider.completeWithTools = originalCompleteWithTools;
+  }
+
+  teardown();
+}
+
+// ── Test 7d: mcp_call clásico (SERVIDOR/HERRAMIENTA/PARAMS) va a MCPManager ──
+
+async function testMCPCallClassicRouting() {
+  console.log(C.bold('\n── Test 7d: mcp_call clásico se enruta a MCPManager ─────────────'));
+
+  const { AgentLoop } = require('../core/planner/AgentLoop.js');
+  const AP = require('../core/planner/ActionParser.js');
+  const LLMProvider = require('../core/llm/LLMProvider.js');
+
+  const projectCwd = teardown() || setup();
+  AP.setProjectCWD(projectCwd);
+
+  const originalCompleteWithTools = LLMProvider.completeWithTools;
+  LLMProvider.completeWithTools = async () => {
+    throw new Error('proveedores caídos');
+  };
+
+  const mockMCP = createMockMCP(projectCwd);
+  const mockLLM = createMockLLM([
+    `Voy a listar el directorio del proyecto.
+\`\`\`action
+ACCIÓN: mcp_call | SERVIDOR: filesystem | HERRAMIENTA: list_directory | PARAMS: {"path": "${projectCwd}"}
+\`\`\``,
+    'Listado listo.',
+  ]);
+
+  try {
+    const loop = new AgentLoop({
+      maxIterations: 5,
+      llm: mockLLM,
+      bridge: createMockBridge(projectCwd),
+      mcpManager: mockMCP,
+    });
+
+    const result = await loop.run('listá el directorio del proyecto', 'Eres un asistente.', [], {
+      tools: [{ name: 'list_directory', description: 'Lista un directorio', parameters: {} }],
+      toolResolver: createMCPPrecedenceResolver(),
+      onApprovalNeeded: async () => true,
+    });
+
+    assert(!result.error, 'Sin error', `error: ${result.error}`);
+    assert(
+      result.toolResults.length === 1,
+      'la tool MCP se ejecutó',
+      `tools: ${result.toolResults.length}`
+    );
+    assert(
+      result.toolResults[0].ok,
+      'list_directory tuvo éxito',
+      result.toolResults[0].error || ''
+    );
+    assert(
+      result.toolResults[0].tool === 'mcp:filesystem:list_directory',
+      'resultado vía MCPManager',
+      result.toolResults[0].tool
+    );
+    assert(
+      mockMCP.calls.length === 1 &&
+        mockMCP.calls[0].server === 'filesystem' &&
+        mockMCP.calls[0].tool === 'list_directory',
+      'callTool(server, tool) correcto',
+      JSON.stringify(mockMCP.calls[0])
+    );
+    assert(
+      mockMCP.calls[0].args.path === projectCwd,
+      'PARAMS JSON llegó como args',
+      JSON.stringify(mockMCP.calls[0].args)
+    );
+    assert(
+      result.response.includes('Listado listo.'),
+      'response final es el cierre del LLM',
+      result.response
+    );
+  } finally {
+    LLMProvider.completeWithTools = originalCompleteWithTools;
+  }
+
+  teardown();
+}
+
+// ── Test 7e: tool MCP inexistente → error claro, no "Herramienta desconocida" ─
+
+async function testMCPUnknownToolClearError() {
+  console.log(C.bold('\n── Test 7e: tool MCP inexistente → error claro con catálogo ──────'));
+
+  const { AgentLoop } = require('../core/planner/AgentLoop.js');
+  const AP = require('../core/planner/ActionParser.js');
+  const LLMProvider = require('../core/llm/LLMProvider.js');
+
+  const projectCwd = teardown() || setup();
+  AP.setProjectCWD(projectCwd);
+  const outFile = path.join(projectCwd, 'x.txt');
+
+  const originalCompleteWithTools = LLMProvider.completeWithTools;
+  LLMProvider.completeWithTools = async () => {
+    throw new Error('proveedores caídos');
+  };
+
+  const mockMCP = createMockMCP(projectCwd);
+  const mockLLM = createMockLLM([
+    `\`\`\`action
+MCP_TOOL: filesystem.herramienta_inexistente | ARCHIVO: ${outFile}
+\`\`\``,
+    'No pude ejecutar esa herramienta.',
+  ]);
+
+  try {
+    const loop = new AgentLoop({
+      maxIterations: 5,
+      llm: mockLLM,
+      bridge: createMockBridge(projectCwd),
+      mcpManager: mockMCP,
+    });
+
+    const result = await loop.run('escribí x.txt', 'Eres un asistente.', [], {
+      tools: [{ name: 'write_file', description: 'Escribe', parameters: {} }],
+      toolResolver: createMCPPrecedenceResolver(),
+      onApprovalNeeded: async () => true,
+    });
+
+    assert(
+      result.toolResults.length === 1,
+      'la tool falló pero quedó registrada',
+      `tools: ${result.toolResults.length}`
+    );
+    assert(!result.toolResults[0].ok, 'la tool MCP inexistente falla');
+    assert(
+      result.toolResults[0].error.includes('no existe en el catálogo'),
+      'error claro de tool no existente',
+      result.toolResults[0].error
+    );
+    assert(
+      result.toolResults[0].error.includes('filesystem.herramienta_inexistente'),
+      'menciona el nombre exacto que escribió el modelo',
+      result.toolResults[0].error
+    );
+    assert(
+      result.toolResults[0].error.includes('filesystem.write_file'),
+      'lista las tools disponibles del catálogo',
+      result.toolResults[0].error
+    );
+    assert(
+      !result.toolResults[0].error.includes('Herramienta desconocida: mcp'),
+      'NO cae en el error genérico de OpenClawBridge',
+      result.toolResults[0].error
+    );
+    assert(mockMCP.calls.length === 0, 'callTool nunca se llama con una tool inexistente');
   } finally {
     LLMProvider.completeWithTools = originalCompleteWithTools;
   }
@@ -1023,6 +1411,10 @@ async function main() {
   await testNoApprovalCallback();
   await testBridgeExecution();
   await testNativeToolCallEmptyContent();
+  await testLLMFailureKeepsCompletedTools();
+  await testMCPToolTextFallback();
+  await testMCPCallClassicRouting();
+  await testMCPUnknownToolClearError();
   await testMultiToolPerIteration();
   await testContextCompaction();
   await testSubagentDispatch();

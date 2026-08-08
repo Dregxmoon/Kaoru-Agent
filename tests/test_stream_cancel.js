@@ -46,6 +46,41 @@ function startSSEServer({ tokenDelayMs = 15, chunks = 3 }) {
   });
 }
 
+// ── Mock SSE server que SÍ termina con [DONE] (stream normal). ───────────────
+function startDoneServer({ tokenDelayMs = 1, chunks = 3 }) {
+  const server = http.createServer((req, res) => {
+    res.writeHead(200, { 'Content-Type': 'text/event-stream', Connection: 'close' });
+    let i = 0;
+    const timer = setInterval(() => {
+      if (i < chunks) {
+        res.write(
+          `data: ${JSON.stringify({ choices: [{ delta: { content: `tok-${i} ` } }] })}\n\n`
+        );
+        i++;
+        return;
+      }
+      res.write('data: [DONE]\n\n');
+      clearInterval(timer);
+      res.end();
+    }, tokenDelayMs);
+    req.on('close', () => clearInterval(timer));
+  });
+  return new Promise((resolve) => {
+    server.listen(0, '127.0.0.1', () => resolve(server));
+  });
+}
+
+// ── Mock JSON server para post()/get(). ──────────────────────────────────────
+function startJSONServer() {
+  const server = http.createServer((req, res) => {
+    res.writeHead(200, { 'Content-Type': 'application/json', Connection: 'close' });
+    res.end(JSON.stringify({ data: [], ok: true }));
+  });
+  return new Promise((resolve) => {
+    server.listen(0, '127.0.0.1', () => resolve(server));
+  });
+}
+
 function wait(ms) {
   return new Promise((r) => setTimeout(r, ms));
 }
@@ -123,6 +158,54 @@ async function main() {
   const res = await loop.run('prueba', 'system', [], { signal: abort3.signal, onToken: () => {} });
   assert(res.cancelled === true, 'AgentLoop devuelve cancelled=true con señal abortada');
   assert(res.error === 'cancelled', 'error=cancelled');
+
+  // ── Test 4: no fuga de listeners de abort en la señal compartida ─────────
+  // El agent-run comparte un único AbortController para todas sus requests
+  // (streaming, post y get, incluidos los reintentos). Cada request que
+  // termina debe remover su listener de la señal; sin cleanup, N requests
+  // dejan N listeners acumulados (fuga de memoria + MaxListenersExceeded).
+  const { getEventListeners } = require('events');
+  const signalFns = [
+    {
+      name: 'postStream',
+      server: await startDoneServer({}),
+      call: async (url, signal) =>
+        LLMProvider._debug_postStream(
+          url,
+          {},
+          { model: 'x', messages: [] },
+          () => {},
+          20_000,
+          signal
+        ),
+    },
+    {
+      name: 'post',
+      server: await startJSONServer(),
+      call: async (url, signal) =>
+        LLMProvider._debug_post(url, {}, { model: 'x', messages: [] }, 20_000, signal),
+    },
+    {
+      name: 'get',
+      server: await startJSONServer(),
+      call: async (url, signal) => LLMProvider._debug_get(url, {}, 20_000, signal),
+    },
+  ];
+
+  for (const { name, server, call } of signalFns) {
+    const url = `http://127.0.0.1:${server.address().port}/chat/completions`;
+    const shared = new AbortController();
+    for (let i = 0; i < 25; i++) {
+      const out = await call(url, shared.signal);
+      assert(out !== undefined && out !== null, `${name} completó la request #${i + 1}`);
+    }
+    const leaked = getEventListeners(shared.signal, 'abort').length;
+    assert(
+      leaked === 0,
+      `${name}: 0 listeners de abort tras 25 requests con la misma señal (leaked=${leaked})`
+    );
+    server.close();
+  }
 
   console.log(C.bold('\n════════════════════════════════════════════════════════'));
   const total = passed + failed;

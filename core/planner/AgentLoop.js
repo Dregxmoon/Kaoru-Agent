@@ -125,6 +125,14 @@ ACCIÓN: web_search | QUERY: cómo instalar node
 ACCIÓN: mcp_call | SERVIDOR: filesystem | HERRAMIENTA: list_directory | PARAMS: {"path": "."}
 \`\`\`
 
+Para herramientas MCP también puedes usar el atajo MCP_TOOL con el nombre
+completo \`servidor.herramienta\` del catálogo. Los campos ARCHIVO/RUTA/CONTENIDO
+se pasan como argumentos de la tool:
+\`\`\`action
+MCP_TOOL: filesystem.write_file | ARCHIVO: docs/nota.md
+CONTENIDO: Contenido del archivo.
+\`\`\`
+
 Puedes incluir el bloque \`\`\`action en cualquier parte de tu respuesta.
 El resto del texto se mostrará al usuario.
 
@@ -163,6 +171,7 @@ class AgentLoop {
     this._git = opts.git || getGitManager();
     this._github = opts.github || getGitHubManager();
     this._graph = opts.graph || null;
+    this._mcp = opts.mcpManager || null;
     this._compactionPersisted = false;
     const rawMode = opts.mode || 'smart';
     if (!VALID_MODES.has(rawMode)) {
@@ -362,7 +371,9 @@ class AgentLoop {
               };
             }
             return {
-              response: `Error en tool-calling y fallback textual: ${e2.message}`,
+              response:
+                this._completedSummary(toolResults) +
+                `⚠️ No pude continuar — error en tool-calling y fallback textual: ${e2.message}`,
               iterations: i + 1,
               toolResults,
               error: 'llm_failure',
@@ -384,7 +395,9 @@ class AgentLoop {
             };
           }
           return {
-            response: `Error en LLM: ${e.message}`,
+            response:
+              this._completedSummary(toolResults) +
+              `⚠️ No pude continuar — error en LLM: ${e.message}`,
             iterations: i + 1,
             toolResults,
             error: 'llm_failure',
@@ -601,6 +614,13 @@ class AgentLoop {
             result = await this._executeLSPTool(action);
           } else if (SUBAGENT_TOOLS.has(action.tool)) {
             result = await this._executeSubagent(action);
+          } else if (action.tool === 'mcp') {
+            // Pseudo-tool MCP (de mcp_call / MCP_TOOL en fallback textual):
+            // va a MCPManager, NUNCA a OpenClawBridge.
+            result = await this._executeMCP(action);
+          } else if (action.tool === 'plugin') {
+            // Pseudo-tool de plugins (de plugin_call en fallback textual).
+            result = await this._executePlugin(action);
           } else if (action._needsInstructionResolve) {
             result = await this._executeResolvedEdit(action);
           } else {
@@ -780,6 +800,159 @@ class AgentLoop {
       }
     } catch (e) {
       return failShape(e.message);
+    }
+  }
+
+  /**
+   * Ejecuta una tool de un servidor MCP conectado (pseudo-tool 'mcp', que
+   * emiten mcp_call / MCP_TOOL en el fallback textual). A diferencia del
+   * resto de tools — que van a OpenClawBridge — esto pasa por MCPManager,
+   * independiente de si OpenClaw está corriendo.
+   *
+   * Validación: el nombre de la tool se contrasta contra el catálogo REAL
+   * de tools MCP conectadas (listAllTools), no contra nombres fijos. Si el
+   * modelo escribió un server/tool que no existe, se devuelve un error claro
+   * con la lista de tools disponibles — en vez del "Herramienta desconocida:
+   * mcp" genérico de OpenClawBridge.
+   */
+  async _executeMCP(action) {
+    const t0 = Date.now();
+    const { server, tool, args } = action.params || {};
+    const toolLabel = `${server || '?'}.${tool || '?'}`;
+
+    if (!server || !tool) {
+      return {
+        ok: false,
+        result: null,
+        error: 'mcp_call requiere SERVIDOR y HERRAMIENTA (o MCP_TOOL: servidor.herramienta)',
+        tool: `mcp:${toolLabel}`,
+        elapsed: Date.now() - t0,
+      };
+    }
+
+    let mgr = this._mcp;
+    if (!mgr) {
+      try {
+        const { getMCPManager } = require('../mcp/MCPManager.js');
+        mgr = getMCPManager();
+      } catch (e) {
+        return {
+          ok: false,
+          result: null,
+          error: `No se pudo cargar MCPManager: ${e.message}`,
+          tool: `mcp:${toolLabel}`,
+          elapsed: Date.now() - t0,
+        };
+      }
+    }
+
+    try {
+      const catalog = typeof mgr.listAllTools === 'function' ? mgr.listAllTools() : [];
+      const known = catalog.find(
+        (t) => (t.server === server || t.serverId === server) && t.tool === tool
+      );
+      if (!known) {
+        const available = catalog
+          .map((t) => `${t.server}.${t.tool}`)
+          .sort()
+          .join(', ');
+        const list = available
+          ? ` Disponibles: ${available}.`
+          : ' No hay herramientas MCP conectadas en este momento.';
+        return {
+          ok: false,
+          result: null,
+          error: `La tool MCP "${toolLabel}" no existe en el catálogo.${list} Revisa el nombre contra la lista de servidores conectados.`,
+          tool: `mcp:${toolLabel}`,
+          elapsed: Date.now() - t0,
+        };
+      }
+
+      const result = await mgr.callTool(server, tool, args || {});
+      const text =
+        (result?.content || [])
+          .filter((c) => c.type === 'text')
+          .map((c) => c.text)
+          .join('\n') || JSON.stringify(result);
+      return {
+        ok: true,
+        result: text,
+        error: null,
+        tool: `mcp:${server}:${tool}`,
+        elapsed: Date.now() - t0,
+      };
+    } catch (e) {
+      return {
+        ok: false,
+        result: null,
+        error: e.message,
+        tool: `mcp:${server}:${tool}`,
+        elapsed: Date.now() - t0,
+      };
+    }
+  }
+
+  /**
+   * Ejecuta una tool de un plugin registrado (pseudo-tool 'plugin', que emite
+   * plugin_call en el fallback textual). `params` espera `{ name, args }` o
+   * `{ tool, args }`. Espeja Planner._executePlugin.
+   */
+  async _executePlugin(action) {
+    const t0 = Date.now();
+    const params = action.params || {};
+    const toolId = params.name || params.tool;
+    const args = params.args || {};
+
+    if (!toolId) {
+      return {
+        ok: false,
+        result: null,
+        error: 'plugin_call requiere name/tool',
+        tool: 'plugin',
+        elapsed: Date.now() - t0,
+      };
+    }
+
+    let mgr = null;
+    try {
+      const { getPluginManager } = require('../plugins/PluginManager.js');
+      mgr = getPluginManager();
+    } catch (e) {
+      return {
+        ok: false,
+        result: null,
+        error: `No se pudo cargar PluginManager: ${e.message}`,
+        tool: `plugin:${toolId}`,
+        elapsed: Date.now() - t0,
+      };
+    }
+
+    try {
+      if (typeof mgr._dispatch !== 'function') {
+        return {
+          ok: false,
+          result: null,
+          error: 'PluginManager no enlazado al dispatch',
+          tool: `plugin:${toolId}`,
+          elapsed: Date.now() - t0,
+        };
+      }
+      const result = await mgr._dispatch(toolId, args);
+      return {
+        ok: result?.ok !== false,
+        result: result?.result ?? null,
+        error: result?.error || null,
+        tool: `plugin:${toolId}`,
+        elapsed: Date.now() - t0,
+      };
+    } catch (e) {
+      return {
+        ok: false,
+        result: null,
+        error: e.message,
+        tool: `plugin:${toolId}`,
+        elapsed: Date.now() - t0,
+      };
     }
   }
 
@@ -1298,6 +1471,23 @@ class AgentLoop {
       logger.warn('AgentLoop', `[agent-loop] recall de memoria falló: ${e.message}`);
       return null;
     }
+  }
+
+  /**
+   * Resumen de lo ya logrado antes de un fallo de LLM. Lista las tools que
+   * terminaron con éxito en iteraciones previas del loop; si no hubo ninguna
+   * tool exitosa devuelve una cadena vacía (y el response queda solo con el
+   * error, como antes). Evita que un fallo de LLM en la iteración i>0 borre
+   * todo rastro del trabajo ya completado.
+   */
+  _completedSummary(toolResults) {
+    const done = (toolResults || []).filter((r) => r && r.ok);
+    if (done.length === 0) return '';
+    return (
+      'Llegué a completar esto antes de perder la conexión con el proveedor:\n\n' +
+      done.map((r) => `✓ ${r.tool}`).join('\n') +
+      '\n\n'
+    );
   }
 
   _summarizeResult(result) {

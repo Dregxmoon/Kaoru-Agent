@@ -12,6 +12,10 @@
 //   5. El override gana sobre el modelo por defecto del provider.
 //   6. refreshProviderModels() con proveedor no-openai no revienta y cae al
 //      catálogo estático.
+//   7. El catálogo NVIDIA no lista modelos no desplegados en la cuenta
+//      (kimi-k2.6 da 404 "Function not found").
+//   8. refreshProviderModels() interseca la lista viva del endpoint con el
+//      catálogo curado y cachea el resultado con TTL (sin re-consultar API).
 
 const C = {
   green: (s) => `\x1b[32m${s}\x1b[0m`,
@@ -154,6 +158,74 @@ function testConfigureMerge() {
   assert(resolved === 'gemini-2.5-pro', 'el override smart sobrevive a configure() de keys');
 }
 
+// ── Test 6: catálogo NVIDIA sin modelos no desplegados ────────────────────────
+
+function testNvidiaCatalog() {
+  console.log(C.bold('\n── Test 6: catálogo NVIDIA sin modelos no desplegados ─────────'));
+
+  const nvidia = LLMProvider.getAvailableProviders().find((p) => p.id === 'nvidia');
+  assert(Array.isArray(nvidia.catalog), 'nvidia expone catálogo estático');
+  assert(
+    !nvidia.catalog.includes('moonshotai/kimi-k2.6'),
+    'kimi-k2.6 fuera del catálogo estático (404 "Function not found" en la cuenta)'
+  );
+  assert(
+    nvidia.catalog.includes('minimaxai/minimax-m3'),
+    'minimax-m3 (default smart) sigue en el catálogo'
+  );
+}
+
+// ── Test 7: refreshProviderModels valida contra la API ────────────────────────
+
+async function testValidation() {
+  console.log(C.bold('\n── Test 7: refreshProviderModels valida contra la API ─────────'));
+
+  LLMProvider.addCustomProvider({
+    id: 'test-validation',
+    name: 'Test Validación',
+    type: 'openai',
+    baseURL: 'https://example.invalid/v1',
+    models: { fast: 'test-fast', smart: 'test-smart' },
+    catalog: ['test-fast', 'test-smart', 'test-extra', 'test-ghost'],
+  });
+  LLMProvider.configure({ llm: { apiKeys: { 'test-validation': 'fake-key' } } });
+
+  // 1) Sin refresh: el estático completo está disponible
+  const before = LLMProvider.listModels('test-validation');
+  assert(before.includes('test-ghost'), 'sin refresh el estático incluye test-ghost');
+
+  // 2) Fetcher falso: la lista viva del endpoint no tiene test-smart/test-ghost
+  //    y agrega live-only (no curado). Solo quedan los modelos en ambos.
+  let calls = 0;
+  const fakeFetcher = async () => {
+    calls++;
+    return {
+      status: 200,
+      body: { data: [{ id: 'test-fast' }, { id: 'test-extra' }, { id: 'live-only' }] },
+    };
+  };
+  const validated = await LLMProvider.refreshProviderModels('test-validation', fakeFetcher);
+  assert(Array.isArray(validated), 'refresh devuelve un array');
+  assert(validated.includes('test-fast'), 'test-fast presente (catálogo ∩ lista viva)');
+  assert(validated.includes('test-extra'), 'test-extra presente (catálogo ∩ lista viva)');
+  assert(!validated.includes('test-smart'), 'test-smart fuera (no está en la lista viva)');
+  assert(!validated.includes('test-ghost'), 'test-ghost fuera (no está en la lista viva)');
+  assert(!validated.includes('live-only'), 'live-only fuera (no está en el catálogo curado)');
+
+  // 3) listModels refleja el catálogo validado
+  const after = LLMProvider.listModels('test-validation');
+  assert(!after.includes('test-ghost'), 'listModels ya no ofrece test-ghost');
+  assert(after.includes('test-fast'), 'listModels conserva los modelos válidos');
+
+  // 4) TTL: una segunda llamada dentro de la ventana NO vuelve a la API
+  const again = await LLMProvider.refreshProviderModels('test-validation', fakeFetcher);
+  assert(calls === 1, `TTL cachea: fetcher llamado 1 vez (real: ${calls})`);
+  assert(
+    Array.isArray(again) && again.includes('test-fast'),
+    'segunda llamada devuelve el catálogo validado cacheado'
+  );
+}
+
 // ── Main ──────────────────────────────────────────────────────────────────────
 
 async function main() {
@@ -166,6 +238,8 @@ async function main() {
   testListModels();
   await testRefresh();
   testConfigureMerge();
+  testNvidiaCatalog();
+  await testValidation();
 
   console.log(C.bold('\n════════════════════════════════════════════════════════'));
   const total = passed + failed;

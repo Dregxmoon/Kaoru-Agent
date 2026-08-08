@@ -339,6 +339,11 @@ function buildMCPCatalogPrompt(mcpTools) {
     '```action\n' +
     'ACCIÓN: mcp_call | SERVIDOR: filesystem | HERRAMIENTA: list_directory | PARAMS: {"path": "/ruta"}\n' +
     '```\n' +
+    'Atajo equivalente con el nombre completo servidor.herramienta (ARCHIVO→path, CONTENIDO→content, etc.):\n' +
+    '```action\n' +
+    'MCP_TOOL: filesystem.write_file | ARCHIVO: /ruta/archivo.txt\n' +
+    'CONTENIDO: contenido del archivo\n' +
+    '```\n' +
     'El SERVIDOR y HERRAMIENTA deben coincidir EXACTAMENTE con la lista de arriba, incluyendo mayúsculas. ' +
     'PARAMS debe ser JSON válido en una sola línea. ' +
     'El sistema pedirá confirmación al usuario antes de ejecutar cualquier herramienta MCP.'

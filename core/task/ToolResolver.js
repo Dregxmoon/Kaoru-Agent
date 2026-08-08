@@ -224,7 +224,11 @@ function _buildPromptCatalog(tools, domain, flags) {
     }
     lines.push('');
     lines.push(
-      'Para usar MCP, usa el formato:\n  ```action\n  ACCIÓN: mcp_call | SERVIDOR: <server> | HERRAMIENTA: <tool> | PARAMS: {...}\n  ```'
+      'Para usar MCP, usa el formato:\n  ```action\n  MCP_TOOL: <servidor>.<herramienta> | ARCHIVO/RUTA/CONTENIDO: <valor>\n  ```\n' +
+        '  donde <servidor>.<herramienta> es el nombre EXACTO de la lista de arriba (p.ej. filesystem.write_file).\n' +
+        '  ARCHIVO→path, RUTA→path, CONTENIDO→content, COMANDO→command, QUERY→query, URL→url.\n' +
+        '  Alternativa clásica:\n' +
+        '  ```action\n  ACCIÓN: mcp_call | SERVIDOR: <servidor> | HERRAMIENTA: <herramienta> | PARAMS: {...}\n  ```'
     );
     lines.push('');
   }

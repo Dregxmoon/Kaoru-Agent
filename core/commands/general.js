@@ -230,4 +230,61 @@ module.exports = function registerCommands(register) {
       return 'Este comando solo funciona desde la ventana del chat.';
     },
   });
+
+  register({
+    name: 'uso',
+    description: 'Muestra el consumo de LLM: llamadas, tokens y coste estimado',
+    usage: '/uso [recientes|reset]',
+    handler: async (args, ctx) => {
+      const getTracker =
+        (ctx && ctx.LLMProvider && ctx.LLMProvider.getUsageTracker) ||
+        (() => require('../llm/LLMProvider.js').getUsageTracker());
+      const tracker = getTracker();
+      if (!tracker || typeof tracker.getSummary !== 'function') {
+        return 'Uso de LLM no disponible.';
+      }
+      const sub = (args[0] || '').toLowerCase();
+
+      if (sub === 'reset' && typeof tracker.reset === 'function') {
+        tracker.reset();
+        return 'Contador de uso de LLM reiniciado.';
+      }
+
+      if (sub === 'recientes' && typeof tracker.recent === 'function') {
+        const events = tracker.recent(10);
+        if (!events.length) return 'No hay eventos de uso recientes.';
+        const lines = events
+          .slice()
+          .reverse()
+          .map((ev) => {
+            const time = new Date(ev.ts).toLocaleTimeString('es-AR', {
+              hour: '2-digit',
+              minute: '2-digit',
+            });
+            const flag = ev.error ? ' [error]' : ev.stream ? ' [stream]' : '';
+            return `  - ${time} \`${ev.provider}\` **${ev.model}** — ${Number(ev.totalTokens || 0).toLocaleString('es-AR')} tok · $${Number(ev.costUsd || 0).toFixed(4)}${flag}`;
+          });
+        return `**Eventos de uso recientes:**\n\n${lines.join('\n')}`;
+      }
+
+      const s = tracker.getSummary();
+      const fmtN = (v) => Number(v || 0).toLocaleString('es-AR');
+      const fmtCost = (v) => `$${Number(v || 0).toFixed(4)}`;
+      const byProvider = Object.entries(s.byProvider || {})
+        .sort((a, b) => b[1].requests - a[1].requests)
+        .map(
+          ([id, p]) =>
+            `  - \`${id}\`: **${fmtN(p.requests)}** llamadas · ${fmtN(p.tokens)} tokens · ${fmtCost(p.costUsd)}`
+        );
+      const lines = [
+        '**Uso de LLM:**',
+        `- Llamadas: **${fmtN(s.totalRequests)}**`,
+        `- Tokens: **${fmtN(s.totalTokens)}** (${fmtN(s.totalPromptTokens)} in / ${fmtN(s.totalCompletionTokens)} out)`,
+        `- Coste estimado: **${fmtCost(s.totalCostUsd)}**`,
+        `- Hoy: **${fmtN(s.today.requests)}** llamadas · ${fmtN(s.today.promptTokens)} in / ${fmtN(s.today.completionTokens)} out · ${fmtCost(s.today.costUsd)}`,
+      ];
+      if (byProvider.length) lines.push('', '**Por proveedor:**', ...byProvider);
+      return lines.join('\n');
+    },
+  });
 };
