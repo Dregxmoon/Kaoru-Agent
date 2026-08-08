@@ -36,15 +36,19 @@ async function speak(text) {
     const pythonBin = await getPythonBin();
     if (!pythonBin) throw new Error('No se encontró un intérprete de Python — TTS no disponible');
     const u8 = await assistant.ttsStream({ pythonBin, text: spokenText });
-    const ctx = getAudioCtx();
-    const audioBuf = await ctx.decodeAudioData(u8.buffer);
-    const src = ctx.createBufferSource();
-    src.buffer = audioBuf;
-    src.connect(ctx.destination);
-    src.start(0);
+    // NO usar WebAudio decodeAudioData: en Chromium 28 el decoder nativo
+    // (AsyncAudioDecoder → AudioBuffer::AudioBuffer(AudioBus*)) crashea con
+    // SEGV ante MP3 inválido/corto (exitCode 139, tumba el renderer). Se
+    // reproduce con HTMLAudioElement + Blob URL (pipeline de media, robusto).
+    const blob = new Blob([u8], { type: 'audio/mpeg' });
+    const url = URL.createObjectURL(blob);
+    const audio = new Audio(url);
     await new Promise((resolve) => {
-      src.onended = resolve;
+      audio.onended = resolve;
+      audio.onerror = resolve;
+      audio.play().catch(resolve);
     });
+    URL.revokeObjectURL(url);
   } catch {
     const utt = new SpeechSynthesisUtterance(spokenText);
     utt.lang = 'ja-JP';
