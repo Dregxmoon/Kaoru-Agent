@@ -27,6 +27,8 @@ models/*
 # ── Datos personales y exportaciones de conversación ─────────────────────────
 exports/
 test.txt
+# Feedback proactivo (estado de runtime del usuario, no se versiona)
+data/proactive_feedback.json
 
 # ── Artefactos de desarrollo y parches one-off ───────────────────────────────
 *.patch

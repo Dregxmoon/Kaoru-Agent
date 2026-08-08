@@ -155,7 +155,8 @@ function _cmdArgCompletions(cmdName) {
   if (!cmd) return null;
   if (cmdName === 'skill') return _skillNames.length > 0 ? _skillNames : null;
   if (cmdName === 'model') return _providerNames.length > 0 ? _providerNames : null;
-  if (cmdName === 'provider') return ['set', 'add', 'remove'];
+  if (cmdName === 'credenciales') return _providerNames.length > 0 ? _providerNames : null;
+  if (cmdName === 'provider') return [...(_providerNames || []), 'set', 'add', 'remove'];
   if (cmdName === 'cambio-modelo') return _modelNames.length > 0 ? _modelNames : null;
   if (cmdName === 'modelo-vistas') return ['full', 'half', 'head', 'all'];
   return cmd.completions || null;

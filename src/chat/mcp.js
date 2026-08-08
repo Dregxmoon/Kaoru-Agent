@@ -44,6 +44,7 @@ async function refreshMcpBadge() {
     const servers = await ipcRenderer.invoke('mcp-list-servers');
     const badge = document.getElementById('mcp-btn');
     const count = document.getElementById('mcp-count');
+    if (!badge || !count) return;
     if (servers && servers.error) {
       console.error('[mcp] no se pudo listar servidores:', servers.error);
       count.textContent = '?';
@@ -134,11 +135,14 @@ function closeMcpModal() {
   mcpModal.classList.remove('visible');
 }
 
-document.getElementById('mcp-btn').addEventListener('click', openMcpModal);
+const mcpBtn = document.getElementById('mcp-btn');
+if (mcpBtn) mcpBtn.addEventListener('click', openMcpModal);
 
-document.getElementById('workspace-btn').addEventListener('click', async () => {
-  await ipcRenderer.invoke('pick-workspace-folder');
-});
+const workspaceBtn = document.getElementById('workspace-btn');
+if (workspaceBtn)
+  workspaceBtn.addEventListener('click', async () => {
+    await ipcRenderer.invoke('pick-workspace-folder');
+  });
 
 ipcRenderer.on('workspace-changed', (e, { path }) => {
   _applyWorkspaceUI(path);

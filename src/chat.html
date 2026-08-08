@@ -36,23 +36,15 @@
         <span id="openclaw-badge" class="openclaw-badge offline" title="OpenClaw no disponible"
           >OFFLINE</span
         >
-        <button id="sessions-btn" class="mcp-badge" title="Sesiones pasadas">sesiones</button>
         <div id="sessions-modal">
           <div id="sessions-box">
             <div class="sessions-head">
               <span>Sesiones pasadas</span>
-              <button id="sessions-close" title="Cerrar">×</button>
+              <button id="sessions-close" title="Cerrar">[x]</button>
             </div>
             <div id="sessions-list"></div>
           </div>
         </div>
-        <button id="mcp-btn" class="mcp-badge" title="Servidores MCP">
-          MCP <span id="mcp-count">0</span>
-        </button>
-        <button id="perms-btn" class="mcp-badge" title="Permisos de herramientas (allow/ask/deny)">
-          permisos
-        </button>
-        <button id="workspace-btn" class="mcp-badge" title="Elegir carpeta de proyecto">dir</button>
         <div id="theme-toggle" title="Cambiar tema"></div>
         <button id="close-btn" title="Cerrar y salir">
           <svg
@@ -118,6 +110,7 @@
             </button>
             <input type="file" id="file-input" multiple />
             <textarea id="msg-input" placeholder="Escribe un mensaje..." rows="1"></textarea>
+            <span id="input-cursor" class="input-cursor" aria-hidden="true"></span>
             <button
               id="cancel-btn"
               class="input-btn"
@@ -154,14 +147,15 @@
         <div class="settings-sub">CADA PROVEEDOR CON SU PROPIA KEY</div>
         <div
           id="settings-guide"
+          class="settings-guide"
           style="
             padding: 8px 12px;
-            background: var(--accent-glow);
-            border-radius: 6px;
+            background: var(--bg-input);
+            border-radius: 2px;
             margin-bottom: 12px;
             font-size: 11px;
             line-height: 1.6;
-            border: 1px solid var(--accent);
+            border: 1px solid var(--border);
             display: none;
           "
         >

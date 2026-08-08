@@ -1,5 +1,11 @@
 :root {
   --transition-theme: 0.3s ease;
+  --radius: 0;
+  --overlay: rgba(0, 0, 0, 0.85);
+  --font-display: 'Share Tech Mono', monospace;
+  --accent2: var(--accent);
+  --text-assistant: var(--text-primary);
+  --bg-msg-user: var(--bg-input);
 }
 
 [data-theme='dark'] {
@@ -241,10 +247,10 @@ body {
   position: fixed;
   inset: 0;
   z-index: 1000;
-  background: rgba(0, 0, 0, 0.6);
-  backdrop-filter: blur(4px);
+  background: var(--overlay);
   align-items: center;
   justify-content: center;
+  -webkit-app-region: no-drag;
 }
 #settings-modal.visible {
   display: flex;
@@ -252,17 +258,37 @@ body {
 #settings-box {
   background: var(--bg-panel);
   border: 1px solid var(--border-accent);
-  border-radius: 12px;
+  border-radius: var(--radius);
   padding: 24px;
   width: 480px;
   max-width: 90vw;
-  animation: msgIn 0.2s ease forwards;
+  animation: modalIn 120ms ease-out forwards;
+  box-shadow: 0 0 0 1px var(--border);
+}
+@keyframes modalIn {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
 }
 .settings-title {
-  font-family: var(--font-display);
-  font-size: 16px;
+  font-family: var(--font-mono);
+  font-size: 12px;
   font-weight: 700;
   margin-bottom: 4px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--accent);
+}
+.settings-title::before {
+  content: '┌─ ';
+  color: var(--text-secondary);
+}
+.settings-title::after {
+  content: ' ─┐';
+  color: var(--text-secondary);
 }
 .settings-sub {
   font-family: var(--font-mono);
@@ -270,6 +296,11 @@ body {
   color: var(--text-secondary);
   margin-bottom: 20px;
   letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+.settings-sub::before {
+  content: '// ';
+  opacity: 0.5;
 }
 .settings-field {
   margin-bottom: 14px;
@@ -286,10 +317,12 @@ body {
 }
 .settings-label .pill {
   padding: 1px 6px;
-  border-radius: 3px;
+  border-radius: 2px;
   font-size: 9px;
   background: var(--tag-bg);
   border: 1px solid var(--border);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
 }
 .settings-label .pill.primary {
   background: rgba(91, 110, 245, 0.15);
@@ -315,7 +348,7 @@ body {
   width: 100%;
   background: var(--bg-input);
   border: 1px solid var(--border);
-  border-radius: 6px;
+  border-radius: 2px;
   padding: 8px 12px;
   color: var(--text-primary);
   font-family: var(--font-mono);
@@ -325,7 +358,7 @@ body {
 }
 .settings-input:focus {
   border-color: var(--accent);
-  box-shadow: 0 0 0 2px var(--accent-glow);
+  box-shadow: 0 0 0 1px var(--accent);
 }
 .settings-input::placeholder {
   color: var(--text-secondary);
@@ -352,7 +385,7 @@ body {
   color: var(--text-primary);
   background: var(--bg-input);
   border: 1px solid var(--border);
-  border-radius: 6px;
+  border-radius: 2px;
 }
 .settings-model:focus {
   border-color: var(--accent);
@@ -366,7 +399,7 @@ body {
 }
 .btn-cancel {
   padding: 8px 16px;
-  border-radius: 6px;
+  border-radius: 2px;
   border: 1px solid var(--border);
   background: transparent;
   color: var(--text-secondary);
@@ -374,6 +407,8 @@ body {
   font-size: 11px;
   cursor: pointer;
   transition: all 0.2s;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
 }
 .btn-cancel:hover {
   border-color: var(--border-accent);
@@ -381,7 +416,7 @@ body {
 }
 .btn-save {
   padding: 8px 16px;
-  border-radius: 6px;
+  border-radius: 2px;
   border: none;
   background: var(--accent);
   color: white;
@@ -389,7 +424,8 @@ body {
   font-size: 11px;
   cursor: pointer;
   transition: all 0.2s;
-  box-shadow: 0 2px 8px var(--accent-glow);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
 }
 .btn-save:hover {
   filter: brightness(1.15);
@@ -435,10 +471,16 @@ body {
   background: none;
   border: 1px solid var(--border);
   border-radius: 2px;
-  padding: 1px 6px;
+  padding: 2px 6px;
   cursor: pointer;
   -webkit-app-region: no-drag;
   margin-right: 6px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+.mcp-badge:hover {
+  border-color: var(--border-accent);
+  color: var(--text-primary);
 }
 
 #mcp-modal {
@@ -446,10 +488,10 @@ body {
   position: fixed;
   inset: 0;
   z-index: 1000;
-  background: rgba(0, 0, 0, 0.6);
-  backdrop-filter: blur(4px);
+  background: var(--overlay);
   align-items: center;
   justify-content: center;
+  -webkit-app-region: no-drag;
 }
 #mcp-modal.visible {
   display: flex;
@@ -457,23 +499,28 @@ body {
 #mcp-box {
   background: var(--bg-panel);
   border: 1px solid var(--border-accent);
-  border-radius: 12px;
+  border-radius: var(--radius);
   padding: 24px;
   width: 560px;
   max-width: 92vw;
   max-height: 82vh;
   overflow-y: auto;
-  animation: msgIn 0.2s ease forwards;
+  animation: modalIn 120ms ease-out forwards;
+  box-shadow: 0 0 0 1px var(--border);
 }
 
 .mcp-server-row {
   display: flex;
   align-items: center;
   gap: 10px;
-  padding: 10px 12px;
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  margin-bottom: 8px;
+  padding: 10px 8px;
+  border-bottom: 1px solid var(--border);
+  background: transparent;
+}
+.mcp-server-row:last-child {
+  border-bottom: none;
+}
+.mcp-server-row:hover {
   background: var(--bg-input);
 }
 .mcp-status-dot {
@@ -555,7 +602,7 @@ body {
 .mcp-remove-btn {
   width: 22px;
   height: 22px;
-  border-radius: 5px;
+  border-radius: 2px;
   border: 1px solid var(--border);
   background: transparent;
   color: var(--text-secondary);
@@ -567,6 +614,7 @@ body {
 .mcp-remove-btn:hover {
   border-color: #ef4444;
   color: #ef4444;
+  background: rgba(239, 68, 68, 0.1);
 }
 .mcp-empty {
   font-family: var(--font-mono);
@@ -581,7 +629,7 @@ body {
   width: 100%;
   padding: 9px;
   margin-top: 4px;
-  border-radius: 6px;
+  border-radius: 2px;
   border: 1px dashed var(--border-accent);
   background: transparent;
   color: var(--accent);
@@ -589,9 +637,12 @@ body {
   font-size: 11px;
   cursor: pointer;
   transition: all 0.2s;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
 }
 .mcp-add-toggle:hover {
   background: rgba(91, 110, 245, 0.08);
+  border-color: var(--accent);
 }
 
 #mcp-add-panel {
@@ -610,11 +661,11 @@ body {
   position: fixed;
   inset: 0;
   z-index: 900;
-  background: rgba(0, 0, 0, 0.5);
-  backdrop-filter: blur(3px);
+  background: var(--overlay);
   align-items: flex-start;
   justify-content: center;
   padding-top: 60px;
+  -webkit-app-region: no-drag;
 }
 #perms-modal.visible {
   display: flex;
@@ -622,13 +673,14 @@ body {
 #perms-box {
   background: var(--bg-panel);
   border: 1px solid var(--border-accent);
-  border-radius: 12px;
+  border-radius: var(--radius);
   padding: 16px;
   width: 520px;
   max-width: 92vw;
   max-height: 70vh;
   overflow-y: auto;
-  animation: msgIn 0.2s ease forwards;
+  animation: modalIn 120ms ease-out forwards;
+  box-shadow: 0 0 0 1px var(--border);
 }
 .perms-hint {
   font-size: 10px;
@@ -637,8 +689,9 @@ body {
   margin-bottom: 12px;
   padding: 8px 10px;
   background: var(--bg-input);
-  border-radius: 6px;
+  border-radius: 2px;
   border: 1px solid var(--border);
+  font-family: var(--font-mono);
 }
 .perms-form {
   display: flex;
@@ -654,7 +707,7 @@ body {
   background: var(--bg-input);
   color: var(--text-primary);
   border: 1px solid var(--border);
-  border-radius: 6px;
+  border-radius: 2px;
   padding: 4px 6px;
   font-family: var(--font-mono);
   font-size: 10px;
@@ -669,18 +722,19 @@ body {
 #perms-list {
   display: flex;
   flex-direction: column;
-  gap: 6px;
 }
 .perm-row {
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 6px 10px;
-  border: 1px solid var(--border);
-  border-radius: 6px;
-  background: var(--bg-input);
+  padding: 7px 6px;
+  border-bottom: 1px solid var(--border);
+  background: transparent;
   font-family: var(--font-mono);
   font-size: 10px;
+}
+.perm-row:hover {
+  background: var(--bg-input);
 }
 .perm-tool {
   color: var(--accent);
@@ -695,10 +749,11 @@ body {
 }
 .perm-action {
   padding: 2px 8px;
-  border-radius: 4px;
+  border-radius: 2px;
   font-size: 9px;
   text-transform: uppercase;
   font-weight: 700;
+  letter-spacing: 0.05em;
 }
 .perm-action-allow {
   background: rgba(16, 185, 129, 0.15);
@@ -718,7 +773,7 @@ body {
 .perm-del {
   width: 20px;
   height: 20px;
-  border-radius: 4px;
+  border-radius: 2px;
   border: 1px solid var(--border);
   background: transparent;
   color: var(--text-secondary);
@@ -728,6 +783,7 @@ body {
 .perm-del:hover {
   border-color: #ef4444;
   color: #ef4444;
+  background: rgba(239, 68, 68, 0.1);
 }
 .perms-empty {
   font-family: var(--font-mono);
@@ -744,11 +800,11 @@ body {
   position: fixed;
   inset: 0;
   z-index: 900;
-  background: rgba(0, 0, 0, 0.5);
-  backdrop-filter: blur(3px);
+  background: var(--overlay);
   align-items: flex-start;
   justify-content: center;
   padding-top: 60px;
+  -webkit-app-region: no-drag;
 }
 #sessions-modal.visible {
   display: flex;
@@ -756,13 +812,14 @@ body {
 #sessions-box {
   background: var(--bg-panel);
   border: 1px solid var(--border-accent);
-  border-radius: 12px;
+  border-radius: var(--radius);
   padding: 16px;
   width: 440px;
   max-width: 92vw;
   max-height: 70vh;
   overflow-y: auto;
-  animation: msgIn 0.2s ease forwards;
+  animation: modalIn 120ms ease-out forwards;
+  box-shadow: 0 0 0 1px var(--border);
 }
 .sessions-head {
   display: flex;
@@ -771,17 +828,27 @@ body {
   margin-bottom: 12px;
   font-family: var(--font-mono);
   font-size: 12px;
-  color: var(--text-primary);
+  color: var(--accent);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+.sessions-head::before {
+  content: '┌─ ';
+  color: var(--text-secondary);
 }
 #sessions-close {
-  width: 24px;
-  height: 24px;
-  border-radius: 6px;
+  width: auto;
+  height: auto;
+  padding: 2px 6px;
+  border-radius: 2px;
   border: 1px solid var(--border);
   background: transparent;
   color: var(--text-secondary);
   cursor: pointer;
-  font-size: 14px;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
 }
 #sessions-close:hover {
   border-color: #ef4444;
@@ -790,22 +857,23 @@ body {
 #sessions-list {
   display: flex;
   flex-direction: column;
-  gap: 8px;
 }
 .session-row {
   display: flex;
   flex-direction: column;
   gap: 3px;
-  padding: 10px 12px;
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  background: var(--bg-input);
+  padding: 10px 8px;
+  border-bottom: 1px solid var(--border);
+  background: transparent;
   cursor: pointer;
-  transition: border-color 0.2s;
+  transition: background 0.15s;
   text-align: left;
 }
 .session-row:hover {
-  border-color: var(--accent);
+  background: var(--bg-input);
+}
+.session-row:last-child {
+  border-bottom: none;
 }
 .session-row-title {
   font-family: var(--font-mono);
@@ -850,13 +918,15 @@ body {
 .mcp-tab {
   flex: 1;
   padding: 6px;
-  border-radius: 5px;
+  border-radius: 2px;
   border: 1px solid var(--border);
   background: transparent;
   color: var(--text-secondary);
   font-family: var(--font-mono);
   font-size: 10px;
   cursor: pointer;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
 }
 .mcp-tab.active {
   border-color: var(--accent);
@@ -873,7 +943,7 @@ body {
   flex: 1;
   background: var(--bg-input);
   border: 1px solid var(--border);
-  border-radius: 6px;
+  border-radius: 2px;
   padding: 7px 10px;
   color: var(--text-primary);
   font-family: var(--font-mono);
@@ -882,26 +952,34 @@ body {
 }
 .mcp-search-row input:focus {
   border-color: var(--accent);
+  box-shadow: 0 0 0 1px var(--accent);
 }
 .mcp-search-row button {
   padding: 7px 12px;
-  border-radius: 6px;
+  border-radius: 2px;
   border: none;
   background: var(--accent);
   color: white;
   font-family: var(--font-mono);
   font-size: 10px;
   cursor: pointer;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
 }
 
 .mcp-result-row {
   display: flex;
   align-items: flex-start;
   gap: 10px;
-  padding: 9px 10px;
-  border: 1px solid var(--border);
-  border-radius: 7px;
-  margin-bottom: 6px;
+  padding: 9px 8px;
+  border-bottom: 1px solid var(--border);
+  background: transparent;
+}
+.mcp-result-row:last-child {
+  border-bottom: none;
+}
+.mcp-result-row:hover {
+  background: var(--bg-input);
 }
 .mcp-result-info {
   flex: 1;
@@ -923,15 +1001,16 @@ body {
 .mcp-result-badge {
   font-size: 8px;
   padding: 1px 5px;
-  border-radius: 3px;
+  border-radius: 2px;
   background: var(--tag-bg);
   border: 1px solid var(--border);
   color: var(--text-secondary);
   margin-left: 6px;
+  text-transform: uppercase;
 }
 .mcp-add-result-btn {
   padding: 5px 10px;
-  border-radius: 5px;
+  border-radius: 2px;
   border: 1px solid var(--accent);
   background: transparent;
   color: var(--accent);
@@ -940,6 +1019,8 @@ body {
   cursor: pointer;
   flex-shrink: 0;
   white-space: nowrap;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
 }
 .mcp-add-result-btn:hover {
   background: rgba(91, 110, 245, 0.12);
@@ -954,7 +1035,7 @@ body {
   min-height: 110px;
   background: var(--bg-input);
   border: 1px solid var(--border);
-  border-radius: 6px;
+  border-radius: 2px;
   padding: 10px;
   color: var(--text-primary);
   font-family: var(--font-mono);
@@ -964,6 +1045,7 @@ body {
 }
 .mcp-json-textarea:focus {
   border-color: var(--accent);
+  box-shadow: 0 0 0 1px var(--accent);
 }
 .mcp-json-hint {
   font-family: var(--font-mono);
@@ -1293,6 +1375,22 @@ body {
 #msg-input::placeholder {
   color: var(--text-secondary);
   opacity: 0.7;
+}
+
+/* Cursor de terminal al final del input activo: bloque parpadeante que solo
+   aparece mientras el textarea tiene foco. #msg-input es hermano anterior de
+   #input-cursor dentro de #input-row. */
+.input-cursor {
+  display: none;
+  width: 8px;
+  height: 16px;
+  margin-bottom: 6px;
+  background: var(--accent);
+  flex-shrink: 0;
+  animation: cursorBlink 1s step-end infinite;
+}
+#msg-input:focus ~ .input-cursor {
+  display: block;
 }
 
 #at-suggestions {

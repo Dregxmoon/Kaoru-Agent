@@ -6,7 +6,6 @@
 const sessionsModal = document.getElementById('sessions-modal');
 const sessionsListEl = document.getElementById('sessions-list');
 const sessionsCloseBtn = document.getElementById('sessions-close');
-const sessionsBtn = document.getElementById('sessions-btn');
 
 function openSessions() {
   sessionsModal.classList.add('visible');
@@ -80,7 +79,6 @@ async function loadSessionIntoChat(id) {
   closeSessions();
 }
 
-sessionsBtn.addEventListener('click', openSessions);
 sessionsCloseBtn.addEventListener('click', closeSessions);
 sessionsModal.addEventListener('click', (e) => {
   if (e.target === sessionsModal) closeSessions();

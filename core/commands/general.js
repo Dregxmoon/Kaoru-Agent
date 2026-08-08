@@ -178,4 +178,56 @@ module.exports = function registerCommands(register) {
       }
     },
   });
+
+  register({
+    name: 'sesiones',
+    description: 'Abre el panel de sesiones pasadas (reanudar conversaciones)',
+    usage: '/sesiones',
+    handler: async (args, ctx) => {
+      if (typeof ctx.openSessions === 'function') {
+        ctx.openSessions();
+        return 'Abriendo el panel de sesiones pasadas.';
+      }
+      return 'Este comando solo funciona desde la ventana del chat.';
+    },
+  });
+
+  register({
+    name: 'mcp',
+    description: 'Abre el panel de servidores MCP',
+    usage: '/mcp',
+    handler: async (args, ctx) => {
+      if (typeof ctx.openMcp === 'function') {
+        ctx.openMcp();
+        return 'Abriendo el panel de servidores MCP.';
+      }
+      return 'Este comando solo funciona desde la ventana del chat.';
+    },
+  });
+
+  register({
+    name: 'permisos',
+    description: 'Abre el panel de permisos de herramientas (allow/ask/deny)',
+    usage: '/permisos',
+    handler: async (args, ctx) => {
+      if (typeof ctx.openPerms === 'function') {
+        ctx.openPerms();
+        return 'Abriendo el panel de permisos de herramientas.';
+      }
+      return 'Este comando solo funciona desde la ventana del chat.';
+    },
+  });
+
+  register({
+    name: 'dir',
+    description: 'Elige la carpeta del proyecto (workspace)',
+    usage: '/dir',
+    handler: async (args, ctx) => {
+      if (typeof ctx.pickWorkspace === 'function') {
+        await ctx.pickWorkspace();
+        return 'Abriendo el selector de carpeta.';
+      }
+      return 'Este comando solo funciona desde la ventana del chat.';
+    },
+  });
 };

@@ -75,10 +75,7 @@
 
 ### G.2 — Test runner estructurado ✅ [implementado]
 
-- ✅ `tests/run_tests.sh` — produce JSON a stdout con la misma lógica que `run-all.sh`.
-- Salida: `{passed, failed, total, exitCode, suites:[{name, passed, failed, total, exitCode}]}`.
-- `--pretty` para formato indentado, sin flag para JSON compacto (más fácil de parsear).
-- Exit code 0 si todo pasa, 1 si hay fallos. Usado por CI (`.github/workflows/ci.yml`).
+- ✅ `tests/run-all.sh` — runner único de la regresión; `npm test` lo invoca bajo el Node de Electron.
 
 ### G.3 — Índice de workspace (2 capas) ✅ [implementado - capa estructural]
 
@@ -114,7 +111,7 @@
 - ✅ **Bug de agente descubierto y arreglado por el benchmark:** `StructuredActionParser` no reconocía los aliases modernos `ACCIÓN: write/edit/read` (solo `create_file`/`edit_file`), y `ACCIÓN: exec` caía en `{raw: fields}` sin extraer `COMANDO`. Fix: aliases + case `exec`. Test dedicado `test_structured_parser_aliases` 12/12; suite total 1056/1056.
 - ⚠️ **Bloqueo operativo:** la key de Groq (tier gratis) tiene rate limits agresivos (TPD 100k para smart, TPM 6k para fast) que impiden las 3 corridas por tarea en una misma sesión. Con el fix del parser aplicado falta re-correr la tarea para medir pass@3 real.
 - [ ] 15-30 tareas representativas, usando el propio historial de bugs (Fase 0 revertido) como primeras tareas — ya se conoce el resultado correcto.
-- [ ] `verify.sh` de cada tarea usa `run_tests` de G.2 (hoy cada tarea tiene su propio verify.sh; migrar el que aplique a suites reales).
+- [ ] `verify.sh` de cada tarea usa la regresión de `run-all.sh` (hoy cada tarea tiene su propio verify.sh; migrar el que aplique a suites reales).
 - [ ] 3 corridas por tarea (no-determinismo del LLM), `pass@3` o promedio, serie histórica — runner ya persiste la serie; falta completar corridas sin rate limit.
 - [ ] Publicar los números aunque sean modestos. Es el gate de decisión para §11/§12.
 
