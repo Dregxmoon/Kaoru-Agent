@@ -5,7 +5,7 @@ module.exports = function registerCommands(register) {
   register({
     name: 'model',
     description: 'Cambia el proveedor LLM activo',
-    usage: '/model <nombre>',
+    usage: '/model <nombre> [modelo]',
     handler: async (args, ctx) => {
       const LLMProvider = ctx.LLMProvider;
       if (!LLMProvider) return 'LLMProvider no disponible.';
@@ -14,6 +14,7 @@ module.exports = function registerCommands(register) {
       const available = LLMProvider.getAvailableProviders();
       const valid = available.find((p) => p.id === provider);
 
+      // Sin proveedor: lista los disponibles.
       if (!valid) {
         const current = LLMProvider.getActiveProvider();
         const lines = available
@@ -25,13 +26,63 @@ module.exports = function registerCommands(register) {
           .join('\n');
         return `Proveedor activo: **${current || 'ninguno'}**\n\n**Disponibles:**\n${lines}`;
       }
-      LLMProvider.configure({ llm: { primary: provider } });
-      if (ctx.sendIPC) ctx.sendIPC('set-provider', { primary: provider });
-      const active = LLMProvider.getActiveProvider();
-      const warn = valid.hasKey
-        ? ''
-        : `\n\n**${valid.name}** no tiene API key configurada. Todos los proveedores (incluso los "gratis") necesitan su propia key — agrega la de ${valid.name} con \`/credenciales\` antes de usarlo.`;
-      return `Proveedor cambiado a: **${valid.name}**${warn}`;
+
+      // Con proveedor pero sin modelo: activa ese proveedor y lista sus
+      // modelos disponibles para elegir cuál usar.
+      if (!args[1]) {
+        LLMProvider.configure({ llm: { primary: valid.id } });
+        if (ctx.sendIPC) ctx.sendIPC('set-provider', { primary: valid.id });
+        const catalog = LLMProvider.listModels(valid.id);
+        const active = valid.activeModel || valid.models || {};
+        const modelLines = catalog
+          .map((m) => {
+            const marks = [];
+            if (m === active.fast) marks.push('fast');
+            if (m === active.smart) marks.push('smart');
+            const badge = marks.length ? ` — *${marks.join(' + ')}*` : '';
+            return `  \`${m}\`${badge}`;
+          })
+          .join('\n');
+        const hint = valid.hasKey
+          ? ''
+          : `\n\n**${valid.name}** no tiene API key configurada. Todos los proveedores (incluso los "gratis") necesitan su propia key — agrega la de ${valid.name} con \`/credenciales\` antes de usarlo.`;
+        return `Proveedor activo: **${valid.name}**\n\n**Modelos disponibles (${catalog.length}):**\n${modelLines || '  *(sin modelos)*'}\n\nElige uno: \`/model ${valid.id} <modelo>\`${hint}`;
+      }
+
+      // Con proveedor + modelo: cambia el modelo. /model id <modelo> [smart]
+      // — sin [smart] setea 'fast', con 'smart' setea 'smart'.
+      const modelName = args[1];
+      const mode = (args[2] || 'fast').toLowerCase();
+      if (!['fast', 'smart'].includes(mode)) {
+        return 'Modo inválido. Usa: `/model <id> <modelo> [fast|smart]` (default fast).';
+      }
+      const catalog = LLMProvider.listModels(valid.id);
+      if (!catalog.includes(modelName)) {
+        const closest = catalog
+          .filter((m) => m.toLowerCase().includes(modelName.toLowerCase()))
+          .slice(0, 5);
+        const suggestion = closest.length
+          ? `\n\n¿Quizá quisiste decir?\n${closest.map((m) => `  \`${m}\``).join('\n')}`
+          : '';
+        return `\`${modelName}\` no está en los modelos disponibles de **${valid.name}**.${suggestion}`;
+      }
+
+      // Persistir en config.json (IPCs) y aplicar en memoria.
+      const cfg = {
+        llm: { primary: valid.id, providers: { [valid.id]: { model: { [mode]: modelName } } } },
+      };
+      LLMProvider.configure(cfg);
+      if (ctx.sendIPC) ctx.sendIPC('set-provider', { primary: valid.id });
+      if (ctx.ipcRenderer) {
+        try {
+          await ctx.ipcRenderer.invoke('set-llm-model', {
+            provider: valid.id,
+            mode,
+            model: modelName,
+          });
+        } catch {}
+      }
+      return `Modelo **${modelName}** (${mode}) activado para **${valid.name}**.`;
     },
   });
 

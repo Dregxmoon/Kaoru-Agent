@@ -57,13 +57,56 @@ app.on('web-contents-created', (_e, contents) => {
 
 const CRASH_LOG_PATH = path.join(app.getPath('userData'), 'crash.log');
 
+// Guard de reentrancia: logCrash puede llamarse desde un handler de
+// excepciones; si el proceso sale con `npm start` (stdout pipeado a grep)
+// y grep se cierra, console.error() dispara EPIPE → uncaughtException →
+// logCrash → console.error → … bucle infinito que llenó crash.log con GB.
+// Este flag corta esa recursión, y además rotamos crash.log para que no
+// vuelva a crecer sin límite.
+let _crashGuard = false;
+let _crashBytes = 0;
+
+const CRASH_LOG_MAX_BYTES = 5 * 1024 * 1024;
+
+function _crashSerialize(err) {
+  if (err instanceof Error) return err.stack || err.message;
+  if (typeof err === 'object' && err !== null) {
+    try {
+      return JSON.stringify(err);
+    } catch (_) {
+      return String(err);
+    }
+  }
+  return String(err);
+}
+
 function logCrash(label, err) {
-  const line = `[${new Date().toISOString()}] ${label}: ${err?.stack || err}\n`;
-  console.error(line);
+  const line = `[${new Date().toISOString()}] ${label}: ${_crashSerialize(err)}\n`;
   try {
-    fs.appendFileSync(CRASH_LOG_PATH, line);
+    fs.appendFileSync(CRASH_LOG_PATH, line, 'utf-8');
+    _crashBytes += line.length;
+    if (_crashBytes > CRASH_LOG_MAX_BYTES) {
+      _crashBytes = 0;
+      try {
+        fs.copyFileSync(CRASH_LOG_PATH, CRASH_LOG_PATH + '.1');
+        fs.truncateSync(CRASH_LOG_PATH, 0);
+      } catch (_) {
+        /* best-effort */
+      }
+    }
   } catch (_) {
     /* best-effort */
+  }
+  if (_crashGuard) return;
+  _crashGuard = true;
+  try {
+    console.error(line);
+  } catch (_) {
+    /* pipe cerrado — no relanzar el bucle */
+  } finally {
+    setTimeout(() => {
+      _crashGuard = false;
+    }, 1000);
   }
 }
 

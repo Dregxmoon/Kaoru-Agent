@@ -20,13 +20,22 @@ function _sleep(ms) {
   return new Promise((r) => setTimeout(r, ms));
 }
 
-const RETRY_INTERVAL_RE = /(?:try again|retry) in (\d+(?:\.\d+)?)m(\d+(?:\.\d+)?)?s/i;
+// OJO: "try again in 80ms" NO debe tratarse como 80 minutos. El patrón de
+// minutos exige un dígito entre la m y la s ("3m20.5s"); "80ms" cae en el
+// caso de milisegundos y devuelve 80ms, no 80 minutos.
+const RETRY_INTERVAL_RE = /(?:try again|retry) in (\d+(?:\.\d+)?)m(\d+(?:\.\d+)+)s/i;
+const RETRY_MINUTES_RE = /(?:try again|retry) in (\d+(?:\.\d+)?)m\b/i;
+const RETRY_MILLIS_RE = /(?:try again|retry) in (\d+(?:\.\d+)?)ms/i;
 const RETRY_SECONDS_RE = /(?:try again|retry) in (\d+(?:\.\d+)?)s/i;
 
-/** Parsea "Please try again in 3m20.5s" / "in 12s" (patrón Groq/OpenAI). */
+/** Parsea "Please try again in 3m20.5s" / "in 12s" / "in 80ms" (Groq/OpenAI). */
 function parseRetryAfterMs(message = '') {
   const both = message.match(RETRY_INTERVAL_RE);
-  if (both) return Math.ceil((parseFloat(both[1]) * 60 + (parseFloat(both[2]) || 0)) * 1000);
+  if (both) return Math.ceil((parseFloat(both[1]) * 60 + parseFloat(both[2])) * 1000);
+  const mins = message.match(RETRY_MINUTES_RE);
+  if (mins) return Math.ceil(parseFloat(mins[1]) * 60 * 1000);
+  const millis = message.match(RETRY_MILLIS_RE);
+  if (millis) return Math.ceil(parseFloat(millis[1]));
   const secs = message.match(RETRY_SECONDS_RE);
   return secs ? Math.ceil(parseFloat(secs[1]) * 1000) : 0;
 }

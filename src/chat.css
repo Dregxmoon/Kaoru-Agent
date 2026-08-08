@@ -331,6 +331,33 @@ body {
   color: var(--text-secondary);
   opacity: 0.5;
 }
+.settings-model-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 6px;
+}
+.settings-model-label {
+  font-size: 10px;
+  color: var(--text-secondary);
+  font-family: var(--font-mono);
+  text-transform: uppercase;
+  flex-shrink: 0;
+}
+.settings-model {
+  flex: 1;
+  min-width: 0;
+  padding: 5px 8px;
+  font-size: 10px;
+  color: var(--text-primary);
+  background: var(--bg-input);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+}
+.settings-model:focus {
+  border-color: var(--accent);
+  outline: none;
+}
 .settings-actions {
   display: flex;
   gap: 8px;

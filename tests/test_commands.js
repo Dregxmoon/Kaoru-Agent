@@ -123,8 +123,24 @@ function testModel() {
 
   let configured = null;
   const mockProviders = [
-    { id: 'groq', name: 'groq', free: true, hasKey: true },
-    { id: 'gemini', name: 'gemini', free: true, hasKey: false },
+    {
+      id: 'groq',
+      name: 'groq',
+      free: true,
+      hasKey: true,
+      models: { fast: 'llama-3.1-8b-instant', smart: 'llama-3.3-70b-versatile' },
+      activeModel: { fast: 'llama-3.1-8b-instant', smart: 'llama-3.3-70b-versatile' },
+      catalog: ['llama-3.1-8b-instant', 'llama-3.3-70b-versatile'],
+    },
+    {
+      id: 'gemini',
+      name: 'gemini',
+      free: true,
+      hasKey: false,
+      models: { fast: 'gemini-2.0-flash', smart: 'gemini-2.0-flash' },
+      activeModel: { fast: 'gemini-2.0-flash', smart: 'gemini-2.0-flash' },
+      catalog: ['gemini-2.0-flash', 'gemini-2.5-pro'],
+    },
   ];
   const mockLLMProvider = {
     getActiveProvider: () => configured || 'groq',
@@ -132,6 +148,10 @@ function testModel() {
       configured = cfg.llm.primary;
     },
     getAvailableProviders: () => mockProviders,
+    listModels: (id) => {
+      const p = mockProviders.find((x) => x.id === id);
+      return p ? p.catalog : [];
+    },
   };
 
   const ctx = { LLMProvider: mockLLMProvider };

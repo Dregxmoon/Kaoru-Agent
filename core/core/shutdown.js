@@ -20,8 +20,9 @@ async function shutdown() {
   // Matar primero a los hijos externos (npx y sus servidores reales) — antes
   // de cualquier await, para que corra aunque shutdown() tarde después.
   // SIGKILL como red de seguridad 2s después (timer con unref para no
-  // retener el event loop de Electron).
-  killDescendants('SIGTERM');
+  // retener el event loop de Electron). El timer se CANCELA al completar el
+  // shutdown (ver al final): si no, mataría procesos que arrancan DESPUÉS del
+  // cierre — p. ej. el server OpenClaw de una corrida de benchmark siguiente.
   const sigkillTimer = setTimeout(() => {
     killDescendants('SIGKILL');
   }, 2000);
@@ -117,6 +118,11 @@ async function shutdown() {
 
   state.onInitiative = null;
   state.initialized = false;
+
+  // El cierre limpio ya detuvo todo (SIGTERM + limpiezas explícitas). Cancelar
+  // el SIGKILL de respaldo para no matar procesos ajenos que arrancan después
+  // (p. ej. el server OpenClaw de una corrida de benchmark siguiente).
+  clearTimeout(sigkillTimer);
 }
 
 module.exports = {

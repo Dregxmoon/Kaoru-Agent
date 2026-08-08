@@ -92,7 +92,13 @@ function init(app) {
   if (app) {
     const dataDir = app.getPath('userData');
     setUsageTracker(new UsageTracker(path.join(dataDir, 'usage.jsonl')));
-    logger.attachFile(path.join(dataDir, 'logs', 'assistant.log'));
+    const logDir = path.join(dataDir, 'logs');
+    try {
+      fs.mkdirSync(logDir, { recursive: true });
+    } catch (_) {
+      /* best-effort */
+    }
+    logger.attachFile(path.join(logDir, 'assistant.log'));
   }
 
   state.graph = getStateGraph(dbPath);

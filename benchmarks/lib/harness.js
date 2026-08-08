@@ -1,17 +1,20 @@
 'use strict';
 
 const path = require('path');
-const fs = require('fs');
-const { fork } = require('child_process');
+const net = require('net');
 
 const ROOT = path.join(__dirname, '..', '..');
 
 /**
  * Harness para el benchmark de tareas reales (§8 del roadmap).
  *
- * Levanta un servidor OpenClaw aislado (sin auth) apuntando al workspace de
- * la tarea, inicializa Core de forma standalone y ejecuta Core.runAgent()
- * en evalMode (toda tool de alto impacto se auto-aprueba).
+ * Inicializa Core de forma standalone (evalMode: toda tool de alto impacto se
+ * auto-aprueba) y ejecuta Core.runAgent(). El servidor OpenClaw lo levanta el
+ * PROPIO Core.init (como en producción): con la workspace de la tarea como
+ * OPENCLAW_ALLOWED_PATH, su propia API key en memoria (setApiKey) y limpia el
+ * proceso en shutdown(). No levantamos un server propio — duplicar el server
+ * hacía que el bridge apuntara al puerto equivocado con la key equivocada
+ * (auth fail) y rompía las corridas con EADDRINUSE entre runs.
  *
  * Uso (desde benchmarks/run.js):
  *   const h = require('./lib/harness');
@@ -20,10 +23,27 @@ const ROOT = path.join(__dirname, '..', '..');
  *   await agent.close();
  */
 
-const OPENCLAW_PORT = 18789;
-
 function sleep(ms) {
   return new Promise((r) => setTimeout(r, ms));
+}
+
+/**
+ * Puerto libre y efímero por corrida. Se expone como OPENCLAW_PORT ANTES de
+ * Core.init: el server que Core forkea (heredando el env) y el bridge (que
+ * lee process.env.OPENCLAW_PORT en cada request) coinciden en el mismo puerto.
+ * Evita el EADDRINUSE entre corridas consecutivas del benchmark (el socket del
+ * server anterior queda en TIME_WAIT un instante tras stopOpenClaw).
+ */
+function findFreePort() {
+  return new Promise((resolve, reject) => {
+    const srv = net.createServer();
+    srv.unref();
+    srv.on('error', reject);
+    srv.listen(0, '127.0.0.1', () => {
+      const port = srv.address().port;
+      srv.close(() => resolve(port));
+    });
+  });
 }
 
 class Harness {
@@ -39,15 +59,16 @@ class Harness {
     this.llmKey = opts.llmKey || process.env.LLM_KEY_GROQ;
     this.maxIterations = opts.maxIterations || 10;
     this.mode = opts.mode || 'fast';
-    this._server = null;
-    this._pid = null;
+    this._core = null;
   }
 
   async start() {
-    // 1) Servidor OpenClaw aislado sin auth, con el workspace como path permitido.
-    await this._startOpenClaw();
+    // Puerto efímero por corrida: el server de Core (fork hereda env) y el
+    // bridge (lee env) usan este puerto, sin colisión entre corridas.
+    this.port = await findFreePort();
+    process.env.OPENCLAW_PORT = String(this.port);
 
-    // 2) Cargar Core (standalone, sin app de Electron).
+    // Cargar Core (standalone, sin app de Electron).
     const Core = require(path.join(ROOT, 'core', 'Core.js'));
     const LLMProvider = require(path.join(ROOT, 'core', 'llm', 'LLMProvider.js'));
 
@@ -68,7 +89,8 @@ class Harness {
 
     Core.init(null);
 
-    // Esperar a que OpenClaw esté disponible para el bridge.
+    // Esperar a que OpenClaw esté disponible para el bridge (Core.init lo
+    // levanta de forma async; en standalone arranca en 18789).
     const bridge = Core.getBridge();
     for (let i = 0; i < 20; i++) {
       if (await bridge.isAvailable()) break;
@@ -80,44 +102,6 @@ class Harness {
 
     this._core = Core;
     return this;
-  }
-
-  async _startOpenClaw() {
-    const serverPath = path.join(ROOT, 'openclaw-server.js');
-    // Key compartida: el server es fail-closed (no arranca sin API_KEY) y el
-    // bridge lee process.env.OPENCLAW_API_KEY en cada request. Generamos una
-    // key única y la exponemos al proceso del runner antes de cargar Core.
-    const apiKey = require('crypto').randomBytes(32).toString('hex');
-    process.env.OPENCLAW_API_KEY = apiKey;
-    this._apiKey = apiKey;
-
-    this._server = fork(serverPath, [], {
-      stdio: ['ignore', 'pipe', 'pipe', 'ipc'],
-      env: {
-        ...process.env,
-        OPENCLAW_API_KEY: apiKey,
-        OPENCLAW_ALLOWED_PATH: this.workspace,
-      },
-    });
-    this._pid = this._server.pid;
-    this._server.stdout?.on('data', (d) => {
-      const msg = d.toString().trim();
-      if (msg) console.log('[openclaw-server]', msg);
-    });
-    this._server.stderr?.on('data', (d) => {
-      const msg = d.toString().trim();
-      if (msg) console.error('[openclaw-server]', msg);
-    });
-
-    // Esperar /health 200.
-    for (let i = 0; i < 20; i++) {
-      try {
-        const res = await fetch(`http://127.0.0.1:${OPENCLAW_PORT}/health`);
-        if (res.ok) return;
-      } catch {}
-      await sleep(500);
-    }
-    throw new Error('openclaw-server no respondió /health a tiempo');
   }
 
   async run(prompt, extra = {}) {
@@ -136,17 +120,18 @@ class Harness {
   }
 
   async close() {
+    // Core.shutdown() mata el proceso OpenClaw que él mismo levantó y resetea
+    // state.initialized. Es crítico AWAIT-arlo: si la siguiente corrida corre
+    // Core.init() mientras el shutdown aún está en curso, el init se ignora
+    // ("llamado más de una vez") y el server de la corrida siguiente nunca
+    // arranca (OpenClaw no disponible).
     try {
-      this._core?.shutdown?.();
+      await this._core?.shutdown?.();
     } catch {}
-    if (this._server) {
-      try {
-        this._server.kill('SIGTERM');
-      } catch {}
-      this._server = null;
-    }
-    if (this._apiKey && process.env.OPENCLAW_API_KEY === this._apiKey) {
-      delete process.env.OPENCLAW_API_KEY;
+    this._core = null;
+    // Limpiar el env para que la siguiente corrida asigne un puerto nuevo.
+    if (process.env.OPENCLAW_PORT === String(this.port)) {
+      delete process.env.OPENCLAW_PORT;
     }
   }
 }

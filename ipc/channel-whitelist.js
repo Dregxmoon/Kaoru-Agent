@@ -20,6 +20,7 @@ const INVOKE_ALLOWLIST = new Set([
   'get-config',
   'get-key-source',
   'save-llm-keys',
+  'set-llm-model',
   // Workspace
   'get-workspace',
   'pick-workspace-folder',

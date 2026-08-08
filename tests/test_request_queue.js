@@ -35,6 +35,10 @@ function testParseRetryAfter() {
   assert(parseRetryAfterMs('Please try again in 0.05s') === 50, '0.05s → 50ms');
   assert(parseRetryAfterMs('try again in 12s') === 12000, '12s → 12000ms');
   assert(parseRetryAfterMs('error cualquiera') === 0, 'sin match → 0');
+  // QW-6: "try again in 80ms" (Groq) NO debe parsearse como 80 minutos.
+  assert(parseRetryAfterMs('Please try again in 80ms') === 80, '80ms → 80ms (no 80 min)');
+  assert(parseRetryAfterMs('try again in 50m14.495999999s') === 3014496, '50m14.5s → ms');
+  assert(parseRetryAfterMs('retry in 2m') === 120000, '2m → 120000ms');
 }
 
 // ── Test 2: serialización (concurrency 1) ─────────────────────────────────────

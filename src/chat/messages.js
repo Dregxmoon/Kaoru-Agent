@@ -181,9 +181,37 @@ function openSettings() {
       if (p.free) badges.push('<span class="pill free">GRATIS</span>');
       if (p.builtin) badges.push('<span class="pill builtin">BUILT-IN</span>');
       if (p.custom) badges.push('<span class="pill custom">CUSTOM</span>');
+
+      // Selector de modelo: el catálogo del proveedor (estático o refrescado)
+      // con el modelo activo por modo preseleccionado. El usuario elige qué
+      // modelo usa cada proveedor en fast y smart.
+      const catalog = (p.catalog && p.catalog.length ? p.catalog : [])
+        .concat(Object.values(p.activeModel || {}))
+        .filter((m, i, arr) => m && arr.indexOf(m) === i);
+      const fastSel = p.activeModel?.fast || p.models?.fast || '';
+      const smartSel = p.activeModel?.smart || p.models?.smart || '';
+      const modelSelects = catalog.length
+        ? `<div class="settings-model-row">
+             <label class="settings-model-label">fast</label>
+             <select class="settings-input settings-model provider-model-fast" data-provider="${escapeHtml(p.id)}">${catalog
+               .map(
+                 (m) =>
+                   `<option value="${escapeHtml(m)}"${m === fastSel ? ' selected' : ''}>${escapeHtml(m)}</option>`
+               )
+               .join('')}</select>
+             <label class="settings-model-label">smart</label>
+             <select class="settings-input settings-model provider-model-smart" data-provider="${escapeHtml(p.id)}">${catalog
+               .map(
+                 (m) =>
+                   `<option value="${escapeHtml(m)}"${m === smartSel ? ' selected' : ''}>${escapeHtml(m)}</option>`
+               )
+               .join('')}</select>
+           </div>`
+        : '';
       return `<div class="settings-field">
       <div class="settings-label">${escapeHtml(p.name)} ${badges.join(' ')}</div>
       <input class="settings-input provider-key" data-provider="${escapeHtml(p.id)}" type="password" value="${p.hasKey ? '***' : ''}" placeholder="${p.free ? 'API key (tier gratis — créala en el sitio del proveedor)' : 'API key...'}" title="${p.hasKey ? 'Guardada (oculta). Deja en blanco para borrarla o escribe una nueva.' : ''}">
+      ${modelSelects}
     </div>`;
     })
     .join('');
@@ -233,8 +261,18 @@ document.getElementById('save-settings').addEventListener('click', async () => {
   settingsStatus.textContent = 'Guardando...';
   settingsStatus.style.color = 'var(--text-secondary)';
   try {
+    // Fase Q: recoger el modelo elegido por proveedor (fast/smart).
+    const models = {};
+    for (const sel of document.querySelectorAll('.provider-model-fast')) {
+      models[sel.dataset.provider] = {
+        fast: sel.value,
+        smart:
+          document.querySelector(`.provider-model-smart[data-provider="${sel.dataset.provider}"]`)
+            ?.value || sel.value,
+      };
+    }
     const useKeychain = document.getElementById('use-keychain').checked;
-    await ipcRenderer.invoke('save-llm-keys', { providers, useKeychain });
+    await ipcRenderer.invoke('save-llm-keys', { providers, useKeychain, models });
     await loadLLMConfig();
     settingsStatus.textContent = 'Keys guardadas. El asistente está listo.';
     settingsStatus.style.color = '#10b981';

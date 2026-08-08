@@ -169,6 +169,22 @@ class _LSPInstance {
         if (msg) logger.info('LSPManager', `[lsp:${this._languageKey}] ${msg}`);
       });
 
+      // QW-6: si el server muere (EPIPE) o el stdin se cierra, la escritura a
+      // un stream sin handler de 'error' tira un Unhandled 'error' event que
+      // crashea todo el proceso. Escuchamos el error y degradamos a no-op: la
+      // próxima llamada ya comprueba `this._process`/writable y responde con
+      // "LSP no disponible".
+      proc.stdin.on('error', (err) => {
+        if (err.code !== 'EPIPE') {
+          logger.debug('LSPManager', `[lsp:${this._languageKey}] error en stdin: ${err.message}`);
+        }
+      });
+      proc.stdin.on('close', () => {
+        try {
+          this._process?.stdin?.removeAllListeners('error');
+        } catch {}
+      });
+
       proc.on('exit', (code) => this._handleExit(code));
 
       // Send initialize request

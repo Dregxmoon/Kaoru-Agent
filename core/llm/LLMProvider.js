@@ -82,12 +82,97 @@ function getProviders() {
 }
 
 // ── Built-in providers ─────────────────────────────────────────────────────────
+// Catálogo estático de modelos por proveedor. Es el fallback de la lista
+// "todos los modelos disponibles" que muestra el selector: si el proveedor
+// expone GET /models (OpenAI-compatible), refreshProviderModels() la reemplaza
+// en memoria por la lista viva; si no, esta es la que se muestra.
+const MODEL_CATALOG = {
+  groq: [
+    'llama-3.1-8b-instant',
+    'llama-3.1-70b-versatile',
+    'llama-3.3-70b-versatile',
+    'llama-3.2-3b-preview',
+    'llama-3.2-11b-vision-preview',
+    'llama-3.2-90b-vision-preview',
+    'gemma2-9b-it',
+    'gemma2-27b-it',
+    'mixtral-8x7b-32768',
+    'deepseek-r1-distill-llama-70b',
+    'openai/gpt-oss-120b',
+    'openai/gpt-oss-20b',
+  ],
+  gemini: [
+    'gemini-2.0-flash',
+    'gemini-2.0-flash-lite',
+    'gemini-2.0-pro',
+    'gemini-2.5-flash',
+    'gemini-2.5-pro',
+    'gemini-1.5-flash',
+    'gemini-1.5-flash-8b',
+    'gemini-1.5-pro',
+  ],
+  openai: [
+    'gpt-4o-mini',
+    'gpt-4o',
+    'gpt-4.1-mini',
+    'gpt-4.1',
+    'gpt-4.1-nano',
+    'gpt-4-turbo',
+    'gpt-4',
+    'o3-mini',
+    'o4-mini',
+    'gpt-5',
+    'gpt-5-mini',
+  ],
+  anthropic: [
+    'claude-3-haiku-20240307',
+    'claude-3-sonnet-20240229',
+    'claude-3-opus-20240229',
+    'claude-3-5-haiku-latest',
+    'claude-3-5-sonnet-latest',
+    'claude-3-7-sonnet-latest',
+    'claude-4-sonnet',
+    'claude-4-opus',
+  ],
+  xai: ['grok-beta', 'grok-2', 'grok-2-1212', 'grok-3', 'grok-3-mini', 'grok-3-fast'],
+  nvidia: [
+    'meta/llama-3.3-70b-instruct',
+    'meta/llama-3.1-70b-instruct',
+    'meta/llama-3.1-8b-instruct',
+    'meta/llama-3.2-11b-vision-instruct',
+    'mistralai/mistral-large-2-instruct',
+    'mistralai/mixtral-8x22b-v0.1',
+    'moonshotai/kimi-k2.6',
+    'minimaxai/minimax-m3',
+    'nvidia/nemotron-3-nano-30b-a3b',
+    'nvidia/nemotron-3-super-120b-a12b',
+    'nvidia/llama-3.3-nemotron-super-49b-v1.5',
+    'openai/gpt-oss-120b',
+    'openai/gpt-oss-20b',
+    'z-ai/glm-5.2',
+    'stepfun-ai/step-3.7-flash',
+    'google/gemma-3-12b-it',
+    'google/gemma-3-4b-it',
+    'google/gemma-4-31b-it',
+    'ai21labs/jamba-1.5-large-instruct',
+  ],
+  huggingface: [
+    'meta-llama/Llama-3.2-3B-Instruct',
+    'meta-llama/Llama-3.3-70B-Instruct',
+    'mistralai/Mistral-7B-Instruct-v0.3',
+    'google/gemma-2-27b-it',
+    'Qwen/Qwen2.5-7B-Instruct',
+  ],
+  deepseek: ['deepseek-chat', 'deepseek-reasoner', 'deepseek-v3.1', 'deepseek-r1', 'deepseek-v4'],
+};
+
 registerProvider({
   id: 'groq',
   name: 'Groq',
   type: 'openai',
   baseURL: 'https://api.groq.com/openai/v1',
   models: { fast: 'llama-3.1-8b-instant', smart: 'llama-3.3-70b-versatile' },
+  catalog: MODEL_CATALOG.groq,
   builtin: true,
   free: true,
 });
@@ -98,6 +183,7 @@ registerProvider({
   type: 'gemini',
   baseURL: 'https://generativelanguage.googleapis.com/v1beta',
   models: { fast: 'gemini-2.0-flash', smart: 'gemini-2.0-flash' },
+  catalog: MODEL_CATALOG.gemini,
   builtin: true,
   free: true,
 });
@@ -108,6 +194,7 @@ registerProvider({
   type: 'openai',
   baseURL: 'https://api.openai.com/v1',
   models: { fast: 'gpt-4o-mini', smart: 'gpt-4o-mini' },
+  catalog: MODEL_CATALOG.openai,
   builtin: true,
 });
 
@@ -117,6 +204,7 @@ registerProvider({
   type: 'anthropic',
   baseURL: 'https://api.anthropic.com/v1',
   models: { fast: 'claude-3-haiku-20240307', smart: 'claude-3-sonnet-20240229' },
+  catalog: MODEL_CATALOG.anthropic,
   builtin: true,
 });
 
@@ -126,15 +214,17 @@ registerProvider({
   type: 'openai',
   baseURL: 'https://api.x.ai/v1',
   models: { fast: 'grok-beta', smart: 'grok-beta' },
+  catalog: MODEL_CATALOG.xai,
   builtin: true,
 });
 
 registerProvider({
   id: 'nvidia',
-  name: 'NVIDIA Builds (DeepSeek V4)',
+  name: 'NVIDIA Builds',
   type: 'openai',
   baseURL: 'https://integrate.api.nvidia.com/v1',
-  models: { fast: 'deepseek-ai/deepseek-v4-flash', smart: 'deepseek-ai/deepseek-v4-pro' },
+  models: { fast: 'openai/gpt-oss-20b', smart: 'minimaxai/minimax-m3' },
+  catalog: MODEL_CATALOG.nvidia,
   timeoutMs: { fast: 45_000, smart: 120_000 },
   builtin: true,
   free: true,
@@ -146,6 +236,7 @@ registerProvider({
   type: 'openai',
   baseURL: 'https://api-inference.huggingface.co/v1',
   models: { fast: 'meta-llama/Llama-3.2-3B-Instruct', smart: 'meta-llama/Llama-3.3-70B-Instruct' },
+  catalog: MODEL_CATALOG.huggingface,
   builtin: true,
   free: true,
 });
@@ -156,6 +247,7 @@ registerProvider({
   type: 'openai',
   baseURL: 'https://api.deepseek.com/v1',
   models: { fast: 'deepseek-chat', smart: 'deepseek-reasoner' },
+  catalog: MODEL_CATALOG.deepseek,
   builtin: true,
   free: true,
 });
@@ -321,6 +413,76 @@ function _getModels(providerId) {
   return def.models || null;
 }
 
+// Resuelve el modelo efectivo para un provider+modo. Prioridad:
+// 1. modelo elegido por el usuario (config/env: providers[id].model[modo])
+// 2. modelo por defecto del provider (def.models[modo])
+function _resolveModel(providerId, mode) {
+  const def = _registry.get(providerId);
+  if (!def) return null;
+  const override = _config.providers?.[providerId]?.model?.[mode];
+  if (override && typeof override === 'string' && override.trim()) return override.trim();
+  return def.models?.[mode] || null;
+}
+
+// Catálogo de modelos disponibles para un provider: el refrescado vía API
+// (en memoria) si existe, si no el estático del registro.
+function _providerCatalog(providerId) {
+  const def = _registry.get(providerId);
+  if (!def) return [];
+  const refreshed = _config.providers?.[providerId]?.catalog;
+  if (Array.isArray(refreshed) && refreshed.length > 0) return refreshed;
+  return Array.isArray(def.catalog) ? def.catalog : [];
+}
+
+// Fase Q: lista "todos los modelos disponibles" de un provider. Es la vía
+// que usan el selector de credenciales y /model para ofrecer modelos que no
+// son los dos por defecto (fast/smart). Incluye el modelo activo aunque no
+// esté en el catálogo (p.ej. un modelo custom del usuario).
+function listModels(providerId) {
+  const def = _registry.get(providerId);
+  if (!def) return [];
+  const catalog = _providerCatalog(providerId);
+  const active = {
+    fast: _resolveModel(providerId, 'fast'),
+    smart: _resolveModel(providerId, 'smart'),
+  };
+  const seen = new Set(catalog);
+  const out = [...catalog];
+  for (const m of Object.values(active)) {
+    if (m && typeof m === 'string' && !seen.has(m)) {
+      out.push(m);
+      seen.add(m);
+    }
+  }
+  return out;
+}
+
+// Fase Q: refresca el catálogo consultando GET /models del provider
+// (OpenAI-compatible) con la key configurada. Si falla (proveedor sin
+// endpoint, sin key, red) devuelve el catálogo estático sin tocar nada.
+async function refreshProviderModels(providerId) {
+  const def = _registry.get(providerId);
+  if (!def) return listModels(providerId);
+  if (def.type !== 'openai') return listModels(providerId);
+  const key = _getApiKey(providerId);
+  if (!key) return listModels(providerId);
+  try {
+    const res = await get(`${def.baseURL}/models`, key ? { Authorization: `Bearer ${key}` } : {});
+    if (res.status !== 200) return listModels(providerId);
+    const data = Array.isArray(res.body?.data) ? res.body.data : [];
+    const ids = data
+      .map((m) => (typeof m === 'string' ? m : m?.id))
+      .filter((m) => typeof m === 'string' && m.trim());
+    if (ids.length === 0) return listModels(providerId);
+    if (!_config.providers[providerId]) _config.providers[providerId] = {};
+    _config.providers[providerId].catalog = ids;
+    logger.info('LLMProvider', `[llm] catálogo de ${providerId} refrescado: ${ids.length} modelos`);
+    return ids;
+  } catch {
+    return listModels(providerId);
+  }
+}
+
 // ── Helper HTTP ───────────────────────────────────────────────────────────────
 function _abortError() {
   const err = new Error('Llamada LLM cancelada por el usuario');
@@ -354,7 +516,13 @@ function post(url, headers, body, timeoutMs = 20_000, signal = null) {
         try {
           resolve({ status: res.statusCode, body: JSON.parse(data) });
         } catch (e) {
-          reject(new Error(`${res.statusCode} JSON parse error: ${data.slice(0, 200)}`));
+          // Si es un stream SSE (p. ej. Gemini con alt=sse), devolvemos el
+          // raw como string para que el caller lo parsee fragmento a fragmento.
+          if (String(data).trimStart().startsWith('data:')) {
+            resolve({ status: res.statusCode, body: data });
+          } else {
+            reject(new Error(`${res.statusCode} JSON parse error: ${data.slice(0, 200)}`));
+          }
         }
       });
     });
@@ -379,6 +547,56 @@ function post(url, headers, body, timeoutMs = 20_000, signal = null) {
       );
     }
     req.write(payload);
+    req.end();
+  });
+}
+
+// GET genérico con headers (sin body). Lo usa refreshProviderModels() para
+// consultar /models. Devuelve { status, body }.
+function get(url, headers = {}, timeoutMs = 20_000, signal = null) {
+  return new Promise((resolve, reject) => {
+    const parsed = new URL(url);
+    const lib = parsed.protocol === 'https:' ? https : http;
+    const options = {
+      hostname: parsed.hostname,
+      port: parsed.port || (parsed.protocol === 'https:' ? 443 : 80),
+      path: parsed.pathname + parsed.search,
+      method: 'GET',
+      family: 4,
+      headers: { Accept: 'application/json', ...headers },
+    };
+    options.agent = AGENT_BY_PROTOCOL[parsed.protocol] || lib.globalAgent;
+    const req = lib.request(options, (res) => {
+      let data = '';
+      res.on('data', (c) => (data += c));
+      res.on('end', () => {
+        try {
+          resolve({ status: res.statusCode, body: JSON.parse(data) });
+        } catch (e) {
+          reject(new Error(`${res.statusCode} JSON parse error: ${data.slice(0, 200)}`));
+        }
+      });
+    });
+    req.setTimeout(timeoutMs, () => {
+      req.destroy();
+      reject(new Error(`Timeout después de ${timeoutMs}ms`));
+    });
+    req.on('error', reject);
+    if (signal) {
+      if (signal.aborted) {
+        req.destroy();
+        reject(_abortError());
+        return;
+      }
+      signal.addEventListener(
+        'abort',
+        () => {
+          req.destroy();
+          reject(_abortError());
+        },
+        { once: true }
+      );
+    }
     req.end();
   });
 }
@@ -505,7 +723,7 @@ async function callOpenAI(providerId, messages, systemPrompt, mode = 'fast', opt
   if (!key && !def.free) throw new Error(`No API key para ${def.name}`);
 
   const safeMode = _resolveMode(mode);
-  const model = def.models?.[safeMode];
+  const model = _resolveModel(providerId, safeMode);
   const maxTokens = MAX_OUTPUT[safeMode];
   const timeoutMs = def.timeoutMs?.[safeMode] ?? TIMEOUT_MS[safeMode] ?? TIMEOUT_MS.fast;
   const history = _trimHistoryForMode(messages, safeMode);
@@ -533,6 +751,9 @@ async function callOpenAI(providerId, messages, systemPrompt, mode = 'fast', opt
     : await post(`${def.baseURL}/chat/completions`, headers, body, timeoutMs, opts.signal);
   if (res.status !== 200) throw new Error(`${def.name} ${res.status}: ${JSON.stringify(res.body)}`);
   _recordUsage(providerId, def, model, safeMode, res.body, opts, startedAt);
+  // En streaming, postStream normaliza a { content, tool_calls } (sin el
+  // campo choices de OpenAI crudo) — no acceder a choices[0] en ese caso.
+  if (opts.onToken) return (res.body.content || '').trim();
   return (res.body.choices[0].message.content || '').trim();
 }
 
@@ -544,7 +765,7 @@ async function callGeminiProvider(providerId, messages, systemPrompt, mode = 'fa
   if (!key) throw new Error(`No API key para ${def.name}`);
 
   const safeMode = _resolveMode(mode);
-  const model = def.models?.[safeMode];
+  const model = _resolveModel(providerId, safeMode);
   const maxTokens = MAX_OUTPUT[safeMode];
   const timeoutMs = TIMEOUT_MS[safeMode] ?? TIMEOUT_MS.fast;
   const history = _trimHistoryForMode(messages, safeMode);
@@ -564,7 +785,9 @@ async function callGeminiProvider(providerId, messages, systemPrompt, mode = 'fa
     contents,
     generationConfig: { maxOutputTokens: maxTokens, temperature: 0.85 },
   };
-  if (opts.onToken) body.stream = true;
+  // OJO: para Gemini el streaming NO se activa con el campo `stream` en el
+  // body (generateContent no lo acepta → 400 "Unknown name stream"). Se
+  // activa con `alt=sse` en la URL (más abajo). No poner body.stream aquí.
 
   const res = await post(
     `${def.baseURL}/models/${model}:generateContent?key=${key}${opts.onToken ? '&alt=sse' : ''}`,
@@ -629,7 +852,7 @@ async function callAnthropic(providerId, messages, systemPrompt, mode = 'fast') 
   if (!key) throw new Error(`No API key para ${def.name}`);
 
   const safeMode = _resolveMode(mode);
-  const model = def.models?.[safeMode];
+  const model = _resolveModel(providerId, safeMode);
   const maxTokens = MAX_OUTPUT[safeMode];
   const timeoutMs = TIMEOUT_MS[safeMode] ?? TIMEOUT_MS.fast;
   const history = _trimHistoryForMode(messages, safeMode);
@@ -761,7 +984,7 @@ async function callOpenAIWithTools(providerId, messages, systemPrompt, mode, too
   if (!key && !def.free) throw new Error(`No API key para ${def.name}`);
 
   const safeMode = _resolveMode(mode);
-  const model = def.models?.[safeMode];
+  const model = _resolveModel(providerId, safeMode);
   const maxTokens = MAX_OUTPUT[safeMode];
   const timeoutMs = def.timeoutMs?.[safeMode] ?? TIMEOUT_MS[safeMode] ?? TIMEOUT_MS.fast;
   const history = _trimHistoryForMode(messages, safeMode);
@@ -824,7 +1047,7 @@ async function callGeminiWithTools(providerId, messages, systemPrompt, mode, too
   if (!key) throw new Error(`No API key para ${def.name}`);
 
   const safeMode = _resolveMode(mode);
-  const model = def.models?.[safeMode];
+  const model = _resolveModel(providerId, safeMode);
   const maxTokens = MAX_OUTPUT[safeMode];
   const timeoutMs = TIMEOUT_MS[safeMode] ?? TIMEOUT_MS.fast;
   const history = _trimHistoryForMode(messages, safeMode);
@@ -840,7 +1063,7 @@ async function callGeminiWithTools(providerId, messages, systemPrompt, mode, too
     tools: _buildGeminiTools(tools),
     generationConfig: { maxOutputTokens: maxTokens, temperature: 0.85 },
   };
-  if (opts.onToken) body.stream = true;
+  // Gemini: el streaming se activa con `alt=sse` en la URL, no con `body.stream`.
 
   logger.info(
     'LLMProvider',
@@ -926,8 +1149,15 @@ function _isRetryableError(err) {
 function _parseRetryAfter(err) {
   const msg = err?.message || '';
   // Groq/otros: "Please try again in 50m14.495999999s" — minutos + segundos.
-  const both = msg.match(/try again in (\d+(?:\.\d+)?)m(\d+(?:\.\d+)?)?s/i);
-  if (both) return Math.ceil((parseFloat(both[1]) * 60 + (parseFloat(both[2]) || 0)) * 1000);
+  // OJO: el patrón m+s NO debe capturar "80ms" (milisegundos) como minutos —
+  // el regex de minutos exige un dígito tras la m, así "80ms" cae en el caso
+  // de milisegundos y devuelve 80ms, no 80 minutos.
+  const both = msg.match(/try again in (\d+(?:\.\d+)?)m(\d+(?:\.\d+)+)s/i);
+  if (both) return Math.ceil((parseFloat(both[1]) * 60 + parseFloat(both[2])) * 1000);
+  const mins = msg.match(/try again in (\d+(?:\.\d+)?)m\b/i);
+  if (mins) return Math.ceil(parseFloat(mins[1]) * 60 * 1000);
+  const millis = msg.match(/try again in (\d+(?:\.\d+)?)ms/i);
+  if (millis) return Math.ceil(parseFloat(millis[1]));
   const secs = msg.match(/try again in (\d+(?:\.\d+)?)s/i);
   return secs ? Math.ceil(parseFloat(secs[1]) * 1000) : 0;
 }
@@ -1132,8 +1362,7 @@ function getActiveProvider() {
 function getActiveModel(mode = 'fast') {
   const provider = getActiveProvider();
   if (!provider) return null;
-  const def = _registry.get(provider);
-  return def?.models?.[mode] ?? null;
+  return _resolveModel(provider, mode);
 }
 
 function getAvailableProviders() {
@@ -1148,6 +1377,10 @@ function getAvailableProviders() {
     hasKey: !!_getApiKey(p.id),
     baseURL: p.baseURL,
     models: p.models,
+    // Fase Q: el selector de modelos muestra el catálogo completo del
+    // provider (estático o refrescado) y qué modelo está activo por modo.
+    catalog: _providerCatalog(p.id),
+    activeModel: { fast: _resolveModel(p.id, 'fast'), smart: _resolveModel(p.id, 'smart') },
   }));
 }
 
@@ -1187,6 +1420,8 @@ module.exports = {
   getToolSchemas: () => require('./ToolSchemas.js').TOOL_SCHEMAS,
   registerProvider,
   getQueueStats,
+  listModels,
+  refreshProviderModels,
   storeProviderApiKey,
   removeProviderApiKey,
   migrateApiKeysToKeychain,
@@ -1200,4 +1435,5 @@ module.exports = {
   setUsageTracker,
   getUsageTracker,
   _debug_recordUsage: _recordUsage,
+  _debug_resolveModel: _resolveModel,
 };
