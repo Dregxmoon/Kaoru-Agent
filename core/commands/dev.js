@@ -80,9 +80,9 @@ module.exports = function registerCommands(register) {
         .slice(0, 30);
       for (const f of topFiles) treeLines.push(`      ${f.path} (${_formatSize(f.size)})`);
 
-      if (ctx.sendIPC) {
+      if (ctx.ipcRenderer) {
         const projDesc = pkgInfo ? pkgInfo.trim() : `Proyecto en ${cwd}`;
-        ctx.sendIPC('store-fact', {
+        await ctx.ipcRenderer.invoke('store-fact', {
           type: 'Project',
           label: 'proyecto_actual',
           content: `Proyecto actual: ${projDesc}. Tecnologias: ${topExt || 'varias'}. Estructura: ${totalDirs} directorios, ${totalFiles} archivos.`,
