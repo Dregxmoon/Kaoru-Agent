@@ -1,26 +1,12 @@
 // @ts-nocheck
-// OpenClaw badge
-function updateOpenClawBadge(available) {
-  openclawAvailable = available;
-  const badge = document.getElementById('openclaw-badge');
-  if (!badge) return;
-  if (available) {
-    badge.className = 'openclaw-badge';
-    badge.textContent = 'TOOLS';
-    badge.title = 'OpenClaw disponible — herramientas activas';
-  } else {
-    badge.className = 'openclaw-badge offline';
-    badge.textContent = 'NO TOOLS';
-    badge.title = 'OpenClaw no disponible';
-  }
-}
-
+// OpenClaw — sin badge en la UI; el flag openclawAvailable solo decide el
+// flujo del agent loop (proceso.js). El estado en vivo llega por el canal
+// 'openclaw-status' (ipc.js).
 async function checkOpenClaw() {
   try {
-    const available = await ipcRenderer.invoke('openclaw-available');
-    updateOpenClawBadge(available);
-  } catch (e) {
-    updateOpenClawBadge(false);
+    openclawAvailable = await ipcRenderer.invoke('openclaw-available');
+  } catch {
+    openclawAvailable = false;
   }
 }
 

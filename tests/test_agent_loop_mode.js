@@ -178,7 +178,13 @@ async function testOnProgressCallback() {
     const first = progressEvents[0];
     assert(first.iteration === 1, `Primer evento tiene iteration=1 (got ${first.iteration})`);
     assert(first.tool === 'exec', `Primer evento tiene tool="exec" (got "${first.tool}")`);
-    assert(first.status === 'ok', `Primer evento tiene status="ok" (got "${first.status}")`);
+    assert(first.phase === 'start', `Primer evento tiene phase="start" (got "${first.phase}")`);
+    const endEvent = progressEvents.find((ev) => ev.phase === 'end' && ev.tool === 'exec');
+    assert(!!endEvent, 'hay un evento phase="end" para la tool exec');
+    assert(
+      endEvent && endEvent.status === 'ok',
+      `Evento end tiene status="ok" (got "${endEvent && endEvent.status}")`
+    );
   }
   restore();
 }

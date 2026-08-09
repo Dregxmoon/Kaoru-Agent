@@ -181,12 +181,11 @@ console.log(C.bold(C.cyan('═════════════════�
       return {
         hasTitle: !!title,
         hasInput: !!document.getElementById('msg-input'),
-        hasSend: !!document.getElementById('send-btn'),
-        hasSessions: !!document.getElementById('sessions-btn'),
-        hasMcp: !!document.getElementById('mcp-btn'),
-        hasPerms: !!document.getElementById('perms-btn'),
-        hasWorkspaceBtn: !!document.getElementById('workspace-btn'),
+        hasHeaderModel: !!document.getElementById('header-model'),
+        hasCancelBtn: !!document.getElementById('cancel-btn'),
+        hasNoSendBtn: !document.getElementById('send-btn'),
         hasThemeToggle: !!document.getElementById('theme-toggle'),
+        hasCloseBtn: !!document.getElementById('close-btn'),
         hasUpdateBanner: !!document.getElementById('update-banner'),
         hasKeysBanner: !!document.getElementById('keys-banner'),
         title: title ? title.textContent.trim() : null,
@@ -195,12 +194,11 @@ console.log(C.bold(C.cyan('═════════════════�
 
     assert(headerOk.hasTitle, 'header con workspace-title');
     assert(headerOk.hasInput, 'input #msg-input presente');
-    assert(headerOk.hasSend, 'botón #send-btn presente');
-    assert(headerOk.hasSessions, 'botón de sesiones presente');
-    assert(headerOk.hasMcp, 'botón MCP presente');
-    assert(headerOk.hasPerms, 'botón de permisos presente');
-    assert(headerOk.hasWorkspaceBtn, 'botón de workspace (dir) presente');
+    assert(headerOk.hasHeaderModel, 'header muestra modelo/proveedor activo');
+    assert(headerOk.hasCancelBtn, 'botón de cancelar generación presente');
+    assert(headerOk.hasNoSendBtn, 'sin botón enviar — envío con Enter (diseño minimizado)');
     assert(headerOk.hasThemeToggle, 'toggle de tema presente');
+    assert(headerOk.hasCloseBtn, 'botón de cerrar presente');
     assert(headerOk.hasUpdateBanner, 'banner de auto-update presente (oculto en dev)');
     assert(headerOk.hasKeysBanner, 'banner de API keys presente');
 

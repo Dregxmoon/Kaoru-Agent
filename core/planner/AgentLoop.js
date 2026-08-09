@@ -605,6 +605,9 @@ class AgentLoop {
         }
 
         let result;
+        if (opts.onProgress) {
+          opts.onProgress({ iteration: i + 1, tool: action.tool, params: action.params, phase: 'start' });
+        }
         try {
           if (GIT_TOOLS.has(action.tool)) {
             result = await this._executeGitTool(action);
@@ -644,6 +647,7 @@ class AgentLoop {
             iteration: i + 1,
             tool: action.tool,
             params: action.params,
+            phase: 'end',
             status: result.ok ? 'ok' : 'error',
             result: result.ok ? result.result : null,
             error: result.ok ? null : result.error,

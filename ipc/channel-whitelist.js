@@ -52,6 +52,7 @@ const INVOKE_ALLOWLIST = new Set([
   // Sesiones / memoria
   'sessions-list',
   'session-load',
+  'session-stats',
   'memory-forget',
   'store-fact',
   // OpenClaw / exec (vía comandos /)

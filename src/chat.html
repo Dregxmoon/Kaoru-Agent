@@ -23,7 +23,7 @@
     <title>Asistente personal — Chat</title>
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link
-      href="https://fonts.googleapis.com/css2?family=Share+Tech+Mono&family=Zen+Kaku+Gothic+New:wght@300;400;700&family=Kaisei+Decol:wght@400;700&display=swap"
+      href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700&family=Share+Tech+Mono&family=Zen+Kaku+Gothic+New:wght@300;400;700&family=Kaisei+Decol:wght@400;700&display=swap"
       rel="stylesheet"
     />
     <link rel="stylesheet" href="chat.css" />
@@ -32,11 +32,8 @@
     <div id="app">
       <header id="header">
         <span class="header-title" id="workspace-title">~/workspace</span>
-        <span class="header-title" style="opacity: 0.3; font-size: 9px; margin-left: 2px">$</span>
         <div class="header-spacer"></div>
-        <span id="openclaw-badge" class="openclaw-badge offline" title="OpenClaw no disponible"
-          >OFFLINE</span
-        >
+        <span id="header-model" class="header-model" title=""></span>
         <div id="sessions-modal">
           <div id="sessions-box">
             <div class="sessions-head">
@@ -102,15 +99,9 @@
         <div id="input-area">
           <div id="at-suggestions" class="at-suggestions" style="display: none"></div>
           <div id="input-row">
-            <button class="input-btn" id="attach-btn" title="Adjuntar archivo">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                <path
-                  d="M21.44 11.05l-9.19 9.19a6 6 0 01-8.49-8.49l9.19-9.19a4 4 0 015.66 5.66L9.41 17.41a2 2 0 01-2.83-2.83l8.49-8.48"
-                />
-              </svg>
-            </button>
             <input type="file" id="file-input" multiple />
-            <textarea id="msg-input" placeholder="Escribe un mensaje..." rows="1"></textarea>
+            <span id="input-prompt" class="input-prompt" aria-hidden="true">></span>
+            <textarea id="msg-input" placeholder="escribe un mensaje" rows="1"></textarea>
             <span id="input-cursor" class="input-cursor" aria-hidden="true"></span>
             <button
               id="cancel-btn"
@@ -119,15 +110,13 @@
               style="display: none"
             >
               <svg viewBox="0 0 24 24" fill="currentColor" width="12" height="12">
-                <rect x="6" y="6" width="12" height="12" rx="1" />
+                <rect x="6" y="6" width="12" height="12" />
               </svg>
-            </button>
-            <button id="send-btn" title="Enviar (Enter)">
-              <svg viewBox="0 0 24 24"><path d="M22 2L11 13M22 2L15 22l-4-9-9-4 20-7z" /></svg>
             </button>
           </div>
           <div id="input-info">
             <span class="input-hint" id="input-hint-text">Cargando...</span>
+            <span class="input-hint" id="footer-session"></span>
           </div>
         </div>
       </section>
@@ -321,6 +310,7 @@
     <script src="../node_modules/pixi-live2d-display/dist/cubism4.min.js"></script>
 
     <script src="chat/core.js"></script>
+    <script src="chat/activityBlock.js"></script>
     <script src="chat/messages.js"></script>
     <script src="chat/mcp.js"></script>
     <script src="chat/sessions.js"></script>

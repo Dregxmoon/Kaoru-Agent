@@ -83,3 +83,6 @@ sessionsCloseBtn.addEventListener('click', closeSessions);
 sessionsModal.addEventListener('click', (e) => {
   if (e.target === sessionsModal) closeSessions();
 });
+
+const sessionsBtn = document.getElementById('sessions-btn');
+if (sessionsBtn) sessionsBtn.addEventListener('click', openSessions);

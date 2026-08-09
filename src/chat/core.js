@@ -166,6 +166,7 @@ const __coreLoader = (() => {
   return load;
 })();
 const GestureEngine = __coreLoader('./GestureEngine.js');
+const agentStates = __coreLoader('./agentStates.js');
 
 // Motor de gestos del mini-avatar del chat: reacciona a los eventos del propio
 // chat (initiative/proposal/plan/agent/commandos) y al tono de los mensajes.

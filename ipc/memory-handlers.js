@@ -17,6 +17,16 @@ function register(ctx) {
   ipcMain.handle('sessions-list', (e, { limit } = {}) => Core.listSessions(limit));
   ipcMain.handle('session-load', (e, { id } = {}) => Core.loadSession(id));
 
+  // IPC: stats de la sesión activa (id real) — lo usa el footer del chat.
+  ipcMain.handle('session-stats', () => {
+    try {
+      const stats = Core.getStats();
+      return (stats && stats.session) || null;
+    } catch {
+      return null;
+    }
+  });
+
   // IPC: decisión de propuesta proactiva (Fase A)
   ipcMain.on('initiative-decision', (e, decision) => {
     Core.handleProposalDecision(decision);

@@ -42,6 +42,8 @@ function addMessage(role, text, files = []) {
   div.appendChild(body);
   messagesEl.appendChild(div);
   messagesEl.scrollTop = messagesEl.scrollHeight;
+  refreshFooterSession();
+  updateHeaderModel();
   return { div, bubble };
 }
 
@@ -68,9 +70,11 @@ function showThinking() {
   const div = document.createElement('div');
   div.className = 'msg assistant';
   div.id = 'thinking-msg';
-  div.innerHTML = `<div class="msg-avatar">AP</div><div class="msg-body"><div class="msg-name">Asistente</div><div class="msg-bubble thinking-text">pensando...</div></div>`;
+  div.innerHTML = `<div class="msg-avatar">AP</div><div class="msg-body"><div class="msg-name">Asistente</div><div class="msg-bubble thinking-text"><span class="loading-spinner">⠋</span> pensando...</div></div>`;
   messagesEl.appendChild(div);
   messagesEl.scrollTop = messagesEl.scrollHeight;
+  startSpinner(div.querySelector('.loading-spinner'));
+  setAgentState('thinking', 'Pensando');
 }
 function removeThinking() {
   const t = document.getElementById('thinking-msg');
@@ -119,6 +123,8 @@ async function loadLLMConfig() {
         .filter((p) => p.hasKey)
         .map((p) => p.id);
       updateLlmHint();
+      updateHeaderModel();
+      refreshFooterSession();
     } else {
       updateKeysBanner(null);
     }
@@ -133,6 +139,48 @@ async function loadLLMConfig() {
 
 function updateKeysBanner(activeProvider) {
   document.getElementById('keys-banner').classList.toggle('visible', !activeProvider);
+}
+
+// ── Header: modelo/provider activo (dato real) ───────────────────────────────
+// Formato "provider/modelo" (p.ej. "nvidia/minimax-m3"). Sin keys o sin LLM
+// activo, cae a "sin modelo".
+function updateHeaderModel() {
+  const el = document.getElementById('header-model');
+  if (!el) return;
+  const active = LLMProvider.getActiveProvider();
+  if (!active) {
+    el.textContent = 'sin modelo';
+    el.title = '';
+    return;
+  }
+  const p = LLMProvider.getAvailableProviders().find((x) => x.id === active);
+  const model = p?.activeModel?.smart || p?.models?.smart || '';
+  el.textContent = model ? `${p.id}/${model}` : p.id;
+  el.title = `${p?.name || active} · ${p?.free ? 'gratis' : 'pago'}`;
+}
+
+// ── Footer línea 2: contexto estimado + sesión activa (dato real) ────────────
+// ctx = estimación de tokens del historial de la sesión (≈ chars/4). sesión =
+// id real de SessionManager (IPC session-stats), cacheado tras el primer
+// fetch. Se refresca con cada mensaje para que el número acompañe la charla.
+let _sessionId = null;
+
+async function refreshFooterSession() {
+  const el = document.getElementById('footer-session');
+  if (!el) return;
+  const chars = sessionHistory.reduce((acc, m) => acc + String(m.content || '').length, 0);
+  const tokens = Math.round(chars / 4);
+  const ctx = tokens >= 1000 ? `${(tokens / 1000).toFixed(1)}k` : String(tokens);
+  if (_sessionId === null) {
+    try {
+      const stats = await ipcRenderer.invoke('session-stats');
+      _sessionId = stats && stats.session ? String(stats.session) : '';
+    } catch {
+      _sessionId = '';
+    }
+  }
+  const ses = _sessionId ? _sessionId.slice(0, 24) : '—';
+  el.textContent = `ctx ${ctx} · sesión ${ses}`;
 }
 
 // FIX QW-1 (UI): muestra/oculta el banner de memoria no persistente.
@@ -160,6 +208,7 @@ ipcRenderer.on('resumed-session', (e, { history }) => {
     if (!turn?.content) continue;
     sessionHistory.push(turn);
   }
+  refreshFooterSession();
 });
 
 // Settings modal

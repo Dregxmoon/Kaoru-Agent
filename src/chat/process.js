@@ -133,6 +133,7 @@ async function processMessage(text, files = []) {
 
   showThinking();
   triggerMotion();
+  resetActivities();
 
   // Botón de cancelación: visible durante la generación, envía 'agent-cancel'
   // al main (aborta el AbortController → rompe el stream y el loop).
@@ -157,29 +158,32 @@ async function processMessage(text, files = []) {
     // genera DESPUÉS de que el LLM vio todos los resultados reales.
     try {
       const { bubble } = addMessage('assistant', '');
-      const msgDiv = bubble.parentElement.parentElement;
-      const bodyEl = msgDiv.querySelector('.msg-body');
+      // Los bloques de actividad se insertan antes de este bubble (ancla).
+      setActivityAnchor(bubble.parentElement.parentElement);
 
-      // Indicador de progreso minimal
-      const progressEl = document.createElement('div');
-      progressEl.style.cssText =
-        'font-family:var(--font-mono);font-size:10px;color:var(--text-secondary);padding:2px 0;opacity:.6';
-      progressEl.innerHTML =
-        '<span class="loading-spinner">⠋</span> <span class="agent-progress-status">Iniciando...</span>';
-      if (bodyEl) bodyEl.appendChild(progressEl);
-      _agentProgressEl = progressEl.querySelector('.agent-progress-status');
-      _startSpinner(progressEl.querySelector('.loading-spinner'));
-      messagesEl.scrollTop = messagesEl.scrollHeight;
+      // El progreso de tools llega por 'agent-progress' y se dibuja como
+      // bloques de actividad (activityFromProgress en ui.js) en el feed.
 
       // Streaming: acumular fragmentos del LLM y pintarlos en el bubble en
-      // vivo (texto plano mientras llega; al final se renderiza markdown).
+      // vivo con cursor parpadeante (patrón opencode). Al final se renderiza
+      // markdown sobre el bubble existente.
       let streamBuf = '';
+      let firstToken = false;
       const streamedSpan = document.createElement('span');
-      streamedSpan.style.whiteSpace = 'pre-wrap';
+      streamedSpan.className = 'stream-text';
       bubble.appendChild(streamedSpan);
+      const cursor = document.createElement('span');
+      cursor.className = 'stream-cursor';
+      streamedSpan.appendChild(cursor);
       const offStream = ipcRenderer.on('agent-token', (_e, token) => {
+        if (!firstToken) {
+          firstToken = true;
+          removeThinking();
+          setAgentState('streaming', 'Respondiendo');
+        }
         streamBuf += token;
         streamedSpan.textContent = streamBuf;
+        streamedSpan.appendChild(cursor);
         messagesEl.scrollTop = messagesEl.scrollHeight;
       });
 
@@ -188,8 +192,7 @@ async function processMessage(text, files = []) {
       });
 
       offStream();
-      _agentProgressEl = null;
-      if (progressEl.parentNode) progressEl.parentNode.removeChild(progressEl);
+      if (cursor.parentNode) cursor.remove();
       if (cancelBtn) {
         cancelBtn.style.display = 'none';
         cancelBtn.removeEventListener('click', cancelOnce);
@@ -206,6 +209,7 @@ async function processMessage(text, files = []) {
           bubble.innerHTML = renderMarkdown(partial);
           messagesEl.scrollTop = messagesEl.scrollHeight;
         }
+        setAgentState('done', 'Cancelado');
         return;
       }
 
@@ -235,6 +239,7 @@ async function processMessage(text, files = []) {
         bubble.innerHTML = renderMarkdown(response);
         bubble.querySelectorAll('.mermaid').forEach((el) => _renderMermaid(el));
         messagesEl.scrollTop = messagesEl.scrollHeight;
+        setAgentState('done', 'Listo');
         speak(response);
         return;
       }
@@ -246,6 +251,7 @@ async function processMessage(text, files = []) {
       }
       error = err.message;
       response = null;
+      setAgentState('error', 'Error');
       // Limpiar bubble vacío creado en la línea 1119
       if (bubble) {
         const parent = bubble.parentElement?.parentElement;
@@ -277,17 +283,25 @@ async function processMessage(text, files = []) {
       response = LLMProvider.getActiveProvider()
         ? 'Algo falló al conectar. Revisa tu conexión o la key.'
         : 'Sin API keys. Usa el boton de configuracion (engranaje) para configurarlas.';
+      setAgentState('error', 'Error');
     }
   }
 
   removeThinking();
+  setAgentState('streaming', 'Respondiendo');
 
-  // Mostrar respuesta final
+  // Mostrar respuesta final con revelado progresivo de caracteres y cursor;
+  // al terminar se renderiza markdown sobre el bubble.
   pushToSession('assistant', response);
   ipcRenderer.send('memory-add-turn', { role: 'assistant', content: response });
-  const { bubble } = addMessage('assistant', response);
+  const { bubble } = addMessage('assistant', '');
+  const reveal = revealText(bubble, response);
+  await reveal.done;
+  bubble.classList.add('markdown');
+  bubble.innerHTML = renderMarkdown(response);
   bubble.querySelectorAll('.mermaid').forEach((el) => _renderMermaid(el));
   messagesEl.scrollTop = messagesEl.scrollHeight;
+  setAgentState('done', 'Listo');
   speak(response);
 }
 

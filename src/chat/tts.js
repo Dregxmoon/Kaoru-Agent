@@ -29,6 +29,7 @@ async function speak(text) {
   if (_ttsMuted) return;
   if (isSpeaking) return;
   isSpeaking = true;
+  setAgentState('speaking', 'Hablando');
   const spokenText = cleanForTTS(text);
   if (chatGestureEngine && chatGestureEngine.enabled)
     chatGestureEngine.setEmotion(chatDetectEmotion(spokenText));
@@ -60,4 +61,6 @@ async function speak(text) {
     });
   }
   isSpeaking = false;
+  // Solo volver a "listo" si nadie más cambió el estado mientras hablaba.
+  if (getAgentState() === 'speaking') setAgentState('idle', 'Listo');
 }

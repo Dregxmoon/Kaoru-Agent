@@ -81,6 +81,7 @@ const coreSources = {
   GestureLexicon: fs.readFileSync(path.join(coreBehaviorDir, 'GestureLexicon.js'), 'utf8'),
   GestureHeuristic: fs.readFileSync(path.join(coreBehaviorDir, 'GestureHeuristic.js'), 'utf8'),
   GestureEngine: fs.readFileSync(path.join(coreBehaviorDir, 'GestureEngine.js'), 'utf8'),
+  agentStates: fs.readFileSync(path.join(coreBehaviorDir, 'agentStates.js'), 'utf8'),
 };
 
 // El preload comparte el DOM con la página (contextIsolation aísla los

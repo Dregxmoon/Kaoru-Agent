@@ -81,31 +81,25 @@ function _refreshViewButtons() {
 }
 
 // Fase 3
-ipcRenderer.on('openclaw-status', (e, { available }) => updateOpenClawBadge(available));
+ipcRenderer.on('openclaw-status', (e, { available }) => (openclawAvailable = available));
 
-// Agent Loop IPC (Fase 2)
-let _agentProgressEl = null;
-const _spinnerFrames = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'];
-function _startSpinner(el) {
-  let i = 0;
-  const interval = setInterval(() => {
-    if (!el || !el.parentNode) {
-      clearInterval(interval);
-      return;
-    }
-    el.textContent = _spinnerFrames[i++ % _spinnerFrames.length];
-  }, 100);
-}
+// Agent Loop IPC (Fase 2 → Cambio 1/2 del rediseño: ActivityBlocks + estados)
+// renderActivityBlock/resetActivityBlocks vienen de chat/activityBlock.js
+// (script hermano, cargado antes que este archivo — ver chat.html).
+// agentStates viene de core/behavior/agentStates.js vía __coreLoader,
+// expuesto como global en chat/core.js (mismo patrón que GestureEngine).
+let _activityContainerEl = null;
 
-ipcRenderer.on('agent-progress', (e, { iteration, tool, status }) => {
-  if (chatGestureEngine) chatGestureEngine.onEvent('agent-progress', { status });
-  if (_agentProgressEl) {
-    _agentProgressEl.textContent =
-      status === 'ok'
-        ? `Paso ${iteration}: ${tool} completado`
-        : `⋯ Paso ${iteration}: ejecutando ${tool}...`;
-  }
+ipcRenderer.on('agent-progress', (e, progress) => {
+  const state = agentStates.stateFromProgress(progress);
+  if (chatGestureEngine)
+    chatGestureEngine.onEvent('agent-progress', { state, status: progress.status });
+  renderActivityBlock(_activityContainerEl, progress);
 });
+
+function setActivityContainer(el) {
+  _activityContainerEl = el;
+}
 
 ipcRenderer.on('agent-approval-needed', (e, { actionId, tool, params, description }) => {
   _showApprovalCard({ id: actionId, tool, params, description });
@@ -254,6 +248,7 @@ ipcRenderer.on('proposal-result', (e, { proposalId, ok, skipped, detail }) => {
 
 // Init
 window.addEventListener('DOMContentLoaded', loadModel);
+setActivityContainer(document.getElementById('messages'));
 
 // ── Auto-update (banner) ─────────────────────────────────────────────────────
 const _updateBanner = document.getElementById('update-banner');

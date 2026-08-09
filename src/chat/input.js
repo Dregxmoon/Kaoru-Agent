@@ -1,8 +1,58 @@
 // @ts-nocheck
 // Input
 const input = document.getElementById('msg-input');
-const sendBtn = document.getElementById('send-btn');
 const hintEl = document.getElementById('input-hint-text');
+
+// Cursor de terminal: bloque parpadeante que sigue al caret del textarea
+// (se mueve a la izquierda/arriba al escribir). Se posiciona midiendo el
+// texto previo al caret con un espejo oculto del mismo ancho y font que el
+// contenido del textarea (ver .input-mirror y .input-cursor en chat.css).
+const inputCursor = document.getElementById('input-cursor');
+let _inputMirror = null;
+
+function _getInputMirror() {
+  if (_inputMirror) return _inputMirror;
+  _inputMirror = document.createElement('span');
+  _inputMirror.className = 'input-mirror';
+  document.getElementById('input-row').appendChild(_inputMirror);
+  const cs = getComputedStyle(input);
+  _inputMirror.style.fontFamily = cs.fontFamily;
+  _inputMirror.style.fontSize = cs.fontSize;
+  _inputMirror.style.lineHeight = cs.lineHeight;
+  _inputMirror.style.letterSpacing = cs.letterSpacing;
+  return _inputMirror;
+}
+
+function _updateCursor() {
+  if (!inputCursor || document.activeElement !== input) return;
+  const row = document.getElementById('input-row');
+  const rowRect = row.getBoundingClientRect();
+  const inputRect = input.getBoundingClientRect();
+  const padTop = parseFloat(getComputedStyle(input).paddingTop) || 0;
+  const mirror = _getInputMirror();
+  mirror.style.left = inputRect.left - rowRect.left + 'px';
+  mirror.style.top = inputRect.top - rowRect.top + padTop + 'px';
+  mirror.style.width = input.clientWidth + 'px';
+  mirror.textContent = input.value.slice(0, input.selectionStart || 0);
+
+  const range = document.createRange();
+  range.selectNodeContents(mirror);
+  const rects = range.getClientRects();
+  let x = inputRect.left;
+  let y = inputRect.top + padTop;
+  if (rects.length) {
+    const last = rects[rects.length - 1];
+    x = last.right;
+    y = last.top;
+  }
+  inputCursor.style.left = x - rowRect.left + 'px';
+  inputCursor.style.top = y - rowRect.top - input.scrollTop + 'px';
+}
+input.addEventListener('input', _updateCursor);
+input.addEventListener('click', _updateCursor);
+input.addEventListener('focus', _updateCursor);
+input.addEventListener('keyup', _updateCursor);
+document.addEventListener('selectionchange', _updateCursor);
 
 function updateLlmHint() {
   const active = LLMProvider.getActiveProvider();
@@ -10,10 +60,12 @@ function updateLlmHint() {
   const p = all.find((x) => x.id === active);
   if (p) {
     const cost = p.free ? 'gratis' : 'pago';
-    hintEl.textContent = `${p.name} (${cost}) · /help`;
+    hintEl.textContent = `${p.name} · ${cost}`;
   } else {
-    hintEl.textContent = 'Sin LLM activo · /help';
+    hintEl.textContent = 'sin LLM activo';
   }
+  updateHeaderModel();
+  refreshFooterSession();
 }
 
 let _atSelectedIdx = -1;
@@ -303,13 +355,6 @@ document.getElementById('at-suggestions').addEventListener('mousedown', (e) => {
     _applyAtSuggestion(item.dataset.path);
   }
 });
-sendBtn.addEventListener('click', () => {
-  const text = input.value;
-  input.value = '';
-  input.style.height = 'auto';
-  sendMessage(text);
-});
-
 function sendMessage(text) {
   const files = [...pendingFiles];
   clearAttachments();
@@ -321,7 +366,9 @@ const attachBtn = document.getElementById('attach-btn');
 const fileInput = document.getElementById('file-input');
 const attachBar = document.getElementById('attachments-bar');
 
-attachBtn.addEventListener('click', () => fileInput.click());
+// Sin botón de clip (rediseño): el adjunto entra por drag & drop. El input
+// oculto queda por si algún día se rehabilita el botón.
+if (attachBtn) attachBtn.addEventListener('click', () => fileInput.click());
 fileInput.addEventListener('change', (e) => addFiles(Array.from(e.target.files)));
 
 function addFiles(files) {
