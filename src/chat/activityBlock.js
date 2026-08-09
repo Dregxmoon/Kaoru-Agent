@@ -142,6 +142,56 @@ const _blocks = new Map();
 /** @type {HTMLElement | null} */
 let _activityAnchor = null;
 
+// Nombre amigable por tool para el label del bloque (exec → Bash, etc.). Si la
+// tool no está en el mapa se muestra el nombre interno tal cual.
+/** @type {Record<string, string>} */
+const TOOL_LABELS = {
+  exec: 'Bash',
+  run_command: 'Bash',
+  read: 'Read',
+  read_file: 'Read',
+  write: 'Write',
+  edit: 'Edit',
+  edit_file: 'Edit',
+  apply_patch: 'Apply Patch',
+  grep: 'Grep',
+  glob: 'Glob',
+  code_execution: 'Python',
+  web_search: 'Web Search',
+  websearch: 'Web Search',
+  webfetch: 'Web Fetch',
+  browser: 'Browser',
+  get_diagnostics: 'Diagnósticos',
+  go_to_definition: 'Go to Def',
+  find_references: 'Find Ref',
+  get_symbols: 'Symbols',
+  hover: 'Hover',
+  rename: 'Rename',
+  code_actions: 'Code Actions',
+  git_status: 'Git Status',
+  git_diff: 'Git Diff',
+  git_log: 'Git Log',
+  git_branch: 'Git Branch',
+  git_commit: 'Git Commit',
+  git_push: 'Git Push',
+  git_stash: 'Git Stash',
+  git_merge: 'Git Merge',
+  git_rebase: 'Git Rebase',
+  github_repo_info: 'GitHub Repo',
+  github_issue_list: 'GitHub Issues',
+  github_issue_create: 'GitHub Issue',
+  github_issue_comment: 'GitHub Comment',
+  github_issue_close: 'GitHub Close',
+  github_pr_list: 'GitHub PRs',
+  github_pr_create: 'GitHub PR',
+  github_pr_review: 'GitHub Review',
+  github_actions_status: 'GitHub Actions',
+  subagent: 'Subagente',
+  task: 'Subagente',
+  mcp: 'MCP',
+  plugin: 'Plugin',
+};
+
 /**
  * @param {AgentProgress} progress
  */
@@ -227,7 +277,7 @@ function _diffHtml(text) {
     .join('\n');
 }
 
-// Detalle expandible del bloque (texto plano o diff coloreado).
+// Detalle expandible del bloque (texto plano, diff coloreado o stdout/stderr).
 /**
  * @param {AgentProgress} progress
  */
@@ -238,6 +288,30 @@ function _detailHtml(progress) {
   }
   const r = progress.result;
   if (r == null) return '';
+
+  // Resultado de exec ({stdout, stderr, exitCode, ...}): mostrar SOLO el stdout
+  // limpio formateado, el stderr aparte en color de error y el exit code si no
+  // fue 0 — nunca el JSON crudo del objeto.
+  if (typeof r === 'object' && 'stdout' in r) {
+    const stdout = String(r.stdout || '').trim();
+    const stderr = String(r.stderr || '').trim();
+    const exitCode = r.exitCode;
+    let out = '';
+    if (stdout) {
+      out += `<div class="activity-block-exec">${_escapeHtml(stdout.slice(0, 3000))}</div>`;
+    }
+    if (stderr) {
+      out += `<div class="activity-block-stderr">${_escapeHtml(stderr.slice(0, 2000))}</div>`;
+    }
+    if (exitCode != null && exitCode !== 0) {
+      out += `<div class="activity-block-exit">exit ${_escapeHtml(String(exitCode))}</div>`;
+    }
+    if (!out) {
+      out = `<div class="activity-block-exec">${_escapeHtml(String(r).slice(0, 3000))}</div>`;
+    }
+    return `<div class="activity-block-detail">${out}</div>`;
+  }
+
   let text;
   if (typeof r === 'string') text = r;
   else {
@@ -270,7 +344,7 @@ function renderActivityBlock(containerEl, progress) {
     const arg = _argLabel(progress);
     block.innerHTML =
       '<div class="activity-block-header">' +
-      `<span class="activity-block-tool">${_escapeHtml(progress.tool)}</span>` +
+      `<span class="activity-block-tool">${_escapeHtml(TOOL_LABELS[progress.tool] || progress.tool)}</span>` +
       (arg
         ? `<span class="activity-block-paren">(</span><span class="activity-block-arg">${_escapeHtml(arg)}</span><span class="activity-block-paren">)</span>`
         : '') +

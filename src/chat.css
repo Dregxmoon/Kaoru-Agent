@@ -2083,6 +2083,28 @@ body {
   color: var(--term-text-faint);
 }
 
+/* Detalle de exec (Bash): stdout limpio con padding/borde izquierdo y
+   white-space:pre; stderr aparte en color de error; exit code si no fue 0. */
+.activity-block-exec {
+  white-space: pre;
+  overflow-x: auto;
+  color: var(--term-text-ghost);
+}
+.activity-block-stderr {
+  margin-top: 6px;
+  padding: 4px 8px;
+  border-left: 2px solid var(--term-error);
+  background: var(--term-panel);
+  color: var(--term-error);
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+.activity-block-exit {
+  margin-top: 6px;
+  color: var(--term-error);
+  font-size: 10px;
+}
+
 /* ── Rediseño — cero decoración: sin bordes redondeados ni sombras ────────── */
 *,
 *::before,

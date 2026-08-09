@@ -154,6 +154,17 @@ El resto del texto se mostrará al usuario.
    SOLO para información externa actual que no puedes conocer (noticias,
    datos en vivo, páginas web). NO busques en internet cosas que ya sabes,
    como tu propia identidad — eso desperdicia recursos y el rate-limit.
+7. DETENTE EN CUANTO LA TAREA PEDIDA ESTÉ COMPLETA. Si la acción que pidió
+   el usuario terminó con éxito (p. ej. un push a git que confirma éxito, o
+   un archivo escrito correctamente), tu turno TERMINA: responde confirmando
+   y NO ejecutes más herramientas. No sigas "buscando más acciones", no
+   repitas trabajo ya hecho y no hagas mejoras, refactors ni pasos extra que
+   no te pidieron.
+8. NO TOQUES ARCHIVOS QUE NO SON PARTE DE LA TAREA. Si el usuario pidió, por
+   ejemplo, subir cambios a git, no edites código ni archivos del repo. Si en
+   el camino ves un problema en algo no relacionado, menciónalo en la
+   respuesta, pero NO lo arregles por tu cuenta — un edit no solicitado
+   cuenta como salirse del alcance y consume llamadas innecesariamente.
 `;
 
 const MODE_ALIAS = {
@@ -606,7 +617,12 @@ class AgentLoop {
 
         let result;
         if (opts.onProgress) {
-          opts.onProgress({ iteration: i + 1, tool: action.tool, params: action.params, phase: 'start' });
+          opts.onProgress({
+            iteration: i + 1,
+            tool: action.tool,
+            params: action.params,
+            phase: 'start',
+          });
         }
         try {
           if (GIT_TOOLS.has(action.tool)) {
@@ -1310,6 +1326,16 @@ class AgentLoop {
       'lint, diagnósticos). Si la tarea quedó incompleta, mal resuelta o se desvió',
       'de lo pedido, marca INCOMPLETA con una razón específica y accionable.',
       'Sé estricto pero justo: solo INCOMPLETA si hay una brecha real.',
+      '',
+      'Reglas de alcance:',
+      '- La tarea es COMPLETA si la acción pedida se ejecutó con éxito (p. ej. el',
+      '  push a git terminó OK), aunque existan advertencias de lint/diagnósticos',
+      '  en archivos que NO eran parte del pedido.',
+      '- NO marques INCOMPLETA para "seguir mejorando" código o hacer cambios no',
+      '  solicitados: las mejoras fuera de alcance NO son una brecha de la tarea.',
+      '- Edits no solicitados sobre archivos no relacionados son una DESVIACIÓN:',
+      '  si ocurrieron, la tarea ya se cumplió o el run debe terminar, no sumar',
+      '  más trabajo.',
     ].join('\n');
 
     try {

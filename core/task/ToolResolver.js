@@ -241,6 +241,14 @@ function _buildPromptCatalog(tools, domain, flags) {
       if (t.highImpact) line += ' (requiere aprobación)';
       lines.push(line);
     }
+    lines.push(
+      'Guía de uso: PREFIERE estas herramientas nativas a exec para operaciones de',
+      'git (son más confiables y git_commit ya hace add -A). Si usas exec con',
+      'comandos git: (1) corre git status antes de commitear; (2) usa "git add ."',
+      'salvo que el usuario pida un archivo puntual; (3) si no hay cambios staged,',
+      'AVISA y no inventes un commit; (4) usa el mensaje de commit que pidió el',
+      'usuario; (5) cuando el push confirme éxito la tarea está completa — detente.'
+    );
     lines.push('');
   }
 
