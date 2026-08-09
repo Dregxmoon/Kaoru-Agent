@@ -80,7 +80,13 @@ async function buildContext(sessionHistory, activeProvider, options = {}) {
   let result;
   if (state.grounding) {
     result = await state.grounding.buildContext(sessionHistory, provider, toolIntent, {
-      includeMemory: options.includeMemory === true,
+      // Fase 1: la memoria persistente (nodos semánticos + episodios) SÍ llega
+      // al prompt en producción. Antes era opt-in (`=== true`) y ningún call
+      // site real la activaba — todo el pipeline de retrieval/embeddings
+      // corría cada turno para descartar el resultado en el serializer. La
+      // sección ya está acotada en el serializer (8 nodos + 3 episodios) y el
+      // truncado por presupuesto la protege (context.js → MAX_SYSTEM_CHARS).
+      includeMemory: options.includeMemory !== false,
     });
   } else {
     const Fallback = require('../llm/GroundingMinimo.js');
@@ -132,14 +138,10 @@ async function buildContext(sessionHistory, activeProvider, options = {}) {
   // Fase 1: nativeToolSchemas se pasa al AgentLoop para completeWithTools()
   // en todos los turnos, filtrado solo por precedencia (Skill > MCP > OpenClaw).
   if (mode === 'agent') {
-    if (result.systemPrompt.length > MAX_SYSTEM_CHARS) {
-      result.systemPrompt =
-        result.systemPrompt.slice(0, MAX_SYSTEM_CHARS) + '\n\n[contexto truncado por longitud]';
-      logger.warn(
-        'context',
-        `[core] system prompt truncado modo agent: ${result.systemPrompt.length} chars`
-      );
-    }
+    // El presupuesto de MAX_SYSTEM_CHARS se aplica en AgentLoop.run(), DESPUÉS
+    // del ensamblado completo (AGENT_LOOP_SYSTEM + catálogo + recall + skills),
+    // no aquí: truncar antes de los appends hacía que el presupuesto no contara
+    // todo lo que se añadía después. Ver core/planner/AgentLoop.js.
     return {
       ...result,
       behaviorCtx,
@@ -257,53 +259,10 @@ async function buildContext(sessionHistory, activeProvider, options = {}) {
 
   // Truncado inteligente: si el prompt excede MAX_SYSTEM_CHARS, elimina
   // secciones COMPLETAS empezando por la menos importante, en vez de cortar
-  // a mitad de una instrucción (que rompe el formato estructurado).
-  if (result.systemPrompt.length > MAX_SYSTEM_CHARS) {
-    logger.warn(
-      'context',
-      `[core] system prompt excede: ${result.systemPrompt.length} > ${MAX_SYSTEM_CHARS} chars, recortando...`
-    );
-    // Orden de sacrificio: MCP → OpenClaw → episodios → memoria → OS → comportamiento → tools intent → identidad
-    const sectionMarkers = [
-      { name: 'MCP', marker: '# HERRAMIENTAS MCP', keepIf: null },
-      { name: 'OpenClaw', marker: '# HERRAMIENTAS DISPONIBLES', keepIf: null },
-      { name: 'Plan', marker: '# MODO PLAN', keepIf: null },
-      { name: 'Execute', marker: '# MODO EJECUCIÓN', keepIf: null },
-      { name: 'Episodios', marker: '## Episodios recientes', keepIf: null },
-      { name: 'Memoria', marker: '## Lo que sé del usuario', keepIf: null },
-      { name: 'OS', marker: '## Contexto actual', keepIf: null },
-      { name: 'Behavior', marker: '# COMPORTAMIENTO ESTE TURNO', keepIf: null },
-      { name: 'Intent', marker: '## INTENCIÓN DE HERRAMIENTA', keepIf: null },
-    ];
-    for (const section of sectionMarkers) {
-      if (result.systemPrompt.length <= MAX_SYSTEM_CHARS) break;
-      const markerIdx = result.systemPrompt.indexOf(section.marker);
-      if (markerIdx === -1) continue;
-      // Encontrar el inicio de la sección (línea anterior ---\n\n o principio)
-      const sectionStart = result.systemPrompt.lastIndexOf('\n\n---\n\n', markerIdx);
-      const from = sectionStart >= 0 ? sectionStart + 6 : markerIdx;
-      // Encontrar el fin (siguiente --- o fin del string)
-      const remaining = result.systemPrompt.slice(from + 1);
-      const nextSep = remaining.indexOf('\n\n---\n\n');
-      const sectionEnd = nextSep >= 0 ? from + 1 + nextSep : result.systemPrompt.length;
-      const sectionText = result.systemPrompt.slice(from, sectionEnd);
-      result.systemPrompt =
-        result.systemPrompt.slice(0, from) + result.systemPrompt.slice(sectionEnd);
-      logger.info(
-        'context',
-        `[core] sección "${section.name}" eliminada (${sectionText.length} chars)`
-      );
-    }
-    // Si sigue excediendo después de eliminar secciones opcionales, truncado duro al final
-    if (result.systemPrompt.length > MAX_SYSTEM_CHARS) {
-      const budget = MAX_SYSTEM_CHARS - TRUNCATION_SUFFIX.length;
-      logger.warn(
-        'context',
-        `[core] truncado duro: ${result.systemPrompt.length} → ${MAX_SYSTEM_CHARS} chars (solo identidad)`
-      );
-      result.systemPrompt = result.systemPrompt.slice(0, Math.max(0, budget)) + TRUNCATION_SUFFIX;
-    }
-  }
+  // a mitad de una instrucción (que rompe el formato estructurado). En modo
+  // agent lo aplica AgentLoop tras el ensamblado completo; aquí solo para
+  // chat/plan/execute (ver truncateSystemPrompt()).
+  result.systemPrompt = truncateSystemPrompt(result.systemPrompt);
 
   return {
     ...result,
@@ -313,6 +272,88 @@ async function buildContext(sessionHistory, activeProvider, options = {}) {
     mode,
     nativeToolSchemas: resolvedTools?.nativeToolSchemas || null,
   };
+}
+
+/**
+ * Truncado inteligente del system prompt: si excede el presupuesto elimina
+ * secciones COMPLETAS empezando por la menos importante, en vez de cortar a
+ * mitad de una instrucción (que rompería el formato estructurado).
+ *
+ * @param {string} systemPrompt prompt ya ensamblado del todo.
+ * @param {{max?: number, tailSections?: Array<{name: string, marker: string}>}} [opts]
+ *   - max: presupuesto en chars (por defecto MAX_SYSTEM_CHARS).
+ *   - tailSections: bloques opcionales añadidos al FINAL del ensamblado (modo
+ *     agent: skills → recall de memoria → catálogo → loop). Se eliminan desde
+ *     el inicio de su encabezado hasta el final del prompt, de menor a mayor
+ *     importancia, antes de tocar las secciones del prompt base.
+ * @returns {string}
+ */
+function truncateSystemPrompt(systemPrompt, opts = {}) {
+  const max = opts.max ?? MAX_SYSTEM_CHARS;
+  if (systemPrompt.length <= max) return systemPrompt;
+  logger.warn(
+    'context',
+    `[core] system prompt excede: ${systemPrompt.length} > ${max} chars, recortando...`
+  );
+
+  let out = systemPrompt;
+
+  // 1) Bloques tail del modo agent: se quitan desde su encabezado hasta el
+  //    final del prompt, de menor a mayor importancia. Son bloques añadidos
+  //    después del ensamblado base y NO están delimitados por `---`, así que
+  //    el corte es por línea de encabezado (skills → recall → catálogo → loop).
+  for (const section of opts.tailSections || []) {
+    if (out.length <= max) break;
+    const markerIdx = out.indexOf(section.marker);
+    if (markerIdx === -1) continue;
+    const lineStart = out.lastIndexOf('\n', markerIdx - 1) + 1;
+    const removed = out.slice(lineStart);
+    out = out.slice(0, lineStart);
+    logger.info('context', `[core] sección "${section.name}" eliminada (${removed.length} chars)`);
+  }
+
+  // 2) Secciones `---`-delimitadas del prompt base, de menor a mayor
+  //    importancia: MCP → OpenClaw → episodios → memoria → OS → comportamiento
+  //    → tools intent → identidad.
+  const sectionMarkers = [
+    { name: 'MCP', marker: '# HERRAMIENTAS MCP', keepIf: null },
+    { name: 'OpenClaw', marker: '# HERRAMIENTAS DISPONIBLES', keepIf: null },
+    { name: 'Plan', marker: '# MODO PLAN', keepIf: null },
+    { name: 'Execute', marker: '# MODO EJECUCIÓN', keepIf: null },
+    { name: 'Episodios', marker: '## Episodios recientes', keepIf: null },
+    { name: 'Memoria', marker: '## Lo que sé del usuario', keepIf: null },
+    { name: 'OS', marker: '## Contexto actual', keepIf: null },
+    { name: 'Behavior', marker: '# COMPORTAMIENTO ESTE TURNO', keepIf: null },
+    { name: 'Intent', marker: '## INTENCIÓN DE HERRAMIENTA', keepIf: null },
+  ];
+  for (const section of sectionMarkers) {
+    if (out.length <= max) break;
+    const markerIdx = out.indexOf(section.marker);
+    if (markerIdx === -1) continue;
+    // Encontrar el inicio de la sección (línea anterior ---\n\n o principio)
+    const sectionStart = out.lastIndexOf('\n\n---\n\n', markerIdx);
+    const from = sectionStart >= 0 ? sectionStart + 6 : markerIdx;
+    // Encontrar el fin (siguiente --- o fin del string)
+    const remaining = out.slice(from + 1);
+    const nextSep = remaining.indexOf('\n\n---\n\n');
+    const sectionEnd = nextSep >= 0 ? from + 1 + nextSep : out.length;
+    const sectionText = out.slice(from, sectionEnd);
+    out = out.slice(0, from) + out.slice(sectionEnd);
+    logger.info(
+      'context',
+      `[core] sección "${section.name}" eliminada (${sectionText.length} chars)`
+    );
+  }
+
+  // 3) Si sigue excediendo después de eliminar secciones opcionales, truncado
+  //    duro al final conservando el inicio (identidad).
+  if (out.length > max) {
+    const budget = max - TRUNCATION_SUFFIX.length;
+    logger.warn('context', `[core] truncado duro: ${out.length} → ${max} chars (solo identidad)`);
+    out = out.slice(0, Math.max(0, budget)) + TRUNCATION_SUFFIX;
+  }
+
+  return out;
 }
 
 /**
@@ -353,4 +394,5 @@ function buildMCPCatalogPrompt(mcpTools) {
 module.exports = {
   buildContext,
   buildMCPCatalogPrompt,
+  truncateSystemPrompt,
 };

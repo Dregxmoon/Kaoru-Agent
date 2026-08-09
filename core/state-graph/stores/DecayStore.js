@@ -18,10 +18,10 @@ class DecayStore {
     const update = this._db.prepare('UPDATE nodes SET importance=? WHERE id=?');
     const archive = this._db.prepare('UPDATE nodes SET archived=1 WHERE id=?');
 
-    const runDecay = this._db.transaction(() => {
-      let decayed = 0,
-        archived = 0;
+    let decayed = 0,
+      archived = 0;
 
+    const runDecay = this._db.transaction(() => {
       for (const node of nodes) {
         const daysSince = (now - node.last_accessed_at) / (1000 * 60 * 60 * 24);
         if (daysSince < 1) continue;
@@ -46,6 +46,10 @@ class DecayStore {
     });
 
     runDecay();
+
+    // F2.1: devuelve cuántos nodos se archivaron para que el llamador purgue
+    // sus vectores semánticos (StateGraph.applyDecay).
+    return { decayed, archived };
   }
 }
 

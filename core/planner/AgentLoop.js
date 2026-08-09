@@ -6,6 +6,7 @@ const path = require('path');
 const fs = require('fs');
 const { getOpenClawBridge } = require('./OpenClawBridge.js');
 const { getStructuredActionParser } = require('./StructuredActionParser.js');
+const { truncateSystemPrompt } = require('../core/context.js');
 const AP = require('./ActionParser.js');
 const LLMProvider = require('../llm/LLMProvider.js');
 const { getToolRegistry } = require('../task/ToolRegistry.js');
@@ -78,6 +79,17 @@ const RESULT_TRUNCATE_LIMIT = 800;
 // feedback vuelve al loop para corregir/continuar. Acotado para no abrir un
 // bucle infinito.
 const SELF_CRITIQUE_MAX_ROUNDS = 2;
+
+// Bloques que AgentLoop añade al prompt DESPUÉS del ensamblado base. El
+// truncado final (truncateSystemPrompt) los elimina desde el inicio de su
+// encabezado hasta el final, de menor a mayor importancia, para respetar el
+// presupuesto MAX_SYSTEM_CHARS contando TODO lo ensamblado (no solo el base).
+const TAIL_SECTIONS = [
+  { name: 'Skills', marker: '---\n\n**Skills activas' },
+  { name: 'Memoria recall', marker: '# CONTEXTO RELEVANTE DE MEMORIA' },
+  { name: 'Catálogo de tools', marker: '# HERRAMIENTAS DISPONIBLES' },
+  { name: 'Loop agente', marker: '# MODO AGENTE' },
+];
 
 // G.1: compactación de contexto. Cuando la historia de iteraciones crece, los
 // turnos viejos se condensan en un resumen determinista (no se re-envía todo
@@ -306,6 +318,14 @@ class AgentLoop {
         logger.warn('AgentLoop', `[agent-loop] error inyectando skills: ${e.message}`);
       }
     }
+
+    // ── Truncado FINAL tras el ensamblado completo ────────────────────────
+    // El presupuesto de MAX_SYSTEM_CHARS debe contar AGENT_LOOP_SYSTEM +
+    // catálogo + recall + skills, no solo el systemPrompt base (que en modo
+    // agent ya no se trunca en buildContext). Se eliminan bloques COMPLETOS
+    // desde el menos importante (skills → recall → catálogo → loop), nunca a
+    // mitad de una instrucción.
+    agentPrompt = truncateSystemPrompt(agentPrompt, { tailSections: TAIL_SECTIONS });
 
     const iterationHistory = [...(messages || [])];
     let lastToolResult = null;

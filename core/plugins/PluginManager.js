@@ -21,6 +21,7 @@ const logger = require('../observability/Logger.js');
 
 const fs = require('fs');
 const path = require('path');
+const { safeChildEnv } = require('../utils/childEnv.js');
 
 const DEFAULT_PLUGIN_DIR = path.join(__dirname, '..', '..', 'plugins');
 
@@ -236,6 +237,10 @@ class PluginManager {
         if (!self._hooks.has(name)) self._hooks.set(name, []);
         self._hooks.get(name)?.push(fn);
       },
+      // Fase 1: política única de entorno para procesos hijos. Si un plugin
+      // spawnea procesos, debe usar ctx.childEnv() en lugar de process.env
+      // para no exponer credenciales del entorno a sus hijos.
+      childEnv: safeChildEnv,
       ...extra,
     };
   }

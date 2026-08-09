@@ -544,9 +544,10 @@ class StateGraph {
 
   async _runEmbedding(id, content) {
     try {
-      const { embedText, float32ToBuffer } = require('../grounding/IntentDetector.js');
-      const vec = await embedText(content.slice(0, 2000));
-      this._vectors._upsertNodeVector(id, float32ToBuffer(vec));
+      // F2.1-D: embeddings fuera del main thread (worker_threads vía EmbedService).
+      const EmbedService = require('../grounding/EmbedService.js');
+      const vec = await EmbedService.embedText(content.slice(0, 2000));
+      this._vectors._upsertNodeVector(id, EmbedService.float32ToBuffer(vec));
     } catch (e) {
       logger.warn('StateGraph', `[state-graph] no se pudo embedear nodo ${id}:`, e.message);
     }
@@ -643,7 +644,13 @@ class StateGraph {
   }
 
   applyDecay() {
-    return this._decay.applyDecay();
+    const result = this._decay.applyDecay();
+    // F2.1: al archivar nodos, purga sus vectores semánticos para que no
+    // queden stale en node_vectors.
+    if (result?.archived > 0) {
+      this._vectors.purgeArchivedVectors();
+    }
+    return result;
   }
 
   getStats() {

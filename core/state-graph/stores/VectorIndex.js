@@ -3,6 +3,7 @@
 const logger = require('../../observability/Logger.js');
 
 const { RECENCY_HALFLIFE_DAYS, SEMANTIC_CANDIDATES } = require('./constants');
+const { distanceToSimilarity } = require('../../grounding/IntentDetector.js');
 
 class VectorIndex {
   constructor(db, graph) {
@@ -50,18 +51,56 @@ class VectorIndex {
       .run(bigId, embeddingBuffer);
   }
 
+  _deleteVector(id) {
+    if (!this._g._vectorReady) return false;
+    try {
+      this._db.prepare('DELETE FROM node_vectors WHERE rowid=?').run(BigInt(id));
+      return true;
+    } catch (e) {
+      logger.warn('VectorIndex', `[state-graph] no se pudo borrar vector ${id}:`, e.message);
+      return false;
+    }
+  }
+
+  /**
+   * Elimina los vectores de TODOS los nodos archivados (F2.1). El archivo de
+   * un nodo solo marcaba archived=1 en `nodes` y su vector quedaba stale para
+   * siempre en node_vectors: ocupaba espacio y aparecía en el KNN antes del
+   * filtro por archived. Idempotente y seguro de correr en cualquier momento.
+   * @returns {number} vectores eliminados
+   */
+  purgeArchivedVectors() {
+    if (!this._g._vectorReady || this._g.usingFallback) return 0;
+    try {
+      const archived = this._db.prepare('SELECT id FROM nodes WHERE archived=1').all();
+      const del = this._db.prepare('DELETE FROM node_vectors WHERE rowid=?');
+      let removed = 0;
+      for (const row of archived) {
+        removed += del.run(BigInt(row.id)).changes;
+      }
+      if (removed > 0) {
+        logger.info(
+          'VectorIndex',
+          `[state-graph] purga de vectores archivados: ${removed} eliminados`
+        );
+      }
+      return removed;
+    } catch (e) {
+      logger.warn('VectorIndex', '[state-graph] error purgando vectores archivados:', e.message);
+      return 0;
+    }
+  }
+
   async queryNodesSemantic(searchText, { type, limit = 8, includeArchived = false } = {}) {
     if (!this._g._vectorReady || !searchText || !searchText.trim()) {
       return this._g._nodes.queryNodes({ type, search: searchText, limit, includeArchived });
     }
 
     try {
-      const {
-        embedText,
-        float32ToBuffer,
-        distanceToSimilarity,
-      } = require('../../grounding/IntentDetector.js');
-      const queryVec = await embedText(searchText.slice(0, 500));
+      // F2.1-D: embeddings en worker_threads (EmbedService), con fallback al
+      // embedder de main thread dentro del propio servicio.
+      const EmbedService = require('../../grounding/EmbedService.js');
+      const queryVec = await EmbedService.embedText(searchText.slice(0, 500));
 
       const candidates = this._db
         .prepare(
@@ -72,7 +111,7 @@ class VectorIndex {
         ORDER BY distance
       `
         )
-        .all(float32ToBuffer(queryVec), SEMANTIC_CANDIDATES);
+        .all(EmbedService.float32ToBuffer(queryVec), SEMANTIC_CANDIDATES);
 
       if (!candidates.length) {
         return this._g._nodes.queryNodes({ type, search: searchText, limit, includeArchived });
@@ -158,6 +197,14 @@ class VectorIndex {
       logger.warn('VectorIndex', '[state-graph] error limpiando vectores huérfanos:', e.message);
     }
 
+    // F2.1 red de seguridad: en el arranque también se purgan los vectores de
+    // nodos archivados que pudieran haber quedado stale antes de esta versión.
+    try {
+      this.purgeArchivedVectors();
+    } catch (e) {
+      logger.warn('VectorIndex', '[state-graph] error purgando vectores archivados:', e.message);
+    }
+
     try {
       const pending = this._db
         .prepare(
@@ -175,15 +222,16 @@ class VectorIndex {
         'VectorIndex',
         `[state-graph] backfill de embeddings: ${pending.length} nodos pendientes...`
       );
-      const { embedText, float32ToBuffer } = require('../../grounding/IntentDetector.js');
+      // F2.1-D: embeddings fuera del main thread (worker_threads).
+      const EmbedService = require('../../grounding/EmbedService.js');
 
       let done = 0;
       for (let i = 0; i < pending.length; i += batchSize) {
         const batch = pending.slice(i, i + batchSize);
         for (const node of batch) {
           try {
-            const vec = await embedText((node.content || '').slice(0, 2000));
-            this._upsertNodeVector(node.id, float32ToBuffer(vec));
+            const vec = await EmbedService.embedText((node.content || '').slice(0, 2000));
+            this._upsertNodeVector(node.id, EmbedService.float32ToBuffer(vec));
             done++;
           } catch (e) {
             logger.warn(

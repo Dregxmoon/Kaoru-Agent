@@ -44,6 +44,14 @@ const { getIdentity } = require('../../identity/IdentityStore.js');
 // LLM. Los turnos recientes se envían completos; el excedente se resume.
 const MAX_HISTORY_CHARS = 8000;
 
+// Presupuesto de caracteres para la sección de memoria del system prompt
+// (F2.1): el recorte deja de ser por conteos fijos (8 nodos × 200 chars +
+// 3 episodios × 200 chars ≈ 2.2KB) y pasa a ser por presupuesto real, de modo
+// que entren más nodos cortos o menos nodos largos según lo que haya, siempre
+// sin exceder el tope. Con el presupuesto global de 14k, 2.5k de memoria es
+// ~18% del prompt.
+const MEMORY_SECTION_CHARS = 2500;
+
 // ── Identity (cacheada) ───────────────────────────────────────────────────────
 // La identidad NO cambia entre turnos. Se serializa UNA SOLA VEZ al cargar
 // el módulo y se reusa en cada llamada, ahorrando ~400-600 tokens por turno.
@@ -392,15 +400,31 @@ function _buildOSSection(osContext) {
 function _buildMemorySection(persistentMemory) {
   if (!persistentMemory) return '';
 
+  // F2.1: la sección se arma bajo un presupuesto de chars (MEMORY_SECTION_CHARS)
+  // en vez de conteos fijos. Cada nodo/episodio se recorta al espacio que
+  // queda; se deja de incluir cuando no cabe, sin cortar a mitad de línea.
+  const budget = MEMORY_SECTION_CHARS;
+  let used = 0;
   const parts = [];
+
+  /**
+   * @param {string} line
+   */
+  const pushLine = (line) => {
+    if (line.length > budget - used) return false;
+    parts.push(line);
+    used += line.length;
+    return true;
+  };
 
   const nodes = persistentMemory.nodes;
   if (nodes && nodes.length > 0) {
-    parts.push('## Lo que sé del usuario y sus proyectos');
-    for (const node of nodes.slice(0, 8)) {
+    if (!pushLine('## Lo que sé del usuario y sus proyectos')) return '';
+    for (const node of nodes) {
+      if (used >= budget) break;
       const type = node.type || 'Dato';
-      const props = node.content ? node.content.slice(0, 200) : '';
-      parts.push(`- (${type}): ${props}`);
+      const props = (node.content || '').slice(0, Math.min(200, budget - used));
+      if (!pushLine(`- (${type}): ${props}`)) break;
     }
   }
 
@@ -413,12 +437,14 @@ function _buildMemorySection(persistentMemory) {
         c.length > 15 && !c.endsWith('null"') && !c.endsWith('null') && !/^\[.+\]\s*null/.test(c)
       );
     });
-    if (withContent.length > 0) {
+    if (withContent.length > 0 && used + '\n## Episodios recientes relevantes'.length <= budget) {
       parts.push('', '## Episodios recientes relevantes');
-      for (const ep of withContent.slice(0, 3)) {
+      used += 2 + '## Episodios recientes relevantes'.length;
+      for (const ep of withContent) {
+        if (used >= budget) break;
         const when = ep.created_at ? new Date(ep.created_at).toLocaleDateString('es-MX') : 'antes';
-        const preview = (ep.content || '').slice(0, 200);
-        parts.push(`- [${when}] ${preview}`);
+        const preview = (ep.content || '').slice(0, Math.min(200, budget - used));
+        if (!pushLine(`- [${when}] ${preview}`)) break;
       }
     }
   }

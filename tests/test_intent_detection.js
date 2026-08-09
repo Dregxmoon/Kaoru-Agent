@@ -350,6 +350,7 @@ async function main() {
   console.log(C.bold('════════════════════════════════════════════════════════\n'));
 
   db.close();
+  require('../core/grounding/EmbedService.js').dispose();
 
   if (failed > 0) process.exit(1);
 }

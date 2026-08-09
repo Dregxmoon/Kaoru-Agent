@@ -124,7 +124,11 @@ class NodeStore {
       )
       .all();
 
-    this._touchNodes(results.map((n) => n.id).filter(Boolean), 'getWorldModel');
+    // NO se toca last_accessed_at aquí (F2.1): el world model se lee en CADA
+    // turno por ser contexto estable, así que contar esas lecturas como
+    // "acceso del usuario" refrescaría recencia siempre y el decay jamás
+    // llegaría al umbral de archivo. Solo los recalls intencionales
+    // (queryNodes/getRecentEpisodes/queryNodesSemantic) alimentan la recencia.
 
     return results;
   }
@@ -170,6 +174,9 @@ class NodeStore {
   _archiveNode(id) {
     if (this._g.usingFallback) return;
     this._db.prepare('UPDATE nodes SET archived=1, updated_at=? WHERE id=?').run(Date.now(), id);
+    // F2.1: al archivar se elimina también el vector semántico del nodo para
+    // que no quede stale en node_vectors (ocupa espacio y poluciona el KNN).
+    this._g._vectors?._deleteVector(id);
   }
 
   _findDuplicateLabels() {

@@ -6,6 +6,7 @@ const fs = require('fs');
 const path = require('path');
 
 const { distanceToSimilarity } = require('../grounding/IntentDetector.js');
+const EmbedService = require('../grounding/EmbedService.js');
 
 const SKILL_TABLE = 'skill_catalog';
 const VECTOR_TABLE = 'skill_vectors';
@@ -153,14 +154,14 @@ class SkillManager {
     if (!skills) skills = await this.scan();
     if (skills.length === 0) return 0;
 
-    const embed = await _getEmbedder();
     let indexed = 0;
 
-    // Pre-computar vectores fuera de la transacción (the embedder es async)
+    // Pre-computar vectores fuera de la transacción (el embedder es async).
+    // F2.1-D: embeddings en worker_threads (EmbedService).
     const vectorMap = new Map();
     for (const skill of skills) {
       try {
-        const tensor = await embed(skill.description);
+        const tensor = await EmbedService.embedText(skill.description);
         vectorMap.set(skill.name, float32ToBuffer(tensor));
       } catch {
         vectorMap.set(skill.name, null);
@@ -201,8 +202,8 @@ class SkillManager {
 
     this._ensureTables(db);
 
-    const embed = await _getEmbedder();
-    const tensor = await embed(userMessage).catch(() => null);
+    // F2.1-D: embedding del mensaje en worker_threads (EmbedService).
+    const tensor = await EmbedService.embedText(userMessage).catch(() => null);
     const queryVec = float32ToBuffer(tensor);
     if (!queryVec) return [];
 

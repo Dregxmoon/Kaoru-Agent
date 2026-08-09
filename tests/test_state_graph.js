@@ -86,13 +86,13 @@ function fakeFloat32ToBuffer(arr) {
   return buf;
 }
 function patchEmbedder() {
-  const IntentDetector = require('../core/grounding/IntentDetector.js');
+  const EmbedService = require('../core/grounding/EmbedService.js');
   const orig = {
-    embedText: IntentDetector.embedText,
-    float32ToBuffer: IntentDetector.float32ToBuffer,
+    embedText: EmbedService.embedText,
+    float32ToBuffer: EmbedService.float32ToBuffer,
   };
-  IntentDetector.embedText = async (t) => fakeEmbed(t);
-  IntentDetector.float32ToBuffer = fakeFloat32ToBuffer;
+  EmbedService.embedText = async (t) => fakeEmbed(t);
+  EmbedService.float32ToBuffer = fakeFloat32ToBuffer;
   return orig;
 }
 
@@ -640,9 +640,9 @@ function testSemanticRecall() {
 }
 
 function IntentDetectorRestore(orig) {
-  const IntentDetector = require('../core/grounding/IntentDetector.js');
-  IntentDetector.embedText = orig.embedText;
-  IntentDetector.float32ToBuffer = orig.float32ToBuffer;
+  const EmbedService = require('../core/grounding/EmbedService.js');
+  EmbedService.embedText = orig.embedText;
+  EmbedService.float32ToBuffer = orig.float32ToBuffer;
 }
 
 // ── Test 8: cleanupMemoryArtifacts ─────────────────────────────────────────

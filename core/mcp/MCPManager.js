@@ -31,6 +31,7 @@
 const logger = require('../observability/Logger.js');
 
 const crypto = require('crypto');
+const { minimalChildEnv } = require('../utils/childEnv.js');
 const { Client } = require('@modelcontextprotocol/sdk/client/index.js');
 const { StdioClientTransport } = require('@modelcontextprotocol/sdk/client/stdio.js');
 
@@ -140,10 +141,13 @@ class MCPServerConnection {
     this._intentionalDisconnect = false;
 
     try {
+      // C1 (seguridad): NUNCA se pasa process.env a servidores MCP — son
+      // terceros y podrían exfiltrar credenciales (GITHUB_TOKEN, API keys...).
+      // Solo PATH/HOME + lo que el server declare explícitamente en su config.
       this.transport = new StdioClientTransport({
         command: this.config.command,
         args: this.config.args || [],
-        env: { ...process.env, ...(this.config.env || {}) },
+        env: minimalChildEnv(this.config.env || {}),
       });
       this.client = new Client(
         { name: 'asistente-personal', version: '1.0.0' },

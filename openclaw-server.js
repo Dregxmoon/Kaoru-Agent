@@ -149,43 +149,16 @@ function _isBlockedCommand(command) {
 // P2: env limpio para procesos hijos. El proceso hijo hereda process.env por
 // defecto — si la app corre con GITHUB_TOKEN, OPENAI_API_KEY u otras
 // credenciales en el entorno, un comando aprobado (o el script de
-// code_execution) podría exfiltra-las. Construimos un env mínimo que conserva
-// lo necesario para herramientas habituales (PATH, HOME, LANG, locales) pero
-// ELIMINA variables que son claves/tokens. Esto NO es un sandbox de proceso
-// (ver nota de BLOCKED_COMMAND_PATTERNS): es defensa en profundidad para no
-// exponer credenciales del entorno a comandos que no las necesitan.
-const STRIPPED_ENV_KEY_RE =
-  /(^|_)(KEY|TOKEN|SECRET|PASSWORD|PASSWD|API_?KEY|PAT|CREDENTIALS?|AUTH)(\b|_|$)/i;
-const KEEP_ENV_KEYS = [
-  'PATH',
-  'HOME',
-  'LANG',
-  'LC_ALL',
-  'LC_CTYPE',
-  'TZ',
-  'TERM',
-  'SHELL',
-  'USER',
-  'LOGNAME',
-  'HOSTNAME',
-  'DISPLAY',
-  'XDG_RUNTIME_DIR',
-  'GPG_TTY',
-  'EDITOR',
-  'VISUAL',
-];
+// code_execution) podría exfiltra-las. La política vive en core/utils/childEnv.js
+// (ÚNICA fuente, compartida con MCP y plugins): conserva lo necesario para
+// herramientas habituales (PATH, HOME, LANG, locales) pero ELIMINA variables
+// que son claves/tokens. Esto NO es un sandbox de proceso (ver nota de
+// BLOCKED_COMMAND_PATTERNS): es defensa en profundidad para no exponer
+// credenciales del entorno a comandos que no las necesitan.
+const { safeChildEnv } = require('./core/utils/childEnv.js');
 
 function _safeChildEnv() {
-  const env = {};
-  for (const key of KEEP_ENV_KEYS) {
-    if (process.env[key] !== undefined) env[key] = process.env[key];
-  }
-  for (const [key, value] of Object.entries(process.env)) {
-    if (env[key] !== undefined) continue;
-    if (STRIPPED_ENV_KEY_RE.test(key)) continue;
-    env[key] = value;
-  }
-  return env;
+  return safeChildEnv();
 }
 
 function _buildCommandArgs(fullCommand) {

@@ -743,10 +743,35 @@ const VALID_VIEWS = ['full', 'half', 'head', 'random'];
 
 const CONTROL_API_TOKEN = crypto.randomBytes(24).toString('hex');
 
+// C2 (seguridad): el token NO se incrusta en el texto de /help. Antes HELP_TEXT
+// viajaba con ?token= literal y la ruta /help se servía SIN autenticación —
+// cualquier página web que el usuario visitara podía leer localhost:3131/help
+// (sin check de Origin en esa ruta) y robar el token de control. Ahora:
+//   - /help exige autenticación igual que el resto de rutas.
+//   - El help con ejemplos autenticados se imprime SOLO en consola (dueño del
+//     proceso) al arrancar.
+//   - El check de Origin/Referer de _controlAuthOk aplica a todas las rutas.
 const HELP_TEXT = `
   Asistente personal — Control API (puerto 3131)
-  Requiere ?token=${CONTROL_API_TOKEN} en cada request (ver consola al
-  arrancar la app, o infrastructure/keychain para guardarlo vos mismo).
+  Autenticación: incluye ?token=<TOKEN> en CADA request (el token se imprime
+  en la consola al arrancar la app, o consúltalo en infrastructure/keychain).
+
+  Endpoints (todos requieren token):
+    GET /speak?text=<texto>[&emotion=<emotion>]
+    GET /view?v=<full|half|head|random>
+    GET /chat?action=<open|close|toggle>
+    GET /workspace?path=<ruta>
+    GET /telemetry/report
+    GET /telemetry/stats
+    GET /debug/git-scan
+    GET /debug/proposal?accept=0|1
+    GET /debug/lsp-scan
+    GET /help
+`;
+
+const HELP_TEXT_PRIVATE = `
+  Asistente personal — Control API (puerto 3131)
+  Token: ${CONTROL_API_TOKEN}
 
   curl "http://localhost:3131/speak?text=hola&token=${CONTROL_API_TOKEN}"
   curl "http://localhost:3131/speak?text=lo+siento&emotion=sad&token=${CONTROL_API_TOKEN}"
@@ -773,11 +798,12 @@ function _controlAuthOk(req, url) {
 }
 
 function startControlServer() {
-  console.log(`[asistente] Control API token: ${CONTROL_API_TOKEN}`);
+  console.log(HELP_TEXT_PRIVATE);
   const server = http.createServer((req, res) => {
     const url = new URL(req.url, 'http://localhost:3131');
     res.setHeader('Content-Type', 'text/plain; charset=utf-8');
-    if (url.pathname !== '/help' && !_controlAuthOk(req, url)) {
+    // Todas las rutas (incluida /help) exigen token válido + Origin local.
+    if (!_controlAuthOk(req, url)) {
       res.writeHead(401);
       res.end('unauthorized — falta o es inválido ?token=');
       return;

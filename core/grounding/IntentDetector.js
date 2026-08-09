@@ -29,6 +29,7 @@
 
 'use strict';
 const logger = require('../observability/Logger.js');
+const EmbedService = require('./EmbedService.js');
 
 const path = require('path');
 
@@ -239,9 +240,11 @@ class IntentDetector {
     }
 
     // ── 1. Generar embedding del mensaje ──────────────────────────────────────
+    // F2.1-D: el embedding corre en un worker_threads (EmbedService) para no
+    // bloquear el main process; ante fallo del worker cae al main thread.
     let queryVector;
     try {
-      queryVector = await _embed(userMessage);
+      queryVector = await EmbedService.embedText(userMessage);
     } catch (e) {
       logger.warn('IntentDetector', '[intent-detector] Error generando embedding:', e.message);
       return _none(`Error al embedear: ${e.message}`);
@@ -359,9 +362,17 @@ class IntentDetector {
 
   /** Warm-up: pre-carga el modelo antes de que el usuario escriba. */
   async warmup() {
+    // F2.1-D: el warmup precarga el modelo dentro del worker (fuera del main
+    // process). Si el worker no está disponible, se precalienta el embedder de
+    // main thread como antes.
     try {
+      const workerOk = await EmbedService.warmup();
+      if (workerOk) {
+        logger.info('IntentDetector', '[intent-detector] Modelo precalentado (worker).');
+        return;
+      }
       await _embed('hola');
-      logger.info('IntentDetector', '[intent-detector] Modelo precalentado.');
+      logger.info('IntentDetector', '[intent-detector] Modelo precalentado (main thread).');
     } catch (e) {
       logger.warn('IntentDetector', '[intent-detector] Error en warmup:', e.message);
     }
@@ -369,6 +380,7 @@ class IntentDetector {
 
   /** Liberar recursos (llamar al cerrar la app). */
   dispose() {
+    EmbedService.dispose();
     _embedder = null;
     _embedderPromise = null;
     this._cache.clear();
