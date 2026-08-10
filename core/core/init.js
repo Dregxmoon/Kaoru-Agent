@@ -433,18 +433,26 @@ function init(app) {
   }
 
   if (state.graph.usingFallback) {
+    const reason = state.graph.fallbackReason || '';
+    const isMissingModule = /BETTER_SQLITE3_MISSING|Cannot find module|no disponible/.test(reason);
     logger.error('init', '');
     logger.error('init', '╔══════════════════════════════════════════════════════════╗');
     logger.error('init', '║  ADVERTENCIA CRITICA — MEMORIA NO PERSISTENTE        ║');
     logger.error('init', '║                                                          ║');
-    logger.error('init', '║  better-sqlite3 no pudo inicializarse.                  ║');
     logger.error('init', '║  El asistente está usando MemoryDB (RAM temporal).       ║');
     logger.error('init', '║  Todo lo aprendido esta sesión se perderá al cerrar.    ║');
-    logger.error('init', '║                                                          ║');
-    logger.error('init', '║  Solución: npm install                                    ║');
+    if (isMissingModule) {
+      logger.error('init', '║  Causa: better-sqlite3 no pudo inicializarse.              ║');
+      logger.error('init', '║  Solución: npm install                                    ║');
+    } else {
+      logger.error(
+        'init',
+        `║  Causa: ${String(reason).slice(0, 46).padEnd(46)}║`
+      );
+    }
     logger.error('init', '╚══════════════════════════════════════════════════════════╝');
     logger.error('init', '');
-    state.bus.emit('memory-status', { usingFallback: true });
+    state.bus.emit('memory-status', { usingFallback: true, reason });
   }
 
   logger.info('init', '[core] inicializado (Fase 3)');

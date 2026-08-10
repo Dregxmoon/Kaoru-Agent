@@ -929,6 +929,74 @@ function testConsolidation() {
   fs.rmSync(path.dirname(graph._dbPath), { recursive: true, force: true });
 }
 
+// ── Migración de schema legacy ─────────────────────────────────────────────
+function testLegacySchemaMigration() {
+  const Database = require('better-sqlite3');
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'sg-legacy-'));
+  const dbPath = path.join(dir, 'core.db');
+
+  // Reproduce la DB con el esquema VIEJO (pre Fase 3): node_relations con
+  // from_id/to_id/rel_type/weight. Si _createSchema() corriera primero
+  // fallaría con "no such column: source_id" y caería a MemoryDB.
+  const legacy = new Database(dbPath);
+  legacy.exec(`
+    CREATE TABLE nodes (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      type TEXT NOT NULL,
+      label TEXT NOT NULL,
+      content TEXT NOT NULL,
+      importance REAL NOT NULL DEFAULT 1.0,
+      decay_rate REAL NOT NULL DEFAULT 0.05,
+      access_count INTEGER NOT NULL DEFAULT 0,
+      tags TEXT DEFAULT '[]',
+      archived INTEGER NOT NULL DEFAULT 0,
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL,
+      last_accessed_at INTEGER NOT NULL
+    );
+    CREATE TABLE node_relations (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      from_id INTEGER NOT NULL REFERENCES nodes(id) ON DELETE CASCADE,
+      to_id INTEGER NOT NULL REFERENCES nodes(id) ON DELETE CASCADE,
+      rel_type TEXT NOT NULL,
+      weight REAL NOT NULL DEFAULT 1.0,
+      created_at INTEGER NOT NULL
+    );
+    INSERT INTO nodes (type,label,content,created_at,updated_at,last_accessed_at)
+      VALUES ('Episode','e1','episodio de prueba', 1, 1, 1);
+    INSERT INTO node_relations (from_id, to_id, rel_type, weight, created_at)
+      VALUES (1, 1, 'CONSOLIDA', 0.9, 100);
+  `);
+  legacy.close();
+
+  const graph = new StateGraph(dbPath).init();
+  assert(graph.usingFallback === false, 'legacy: NO cae a MemoryDB (migración previa)');
+  const cols = sqlAll(graph, 'PRAGMA table_info(node_relations)').map((c) => c.name);
+  assert(
+    cols.includes('source_id') && cols.includes('target_id') && cols.includes('type'),
+    'legacy: node_relations usa el esquema nuevo',
+    `cols=${cols.join(',')}`
+  );
+  const rows = sqlAll(graph, 'SELECT source_id, target_id, type FROM node_relations');
+  assert(rows.length === 1, 'legacy: los datos se conservan tras migrar');
+  assert(
+    rows[0] && rows[0].source_id === 1 && rows[0].target_id === 1 && rows[0].type === 'CONSOLIDA',
+    'legacy: from_id/to_id/rel_type se mapean a source_id/target_id/type'
+  );
+  assert(graph.getNode(1).content === 'episodio de prueba', 'legacy: los nodos siguen ahí');
+
+  // Idempotencia: una 2ª apertura NO debe re-migrar ni fallar.
+  graph.close();
+  const again = new StateGraph(dbPath).init();
+  assert(again.usingFallback === false, 'legacy: 2ª apertura también OK');
+  assert(
+    sqlAll(again, 'SELECT COUNT(*) c FROM node_relations')[0].c === 1,
+    'legacy: no duplica filas en la 2ª apertura'
+  );
+  again.close();
+  fs.rmSync(dir, { recursive: true, force: true });
+}
+
 // ── Runner ─────────────────────────────────────────────────────────────────
 async function main() {
   const started = Date.now();
@@ -944,6 +1012,7 @@ async function main() {
   await testFallbackMemoryMode();
   await testRetrievalKeywordFallback();
   testConsolidation();
+  testLegacySchemaMigration();
 
   console.log(
     C.bold(

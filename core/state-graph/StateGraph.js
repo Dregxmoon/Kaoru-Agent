@@ -380,6 +380,7 @@ class StateGraph {
     this._db = null;
     this._ready = false;
     this.usingFallback = false;
+    this.fallbackReason = null;
     this._vectorReady = false;
     this._vectorReadyPromise = Promise.resolve();
     this._embeddingQueue = [];
@@ -404,10 +405,14 @@ class StateGraph {
         this._db.pragma('journal_mode = WAL');
         this._db.pragma('foreign_keys = ON');
         this.usingFallback = false;
+        this.fallbackReason = null;
       } else {
-        throw new Error('better-sqlite3 no disponible');
+        const err = new Error('better-sqlite3 no disponible');
+        err.code = 'BETTER_SQLITE3_MISSING';
+        throw err;
       }
 
+      this._migrateLegacyRelations();
       this._createSchema();
       this._migrateSchema();
       this._ready = true;
@@ -420,6 +425,7 @@ class StateGraph {
       );
       this._db = new MemoryDB();
       this.usingFallback = true;
+      this.fallbackReason = (e && e.message) || String(e);
       this._createSchema();
       this._ready = true;
     }
@@ -439,6 +445,40 @@ class StateGraph {
   }
 
   // Schema
+
+  /**
+   * Pre-migración de schemas heredados ANTES de `_createSchema()`.
+   *
+   * `_createSchema()` crea índices sobre columnas nuevas (`node_relations(
+   * source_id)`); si la DB en disco viene de una versión anterior, la tabla
+   * `node_relations` existe con el esquema viejo (`from_id/to_id/rel_type/
+   * weight`) y el `CREATE INDEX` fallaría, provocando el fallback a MemoryDB.
+   * Esta pasada detecta ese caso y reconstruye la tabla con el esquema nuevo,
+   * migrando los datos.
+   * @private
+   */
+  _migrateLegacyRelations() {
+    const cols = this._db.prepare(`PRAGMA table_info(node_relations)`).all();
+    if (!cols.length) return; // no existe todavía: _createSchema() la crea
+    if (cols.some((c) => c.name === 'source_id')) return; // ya es el esquema nuevo
+
+    logger.info('StateGraph', '[state-graph] migrando node_relations (schema legacy)...');
+    this._db.exec(`
+      ALTER TABLE node_relations RENAME TO node_relations_legacy;
+      CREATE TABLE node_relations (
+        id        INTEGER PRIMARY KEY AUTOINCREMENT,
+        source_id INTEGER NOT NULL REFERENCES nodes(id) ON DELETE CASCADE,
+        target_id INTEGER NOT NULL REFERENCES nodes(id) ON DELETE CASCADE,
+        type      TEXT    NOT NULL,
+        created_at INTEGER NOT NULL DEFAULT (strftime('%s','now') * 1000)
+      );
+      INSERT INTO node_relations (source_id, target_id, type, created_at)
+        SELECT from_id, to_id, rel_type, COALESCE(created_at, strftime('%s','now') * 1000)
+        FROM node_relations_legacy;
+      DROP TABLE node_relations_legacy;
+    `);
+    logger.info('StateGraph', '[state-graph] migración node_relations completada');
+  }
 
   _createSchema() {
     this._db.exec(`
