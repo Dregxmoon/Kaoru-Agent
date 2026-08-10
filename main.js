@@ -492,7 +492,8 @@ function createWindow() {
       nodeIntegration: false,
       contextIsolation: true, // sandbox: la página (y los CDN) no ven Node
       webSecurity: true, // Fase 1: libs (pixi/live2d) ya se sirven locales; CSP plena
-      sandbox: false, // el preload necesita Node para los módulos core
+      sandbox: true, // Fase 2 ítem 6: preload fino (solo contextBridge+ipcRenderer);
+      // la lógica Node del overlay vive en ipc/overlay-handlers.js
       webviewTag: false,
       allowRunningInsecureContent: false,
     },
@@ -736,6 +737,8 @@ require('./ipc/mcp-handlers.js').register(ctx);
 require('./ipc/github-handlers.js').register(ctx);
 require('./ipc/security-handlers.js').register(ctx);
 require('./ipc/proactive-handlers.js').register(ctx);
+require('./ipc/overlay-handlers.js').register(ctx);
+require('./ipc/intentions-handlers.js').register();
 
 // Servidor HTTP local
 const VALID_EMOTIONS = ['happy', 'excited', 'sad', 'tired', 'gentle', 'default'];

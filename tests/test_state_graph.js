@@ -639,6 +639,75 @@ function testSemanticRecall() {
   })();
 }
 
+// ── Test 7b: Recall ponderado por recencia + importancia ────────────────────
+// Fase 2, ítem 3: el recall semántico NO es solo similitud — combina
+// similitud × importancia × boost de recencia. Con contenido idéntico, la
+// importancia rankea primero; con importancia igual, la recencia desempata.
+function testWeightedRecall() {
+  console.log(C.bold('\nTest 7b: Recall ponderado por recencia + importancia'));
+  const { graph } = makeGraph();
+  const sqliteVec = require('sqlite-vec');
+  sqliteVec.load(graph._db);
+  assert(graph.enableVectorSearch() === true, 'enableVectorSearch habilita node_vectors');
+
+  const restore = patchEmbedder();
+  const waitEmbeddings = async () => {
+    for (let i = 0; i < 50; i++) {
+      if (graph._embeddingInFlight === 0 && graph._embeddingQueue.length === 0) break;
+      await new Promise((r) => setTimeout(r, 50));
+    }
+  };
+
+  return (async () => {
+    const CONTENT = 'Le gusta jugar videojuegos de rol con historias profundas';
+    const highId = graph.createNode({
+      type: 'Preference',
+      label: 'preferencia_high',
+      content: CONTENT,
+      importance: 0.9,
+    });
+    const lowId = graph.createNode({
+      type: 'Preference',
+      label: 'preferencia_low',
+      content: CONTENT,
+      importance: 0.3,
+    });
+    await waitEmbeddings();
+
+    // Importancia: misma similitud (contenido idéntico) → rankea el de 0.9.
+    let top = await graph.queryNodesSemantic('videojuegos de rol', { limit: 5 });
+    assert(
+      top[0].id === highId,
+      'mayor importancia rankea primero a igual similitud',
+      `top=${top[0]?.id}`
+    );
+
+    // Recencia: con importancia igual, un nodo viejo cae frente a uno fresco.
+    graph.updateNode(lowId, { importance: 0.6 });
+    graph.updateNode(highId, { importance: 0.6 });
+    graph._db
+      .prepare('UPDATE nodes SET last_accessed_at=? WHERE id=?')
+      .run(Date.now() - 200 * 24 * 60 * 60 * 1000, highId); // 200 días sin acceso
+    top = await graph.queryNodesSemantic('videojuegos de rol', { limit: 5 });
+    assert(
+      top[0].id === lowId,
+      'recencia reciente vence a nodo viejo a igual importancia',
+      `top=${top[0]?.id}`
+    );
+
+    // Ambos tienen _semanticScore calculado (ponderado), no solo _similarity.
+    const scored = await graph.queryNodesSemantic('videojuegos de rol', { limit: 5 });
+    assert(
+      scored.every((n) => typeof n._semanticScore === 'number'),
+      'cada resultado expone _semanticScore ponderado'
+    );
+
+    graph.close();
+    fs.rmSync(path.dirname(graph._dbPath), { recursive: true, force: true });
+    IntentDetectorRestore(restore);
+  })();
+}
+
 function IntentDetectorRestore(orig) {
   const EmbedService = require('../core/grounding/EmbedService.js');
   EmbedService.embedText = orig.embedText;
@@ -790,6 +859,76 @@ function testRetrievalKeywordFallback() {
   })();
 }
 
+// ── Test 11: Consolidación episodio→semántica (Fase 2, ítem 2) ─────────────
+function testConsolidation() {
+  console.log(C.bold('\nTest 11: ConsolidationStore — episodios viejos → hechos'));
+  const { graph } = makeGraph();
+  const OLD = Date.now() - 30 * 24 * 60 * 60 * 1000;
+
+  const mkOldEpisode = (label, content) => {
+    const id = graph.createNode({ type: 'Episode', label, content, importance: 0.3 });
+    graph._db.prepare('UPDATE nodes SET created_at=? WHERE id=?').run(OLD, id);
+    return id;
+  };
+
+  // Tres episodios viejos que comparten UN solo término: "videojuego".
+  const e1 = mkOldEpisode('ep_sem1', 'Avanzamos con el videojuego del cliente principal');
+  const e2 = mkOldEpisode('ep_sem2', 'Arreglamos bug del videojuego esta manana');
+  const e3 = mkOldEpisode('ep_sem3', 'Planificamos la venta del videojuego al equipo');
+  // Dos episodios viejos de tema único (cada término aparece 1 sola vez).
+  const e4 = mkOldEpisode('ep_uni1', 'Instalamos un plugin de electron');
+  const e5 = mkOldEpisode('ep_uni2', 'Revisamos el presupuesto de la oficina');
+
+  const res = graph.runConsolidation({ minAgeDays: 7, minOccurrences: 2 });
+  assert(res.facts.length === 1, 'consolida solo el tema recurrente', JSON.stringify(res));
+  assert(res.episodes === 3, 'reporta 3 episodios consolidados', `episodes=${res.episodes}`);
+  assert(res.facts[0].term === 'videojuego', 'el hecho corresponde al término recurrente');
+
+  const fact = graph.getNode(res.facts[0].id);
+  assert(fact.type === 'Belief', 'el hecho es un Belief persistente');
+  assert(fact.label === 'consolidacion_videojuego', 'label del hecho es consolidacion_<termino>');
+  assert(
+    Math.abs(fact.importance - 0.65) < 1e-9,
+    'importancia proporcional a la recurrencia (3×0.05+0.5=0.65)',
+    `importance=${fact.importance}`
+  );
+  assert(fact.content.includes('videojuego'), 'el contenido menciona el término');
+
+  const rels = graph.getNodeRelations(res.facts[0].id).filter((r) => r.type === 'CONSOLIDA');
+  assert(
+    rels.length === 3,
+    'registra 3 relaciones CONSOLIDA (hecho → episodios)',
+    `rels=${rels.length}`
+  );
+
+  const tag = (id) => {
+    try {
+      return JSON.parse(sqlGet(graph, 'SELECT tags FROM nodes WHERE id=?', id).tags);
+    } catch {
+      return [];
+    }
+  };
+  assert(tag(e1).includes('consolidated'), 'episodio fuente 1 marcado consolidated');
+  assert(tag(e3).includes('consolidated'), 'episodio fuente 3 marcado consolidated');
+  assert(!tag(e4).includes('consolidated'), 'episodio de tema único NO se marca');
+  assert(!tag(e5).includes('consolidated'), 'episodio de tema único NO se marca');
+
+  const rows = sqlAll(graph, 'SELECT COUNT(*) c FROM node_relations');
+  assert(rows[0].c === 3, 'node_relations tiene 3 filas');
+
+  const again = graph.runConsolidation({ minAgeDays: 7, minOccurrences: 2 });
+  assert(
+    again.episodes === 0 && again.facts.length === 0,
+    'idempotente: 2ª pasada no re-consolida'
+  );
+
+  const still = graph.getNode(res.facts[0].id);
+  assert(still.importance === fact.importance, 'la 2ª pasada no duplica el hecho (upsert)');
+
+  graph.close();
+  fs.rmSync(path.dirname(graph._dbPath), { recursive: true, force: true });
+}
+
 // ── Runner ─────────────────────────────────────────────────────────────────
 async function main() {
   const started = Date.now();
@@ -800,9 +939,11 @@ async function main() {
   await testSessions();
   testInstant();
   await testSemanticRecall();
+  await testWeightedRecall();
   testCleanup();
   await testFallbackMemoryMode();
   await testRetrievalKeywordFallback();
+  testConsolidation();
 
   console.log(
     C.bold(

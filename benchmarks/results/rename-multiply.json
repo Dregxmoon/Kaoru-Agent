@@ -48,6 +48,93 @@
       "errorDetail": "Error en tool-calling y fallback textual: Todos los providers fallaron: groq, gemini. groq está en rate-limit — vuelve a intentar en ~12 min o cambia de proveedor con /model.",
       "truncated": false,
       "verify": "calc.js: falta function multiply"
+    },
+    {
+      "ts": "2026-08-10T02:35:59.565Z",
+      "ok": false,
+      "iterations": 1,
+      "elapsedMs": 4,
+      "error": "llm_failure",
+      "errorDetail": "⚠️ No pude continuar — error en tool-calling y fallback textual: Sin API key para: groq, gemini. Todos los proveedores (incluso los \"gratis\") necesitan su propia API key — configúrala con /credenciales.",
+      "truncated": false,
+      "verify": "calc.js: falta function multiply",
+      "verifyTest": "✔ add (1.149947ms)\n✔ subtract (0.211202ms)\n✔ oldName (0.196604ms)\nℹ tests 3\nℹ suites 0\nℹ pass 3\nℹ fail 0\nℹ cancelled 0\nℹ skipped 0\nℹ todo 0\nℹ duration_ms 117.731642",
+      "git": {
+        "sha": "0e98c343d885faf3d8357828a4c2b70739db560e",
+        "date": "2026-08-09T14:48:38-07:00",
+        "dirty": true,
+        "branch": "produccion"
+      },
+      "llm": {
+        "provider": "unknown",
+        "model": null,
+        "mode": "fast",
+        "requests": 0,
+        "promptTokens": 0,
+        "completionTokens": 0,
+        "costUsd": 0,
+        "errors": 0,
+        "costEstimated": false,
+        "totalTokens": 0
+      }
+    },
+    {
+      "ts": "2026-08-10T02:36:02.539Z",
+      "ok": false,
+      "iterations": 1,
+      "elapsedMs": 10,
+      "error": "llm_failure",
+      "errorDetail": "⚠️ No pude continuar — error en tool-calling y fallback textual: Sin API key para: groq, gemini. Todos los proveedores (incluso los \"gratis\") necesitan su propia API key — configúrala con /credenciales.",
+      "truncated": false,
+      "verify": "calc.js: falta function multiply",
+      "verifyTest": "✔ add (3.690306ms)\n✔ subtract (3.211819ms)\n✔ oldName (1.82867ms)\nℹ tests 3\nℹ suites 0\nℹ pass 3\nℹ fail 0\nℹ cancelled 0\nℹ skipped 0\nℹ todo 0\nℹ duration_ms 227.440072",
+      "git": {
+        "sha": "0e98c343d885faf3d8357828a4c2b70739db560e",
+        "date": "2026-08-09T14:48:38-07:00",
+        "dirty": true,
+        "branch": "produccion"
+      },
+      "llm": {
+        "provider": "unknown",
+        "model": null,
+        "mode": "fast",
+        "requests": 0,
+        "promptTokens": 0,
+        "completionTokens": 0,
+        "costUsd": 0,
+        "errors": 0,
+        "costEstimated": false,
+        "totalTokens": 0
+      }
+    },
+    {
+      "ts": "2026-08-10T02:36:05.614Z",
+      "ok": false,
+      "iterations": 1,
+      "elapsedMs": 7,
+      "error": "llm_failure",
+      "errorDetail": "⚠️ No pude continuar — error en tool-calling y fallback textual: Sin API key para: groq, gemini. Todos los proveedores (incluso los \"gratis\") necesitan su propia API key — configúrala con /credenciales.",
+      "truncated": false,
+      "verify": "calc.js: falta function multiply",
+      "verifyTest": "✔ add (1.59484ms)\n✔ subtract (0.284954ms)\n✔ oldName (0.201354ms)\nℹ tests 3\nℹ suites 0\nℹ pass 3\nℹ fail 0\nℹ cancelled 0\nℹ skipped 0\nℹ todo 0\nℹ duration_ms 93.691027",
+      "git": {
+        "sha": "0e98c343d885faf3d8357828a4c2b70739db560e",
+        "date": "2026-08-09T14:48:38-07:00",
+        "dirty": true,
+        "branch": "produccion"
+      },
+      "llm": {
+        "provider": "unknown",
+        "model": null,
+        "mode": "fast",
+        "requests": 0,
+        "promptTokens": 0,
+        "completionTokens": 0,
+        "costUsd": 0,
+        "errors": 0,
+        "costEstimated": false,
+        "totalTokens": 0
+      }
     }
   ]
 }

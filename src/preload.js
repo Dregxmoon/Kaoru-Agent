@@ -1,84 +1,54 @@
 // @ts-nocheck
 'use strict';
 
-// Preload del overlay (src/index.html).
-//
-// Sandbox: la página corre con contextIsolation:true y nodeIntegration:false.
-// Todo el acceso a Node (fs, child_process, módulos core) vive aquí y se
-// expone de forma acotada vía contextBridge como window.assistant. Los
-// scripts remotos (pixi.js, live2dcubismcore) cargan en la página SIN acceso
-// a Node: si un CDN se compromete, ya no pueden tocar el sistema.
-
 const { contextBridge, ipcRenderer } = require('electron');
-const path = require('path');
-const fs = require('fs');
-const cp = require('child_process');
 
-const { assertAllowed } = require('../ipc/channel-whitelist.js');
+// Preload thin del overlay (src/index.html) con sandbox:true.
+//
+// Con el sandbox de Chromium habilitado, el preload corre en un contexto
+// aislado donde SOLO puede require('electron') (contextBridge/ipcRenderer) —
+// nada de fs/path/child_process, ni módulos core, ni módulos de la app. Toda
+// la lógica Node del overlay vive ahora en el proceso main
+// (ipc/overlay-handlers.js) y este preload solo expone la firma
+// invoke/send/on con una allowlist local por ventana.
+//
+// La lista de canales de abajo es el subconjunto del overlay de
+// ipc/channel-whitelist.js (que sigue siendo la fuente documentada): si la
+// página (o un CDN comprometido) intenta llamar un canal que no está aquí,
+// el preload lo rechaza antes de tocar ipcRenderer.
+const INVOKE_ALLOWLIST = new Set([
+  // Config del modelo / vistas (canales existentes del overlay)
+  'gesture-config',
+  'get-python-bin',
+  'get-model-info',
+  'views-get',
+  // Capacidades del overlay movidas a main (sandbox:true)
+  'overlay-core-sources',
+  'overlay-fs-exists',
+  'overlay-augment-model',
+  'overlay-list-gestures',
+  'overlay-tts-stream',
+]);
 
-const ModelAugmenter = require('../core/behavior/ModelAugmenter.js');
+const SEND_ALLOWLIST = new Set([
+  'drag-move',
+  'drag-start',
+  'model-dblclick',
+  'model-hover',
+  'view-changed',
+]);
 
-// Bridge acotado: la página del overlay SOLO recibe las funciones concretas
-// que usa (augmentModel para el modelo 3D y listGestures para el
-// GestureEngine cargado en la página). NUNCA el módulo completo — así la
-// página (y los CDN) no pueden llegar a resetCache ni a otros internos.
-function _boundedModelAugmenter() {
-  return {
-    augmentModel: (model3Path) => ModelAugmenter.augmentModel(model3Path),
-    listGestures: (model3Path) => ModelAugmenter.listGestures(model3Path),
-  };
-}
+const ON_ALLOWLIST = new Set(['gesture', 'model-changed', 'set-view', 'speak', 'views-changed']);
 
-// Fuente de los módulos core que la página necesita EJECUTAR en su propio
-// mundo (GestureEngine): el engine recibe el objeto Live2D real creado por
-// PIXI en la página, que no puede cruzar el contextBridge (copia profunda
-// inviable) y que tampoco admite `new` sobre proxies del bridge. La página
-// los carga con un loader mínimo que SOLO puede resolver estos nombres —
-// nada de esto expone Node/fs/child_process a la página ni a los CDN.
-const coreBehaviorDir = path.join(__dirname, '..', 'core', 'behavior');
-const coreSources = {
-  GestureLexicon: fs.readFileSync(path.join(coreBehaviorDir, 'GestureLexicon.js'), 'utf8'),
-  GestureHeuristic: fs.readFileSync(path.join(coreBehaviorDir, 'GestureHeuristic.js'), 'utf8'),
-  GestureEngine: fs.readFileSync(path.join(coreBehaviorDir, 'GestureEngine.js'), 'utf8'),
-  agentStates: fs.readFileSync(path.join(coreBehaviorDir, 'agentStates.js'), 'utf8'),
-};
-
-// TTS: lanza tts_stream.py, captura el audio en bytes y lo devuelve como
-// Uint8Array. La página lo decodifica con su AudioContext (API del DOM, no
-// puede moverse al preload).
-function ttsStream(args = {}) {
-  return new Promise((resolve, reject) => {
-    if (!args.pythonBin) {
-      reject(new Error('pythonBin requerido'));
-      return;
-    }
-    const chunks = [];
-    const proc = cp.spawn(args.pythonBin, [
-      path.join(__dirname, '..', 'tts_stream.py'),
-      '--voice',
-      args.voice || 'ja-JP-NanamiNeural',
-      '--rate',
-      args.rate || '+8%',
-      '--pitch',
-      args.pitch || '+18Hz',
-      '--text',
-      args.text || '',
-    ]);
-    proc.stdout.on('data', (c) => chunks.push(c));
-    proc.on('close', (code) => {
-      if (code !== 0 || chunks.length === 0) {
-        reject(new Error('TTS failed'));
-        return;
-      }
-      resolve(new Uint8Array(Buffer.concat(chunks)));
-    });
-    proc.on('error', reject);
-  });
+function assertAllowed(kind, channel) {
+  const list =
+    kind === 'invoke' ? INVOKE_ALLOWLIST : kind === 'send' ? SEND_ALLOWLIST : ON_ALLOWLIST;
+  if (typeof channel !== 'string' || !list.has(channel)) {
+    throw new Error(`[ipc-whitelist] canal '${String(channel)}' no permitido para ${kind}()`);
+  }
 }
 
 contextBridge.exposeInMainWorld('assistant', {
-  // IPC con whitelist de canales (ipc/channel-whitelist.js) — el renderer no
-  // puede invocar canales internos no previstos.
   invoke: (channel, ...args) => {
     assertAllowed('invoke', channel);
     return ipcRenderer.invoke(channel, ...args);
@@ -93,21 +63,4 @@ contextBridge.exposeInMainWorld('assistant', {
     ipcRenderer.on(channel, wrapped);
     return () => ipcRenderer.removeListener(channel, wrapped);
   },
-
-  // Node acotado.
-  pathJoin: (...parts) => path.join(...parts),
-  existsSync: (p) => fs.existsSync(p),
-  cwd: () => process.cwd(),
-  ttsStream,
-
-  // Módulos core. Las clases ES no se pueden instanciar con `new` a través de
-  // contextBridge (el proxy las invoca como función y un constructor ES lanza
-  // "Class constructor X cannot be invoked without 'new'") y, más importante,
-  // el GestureEngine recibe el objeto Live2D real (creado por PIXI en la
-  // página) que tampoco puede cruzar el bridge. Por eso GestureEngine se
-  // carga en la página vía getCoreModuleSource; aquí solo se expone la
-  // ModelAugmenter, que se usa como objeto de métodos (augmentModel devuelve
-  // objetos planos serializables) y sí puede pasar por el bridge.
-  getCoreModuleSource: (name) => coreSources[name] || null,
-  ModelAugmenter: _boundedModelAugmenter(),
 });

@@ -1,0 +1,92 @@
+{
+  "id": "fix-division",
+  "runs": [
+    {
+      "ts": "2026-08-10T02:35:50.442Z",
+      "ok": false,
+      "iterations": 1,
+      "elapsedMs": 148,
+      "error": "llm_failure",
+      "errorDetail": "⚠️ No pude continuar — error en tool-calling y fallback textual: Sin API key para: groq, gemini. Todos los proveedores (incluso los \"gratis\") necesitan su propia API key — configúrala con /credenciales.",
+      "truncated": false,
+      "verify": "math.js: falta 'return a / b'",
+      "verifyTest": "✔ add (1.281669ms)\n✔ subtract (0.434137ms)\n✖ divide (0.389997ms)\nℹ tests 3\nℹ suites 0\nℹ pass 2\nℹ fail 1\nℹ cancelled 0\nℹ skipped 0\nℹ todo 0\nℹ duration_ms 109.41813\n\n✖ failing tests:\n\ntest at src/math.test.js:10:1\n✖ divide (0.389997ms)\n  Error: divide falla\n      at TestContext.<anonymous> (/tmp/bench-fix-division-1qV6XQ/src/math.test.js:11:34)\n      at Test.runInAsyncScope (node:async_hooks:226:14)\n      at Test.run (node:internal/test_runner/test:1366:25)\n      at Test.processPendingSubtests (no",
+      "git": {
+        "sha": "0e98c343d885faf3d8357828a4c2b70739db560e",
+        "date": "2026-08-09T14:48:38-07:00",
+        "dirty": true,
+        "branch": "produccion"
+      },
+      "llm": {
+        "provider": "unknown",
+        "model": null,
+        "mode": "fast",
+        "requests": 0,
+        "promptTokens": 0,
+        "completionTokens": 0,
+        "costUsd": 0,
+        "errors": 0,
+        "costEstimated": false,
+        "totalTokens": 0
+      }
+    },
+    {
+      "ts": "2026-08-10T02:35:53.532Z",
+      "ok": false,
+      "iterations": 1,
+      "elapsedMs": 13,
+      "error": "llm_failure",
+      "errorDetail": "⚠️ No pude continuar — error en tool-calling y fallback textual: Sin API key para: groq, gemini. Todos los proveedores (incluso los \"gratis\") necesitan su propia API key — configúrala con /credenciales.",
+      "truncated": false,
+      "verify": "math.js: falta 'return a / b'",
+      "verifyTest": "✔ add (1.472756ms)\n✔ subtract (0.268193ms)\n✖ divide (0.757436ms)\nℹ tests 3\nℹ suites 0\nℹ pass 2\nℹ fail 1\nℹ cancelled 0\nℹ skipped 0\nℹ todo 0\nℹ duration_ms 139.039687\n\n✖ failing tests:\n\ntest at src/math.test.js:10:1\n✖ divide (0.757436ms)\n  Error: divide falla\n      at TestContext.<anonymous> (/tmp/bench-fix-division-m0wcxX/src/math.test.js:11:34)\n      at Test.runInAsyncScope (node:async_hooks:226:14)\n      at Test.run (node:internal/test_runner/test:1366:25)\n      at Test.processPendingSubtests (n",
+      "git": {
+        "sha": "0e98c343d885faf3d8357828a4c2b70739db560e",
+        "date": "2026-08-09T14:48:38-07:00",
+        "dirty": true,
+        "branch": "produccion"
+      },
+      "llm": {
+        "provider": "unknown",
+        "model": null,
+        "mode": "fast",
+        "requests": 0,
+        "promptTokens": 0,
+        "completionTokens": 0,
+        "costUsd": 0,
+        "errors": 0,
+        "costEstimated": false,
+        "totalTokens": 0
+      }
+    },
+    {
+      "ts": "2026-08-10T02:35:56.417Z",
+      "ok": false,
+      "iterations": 1,
+      "elapsedMs": 14,
+      "error": "llm_failure",
+      "errorDetail": "⚠️ No pude continuar — error en tool-calling y fallback textual: Sin API key para: groq, gemini. Todos los proveedores (incluso los \"gratis\") necesitan su propia API key — configúrala con /credenciales.",
+      "truncated": false,
+      "verify": "math.js: falta 'return a / b'",
+      "verifyTest": "✔ add (2.36296ms)\n✔ subtract (0.430016ms)\n✖ divide (0.360524ms)\nℹ tests 3\nℹ suites 0\nℹ pass 2\nℹ fail 1\nℹ cancelled 0\nℹ skipped 0\nℹ todo 0\nℹ duration_ms 126.98806\n\n✖ failing tests:\n\ntest at src/math.test.js:10:1\n✖ divide (0.360524ms)\n  Error: divide falla\n      at TestContext.<anonymous> (/tmp/bench-fix-division-hlW38y/src/math.test.js:11:34)\n      at Test.runInAsyncScope (node:async_hooks:226:14)\n      at Test.run (node:internal/test_runner/test:1366:25)\n      at Test.processPendingSubtests (nod",
+      "git": {
+        "sha": "0e98c343d885faf3d8357828a4c2b70739db560e",
+        "date": "2026-08-09T14:48:38-07:00",
+        "dirty": true,
+        "branch": "produccion"
+      },
+      "llm": {
+        "provider": "unknown",
+        "model": null,
+        "mode": "fast",
+        "requests": 0,
+        "promptTokens": 0,
+        "completionTokens": 0,
+        "costUsd": 0,
+        "errors": 0,
+        "costEstimated": false,
+        "totalTokens": 0
+      }
+    }
+  ]
+}

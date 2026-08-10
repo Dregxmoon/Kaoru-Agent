@@ -106,6 +106,14 @@ class Harness {
 
   async run(prompt, extra = {}) {
     if (!this._core) throw new Error('Harness no iniciado: llamá start()');
+
+    // Fase 3, ítem 3: snapshot del UsageTracker antes/después de la corrida
+    // para atribuir tokens y coste ESTIMADO a esta ejecución (no al histórico
+    // acumulado del proceso). El tracker vive en memoria en standalone.
+    const LLMProvider = require(path.join(ROOT, 'core', 'llm', 'LLMProvider.js'));
+    const tracker = LLMProvider.getUsageTracker();
+    const before = tracker ? tracker.recent(0) : [];
+
     const t0 = Date.now();
     const result = await this._core.runAgent(prompt, {
       evalMode: true,
@@ -113,9 +121,46 @@ class Harness {
       maxIterations: this.maxIterations,
       ...extra,
     });
+    const elapsedMs = Date.now() - t0;
+
+    const after = tracker ? tracker.recent(0) : [];
+    const usage = after.slice(before.length).reduce(
+      (acc, e) => {
+        acc.requests += 1;
+        acc.promptTokens += e.promptTokens || 0;
+        acc.completionTokens += e.completionTokens || 0;
+        acc.costUsd += e.costUsd || 0;
+        acc.errors += e.error ? 1 : 0;
+        if (e.costEstimated) acc.costEstimated = true;
+        return acc;
+      },
+      {
+        requests: 0,
+        promptTokens: 0,
+        completionTokens: 0,
+        costUsd: 0,
+        errors: 0,
+        costEstimated: false,
+      }
+    );
+    usage.totalTokens = usage.promptTokens + usage.completionTokens;
+
+    let activeModel = null;
+    try {
+      activeModel = LLMProvider.getActiveModel(this.mode);
+    } catch (_) {
+      activeModel = null;
+    }
+
     return {
       ...result,
-      elapsedMs: Date.now() - t0,
+      elapsedMs,
+      llm: {
+        provider: LLMProvider.getActiveProvider() || 'unknown',
+        model: activeModel || null,
+        mode: this.mode,
+        ...usage,
+      },
     };
   }
 

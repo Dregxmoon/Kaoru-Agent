@@ -45,6 +45,13 @@ const {
 } = require('./core/mcp.js');
 const { reloadLLMConfig } = require('./core/config.js');
 const {
+  listIntentions,
+  addIntention,
+  completeIntention,
+  dropIntention,
+  getIntentionsStats,
+} = require('./core/intentions.js');
+const {
   getStats,
   getTelemetryReport,
   getTelemetryStats,
@@ -76,6 +83,21 @@ const {
   listSkills,
   storeFact,
 } = require('./core/misc.js');
+const {
+  getLearningData,
+  getTaskOutcomes,
+  getLearnedWeights,
+  recordTaskOutcome,
+  resetLearning,
+} = require('./core/learning.js');
+const {
+  getTrustData,
+  getTrustStats,
+  trustScore,
+  recommendMode,
+  recordTrustOutcome,
+  resetTrust,
+} = require('./core/trust.js');
 
 module.exports = {
   init,
@@ -125,4 +147,20 @@ module.exports = {
   permissionsRemoveRule,
   permissionsList,
   getUsageTracker: () => require('./llm/LLMProvider.js').getUsageTracker(),
+  listIntentions,
+  addIntention,
+  completeIntention,
+  dropIntention,
+  getIntentionsStats,
+  getLearningData,
+  getTaskOutcomes,
+  getLearnedWeights,
+  recordTaskOutcome,
+  resetLearning,
+  getTrustData,
+  getTrustStats,
+  trustScore,
+  recommendMode,
+  recordTrustOutcome,
+  resetTrust,
 };

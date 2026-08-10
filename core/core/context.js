@@ -257,12 +257,22 @@ async function buildContext(sessionHistory, activeProvider, options = {}) {
     }
   }
 
+  // ── Fase 3 ítem 2: lo aprendido (chat) ────────────────────────────────────
+  // Se anexa al final (lo MENOS importante) para que el truncado inteligente
+  // lo elimine primero bajo presión de presupuesto, sin tocar el resto.
+  try {
+    const learningSection = state.learning?.buildPromptSection?.();
+    if (learningSection) result.systemPrompt += '\n\n' + learningSection;
+  } catch (_) {}
+
   // Truncado inteligente: si el prompt excede MAX_SYSTEM_CHARS, elimina
   // secciones COMPLETAS empezando por la menos importante, en vez de cortar
   // a mitad de una instrucción (que rompe el formato estructurado). En modo
   // agent lo aplica AgentLoop tras el ensamblado completo; aquí solo para
   // chat/plan/execute (ver truncateSystemPrompt()).
-  result.systemPrompt = truncateSystemPrompt(result.systemPrompt);
+  result.systemPrompt = truncateSystemPrompt(result.systemPrompt, {
+    tailSections: [{ name: 'Lo aprendido (feedback)', marker: '# LO APRENDIDO (FEEDBACK)' }],
+  });
 
   return {
     ...result,

@@ -49,23 +49,40 @@
 // already been declared" (HasRestrictedGlobalProperty).
 var assistant     = window.assistant;
 const ipcRenderer  = assistant;
-const fs           = { existsSync: (p) => assistant.existsSync(p) };
-const { ModelAugmenter, ttsStream } = assistant;
+
+// sandbox:true (Fase 2, ítem 6): el preload ya no expone fs/ModelAugmenter/
+// ttsStream — la lógica Node del overlay vive en ipc/overlay-handlers.js y
+// llega como llamadas IPC. La página conserva los mismos nombres, ahora
+// asíncronos (invoke → Promise). fs.existsSync se usa con `await` en
+// loadModel; ModelAugmenter y ttsStream ya se consumían en funciones async.
+const fs           = { existsSync: (p) => ipcRenderer.invoke('overlay-fs-exists', p) };
+const ModelAugmenter = {
+  augmentModel: (p) => ipcRenderer.invoke('overlay-augment-model', p),
+  listGestures: (p) => ipcRenderer.invoke('overlay-list-gestures', p),
+};
+const ttsStream    = (args) => ipcRenderer.invoke('overlay-tts-stream', args);
 
 // Loader mínimo de módulos core propios en la página. Las clases como
 // GestureEngine DEBEN ejecutarse aquí: reciben el objeto Live2D real (creado
 // por PIXI en la página) que no puede cruzar el contextBridge, y `new` no
-// funciona sobre los proxies del bridge. El preload entrega SOLO el fuente
-// de los módulos whitelisteados (getCoreModuleSource); ModelAugmenter se
-// resuelve al proxy expuesto (llamadas a métodos, no constructor). Esto no
-// le da a la página —ni a los scripts remotos de los CDN— acceso a Node.
+// funciona sobre los proxies del bridge. Con sandbox:true los fuentes llegan
+// en un LOTE vía IPC (overlay-core-sources) y el loader los resuelve en
+// síncrono — necesario porque GestureEngine.js hace `require()` en top-level
+// al ejecutarse. ModelAugmenter se resuelve al proxy IPC expuesto arriba
+// (llamadas a métodos, no constructor). Esto no le da a la página —ni a los
+// scripts remotos de los CDN— acceso a Node.
+let __coreSources = null;
+async function initCoreSources() {
+  if (!__coreSources) __coreSources = await ipcRenderer.invoke('overlay-core-sources').catch(() => ({}));
+  return __coreSources;
+}
 const __coreLoader = (() => {
   const cache = {};
   const load = (name) => {
     const key = String(name).replace(/^\.\//, '').replace(/\.js$/, '');
     if (cache[key]) return cache[key].exports;
-    if (key === 'ModelAugmenter') return assistant.ModelAugmenter;
-    const source = assistant.getCoreModuleSource(key);
+    if (key === 'ModelAugmenter') return ModelAugmenter;
+    const source = __coreSources && __coreSources[key];
     if (source == null) throw new Error('Módulo core no permitido en la página: ' + name);
     const module = { exports: {} };
     cache[key] = module;
@@ -74,7 +91,10 @@ const __coreLoader = (() => {
   };
   return load;
 })();
-const GestureEngine = __coreLoader('./GestureEngine.js');
+async function getGestureEngine() {
+  await initCoreSources();
+  return __coreLoader('./GestureEngine.js');
+}
 
 window.PIXI = PIXI;
 
@@ -94,7 +114,8 @@ async function initGestureEngine() {
   if (gestureEngine) return gestureEngine;
   const cfg = await getGestureConfig() || {};
   gestureConfig = cfg;
-  gestureEngine = new GestureEngine({ config: cfg });
+  const GE = await getGestureEngine();
+  gestureEngine = new GE({ config: cfg });
   return gestureEngine;
 }
 
@@ -266,7 +287,7 @@ async function loadModel() {
     console.error('Modelo no encontrado:', _modelInfo && _modelInfo.model3Path);
     return;
   }
-  if (!fs.existsSync(_modelInfo.model3Path)) {
+  if (!(await fs.existsSync(_modelInfo.model3Path))) {
     console.error('Modelo no encontrado:', _modelInfo.model3Path);
     return;
   }
@@ -294,8 +315,8 @@ async function loadModel() {
     // Se inyectan expresiones/motions que el model3.json no referencia (ver
     // core/behavior/ModelAugmenter.js): así el modelo anima de verdad en vez
     // de quedarse quieto. El settings es un objeto en memoria; no se escribe
-    // nada en disco.
-    const augmented = ModelAugmenter.augmentModel(_modelInfo.model3Path);
+    // nada en disco. Con sandbox:true el augmenter corre en main (IPC).
+    const augmented = await ModelAugmenter.augmentModel(_modelInfo.model3Path);
     model = await PIXI.live2d.Live2DModel.from(augmented.settings || fileUrl);
     modelNativeW = model.width;
     modelNativeH = model.height;

@@ -37,6 +37,12 @@ const INVOKE_ALLOWLIST = new Set([
   'gesture-config',
   // Python / TTS
   'get-python-bin',
+  // Overlay sandbox:true (Fase 2, ítem 6) — capacidades del overlay vía main
+  'overlay-core-sources',
+  'overlay-fs-exists',
+  'overlay-augment-model',
+  'overlay-list-gestures',
+  'overlay-tts-stream',
   // Skills / plugins
   'list-skills',
   // MCP
@@ -55,6 +61,10 @@ const INVOKE_ALLOWLIST = new Set([
   'session-stats',
   'memory-forget',
   'store-fact',
+  // Metas persistentes (Fase 3, ítem 1)
+  'intentions-list',
+  'intention-complete',
+  'intention-drop',
   // OpenClaw / exec (vía comandos /)
   'openclaw-available',
   'exec-command',

@@ -1,0 +1,12 @@
+{
+  "id": "fix-division",
+  "title": "Arreglar la función divide",
+  "description": "La función divide devuelve b/a en vez de a/b. Corregir el bug y asegurar que los tests pasen.",
+  "prompt": "En el archivo src/math.js hay un bug en la función divide: devuelve b/a en lugar de a/b. Corrige el bug y asegúrate de que los tests del proyecto pasen todos (node --test).",
+  "workspace": "workspace",
+  "verify": "verify.sh",
+  "verifyTest": "node --test src/math.test.js",
+  "verifyTestTimeoutMs": 120000,
+  "expected": "divide devuelve a/b y los tests pasan",
+  "category": "bugfix"
+}

@@ -19,9 +19,19 @@ function setChatOpen(open) {
 
 // Fase A: el usuario respondió a una propuesta (aceptar/descartar) desde el
 // chat. Se reenvía al ProactiveEngine, que persiste el feedback y ajusta la
-// frecuencia futura de ese tipo de iniciativa.
+// frecuencia futura de ese tipo de iniciativa. Fase 3 ítem 2: tras cada
+// decisión, el LearningEngine recalibra los pesos de scoring (cierra el
+// círculo feedback→pesos→gate). Fire-and-forget: nunca rompe el flujo.
 function handleProposalDecision(decision) {
-  return state.proactive?.handleDecision(decision) ?? false;
+  const ok = state.proactive?.handleDecision(decision) ?? false;
+  if (ok && state.learning && typeof state.learning.calibrate === 'function') {
+    try {
+      state.learning.calibrate();
+    } catch (e) {
+      logger.warn('misc', '[learning] error recalibrando pesos:', e.message);
+    }
+  }
+  return ok;
 }
 
 async function isOpenClawAvailable() {

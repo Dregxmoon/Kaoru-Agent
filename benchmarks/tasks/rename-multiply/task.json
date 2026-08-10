@@ -5,6 +5,8 @@
   "prompt": "En el archivo src/calc.js renombra la función oldName a multiply (incluyendo su export). Actualiza también la referencia en src/calc.test.js. Al final, corre los tests del proyecto y asegúrate de que pasen todos.",
   "workspace": "workspace",
   "verify": "verify.sh",
+  "verifyTest": "node --test src/calc.test.js",
+  "verifyTestTimeoutMs": 120000,
   "expected": "function multiply(a, b) y export { multiply }; tests pasando",
   "category": "refactor"
 }

@@ -29,6 +29,36 @@ const runsArg = args.find((a) => a.startsWith('--runs='));
 const RUNS = runsArg ? parseInt(runsArg.split('=')[1], 10) : 3;
 const taskFilter = args.filter((a) => !a.startsWith('--'))[0];
 
+/**
+ * Fase 3, ítem 3: metadata del repositorio en el momento de la corrida, para
+ * poder correlacionar el resultado con la versión del código bajo test.
+ * Cualquier fallo de git degrada a null (el benchmark no debe morir por esto).
+ * @returns {{ sha: string | null, date: string | null, dirty: boolean | null, branch: string | null }}
+ */
+function gitMeta() {
+  const run = (cmd) => {
+    try {
+      return execFileSync('git', cmd, { cwd: ROOT, encoding: 'utf-8' }).trim() || null;
+    } catch {
+      return null;
+    }
+  };
+  const dirty = (() => {
+    try {
+      const s = execFileSync('git', ['status', '--porcelain'], { cwd: ROOT, encoding: 'utf-8' });
+      return s.trim().length > 0;
+    } catch {
+      return null;
+    }
+  })();
+  return {
+    sha: run(['rev-parse', 'HEAD']),
+    date: run(['log', '-1', '--format=%cI']),
+    dirty,
+    branch: run(['rev-parse', '--abbrev-ref', 'HEAD']),
+  };
+}
+
 function listTasks() {
   if (taskFilter) return [taskFilter];
   return fs
@@ -77,6 +107,34 @@ function runVerify(verifyPath, workspace) {
   }
 }
 
+/**
+ * Fase 3, ítem 3: verificación "SWE-bench" real. `task.verifyTest` es un
+ * comando shell que corre en el workspace de la tarea (típicamente
+ * `node --test ...`); requiere exit 0 dentro de un timeout. Si la tarea no lo
+ * define, la verificación se limita a verify.sh (gate estático).
+ * @param {object} task
+ * @param {string} workspace
+ * @returns {{ pass: boolean, output: string | null, used: boolean }}
+ */
+function runVerifyTest(task, workspace) {
+  if (!task.verifyTest) return { pass: true, output: null, used: false };
+  const timeoutMs = task.verifyTestTimeoutMs || 120000;
+  try {
+    const out = execFileSync('bash', ['-c', task.verifyTest], {
+      cwd: workspace,
+      encoding: 'utf-8',
+      timeout: timeoutMs,
+    });
+    return { pass: true, output: out.trim().slice(0, 500), used: true };
+  } catch (e) {
+    return {
+      pass: false,
+      output: ((e.stdout || '') + (e.stderr || e.message || '')).trim().slice(0, 500),
+      used: true,
+    };
+  }
+}
+
 async function main() {
   const tasks = listTasks();
   if (tasks.length === 0) {
@@ -104,21 +162,29 @@ async function main() {
       try {
         const res = await agent.run(task.prompt);
         const verify = runVerify(verifyPath, workspace);
+        const verifyTest = runVerifyTest(task, workspace);
+        const ok = verify.pass && verifyTest.pass;
         outcome = {
           ts: new Date().toISOString(),
-          ok: verify.pass,
+          ok,
           iterations: res.iterations,
           elapsedMs: res.elapsedMs,
           error: res.error || null,
           errorDetail: res.response || null,
           truncated: res.truncated || false,
           verify: verify.output.slice(0, 500),
+          verifyTest: verifyTest.output,
+          git: gitMeta(),
+          llm: res.llm || null,
         };
         console.log(
-          `Resultado: ${verify.pass ? 'PASS' : 'FAIL'} (${res.iterations} iter, ${res.elapsedMs}ms)`
+          `Resultado: ${ok ? 'PASS' : 'FAIL'} (${res.iterations} iter, ${res.elapsedMs}ms, ` +
+            `${res.llm?.provider || '?'}/${res.llm?.model || '?'}, ` +
+            `$ ${(res.llm?.costUsd || 0).toFixed(5)})`
         );
-        if (!verify.pass) {
+        if (!ok) {
           console.log(`  verify: ${verify.output.slice(0, 300)}`);
+          if (verifyTest.output) console.log(`  verifyTest: ${verifyTest.output.slice(0, 300)}`);
         }
       } catch (e) {
         outcome = {
@@ -129,6 +195,9 @@ async function main() {
           error: e.message,
           truncated: false,
           verify: '',
+          verifyTest: null,
+          git: gitMeta(),
+          llm: null,
         };
         console.log(`Resultado: FAIL (error del harness: ${e.message})`);
       } finally {
@@ -150,7 +219,7 @@ async function main() {
     );
   }
 
-  // G.1: reporte final global — pass@RUNS por tarea + agregado.
+  // G.1: reporte final global — pass@RUNS por tarea + agregado (incluye coste).
   console.log('\n=== Resumen del benchmark ===');
   let totalPassed = 0;
   let totalRuns = 0;
@@ -161,6 +230,12 @@ async function main() {
     const avgMs = last.length
       ? Math.round(last.reduce((a, x) => a + (x.elapsedMs || 0), 0) / last.length)
       : 0;
+    const avgCost = last.length
+      ? last.reduce((a, x) => a + (x.llm?.costUsd || 0), 0) / last.length
+      : 0;
+    const avgIter = last.length
+      ? Math.round(last.reduce((a, x) => a + (x.iterations || 0), 0) / last.length)
+      : 0;
     totalPassed += ok;
     totalRuns += last.length;
     return {
@@ -168,11 +243,17 @@ async function main() {
       pass: `${ok}/${last.length}`,
       passK: last.length ? (ok / last.length).toFixed(2) : '-',
       avgMs,
+      avgCost,
+      avgIter,
     };
   });
-  console.log(`  ${'TAREA'.padEnd(20)} ${'PASS@' + RUNS}  ${'avg ms'.padStart(8)}`);
+  console.log(
+    `  ${'TAREA'.padEnd(20)} ${'PASS@' + RUNS}  ${'avg ms'.padStart(8)}  ${'avg iter'.padStart(8)}  ${'avg $'.padStart(10)}`
+  );
   for (const r of rows) {
-    console.log(`  ${r.task.padEnd(20)} ${r.pass.padEnd(10)} ${String(r.avgMs).padStart(8)}`);
+    console.log(
+      `  ${r.task.padEnd(20)} ${r.pass.padEnd(10)} ${String(r.avgMs).padStart(8)} ${String(r.avgIter).padStart(8)} ${r.avgCost.toFixed(5).padStart(10)}`
+    );
   }
   if (totalRuns > 0) {
     console.log(

@@ -7,6 +7,9 @@ const logger = require('../observability/Logger.js');
 const { AgentLoop } = require('../planner/AgentLoop.js');
 const { resolveToolset } = require('../task/ToolResolver.js');
 const { buildContext } = require('./context.js');
+const LLMProvider = require('../llm/LLMProvider.js');
+const { estimateDifficulty } = require('../learning/difficulty.js');
+const { MODE_ADVANTAGE } = require('../trust/TrustModel.js');
 
 const state = require('./state.js');
 
@@ -40,7 +43,46 @@ function resolveAgentMode(userMessage, opts = {}) {
     // si el detector falla, se asume conversación (fast)
   }
 
-  return isTask ? { mode: 'smart', maxIterations: 25 } : { mode: 'fast', maxIterations: 8 };
+  let baseMode = isTask ? 'smart' : 'fast';
+  // Fase 3, ítem 4: routing dinámico de confianza (costo×éxito). Conservador:
+  // solo se cambia el modo si el TrustModel tiene muestras suficientes, la
+  // recomendación es confiable y la ventaja sobre el modo actual supera
+  // MODE_ADVANTAGE. Deshabilitable con opts.trustRouting=false; si no hay
+  // TrustModel (tests) es un no-op.
+  if (
+    opts.trustRouting !== false &&
+    state.trust &&
+    typeof state.trust.recommendMode === 'function'
+  ) {
+    try {
+      let taskIntent = null;
+      try {
+        taskIntent = state.taskDetector?.detect(userMessage) || null;
+      } catch (_) {}
+      const difficulty = estimateDifficulty({ message: userMessage, taskIntent, messageCount: 0 });
+      const rec = state.trust.recommendMode({ isTask, difficulty, explicitMode: null });
+      if (rec && rec.mode !== baseMode) {
+        // Confianza del mejor candidato del modo actual (para comparar).
+        const currentBest = state.trust.recommendMode({
+          isTask,
+          difficulty,
+          explicitMode: baseMode,
+        });
+        const currentTrust = currentBest && currentBest.mode === baseMode ? currentBest.trust : 0;
+        if (rec.confidence >= 0.6 && rec.trust - currentTrust >= MODE_ADVANTAGE) {
+          logger.info(
+            'agent',
+            `[trust] routing ${baseMode} → ${rec.mode} (${rec.rationale}, ventaja ${(rec.trust - currentTrust).toFixed(2)})`
+          );
+          baseMode = rec.mode;
+        }
+      }
+    } catch (_) {}
+  }
+
+  return baseMode === 'fast'
+    ? { mode: 'fast', maxIterations: 8 }
+    : { mode: 'smart', maxIterations: 25 };
 }
 
 /**
@@ -141,6 +183,25 @@ async function runAgent(userMessage, opts = {}) {
     permissionManager: state.permissionManager || null,
   };
 
+  // ── Fase 3 ítem 1: metas persistentes ────────────────────────────────────
+  // Si el caller no las inyecta explícitamente, se toman del stack de
+  // intenciones activas pendientes (sobreviven al reinicio) y se pasan al
+  // loop para que re-planifique al retomar la sesión.
+  if (!opts.activeIntentions) {
+    try {
+      const pending = state.session?.getActiveIntentions?.() || [];
+      loopOpts.activeIntentions = pending;
+    } catch (_) {}
+  }
+
+  // ── Fase 3 ítem 2: lo aprendido (feedback de proactividad + outcomes de
+  //    tareas) entra al loop como sección corta. El loop la recorta primero
+  //    bajo presión de presupuesto (es lo menos importante).
+  try {
+    const learningSection = state.learning?.buildPromptSection?.();
+    if (learningSection) loopOpts.learningSection = learningSection;
+  } catch (_) {}
+
   // Self-critique: en modo tarea (smart), al terminar el run con una respuesta
   // de texto el loop compara el resultado contra la intención original del
   // usuario y corrige si hay brecha (acotado a SELF_CRITIQUE_MAX_ROUNDS).
@@ -157,6 +218,11 @@ async function runAgent(userMessage, opts = {}) {
     loopOpts.evalMode = true;
   }
 
+  // Fase 3, ítem 4: snapshot del UsageTracker antes del run para atribuir a
+  // ESTA tarea el coste real (el tracker acumula en memoria, no es por-llamada).
+  const usageTracker = LLMProvider.getUsageTracker?.() || null;
+  const usageBefore = usageTracker ? usageTracker.recent(0) : [];
+
   const result = await loop.run(
     effectiveMessage,
     context.systemPrompt,
@@ -164,7 +230,69 @@ async function runAgent(userMessage, opts = {}) {
     loopOpts
   );
 
+  // ── Fase 3 ítem 1: si la meta queda en vuelo (se agotaron iteraciones o el
+  //    usuario canceló), se persiste como intención activa para retomarla al
+  //    reanudar la sesión (re-planificación). Las terminadas bien se limpian.
+  if (
+    result.error === 'max_iterations_reached' ||
+    result.error === 'cancelled' ||
+    result.truncated
+  ) {
+    try {
+      const g = state.graph;
+      if (g && !g.usingFallback && typeof g.createIntention === 'function') {
+        g.createIntention({
+          sessionId: state.session?.getSessionId?.() || '',
+          goal: userMessage,
+          steps: [],
+          lastProgress: `Se interrumpió tras ${result.iterations || 0} iteraciones (${result.error || 'truncado'}).`,
+        });
+      }
+    } catch (e) {
+      logger.warn('agent', '[core] no se pudo persistir la intención pendiente:', e.message);
+    }
+  }
+
   state.bus.emit('agent:completed', { iterations: result.iterations, error: result.error });
+
+  // ── Fase 3 ítem 2/4: la evaluación de la tarea alimenta el aprendizaje
+  //    (LearningEngine → prompt) y el modelo de confianza (TrustModel →
+  //    routing costo×éxito). Se atribuye a esta corrida el delta de tokens y
+  //    coste real del UsageTracker. Nunca rompe el flujo.
+  try {
+    const usageAfter = usageTracker ? usageTracker.recent(0) : [];
+    const costUsd = usageAfter.slice(usageBefore.length).reduce((a, e) => a + (e.costUsd || 0), 0);
+    const provider = LLMProvider.getActiveProvider() || 'unknown';
+    const model = LLMProvider.getActiveModel(mode) || null;
+    const success = !result.error && !result.truncated;
+    const elapsedMs = Date.now() - _t0;
+    const taskIntent = state.taskDetector?.detect(effectiveMessage);
+    const difficulty = estimateDifficulty({
+      message: effectiveMessage,
+      taskIntent,
+      messageCount: sessionHistory.length,
+    });
+    const outcome = {
+      mode,
+      provider,
+      model,
+      success,
+      error: result.error || null,
+      iterations: result.iterations,
+      elapsedMs,
+      difficulty,
+      costUsd,
+      goal: effectiveMessage,
+    };
+
+    if (state.learning && typeof state.learning.recordTaskOutcome === 'function') {
+      state.learning.recordTaskOutcome(outcome);
+    }
+    if (state.trust && typeof state.trust.recordOutcome === 'function') {
+      state.trust.recordOutcome(outcome);
+    }
+  } catch (_) {}
+
   logger.info(
     'agent',
     `[agent-timing] loop total ${Date.now() - _t0}ms (${result.iterations} iteraciones)`

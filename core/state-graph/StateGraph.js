@@ -11,6 +11,8 @@ const logger = require('../observability/Logger.js');
  *   - SessionStore       → sesiones y su historial
  *   - AppHistoryStore    → uso de aplicaciones (Fase 2)
  *   - DecayStore         → decay de importancia y archivado
+ *   - ConsolidatorStore  → consolidación episodio→semántica (Fase 2, ítem 2)
+ *   - IntentionsStore    → metas persistentes: stack de intenciones activas (Fase 3, ítem 1)
  */
 
 const path = require('path');
@@ -21,6 +23,8 @@ const { VectorIndex } = require('./stores/VectorIndex.js');
 const { SessionStore } = require('./stores/SessionStore.js');
 const { AppHistoryStore } = require('./stores/AppHistoryStore.js');
 const { DecayStore } = require('./stores/DecayStore.js');
+const { ConsolidatorStore } = require('./stores/ConsolidatorStore.js');
+const { IntentionsStore } = require('./stores/IntentionsStore.js');
 const { NODE_TYPES, DECAY_RATES } = require('./stores/constants.js');
 
 let Database;
@@ -430,6 +434,8 @@ class StateGraph {
     this._sessions = new SessionStore(this._db);
     this._appHistory = new AppHistoryStore(this._db);
     this._decay = new DecayStore(this._db);
+    this._consolidator = new ConsolidatorStore(this._db, this);
+    this._intentions = new IntentionsStore(this._db, this);
   }
 
   // Schema
@@ -480,6 +486,30 @@ class StateGraph {
       CREATE INDEX IF NOT EXISTS idx_app_history_day ON app_history(day_key);
       CREATE INDEX IF NOT EXISTS idx_app_history_app ON app_history(app);
       CREATE INDEX IF NOT EXISTS idx_app_history_ts  ON app_history(start_ts DESC);
+
+      CREATE TABLE IF NOT EXISTS node_relations (
+        id        INTEGER PRIMARY KEY AUTOINCREMENT,
+        source_id INTEGER NOT NULL REFERENCES nodes(id) ON DELETE CASCADE,
+        target_id INTEGER NOT NULL REFERENCES nodes(id) ON DELETE CASCADE,
+        type      TEXT    NOT NULL,
+        created_at INTEGER NOT NULL DEFAULT (strftime('%s','now') * 1000)
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_node_relations_source ON node_relations(source_id);
+      CREATE INDEX IF NOT EXISTS idx_node_relations_target ON node_relations(target_id);
+
+      CREATE TABLE IF NOT EXISTS intentions (
+        id            INTEGER PRIMARY KEY AUTOINCREMENT,
+        session_id    TEXT    NOT NULL,
+        goal          TEXT    NOT NULL,
+        status        TEXT    NOT NULL DEFAULT 'active',
+        steps         TEXT    NOT NULL DEFAULT '[]',
+        last_progress TEXT,
+        created_at    INTEGER NOT NULL,
+        updated_at    INTEGER NOT NULL
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_intentions_active ON intentions(status, updated_at DESC);
     `);
   }
 
@@ -520,6 +550,48 @@ class StateGraph {
       if (!sessionCols.some((c) => c.name === 'history_json')) {
         logger.info('StateGraph', '[state-graph] migrando schema: sessions.history_json...');
         this._db.exec(`ALTER TABLE sessions ADD COLUMN history_json TEXT;`);
+      }
+
+      const relationsTable = this._db
+        .prepare(`SELECT name FROM sqlite_master WHERE type='table' AND name='node_relations'`)
+        .get();
+      if (!relationsTable) {
+        logger.info('StateGraph', '[state-graph] migrando schema: node_relations...');
+        this._db.exec(`
+          CREATE TABLE IF NOT EXISTS node_relations (
+            id        INTEGER PRIMARY KEY AUTOINCREMENT,
+            source_id INTEGER NOT NULL REFERENCES nodes(id) ON DELETE CASCADE,
+            target_id INTEGER NOT NULL REFERENCES nodes(id) ON DELETE CASCADE,
+            type      TEXT    NOT NULL,
+            created_at INTEGER NOT NULL DEFAULT (strftime('%s','now') * 1000)
+          );
+
+          CREATE INDEX IF NOT EXISTS idx_node_relations_source ON node_relations(source_id);
+          CREATE INDEX IF NOT EXISTS idx_node_relations_target ON node_relations(target_id);
+        `);
+        logger.info('StateGraph', '[state-graph] migración node_relations completada');
+      }
+
+      const intentionsTable = this._db
+        .prepare(`SELECT name FROM sqlite_master WHERE type='table' AND name='intentions'`)
+        .get();
+      if (!intentionsTable) {
+        logger.info('StateGraph', '[state-graph] migrando schema: intentions...');
+        this._db.exec(`
+          CREATE TABLE IF NOT EXISTS intentions (
+            id            INTEGER PRIMARY KEY AUTOINCREMENT,
+            session_id    TEXT    NOT NULL,
+            goal          TEXT    NOT NULL,
+            status        TEXT    NOT NULL DEFAULT 'active',
+            steps         TEXT    NOT NULL DEFAULT '[]',
+            last_progress TEXT,
+            created_at    INTEGER NOT NULL,
+            updated_at    INTEGER NOT NULL
+          );
+
+          CREATE INDEX IF NOT EXISTS idx_intentions_active ON intentions(status, updated_at DESC);
+        `);
+        logger.info('StateGraph', '[state-graph] migración intentions completada');
       }
     } catch (e) {
       logger.warn('StateGraph', '[state-graph] error en migración (no crítico):', e.message);
@@ -650,7 +722,43 @@ class StateGraph {
     if (result?.archived > 0) {
       this._vectors.purgeArchivedVectors();
     }
+    // F2 ítem 2: la consolidación episodio→semántica se ejecuta como job
+    // piggyback del ciclo de mantenimiento (determinista, sin bloquear).
+    try {
+      this._consolidator.runConsolidation();
+    } catch (e) {
+      logger.warn('StateGraph', '[state-graph] consolidación fallida:', e.message);
+    }
     return result;
+  }
+
+  runConsolidation(opts) {
+    return this._consolidator.runConsolidation(opts);
+  }
+  getNodeRelations(nodeId) {
+    return this._consolidator.getRelations(nodeId);
+  }
+
+  createIntention(opts) {
+    return this._intentions.create(opts);
+  }
+  listActiveIntentions(opts) {
+    return this._intentions.listActive(opts);
+  }
+  updateIntention(id, opts) {
+    return this._intentions.update(id, opts);
+  }
+  completeIntention(id) {
+    return this._intentions.complete(id);
+  }
+  dropIntention(id) {
+    return this._intentions.drop(id);
+  }
+  getIntention(id) {
+    return this._intentions.get(id);
+  }
+  intentionStats() {
+    return this._intentions.getStats();
   }
 
   getStats() {

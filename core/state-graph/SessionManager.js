@@ -18,6 +18,7 @@ const DECAY_INTERVAL_HOURS = 20;
  *   updateSessionHistory(id: string, history: Array<object>): void,
  *   endSession(id: string, opts: object): void,
  *   getStats(): object,
+ *   listActiveIntentions?(opts: {limit?: number}): Array<object>,
  * }} StateGraphLike
  */
 class SessionManager {
@@ -68,7 +69,15 @@ class SessionManager {
       this._resolver.deduplicateNodes();
       this._updater.cleanupMemoryArtifacts();
       this._maybeRunDecay(app);
-      return { sessionId: this._sessionId, resumed: true, history: resumable.history };
+      return {
+        sessionId: this._sessionId,
+        resumed: true,
+        history: resumable.history,
+        // Fase 3, ítem 1: metas persistentes — el stack de intenciones activas
+        // pendientes se re-expone al reanudar para que el caller lo re-inyecte
+        // al agente (re-planificación).
+        activeIntentions: this._pendingIntentions(),
+      };
     }
 
     this._sessionId = this._graph.startSession();
@@ -80,7 +89,34 @@ class SessionManager {
     this._updater.cleanupMemoryArtifacts();
 
     this._maybeRunDecay(app);
-    return { sessionId: this._sessionId, resumed: false, history: [] };
+    return {
+      sessionId: this._sessionId,
+      resumed: false,
+      history: [],
+      activeIntentions: this._pendingIntentions(),
+    };
+  }
+
+  /**
+   * Fase 3, ítem 1: stack de intenciones activas pendientes (metas en vuelo).
+   * @returns {Array<object>}
+   */
+  _pendingIntentions() {
+    try {
+      if (typeof this._graph.listActiveIntentions === 'function') {
+        return this._graph.listActiveIntentions({ limit: 5 });
+      }
+    } catch (_) {}
+    return [];
+  }
+
+  getSessionId() {
+    return this._sessionId;
+  }
+
+  /** Alias público del stack de intenciones activas pendientes (Fase 3, ítem 1). */
+  getActiveIntentions() {
+    return this._pendingIntentions();
   }
 
   /**

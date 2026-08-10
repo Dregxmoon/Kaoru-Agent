@@ -85,7 +85,9 @@ const SELF_CRITIQUE_MAX_ROUNDS = 2;
 // encabezado hasta el final, de menor a mayor importancia, para respetar el
 // presupuesto MAX_SYSTEM_CHARS contando TODO lo ensamblado (no solo el base).
 const TAIL_SECTIONS = [
+  { name: 'Lo aprendido (feedback)', marker: '# LO APRENDIDO (FEEDBACK)' },
   { name: 'Skills', marker: '---\n\n**Skills activas' },
+  { name: 'Intenciones pendientes', marker: '# INTENCIONES ACTIVAS PENDIENTES' },
   { name: 'Memoria recall', marker: '# CONTEXTO RELEVANTE DE MEMORIA' },
   { name: 'Catálogo de tools', marker: '# HERRAMIENTAS DISPONIBLES' },
   { name: 'Loop agente', marker: '# MODO AGENTE' },
@@ -96,6 +98,39 @@ const TAIL_SECTIONS = [
 // el historial crudo a cada turno): el objetivo + lista de acciones ejecutadas.
 const COMPACT_MIN_TURNS = 14; // tuplas de historial que disparan compactación
 const COMPACT_KEEP_TAIL = 8; // turnos recientes que se conservan íntegros
+
+/**
+ * Fase 3, ítem 1: sección de intenciones activas pendientes para el prompt.
+ * Las filas del IntentionsStore traen `steps` como JSON string; aquí se
+ * normalizan. Devuelve null si no hay intenciones (el caller omite el bloque).
+ * @param {Array<object>} intentions
+ * @returns {string | null}
+ */
+function buildActiveIntentionsSection(intentions) {
+  if (!Array.isArray(intentions) || intentions.length === 0) return null;
+  const lines = ['# INTENCIONES ACTIVAS PENDIENTES', ''];
+  lines.push(
+    'Hay metas de antes que quedaron en vuelo. Retómalas o coordínalas con la petición actual:'
+  );
+  for (const it of intentions) {
+    let steps = [];
+    if (typeof it.steps === 'string') {
+      try {
+        steps = JSON.parse(it.steps);
+      } catch (_) {}
+    } else if (Array.isArray(it.steps)) {
+      steps = it.steps;
+    }
+    const stepNames = steps
+      .map((s) => (typeof s === 'string' ? s : s && (s.description || s.label)))
+      .filter(Boolean)
+      .slice(0, 5);
+    const progress = it.last_progress ? ` Progreso: ${it.last_progress}` : '';
+    const stepLine = stepNames.length ? ` Pasos: ${stepNames.join(' → ')}` : '';
+    lines.push(`- Meta: ${it.goal}${progress}${stepLine}`);
+  }
+  return lines.join('\n');
+}
 
 const AGENT_LOOP_SYSTEM = `
 # MODO AGENTE — BUCLE DE EJECUCIÓN
@@ -315,8 +350,27 @@ class AgentLoop {
           logger.info('AgentLoop', `[agent-loop] skills activas inyectadas en el prompt`);
         }
       } catch (e) {
-        logger.warn('AgentLoop', `[agent-loop] error inyectando skills: ${e.message}`);
+        logger.warn(`AgentLoop`, `[agent-loop] error inyectando skills: ${e.message}`);
       }
+    }
+
+    // ── Fase 3 ítem 1: intenciones activas pendientes (metas persistentes) ──
+    // El stack de metas en vuelo sobrevive al reinicio (IntentionsStore) y se
+    // re-inyecta aquí para que el agente re-planifique al reanudar la sesión.
+    if (opts.activeIntentions && opts.activeIntentions.length) {
+      try {
+        const intBlock = buildActiveIntentionsSection(opts.activeIntentions);
+        if (intBlock) agentPrompt += '\n\n' + intBlock;
+      } catch (e) {
+        logger.warn(`AgentLoop`, `[agent-loop] error inyectando intenciones: ${e.message}`);
+      }
+    }
+
+    // ── Fase 3 ítem 2: lo aprendido (feedback de proactividad + outcomes de
+    //    tareas). El LearningEngine lo produce; el loop lo anexa como el
+    //    bloque MENOS importante (primero en cortarse bajo presupuesto).
+    if (typeof opts.learningSection === 'string' && opts.learningSection.trim()) {
+      agentPrompt += '\n\n' + opts.learningSection;
     }
 
     // ── Truncado FINAL tras el ensamblado completo ────────────────────────
@@ -1586,4 +1640,4 @@ class AgentLoop {
   }
 }
 
-module.exports = { AgentLoop, MAX_ITERATIONS };
+module.exports = { AgentLoop, MAX_ITERATIONS, buildActiveIntentionsSection };

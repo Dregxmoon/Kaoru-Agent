@@ -37,7 +37,12 @@ module.exports = {
 
     const now = Date.now();
     const ctx = this._buildGateContext(now);
-    const baseScore = scoreRelevancia(candidate.signal);
+    // Fase 3, ítem 2: pesos aprendidos por LearningEngine (feedback
+    // recalibrado). Si los hay, el scoring usa la política ajustada en lugar
+    // de la estática; sin ellos, es identidad.
+    const learnedWeights = this._store?.getLearnedWeights?.() || null;
+    const policyOverride = learnedWeights ? { weights: learnedWeights } : {};
+    const baseScore = scoreRelevancia(candidate.signal, policyOverride);
     // F-G: aprendizaje por tipo — el historial de aceptación/rechazo que
     // persiste ProposalStore (por trigger.type) ajusta la relevancia. Sin
     // muestras suficientes devuelve la R base sin cambios.

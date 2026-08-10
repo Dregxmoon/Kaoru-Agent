@@ -1,5 +1,5 @@
 const { test } = require('node:test');
-const { add, subtract, oldName } = require('./calc');
+const { add, subtract, divide } = require('./math');
 
 test('add', () => {
   if (add(1, 2) !== 3) throw new Error('add falla');
@@ -7,6 +7,6 @@ test('add', () => {
 test('subtract', () => {
   if (subtract(5, 3) !== 2) throw new Error('subtract falla');
 });
-test('oldName', () => {
-  if (oldName(3, 4) !== 12) throw new Error('oldName falla');
+test('divide', () => {
+  if (divide(10, 2) !== 5) throw new Error('divide falla');
 });

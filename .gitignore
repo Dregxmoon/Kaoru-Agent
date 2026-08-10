@@ -27,8 +27,11 @@ models/*
 # ── Datos personales y exportaciones de conversación ─────────────────────────
 exports/
 test.txt
-# Feedback proactivo (estado de runtime del usuario, no se versiona)
+# Feedback de runtime del usuario (no se versiona): proactivo, aprendizaje y
+# confianza (Fase 3 ítems 2/4) — los genera el core en headless/benchmark.
 data/proactive_feedback.json
+data/learning_feedback.json
+data/trust_feedback.json
 
 # ── Artefactos de desarrollo y parches one-off ───────────────────────────────
 *.patch

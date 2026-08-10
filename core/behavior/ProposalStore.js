@@ -151,6 +151,20 @@ class ProposalStore {
     return this._data.decisions;
   }
 
+  // ── Fase 3, ítem 2: pesos aprendidos (LearningEngine) ──────────────────────
+  // Campo aditivo: el feedback recalibrado por LearningEngine se guarda aquí
+  // para que el gate de relevancia lo aplique sin tocar el flujo existente.
+
+  getLearnedWeights() {
+    return this._data.learnedWeights || null;
+  }
+
+  setLearnedWeights(weights) {
+    this._data.learnedWeights = weights || null;
+    this._persist();
+    return this._data.learnedWeights;
+  }
+
   getStats() {
     return {
       byType: this._data.byType,

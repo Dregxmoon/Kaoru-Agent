@@ -169,6 +169,54 @@ function ajustarScorePorAprendizaje(R, stats = {}, policy = {}) {
   return clamp(R + bias, 0, 1);
 }
 
+/**
+ * Fase 3, ítem 2 — deriveWeights: recalcula los pesos de scoring desde el
+ * feedback acumulado de proactividad (cierra el círculo feedback→pesos→gate).
+ *
+ * A diferencia de `ajustarScorePorAprendizaje` (sesgo puntual por tipo), esto
+ * recalibra los PESOS del modelo de relevancia: con suficientes decisiones,
+ * un tono de aceptación alto sube ligeramente el peso de los componentes
+ * "pro-activos" (actionability/salience) y un tono bajo los reduce (el gate
+ * exige señales más fuertes antes de ACT). Es determinista, acotado (±20%) y
+ * se normaliza para que la suma siga siendo 1. Sin muestras suficientes
+ * devuelve los pesos por defecto (identidad — no cambia el comportamiento
+ * existente).
+ *
+ * @param {object} stats   { byType: { [tipo]: { accepted, rejected, ignored } } } de ProposalStore
+ * @param {object} [policy] override parcial de DEFAULT_POLICY
+ * @returns {{ severity: number, actionability: number, salience: number, costOfIgnore: number }}
+ */
+function deriveWeights(stats = {}, policy = {}) {
+  const base = { ...DEFAULT_POLICY.weights, ...(policy.weights || {}) };
+  const lp = { ...DEFAULT_POLICY.learning, ...(policy.learning || {}) };
+  const byType = (stats && stats.byType) || stats || {};
+  let accepted = 0;
+  let total = 0;
+  for (const t of Object.values(byType)) {
+    if (!t || typeof t !== 'object') continue;
+    accepted += t.accepted || 0;
+    total += (t.accepted || 0) + (t.rejected || 0) + (t.ignored || 0);
+  }
+  if (total < lp.minSamples) return { ...base };
+
+  // [0,1] → tone ∈ [-1,1] (0.5 = neutro → pesos por defecto).
+  const tone = clamp((accepted / total - 0.5) * 2, -1, 1);
+  const adjust = (v) => clamp(v * (1 + 0.2 * tone), 0.05, 0.9);
+  const w = {
+    severity: base.severity,
+    actionability: adjust(base.actionability),
+    salience: adjust(base.salience),
+    costOfIgnore: base.costOfIgnore,
+  };
+  const sum = w.severity + w.actionability + w.salience + w.costOfIgnore;
+  return {
+    severity: w.severity / sum,
+    actionability: w.actionability / sum,
+    salience: w.salience / sum,
+    costOfIgnore: w.costOfIgnore / sum,
+  };
+}
+
 // ── Reason codes ────────────────────────────────────────────────────────────
 
 const REASON = {
@@ -323,6 +371,7 @@ module.exports = {
   clamp,
   scoreRelevancia,
   ajustarScorePorAprendizaje,
+  deriveWeights,
   receptividad,
   presupuesto,
   decide,

@@ -97,6 +97,8 @@ async function shutdown() {
     state.eventsWatcher =
       null;
   state.proposalStore = null;
+  state.learning = null;
+  state.trust = null;
   state.proactiveExecutor = null;
   state.activeWorkspace = null;
   state.onProposalResult = null;

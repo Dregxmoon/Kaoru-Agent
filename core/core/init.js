@@ -23,6 +23,8 @@ const { LSPErrorWatcher } = require('../../infrastructure/sensors/LSPErrorWatche
 const { SymbolIndex } = require('../lsp/SymbolIndex.js');
 const { ProactiveEngine } = require('../behavior/ProactiveEngine.js');
 const { ProposalStore } = require('../behavior/ProposalStore.js');
+const { LearningEngine } = require('../learning/LearningEngine.js');
+const { TrustModel } = require('../trust/TrustModel.js');
 const { ProactiveExecutor } = require('../behavior/ProactiveExecutor.js');
 const { TelemetryStore } = require('../telemetry/TelemetryStore.js');
 const { BehaviorModel } = require('../behavior/BehaviorModel.js');
@@ -160,6 +162,24 @@ function init(app) {
   });
   state.proactive.setAutonomyMode(readAutonomyConfig());
   logger.info('init', `[core] autonomía: ${state.proactive.getAutonomyMode()}`);
+
+  // ── Fase 3, ítem 2: aprendizaje que cierra el círculo ─────────────────────
+  // LearningEngine recalibra los pesos de proactividad desde el feedback y
+  // registra los outcomes de tareas. El gate lee los pesos aprendidos del
+  // ProposalStore (misma instancia) vía getLearnedWeights().
+  state.learning = new LearningEngine({
+    filePath: app ? path.join(app.getPath('userData'), 'learning_feedback.json') : null,
+    proposalStore: state.proposalStore,
+  });
+  state.learning.calibrate();
+
+  // ── Fase 3, ítem 4: modelo de confianza dinámico (costo×éxito) ───────────
+  // TrustModel aprende de los outcomes de tareas + coste real qué modo/
+  // configuración resuelve mejor; se alimenta en agent.js (mismo hook que
+  // LearningEngine) y sugiere modo de forma conservadora.
+  state.trust = new TrustModel({
+    filePath: app ? path.join(app.getPath('userData'), 'trust_feedback.json') : null,
+  });
 
   state.behavior = new BehaviorModel(state.graph);
   state.planner = getPlanner();
