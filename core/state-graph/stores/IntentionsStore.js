@@ -37,6 +37,7 @@ function _errMsg(e) {
  *   status: string,
  *   steps: string,
  *   last_progress: string | null,
+ *   last_progress_at: number,
  *   created_at: number,
  *   updated_at: number,
  * }} IntentionRow
@@ -63,14 +64,15 @@ class IntentionsStore {
     try {
       const info = this._db
         .prepare(
-          `INSERT INTO intentions (session_id, goal, status, steps, last_progress, created_at, updated_at)
-           VALUES (?, ?, 'active', ?, ?, ?, ?)`
+          `INSERT INTO intentions (session_id, goal, status, steps, last_progress, last_progress_at, created_at, updated_at)
+           VALUES (?, ?, 'active', ?, ?, ?, ?, ?)`
         )
         .run(
           String(sessionId),
           String(goal),
           JSON.stringify(steps),
           String(lastProgress || ''),
+          now,
           now,
           now
         );
@@ -91,7 +93,7 @@ class IntentionsStore {
     try {
       const rows = this._db
         .prepare(
-          `SELECT id, session_id, goal, status, steps, last_progress, created_at, updated_at
+          `SELECT id, session_id, goal, status, steps, last_progress, last_progress_at, created_at, updated_at
            FROM intentions WHERE status='active'
            ORDER BY updated_at DESC, id DESC LIMIT ?`
         )
@@ -113,7 +115,7 @@ class IntentionsStore {
       return /** @type {IntentionRow | undefined} */ (
         this._db
           .prepare(
-            `SELECT id, session_id, goal, status, steps, last_progress, created_at, updated_at
+            `SELECT id, session_id, goal, status, steps, last_progress, last_progress_at, created_at, updated_at
              FROM intentions WHERE id=?`
           )
           .get(id)
@@ -126,6 +128,9 @@ class IntentionsStore {
 
   /**
    * Actualiza estado/progreso y "toca" updated_at (mueve al tope del stack).
+   * Cualquier mutación cuenta como ACTIVIDAD de la intención: también sube
+   * `last_progress_at` (cuándo hubo movimiento por última vez). Un status
+   * 'done'/'dropped' deja de ser candidata a stale porque ya no está 'active'.
    * @param {number} id
    * @param {{status?: string, steps?: Array<object>, lastProgress?: string}} [opts]
    * @returns {boolean}
@@ -143,11 +148,12 @@ class IntentionsStore {
       const steps = opts.steps ? JSON.stringify(opts.steps) : row.steps;
       const lastProgress =
         opts.lastProgress !== undefined ? String(opts.lastProgress) : row.last_progress;
+      const now = Date.now();
       this._db
         .prepare(
-          `UPDATE intentions SET status=?, steps=?, last_progress=?, updated_at=? WHERE id=?`
+          `UPDATE intentions SET status=?, steps=?, last_progress=?, updated_at=?, last_progress_at=? WHERE id=?`
         )
-        .run(status, steps, lastProgress, Date.now(), id);
+        .run(status, steps, lastProgress, now, now, id);
       return true;
     } catch (e) {
       logger.warn('IntentionsStore', `[intentions] error actualizando ${id}: ${_errMsg(e)}`);
@@ -163,6 +169,32 @@ class IntentionsStore {
   /** @param {number} id */
   drop(id) {
     return this.update(id, { status: 'dropped' });
+  }
+
+  /**
+   * Intenciones activas ABANDONADAS: no tuvieron actividad (last_progress_at)
+   * en los últimos `olderThanMs` ms. Se usan para preguntar con curiosidad por
+   * metas que el usuario dejó a medias ("dijiste que ibas a X, ¿cómo va?").
+   * El orden es el de más abandonada primero (last_progress_at ASC).
+   * @param {{olderThanMs: number, limit?: number}} [opts]
+   * @returns {IntentionRow[]}
+   */
+  listStale({ olderThanMs, limit = 10 } = {}) {
+    if (this._g.usingFallback || typeof olderThanMs !== 'number' || olderThanMs <= 0) return [];
+    try {
+      const cutoff = Date.now() - olderThanMs;
+      const rows = this._db
+        .prepare(
+          `SELECT id, session_id, goal, status, steps, last_progress, last_progress_at, created_at, updated_at
+           FROM intentions WHERE status='active' AND last_progress_at < ?
+           ORDER BY last_progress_at ASC, id DESC LIMIT ?`
+        )
+        .all(cutoff, limit);
+      return /** @type {IntentionRow[]} */ (rows);
+    } catch (e) {
+      logger.warn('IntentionsStore', `[intentions] error listando stale: ${_errMsg(e)}`);
+      return [];
+    }
   }
 
   /** @returns {{active: number, done: number, dropped: number}} */

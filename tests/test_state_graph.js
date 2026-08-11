@@ -138,6 +138,11 @@ function testSchema() {
     assert(cols.includes(c), `columna nodes.${c} existe`);
   }
 
+  // F3.1: columnas de vigencia/origen/certeza de los hechos fijos.
+  for (const c of ['verified_at', 'inferred', 'confidence']) {
+    assert(cols.includes(c), `columna nodes.${c} existe (F3.1)`);
+  }
+
   const sessionCols = sqlAll(graph, 'PRAGMA table_info(sessions)').map((c) => c.name);
   assert(sessionCols.includes('history_json'), 'sessions.history_json existe (resume tras crash)');
 
@@ -1171,6 +1176,70 @@ function testLegacySchemaMigration() {
   fs.rmSync(dir, { recursive: true, force: true });
 }
 
+// ── Migración schema F3.1 (verified_at/inferred/confidence) ───────────────
+function testFactColumnsMigration() {
+  const Database = require('better-sqlite3');
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'sg-fact-'));
+  const dbPath = path.join(dir, 'core.db');
+
+  // Reproduce una DB existente SIN las 3 columnas nuevas (versión previa a
+  // F3.1): la migración debe agregarlas in-place sin romper la DB.
+  const legacy = new Database(dbPath);
+  legacy.exec(`
+    CREATE TABLE nodes (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      type TEXT NOT NULL,
+      label TEXT NOT NULL,
+      content TEXT NOT NULL,
+      importance REAL NOT NULL DEFAULT 1.0,
+      decay_rate REAL NOT NULL DEFAULT 0.05,
+      access_count INTEGER NOT NULL DEFAULT 0,
+      tags TEXT DEFAULT '[]',
+      archived INTEGER NOT NULL DEFAULT 0,
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL,
+      last_accessed_at INTEGER NOT NULL
+    );
+    CREATE TABLE node_relations (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      source_id INTEGER NOT NULL REFERENCES nodes(id) ON DELETE CASCADE,
+      target_id INTEGER NOT NULL REFERENCES nodes(id) ON DELETE CASCADE,
+      type TEXT NOT NULL,
+      created_at INTEGER NOT NULL
+    );
+    INSERT INTO nodes (type,label,content,created_at,updated_at,last_accessed_at)
+      VALUES ('User','trabajo_usuario','Trabaja en una notaria', 100, 100, 100);
+  `);
+  legacy.close();
+
+  const graph = new StateGraph(dbPath).init();
+  assert(graph.usingFallback === false, 'F3.1: DB vieja NO cae a MemoryDB');
+
+  const cols = sqlAll(graph, 'PRAGMA table_info(nodes)').map((c) => c.name);
+  for (const c of ['verified_at', 'inferred', 'confidence']) {
+    assert(cols.includes(c), `F3.1: columna nodes.${c} agregada por migración`);
+  }
+
+  // Backfill conservador: verified_at = created_at para filas existentes.
+  const row = sqlGet(graph, 'SELECT created_at, verified_at FROM nodes WHERE id=1');
+  assert(row.verified_at === row.created_at, 'F3.1: backfill verified_at=created_at');
+
+  // El grafo operativo sigue funcionando (read + write use las columnas).
+  const node = graph.getNode(1);
+  assert(node.label === 'trabajo_usuario', 'F3.1: datos conservados tras migrar');
+
+  // Idempotencia: una 2ª apertura no vuelve a alterar columnas ni re-backfillea.
+  graph.close();
+  const again = new StateGraph(dbPath).init();
+  assert(again.usingFallback === false, 'F3.1: 2ª apertura también OK');
+  const inferredCol = sqlAll(again, 'PRAGMA table_info(nodes)').filter(
+    (c) => c.name === 'inferred'
+  );
+  assert(inferredCol.length === 1, 'F3.1: inferred existe sin duplicarse');
+  again.close();
+  fs.rmSync(dir, { recursive: true, force: true });
+}
+
 // ── Test: listNodes (vista local de memoria) ────────────────────────────────
 function testListNode() {
   console.log(C.bold('\nTest: listNodes (vista local de memoria)'));
@@ -1341,6 +1410,7 @@ async function main() {
   testListGraph();
   testListGraphContent();
   testLegacySchemaMigration();
+  testFactColumnsMigration();
 
   console.log(
     C.bold(

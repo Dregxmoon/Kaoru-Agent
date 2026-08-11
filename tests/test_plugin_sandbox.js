@@ -39,7 +39,12 @@ function assert(condition, label, detail = '') {
 
 const { PluginManager } = require('../core/plugins/PluginManager.js');
 const { PluginSandbox } = require('../core/plugins/PluginSandbox.js');
-const { generateKeyPair, signPlugin, verifyPlugin, ALGORITHM } = require('../core/plugins/PluginSigner.js');
+const {
+  generateKeyPair,
+  signPlugin,
+  verifyPlugin,
+  ALGORITHM,
+} = require('../core/plugins/PluginSigner.js');
 const { PluginMarketplace } = require('../core/plugins/PluginMarketplace.js');
 
 function makePluginDir(root, id, indexCode, manifestExtra = {}) {
@@ -47,14 +52,25 @@ function makePluginDir(root, id, indexCode, manifestExtra = {}) {
   fs.mkdirSync(dir, { recursive: true });
   fs.writeFileSync(
     path.join(dir, 'plugin.json'),
-    JSON.stringify({ name: id, id, version: '1.0.0', description: 'plugin de prueba', ...manifestExtra })
+    JSON.stringify({
+      name: id,
+      id,
+      version: '1.0.0',
+      description: 'plugin de prueba',
+      ...manifestExtra,
+    })
   );
   fs.writeFileSync(path.join(dir, 'index.js'), indexCode);
   return dir;
 }
 
 function fakeRegistry() {
-  const r = { tools: [], registerPluginTool(tool) { this.tools.push(tool); } };
+  const r = {
+    tools: [],
+    registerPluginTool(tool) {
+      this.tools.push(tool);
+    },
+  };
   return r;
 }
 
@@ -87,12 +103,24 @@ async function main() {
     mgr.bind({ registry: reg, dispatch: null });
     assert((await mgr.load()) === 1, 'plugin se carga en la VM');
     const registered = mgr.registerAll({});
-    assert(registered.length === 1 && registered[0] === 'greeter', 'register() corre dentro de la VM');
-    const tool = reg.tools.find((t) => t.id === 'plugin.greeter.saludar' && typeof t.run === 'function');
+    assert(
+      registered.length === 1 && registered[0] === 'greeter',
+      'register() corre dentro de la VM'
+    );
+    const tool = reg.tools.find(
+      (t) => t.id === 'plugin.greeter.saludar' && typeof t.run === 'function'
+    );
     assert(!!tool, 'registerTool() registra la tool desde la VM');
     const out = await tool.run({ quien: 'mundo' });
-    assert(out.ok && out.result === 'Hola mundo', 'la tool run() funciona cross-realm', JSON.stringify(out));
-    assert((await mgr.runHook('beforeAgentRun', {})) === 'hook-ok', 'runHook ejecuta hooks de la VM');
+    assert(
+      out.ok && out.result === 'Hola mundo',
+      'la tool run() funciona cross-realm',
+      JSON.stringify(out)
+    );
+    assert(
+      (await mgr.runHook('beforeAgentRun', {})) === 'hook-ok',
+      'runHook ejecuta hooks de la VM'
+    );
   }
 
   // ══ 2. Sandbox: builtins whitelist + require relativo ═════════════════════
@@ -100,7 +128,10 @@ async function main() {
   {
     const dir = path.join(tmp, 't2');
     fs.mkdirSync(dir, { recursive: true });
-    fs.writeFileSync(path.join(dir, 'helper.js'), `module.exports = { greet: (n) => 'hola ' + n };`);
+    fs.writeFileSync(
+      path.join(dir, 'helper.js'),
+      `module.exports = { greet: (n) => 'hola ' + n };`
+    );
     fs.writeFileSync(
       path.join(dir, 'index.js'),
       `const pathMod = require('path');
@@ -157,14 +188,29 @@ module.exports = { register(ctx) {
     const sandbox = new PluginSandbox({ root: dir, tag: 't3', logger: () => {} });
     const api = sandbox.load(path.join(dir, 'index.js'));
     let tool;
-    api.register({ registerTool(t) { tool = t; }, registerHook() {} });
+    api.register({
+      registerTool(t) {
+        tool = t;
+      },
+      registerHook() {},
+    });
 
     const dentro = await tool.run({ modo: 'dentro' });
-    assert(dentro.ok && dentro.result === 'contenido del plugin', 'fs escribe/lee dentro del plugin');
-    assert(fs.existsSync(path.join(dir, 'memo.txt')), 'el archivo quedó en el directorio del plugin');
+    assert(
+      dentro.ok && dentro.result === 'contenido del plugin',
+      'fs escribe/lee dentro del plugin'
+    );
+    assert(
+      fs.existsSync(path.join(dir, 'memo.txt')),
+      'el archivo quedó en el directorio del plugin'
+    );
 
     const fuera = await tool.run({ modo: 'fuera' });
-    assert(!fuera.ok && fuera.result.includes('BLOQUEADO'), 'fs bloquea lecturas fuera del directorio', fuera.result);
+    assert(
+      !fuera.ok && fuera.result.includes('BLOQUEADO'),
+      'fs bloquea lecturas fuera del directorio',
+      fuera.result
+    );
 
     const env = await tool.run({ modo: 'env' });
     assert(env.result === 'env={}', 'process.env está congelado y vacío', env.result);
@@ -181,19 +227,33 @@ module.exports = { register(ctx) {
 module.exports = { register(ctx) {} };`
     );
     const mgr = new PluginManager({ pluginDir: root, logger: () => {} });
-    assert((await mgr.load()) === 0, 'plugin que require child_process NO carga', 'falló el require');
+    assert(
+      (await mgr.load()) === 0,
+      'plugin que require child_process NO carga',
+      'falló el require'
+    );
   }
 
   // ══ 5. Firmado: sign → verify ok; modificar algo rompe la firma ═══════
   console.log(C.bold('\n── Test 5: firmado Ed25519 ──'));
   {
     const { publicKey, privateKey } = generateKeyPair();
-    assert(publicKey.includes('PUBLIC KEY') && privateKey.includes('PRIVATE KEY'), 'genera par de llaves Ed25519');
+    assert(
+      publicKey.includes('PUBLIC KEY') && privateKey.includes('PRIVATE KEY'),
+      'genera par de llaves Ed25519'
+    );
 
-    const dir = makePluginDir(path.join(tmp, 't5'), 'firmado', `module.exports = { register(ctx) {} };`);
+    const dir = makePluginDir(
+      path.join(tmp, 't5'),
+      'firmado',
+      `module.exports = { register(ctx) {} };`
+    );
     signPlugin(dir, privateKey, 'test-market');
     const manifest = JSON.parse(fs.readFileSync(path.join(dir, 'plugin.json'), 'utf8'));
-    assert(manifest.signature && manifest.signature.algorithm === ALGORITHM, 'plugin.json queda firmado (signature)');
+    assert(
+      manifest.signature && manifest.signature.algorithm === ALGORITHM,
+      'plugin.json queda firmado (signature)'
+    );
     assert(verifyPlugin(dir, publicKey).ok, 'verifyPlugin: firma válida');
 
     // tocar index.js
@@ -208,7 +268,11 @@ module.exports = { register(ctx) {} };`
     assert(!verifyPlugin(dir, publicKey).ok, 'tocar el manifest invalida la firma');
 
     // firma con OTRA key
-    const dir2 = makePluginDir(path.join(tmp, 't5b'), 'otro', `module.exports = { register(ctx) {} };`);
+    const dir2 = makePluginDir(
+      path.join(tmp, 't5b'),
+      'otro',
+      `module.exports = { register(ctx) {} };`
+    );
     const otherKey = generateKeyPair();
     signPlugin(dir2, otherKey.privateKey);
     assert(!verifyPlugin(dir2, publicKey).ok, 'firma de otra key se rechaza');
@@ -220,27 +284,54 @@ module.exports = { register(ctx) {} };`
     const { publicKey, privateKey } = generateKeyPair();
 
     const signedRoot = path.join(tmp, 't6-signed');
-    const signedDir = makePluginDir(signedRoot, 'firmado', `module.exports = { register(ctx) {} };`);
+    const signedDir = makePluginDir(
+      signedRoot,
+      'firmado',
+      `module.exports = { register(ctx) {} };`
+    );
     signPlugin(signedDir, privateKey);
-    const mgrSigned = new PluginManager({ pluginDir: signedRoot, publicKey, requireSigned: true, logger: () => {} });
+    const mgrSigned = new PluginManager({
+      pluginDir: signedRoot,
+      publicKey,
+      requireSigned: true,
+      logger: () => {},
+    });
     assert((await mgrSigned.load()) === 1, 'requireSigned carga el plugin firmado');
 
     const unsignedRoot = path.join(tmp, 't6-unsigned');
     makePluginDir(unsignedRoot, 'sinfirma', `module.exports = { register(ctx) {} };`);
-    const mgrUnsigned = new PluginManager({ pluginDir: unsignedRoot, publicKey, requireSigned: true, logger: () => {} });
+    const mgrUnsigned = new PluginManager({
+      pluginDir: unsignedRoot,
+      publicKey,
+      requireSigned: true,
+      logger: () => {},
+    });
     assert((await mgrUnsigned.load()) === 0, 'requireSigned rechaza el plugin sin firma');
 
     const tamperedRoot = path.join(tmp, 't6-tampered');
-    const tamperedDir = makePluginDir(tamperedRoot, 'tampered', `module.exports = { register(ctx) {} };`);
+    const tamperedDir = makePluginDir(
+      tamperedRoot,
+      'tampered',
+      `module.exports = { register(ctx) {} };`
+    );
     signPlugin(tamperedDir, privateKey);
     fs.appendFileSync(path.join(tamperedDir, 'index.js'), '// hack');
-    const mgrTampered = new PluginManager({ pluginDir: tamperedRoot, publicKey, requireSigned: true, logger: () => {} });
+    const mgrTampered = new PluginManager({
+      pluginDir: tamperedRoot,
+      publicKey,
+      requireSigned: true,
+      logger: () => {},
+    });
     assert((await mgrTampered.load()) === 0, 'firma inválida se rechaza al cargar');
 
     const noKeyRoot = path.join(tmp, 't6-nokey');
     const noKeyDir = makePluginDir(noKeyRoot, 'firmado', `module.exports = { register(ctx) {} };`);
     signPlugin(noKeyDir, privateKey);
-    const mgrNoKey = new PluginManager({ pluginDir: noKeyRoot, requireSigned: true, logger: () => {} });
+    const mgrNoKey = new PluginManager({
+      pluginDir: noKeyRoot,
+      requireSigned: true,
+      logger: () => {},
+    });
     assert((await mgrNoKey.load()) === 0, 'firmado sin key de confianza se rechaza (fail-safe)');
   }
 
@@ -263,22 +354,51 @@ module.exports = { register(ctx) {} };`
 
     const market = new PluginMarketplace({ marketplaceDir: marketDir, publicKey });
     const hash = market.computePackageHash(pkgDir);
-    const index = { generated: new Date().toISOString(), plugins: [{ id: 'hello', name: 'hello', version: '1.0.0', description: 'saluda', sha256: hash, path: 'packages/hello' }] };
+    const index = {
+      generated: new Date().toISOString(),
+      plugins: [
+        {
+          id: 'hello',
+          name: 'hello',
+          version: '1.0.0',
+          description: 'saluda',
+          sha256: hash,
+          path: 'packages/hello',
+        },
+      ],
+    };
     fs.writeFileSync(path.join(marketDir, 'index.json'), JSON.stringify(index, null, 2));
-    const sig = require('crypto').sign(null, Buffer.from(JSON.stringify(index, null, 2)), privateKey).toString('base64');
+    const sig = require('crypto')
+      .sign(null, Buffer.from(JSON.stringify(index, null, 2)), privateKey)
+      .toString('base64');
     fs.writeFileSync(path.join(marketDir, 'index.sig'), sig);
 
     assert(market.verifyIndex().ok, 'índice firmado se verifica');
-    assert(market.list().ok && market.list().plugins.length === 1, 'list() devuelve el plugin publicado');
+    assert(
+      market.list().ok && market.list().plugins.length === 1,
+      'list() devuelve el plugin publicado'
+    );
 
     // installer: pluginManager con la key del marketplace
     const pluginsDir = path.join(tmp, 'plugins');
     fs.mkdirSync(pluginsDir, { recursive: true });
-    const mgr = new PluginManager({ pluginDir: pluginsDir, marketplaceDir: marketDir, publicKey, requireSigned: true, logger: () => {} });
+    const mgr = new PluginManager({
+      pluginDir: pluginsDir,
+      marketplaceDir: marketDir,
+      publicKey,
+      requireSigned: true,
+      logger: () => {},
+    });
     const installed = await mgr.installFromMarketplace('hello');
     assert(installed.ok, 'install() copia el paquete y verifica firma', installed.error || '');
-    assert(fs.existsSync(path.join(pluginsDir, 'hello', 'index.js')), 'el plugin quedó en plugins/');
-    assert(mgr.list().length === 1 && mgr.list()[0].id === 'hello', 'el plugin instalado se carga y lista');
+    assert(
+      fs.existsSync(path.join(pluginsDir, 'hello', 'index.js')),
+      'el plugin quedó en plugins/'
+    );
+    assert(
+      mgr.list().length === 1 && mgr.list()[0].id === 'hello',
+      'el plugin instalado se carga y lista'
+    );
 
     // paquete adulterado → verifyPackage falla
     fs.appendFileSync(path.join(pkgDir, 'index.js'), '// hack');
@@ -287,7 +407,9 @@ module.exports = { register(ctx) {} };`
     // índice adulterado (otra key) → verifyIndex falla
     const other = generateKeyPair();
     const index2 = JSON.parse(fs.readFileSync(path.join(marketDir, 'index.json'), 'utf8'));
-    const sig2 = require('crypto').sign(null, Buffer.from(JSON.stringify(index2, null, 2)), other.privateKey).toString('base64');
+    const sig2 = require('crypto')
+      .sign(null, Buffer.from(JSON.stringify(index2, null, 2)), other.privateKey)
+      .toString('base64');
     fs.writeFileSync(path.join(marketDir, 'index.sig'), sig2);
     assert(!market.verifyIndex().ok, 'índice firmado por otra key se rechaza');
   }

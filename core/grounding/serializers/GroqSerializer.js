@@ -52,6 +52,12 @@ const MAX_HISTORY_CHARS = 8000;
 // ~18% del prompt.
 const MEMORY_SECTION_CHARS = 2500;
 
+// Presupuesto de chars para la sección de impresiones (F3.3). Más chico que el
+// de memoria: las inferencias son hipótesis, no hechos — alcanza con las 8 más
+// confiables y breves. La sección completa además es descartable por el
+// truncado inteligente (se recorta primero, ver core/core/context.js).
+const INFERRED_SECTION_CHARS = 1200;
+
 // ── Identity (cacheada) ───────────────────────────────────────────────────────
 // La identidad NO cambia entre turnos. Se serializa UNA SOLA VEZ al cargar
 // el módulo y se reusa en cada llamada, ahorrando ~400-600 tokens por turno.
@@ -391,7 +397,7 @@ function _buildOSSection(osContext) {
 
 /**
  * @typedef {{
- *   nodes?: Array<{ type?: string, content?: string }>,
+ *   nodes?: Array<{ type?: string, content?: string, inferred?: number }>,
  *   episodes?: Array<{ content?: string, created_at?: string }>,
  * }} MemoryData
  */
@@ -421,6 +427,9 @@ function _buildMemorySection(persistentMemory) {
   if (nodes && nodes.length > 0) {
     if (!pushLine('## Lo que sé del usuario y sus proyectos')) return '';
     for (const node of nodes) {
+      // F3.3 (defensa en profundidad): un nodo inferido ($1) NUNCA entra a la
+      // sección de hechos, aunque llegue colado en persistentMemory.
+      if (node.inferred === 1) continue;
       if (used >= budget) break;
       const type = node.type || 'Dato';
       const props = (node.content || '').slice(0, Math.min(200, budget - used));
@@ -450,6 +459,43 @@ function _buildMemorySection(persistentMemory) {
   }
 
   return parts.join('\n');
+}
+
+/**
+ * Sección de IMPRESIONES (F3.3): el modelo que el sistema infirió del usuario
+ * (nodos `inferred=1`), marcado explícitamente como hipótesis no confirmadas.
+ * Esta sección vive al lado de la memoria de HECHOS a propósito: si alguien
+ * edita la división "hecho vs. inferencia" después, las encuentra juntas y
+ * mantienen el mismo tono anti-fabricación.
+ * @typedef {Array<{ label?: string, content?: string, confidence?: number }> | null | undefined} InferredModelData
+ */
+
+/** @param {InferredModelData} inferredModel */
+function _buildInferredSection(inferredModel) {
+  if (!inferredModel || !inferredModel.length) return '';
+
+  const lines = ['## Impresiones (no confirmadas por el usuario)'];
+  const name = _getIdentity().name || 'Kaoru';
+  lines.push(
+    `Estas son inferencias de ${name}, NO cosas que el usuario dijo. ` +
+      `Nunca las presentes como un hecho ni las atribuyas al usuario ('me contaste que...'). ` +
+      `Si son relevantes para la respuesta, formulalas como pregunta o hipótesis abierta, nunca como afirmación.`
+  );
+
+  let used = lines.join('\n').length;
+  for (const node of inferredModel) {
+    const content = String(node.content || '')
+      .replace(/\s+/g, ' ')
+      .trim();
+    if (!content) continue;
+    const conf = typeof node.confidence === 'number' ? node.confidence : 0;
+    const pct = `${Math.round(conf * 100)}%`;
+    const line = `- (${pct}) ${content.slice(0, 200)}`;
+    if (used + line.length > INFERRED_SECTION_CHARS) break;
+    lines.push(line);
+    used += line.length;
+  }
+  return lines.join('\n');
 }
 
 /**
@@ -488,13 +534,15 @@ class GroqSerializer {
    *   identity?: Identity | null,
    *   osContext?: OSContext | null,
    *   persistentMemory?: MemoryData | null,
+   *   inferredModel?: InferredModelData,
    *   sessionHistory?: Array<HistoryTurn>,
    *   currentMessage?: HistoryTurn | null,
    *   toolIntent?: ToolIntentData | null,
    * }} contextPackage
    *
    * @param {{ includeMemory?: boolean }} [opts]
-   *   includeMemory: incluye la sección de memoria persistente en el prompt.
+   *   includeMemory: incluye las secciones de memoria del usuario (hechos
+   *   persistentes + impresiones inferidas) en el prompt.
    *   Por defecto NO — la memoria local del usuario (nodos/episodios del
    *   StateGraph) no se envía a proveedores externos por defecto.
    *
@@ -505,6 +553,7 @@ class GroqSerializer {
       identity = null,
       osContext = null,
       persistentMemory = null,
+      inferredModel = null, // ← nuevo en F3.3
       sessionHistory = [],
       currentMessage = null,
       toolIntent = null, // ← nuevo en Fase 3
@@ -513,11 +562,12 @@ class GroqSerializer {
 
     // Construir secciones del system prompt
     // Identidad: cacheada (se genera UNA VEZ), NO se recalcula por turno
-    // OS/Memoria/Intención: dinámicas, se regeneran cada turno
+    // OS/Memoria/Inferencias/Intención: dinámicas, se regeneran cada turno
     const sections = [
       _getSerializedIdentity(),
       _buildOSSection(osContext),
       includeMemory ? _buildMemorySection(persistentMemory) : '',
+      includeMemory ? _buildInferredSection(inferredModel) : '',
       _buildToolIntentSection(toolIntent), // ← inyección Fase 3
     ].filter(Boolean);
 

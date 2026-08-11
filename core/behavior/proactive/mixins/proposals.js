@@ -95,6 +95,15 @@ module.exports = {
       createdAt: Date.now(),
     };
 
+    // Fase nueva (curiosidad): la propuesta de pattern_uncertain recuerda el
+    // nodo inferido al que apunta, para que el outcome del usuario pueda
+    // confirmarlo/archivarlo (UserModelBuilder.confirmInferred) además del
+    // feedback general.
+    if (trigger.type === 'pattern_uncertain' && trigger.nodeId) {
+      proposal.nodeId = trigger.nodeId;
+      this._proposalRefs.set(proposal.id, { nodeId: trigger.nodeId });
+    }
+
     if (action) {
       // Memoria efímera de acciones pendientes (la ejecución llega en
       // handleDecision). Se acota para no crecer sin límite.
@@ -167,6 +176,12 @@ module.exports = {
       // Descartada — la acción pendiente deja de existir.
       this._pendingActions.delete(proposalId);
     }
+
+    // Fase nueva (curiosidad): ADEMÁS del feedback general (receptividad +
+    // ProposalStore + audiencia ya cubiertos arriba), el outcome de una
+    // pattern_uncertain confirma o archiva el nodo inferido. No duplica el
+    // mecanismo general: solo enchufa la llamada extra específica del tipo.
+    this._connectCuriosityOutcome(proposalId, type, decision);
 
     return state;
   },

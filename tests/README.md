@@ -118,10 +118,13 @@ npm test     # = bash tests/run-all.sh
 
 ### Memoria y estado
 
-| Suite              | Cobertura                                                                                                             |
-| ------------------ | --------------------------------------------------------------------------------------------------------------------- |
-| `test_state_graph` | Schema, CRUD de nodos, reconciliación, decay, sesiones con resume tras crash, recall semántico, modo memoria/fallback |
-| `test_persistent`  | Presupuesto diario, `StateGraph.forget` (/olvida), `pendingRecap`                                                     |
+| Suite                       | Cobertura                                                                                                                          |
+| --------------------------- | ---------------------------------------------------------------------------------------------------------------------------------- |
+| `test_state_graph`          | Schema, CRUD de nodos, reconciliación, decay, sesiones con resume tras crash, recall semántico, modo memoria/fallback              |
+| `test_fact_reasoner`        | Vigencia de hechos fijos (F3.1): staleness por umbral, `CASCADE_STALENESS`, refresh de `verified_at`, fallback a `created_at`      |
+| `test_session_segmentation` | Segmentación temática (F3.2): `_segmentByTopic` separa temas, un `Episode` por segmento, regresión sesión corta → 1 solo `Episode` |
+| `test_user_model_builder`   | Modelo del usuario inferido (F3.3): nodo con `EVIDENCIA_DE` y decay alto, validación anti-fabricación (confidence, labels, episodios, comandos), fusión por similitud, `confirmInferred`, piggyback en `applyDecay` |
+| `test_persistent`           | Presupuesto diario, `StateGraph.forget` (/olvida), `pendingRecap`                                                                  |
 
 ### Contexto y lenguaje
 

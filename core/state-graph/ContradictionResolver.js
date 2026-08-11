@@ -1,4 +1,4 @@
-// @ts-nocheck
+// @ts-check
 const logger = require('../observability/Logger.js');
 /**
  * ContradictionResolver.js — adelantado de Fase 2
@@ -19,6 +19,7 @@ const logger = require('../observability/Logger.js');
 
 // ── Políticas por label ───────────────────────────────────────────────────────
 // Define cómo manejar cada tipo de dato cuando llega info nueva.
+/** @type {Record<string, 'overwrite' | 'archive_and_replace' | 'tension' | 'append'>} */
 const RECONCILIATION_POLICY = {
   // Hechos únicos — siempre overwrite con el valor más reciente
   nombre_usuario: 'overwrite',
@@ -62,6 +63,10 @@ const COMMAND_PATTERNS = [
   /^\d+[smh] .*(?:comando|ejecutar)/i,
 ];
 
+/**
+ * @param {string} text
+ * @returns {boolean}
+ */
 function _isCommandContent(text) {
   return COMMAND_PATTERNS.some((p) => p.test(text.trim()));
 }
@@ -74,9 +79,46 @@ function _isCommandContent(text) {
 const APPEND_SEPARATOR = ' | Actualizado: ';
 const MAX_APPEND_SEGMENTS = 3;
 
+// ── Tipos ────────────────────────────────────────────────────────────────────
+/**
+ * @typedef {object} NewNodeInfo
+ * @property {string} type
+ * @property {string} label
+ * @property {string} content
+ * @property {number} [importance]
+ * @property {string[]} [tags]
+ */
+
+/**
+ * @typedef {object} MemNode
+ * @property {number|string} id
+ * @property {string} [label]
+ * @property {string} content
+ * @property {number} importance
+ */
+
+/**
+ * Superficie mínima de StateGraph que usa el resolver.
+ * @typedef {object} StateGraphApi
+ * @property {boolean} isReady
+ * @property {(label: string) => MemNode | null | undefined} _findActiveNodeByLabel
+ * @property {(label: string) => MemNode[]} _findNodesByLabel
+ * @property {() => Record<string, string>[]} _findDuplicateLabels
+ * @property {(opts: object) => number | string | null} createNode
+ * @property {(id: number | string, opts: object) => unknown} updateNode
+ * @property {(id: number | string) => void} _archiveNode
+ * @property {(rel: object) => void} createRelation
+ * @property {(opts: object) => number | string | null} upsertNode
+ * @property {(label: string) => number} _invalidateCascade
+ * @property {any} _db
+ */
+
 class ContradictionResolver {
+  /**
+   * @param {object} stateGraph
+   */
   constructor(stateGraph) {
-    this._graph = stateGraph;
+    this._graph = /** @type {StateGraphApi} */ (stateGraph);
   }
 
   /**
@@ -84,8 +126,8 @@ class ContradictionResolver {
    * Llama esto en lugar de graph.upsertNode() directamente.
    * Detecta si hay contradicción y aplica la política correcta.
    *
-   * @param {object} newNode - { type, label, content, importance, tags }
-   * @returns {number} id del nodo resultante
+   * @param {NewNodeInfo} newNode - { type, label, content, importance, tags }
+   * @returns {number | string | null} id del nodo resultante
    */
   resolve(newNode) {
     if (!this._graph?.isReady) return null;
@@ -114,6 +156,12 @@ class ContradictionResolver {
     return this._applyPolicy(policy, existing, newNode);
   }
 
+  /**
+   * @param {'overwrite' | 'archive_and_replace' | 'tension' | 'append'} policy
+   * @param {MemNode} existing
+   * @param {NewNodeInfo} newNode
+   * @returns {number | string | null}
+   */
   _applyPolicy(policy, existing, newNode) {
     const { label, content, importance = 0.7, tags = [], type } = newNode;
 
@@ -131,11 +179,26 @@ class ContradictionResolver {
         this._graph.updateNode(existing.id, {
           content: content,
           importance: Math.max(importance, existing.importance),
+          // F3.1: un overwrite ES una reconfirmación del hecho — su vigencia
+          // se refresca ahora, no al momento de la creación original.
+          verified_at: Date.now(),
         });
         logger.info(
           'ContradictionResolver',
           `[resolver] overwrite: ${label} → "${content.slice(0, 60)}"`
         );
+        // F3.1: si el label overwriteado tiene dependientes (CASCADE_STALENESS),
+        // los relacionados quedan sin vigencia (verified_at=null) para que la
+        // próxima pasada del FactReasoner los marque 'stale' y se revalidan.
+        try {
+          this._graph._invalidateCascade(label);
+        } catch (e) {
+          logger.warn(
+            'ContradictionResolver',
+            '[resolver] error en cascada de invalidación:',
+            /** @type {Error} */ (e).message
+          );
+        }
         return existing.id;
       }
 
@@ -224,7 +287,11 @@ class ContradictionResolver {
           if (r.a === r.b) tensionLabels.add(r.a);
         }
       } catch (e) {
-        logger.warn('ContradictionResolver', '[resolver] error leyendo tensiones:', e.message);
+        logger.warn(
+          'ContradictionResolver',
+          '[resolver] error leyendo tensiones:',
+          /** @type {Error} */ (e).message
+        );
       }
 
       for (const { label } of duplicates) {
@@ -248,7 +315,11 @@ class ContradictionResolver {
         }
       }
     } catch (e) {
-      logger.warn('ContradictionResolver', '[resolver] error en dedup:', e.message);
+      logger.warn(
+        'ContradictionResolver',
+        '[resolver] error en dedup:',
+        /** @type {Error} */ (e).message
+      );
     }
   }
 
@@ -273,10 +344,19 @@ class ContradictionResolver {
         )
         .all();
     } catch (e) {
-      logger.warn('ContradictionResolver', '[resolver] error en getTensions:', e.message);
+      logger.warn(
+        'ContradictionResolver',
+        '[resolver] error en getTensions:',
+        /** @type {Error} */ (e).message
+      );
       return [];
     }
   }
 }
 
-module.exports = { ContradictionResolver, MAX_APPEND_SEGMENTS, APPEND_SEPARATOR };
+module.exports = {
+  ContradictionResolver,
+  COMMAND_PATTERNS,
+  MAX_APPEND_SEGMENTS,
+  APPEND_SEPARATOR,
+};

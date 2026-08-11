@@ -17,6 +17,7 @@ const {
   GLOBAL_MIN_GAP_MS,
   TRIGGER_COOLDOWN_MS,
   MAX_IDLE_TO_INTERRUPT,
+  CURIOSITY_TYPES,
 } = require('../config.js');
 
 module.exports = {
@@ -34,6 +35,18 @@ module.exports = {
   _evaluateTrigger(trigger) {
     const candidate = candidateFromTrigger(trigger);
     if (!candidate) return null;
+
+    // Curiosidad: boost de saliencia calculado en GENERACIÓN (contexto de SO
+    // relacionado con el hecho/inferencia), NO en el perfil estático. Se
+    // aplica al vector ANTES de scoreRelevancia para que "justo estás en el
+    // tema" suba la prioridad de preguntar.
+    if (typeof trigger.salienceBoost === 'number' && trigger.salienceBoost > 0) {
+      candidate.signal.salience = Math.max(
+        0,
+        Math.min(1, candidate.signal.salience + trigger.salienceBoost)
+      );
+      candidate.saliencia = candidate.signal.salience;
+    }
 
     const now = Date.now();
     const ctx = this._buildGateContext(now);
@@ -87,6 +100,9 @@ module.exports = {
       recentSwitches: this._recentSwitches,
       budgetUsed: this._store?.dailyCount() ?? 0,
       receptivity: this._receptivity,
+      // Cupo de curiosidad (separado del presupuesto general) — lo consume
+      // ContextGate para los tipos memory_stale/pattern_uncertain/memory_tension.
+      curiosityUsed: this._curiosityUsedToday(),
       // F-5: tipos degradados por SLO → el gate les sube el umbral de ACT.
       degradedTypes: this._store ? this._degradedTypes() : undefined,
     };
@@ -199,8 +215,16 @@ module.exports = {
       if (this._recentProactive.length > 5) this._recentProactive.shift();
 
       // Fase C: un envío real gasta presupuesto del día (solo cuando el LLM
-      // dio el OK — los intentos bloqueados/frustrados no cuentan).
-      if (this._store) this._store.incrementDaily();
+      // dio el OK — los intentos bloqueados/frustrados no cuentan). La
+      // curiosidad tiene un cupo PROPIO y separado del general: un envío de
+      // memory_stale/pattern_uncertain/memory_tension consume SOLO el cupo de
+      // curiosidad (CURIOSITY_DAILY_CAP), nunca el presupuesto diario normal
+      // (y viceversa).
+      if (CURIOSITY_TYPES.has(trigger.type)) {
+        this._envelopeCuriosityFired();
+      } else if (this._store) {
+        this._store.incrementDaily();
+      }
 
       const payload = await this._buildPayload(trigger, message);
 

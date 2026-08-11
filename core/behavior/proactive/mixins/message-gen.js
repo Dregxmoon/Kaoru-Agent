@@ -13,6 +13,8 @@ const {
   THRASH_MIN_DISTINCT_CATEGORY,
 } = require('../config.js');
 
+const DAY_MS = 24 * 60 * 60 * 1000;
+
 // Triggers que marcan un momento de baja fricción: el usuario está en pausa,
 // volviendo de un descanso, terminando una sesión, cerrando un bloque o
 // llevando rato sin hablar. Son los momentos naturales para preguntar con
@@ -286,6 +288,19 @@ No expliques por qué escribes. No anuncies que eres proactiva. Solo di lo que d
    * no hay nada que preguntar — nunca fuerza una pregunta fuera de lugar.
    */
   _buildCuriosityContext(trigger) {
+    // Curiosidad de memoria (triggers propios): el GATE ya validó el momento
+    // (incluido el cupo propio), así que NO dependen de momentos de baja
+    // fricción. Aquí solo se entrega el dato y el TONO correcto para que Kaoru
+    // pregunte sin presentar nada como hecho.
+    if (
+      trigger &&
+      (trigger.type === 'memory_stale' ||
+        trigger.type === 'pattern_uncertain' ||
+        trigger.type === 'memory_tension' ||
+        trigger.type === 'intention_stale')
+    ) {
+      return this._buildMemoryCuriosityContext(trigger);
+    }
     if (!trigger || !LOW_FRICTION_TRIGGERS.has(trigger.type)) return '';
     try {
       const bits = [];
@@ -319,6 +334,54 @@ No expliques por qué escribes. No anuncies que eres proactiva. Solo di lo que d
       )}\nSi eliges preguntar, que sea UNA sola cosa, con tu voz natural y sin sonar a interrogatorio.`;
     } catch (e) {
       logger.warn('message-gen', '[proactive] error construyendo curiosidad:', e.message);
+      return '';
+    }
+  },
+
+  /**
+   * Curiosidad de memoria: tono y datos para los triggers propios de la Fase
+   * nueva. La regla central es la misma que la sección "Impresiones" (F3.3):
+   * una INFERENCIA sobre el usuario nunca se presenta como hecho ni se le
+   * atribuye — siempre pregunta o hipótesis abierta. Un HECHO stale, en
+   * cambio, se puede retomar de forma directa porque no es una inferencia.
+   */
+  _buildMemoryCuriosityContext(trigger) {
+    try {
+      if (trigger.type === 'memory_stale') {
+        const what = String(trigger.content || trigger.label || 'eso').slice(0, 160);
+        return `\nDato de memoria a revalidar: el usuario te contó antes "${what}" (${trigger.label}), hace tiempo que no se menciona y quedó marcado como posiblemente caducado. Es un HECHO que él dijo, no una inferencia: puedes preguntarle DIRECTO y natural, p. ej. "hace tiempo no hablamos de ${trigger.label || 'eso'}, ¿sigue igual?". No inventes nada nuevo sobre él; solo pregunta si sigue vigente.`;
+      }
+      if (trigger.type === 'pattern_uncertain') {
+        const pct = Math.round(
+          (typeof trigger.confidence === 'number' ? trigger.confidence : 0.5) * 100
+        );
+        return `\nLa razón de escribir es una INFERENCIA sobre el usuario (confianza ${pct}%), NO algo que él haya dicho. REGLA ANTI-FABRICACIÓN (misma que la sección "Impresiones" del prompt): nunca la presentes como un hecho ni la atribuyas al usuario ("me contaste que..."). Formúlala SIEMPRE como pregunta o hipótesis abierta, nunca como afirmación. Fuente: "${String(
+          trigger.content || ''
+        ).slice(0, 160)}".`;
+      }
+      if (trigger.type === 'memory_tension') {
+        const a = String(trigger.contentA || '').slice(0, 100);
+        const b = String(trigger.contentB || '').slice(0, 100);
+        return `\nEn tu memoria hay una contradicción sin resolver sobre "${
+          trigger.label || 'el usuario'
+        }": "${a}" vs "${b}". Pregunta cuál de las dos es la versión correcta (o qué pasó). NO asumas cuál es la verdadera — solo pregunta.`;
+      }
+      if (trigger.type === 'intention_stale') {
+        const goal = String(trigger.goal || trigger.label || 'eso').slice(0, 200);
+        const progress = String(trigger.lastProgress || '').slice(0, 150);
+        const days = Math.max(
+          1,
+          Math.round((Date.now() - (trigger.lastProgressAt || Date.now())) / DAY_MS)
+        );
+        // Continuidad real de conversación: la meta la pidió el USUARIO con sus
+        // palabras; se retoma su texto literal ("dijiste que ibas a X, ¿cómo
+        // va?"). Nunca un template genérico de silencio, y nunca inventar pasos,
+        // fechas ni estados de la tarea que no estén en la intención.
+        return `\nEl usuario te pidió hace tiempo hacer "${goal}" (hace ~${days} días sin actividad) y quedó pendiente. Es SU meta con SUS palabras: retómalo como continuidad real de conversación, p. ej. "dijiste que ibas a ${goal}, ¿cómo va?" — no un saludo genérico. ${progress ? `El último progreso que él dejó fue: "${progress}" — úsalo como puente natural si encaja.` : ''} No inventes detalles de la tarea (estado, pasos, fechas) que no estén aquí; si la meta requiere contexto que no tienes, pregúntalo en vez de asumirlo.`;
+      }
+      return '';
+    } catch (e) {
+      logger.warn('message-gen', '[proactive] error armando curiosidad de memoria:', e.message);
       return '';
     }
   },

@@ -29,6 +29,46 @@ const RELATION_TYPE = 'CONSOLIDA';
 const MAX_TERMS_PER_DOC = 40;
 const MAX_FACTS = 10;
 
+/**
+ * Criterio COMPARTIDO de candidatos para los jobs piggyback del ciclo de
+ * mantenimiento: episodios VIEJOS, activos y sin tag `consolidated`.
+ *
+ * Lo reutiliza ConsolidatorStore (consolidación episodio→semántica) y
+ * UserModelBuilder (modelo del usuario inferido) para que ambos trabajen
+ * sobre el MISMO conjunto y no haya drift entre ellos.
+ * @param {any} db  Base de datos (better-sqlite3 o emulador de memoria).
+ * @param {any} graph  Estado compartido (StateGraph).
+ * @param {{minAgeMs: number, limit: number}} opts
+ * @returns {Array<{id:number,label:string,content:string,created_at:number,tags:string}>}
+ */
+function queryEpisodeCandidates(db, graph, { minAgeMs, limit }) {
+  if (graph.usingFallback) return [];
+  try {
+    const rows = db
+      .prepare(
+        `SELECT id, label, content, created_at, tags FROM nodes
+         WHERE type='Episode' AND archived=0 AND created_at < ?
+         ORDER BY created_at ASC LIMIT ?`
+      )
+      .all(minAgeMs, limit);
+    const typed =
+      /** @type {Array<{id:number,label:string,content:string,created_at:number,tags:string}>} */ (
+        rows
+      );
+    return typed.filter((r) => {
+      try {
+        const t = JSON.parse(r.tags || '[]');
+        return !t.includes(CONSOLIDATED_TAG);
+      } catch {
+        return true;
+      }
+    });
+  } catch (e) {
+    logger.warn('Consolidator', '[consolidator] error al leer candidatos:', errMsg(e));
+    return [];
+  }
+}
+
 // Términos poco informativos (español técnico + inglés). Se filtran porque
 // no aportan señal de tema recurrente entre sesiones.
 const STOPWORDS = new Set(
@@ -68,35 +108,13 @@ class ConsolidatorStore {
 
   /**
    * Episodios candidatos: viejos, activos, sin tag `consolidated`.
+   * Delega en el helper compartido `queryEpisodeCandidates` (F3.3) para que
+   * el UserModelBuilder vea exactamente el mismo conjunto.
    * @param {{minAgeMs: number, limit: number}} opts
    * @returns {Array<{id:number,label:string,content:string,created_at:number,tags:string}>}
    */
-  _candidates({ minAgeMs, limit }) {
-    if (this._g.usingFallback) return [];
-    try {
-      const rows = this._db
-        .prepare(
-          `SELECT id, label, content, created_at, tags FROM nodes
-           WHERE type='Episode' AND archived=0 AND created_at < ?
-           ORDER BY created_at ASC LIMIT ?`
-        )
-        .all(minAgeMs, limit);
-      const typed =
-        /** @type {Array<{id:number,label:string,content:string,created_at:number,tags:string}>} */ (
-          rows
-        );
-      return typed.filter((r) => {
-        try {
-          const t = JSON.parse(r.tags || '[]');
-          return !t.includes(CONSOLIDATED_TAG);
-        } catch {
-          return true;
-        }
-      });
-    } catch (e) {
-      logger.warn('Consolidator', '[consolidator] error al leer candidatos:', errMsg(e));
-      return [];
-    }
+  _candidates(opts) {
+    return queryEpisodeCandidates(this._db, this._g, opts);
   }
 
   /** @param {number[]} ids */
@@ -239,4 +257,9 @@ class ConsolidatorStore {
   }
 }
 
-module.exports = { ConsolidatorStore, CONSOLIDATED_TAG, RELATION_TYPE };
+module.exports = {
+  ConsolidatorStore,
+  CONSOLIDATED_TAG,
+  RELATION_TYPE,
+  queryEpisodeCandidates,
+};

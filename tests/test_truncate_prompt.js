@@ -112,6 +112,27 @@ for (const budget of [p.length - 1, 200, 100, 60, 50]) {
   assert(out.length <= p6.length - 5, 'bajo el presupuesto (6)');
 }
 
+// Caso 7 (F3.3): "Impresiones" es la sección `---`-delimitada MENOS crítica: se
+// recorta antes que OS o Memoria y, en concreto, antes que la identidad.
+{
+  const p7 = [
+    'IDENTIDAD\n\n---\n\n## Impresiones (no confirmadas: Kaoru)\ncreo que le gusta el jazz\n\n---\n\n## Contexto actual\nOS Linux\n\n---\n\n## Lo que sé del usuario\nmemoria real\n',
+  ].join('');
+  const mid = p7.length - 1;
+  const out = truncateSystemPrompt(p7, { max: mid });
+  assert(
+    !out.includes('Impresiones (no confirmadas'),
+    'Impresiones eliminada antes que OS/Memoria (7)'
+  );
+  assert(out.includes('## Contexto actual'), 'OS conservado cuando sobra presupuesto (7)');
+  assert(
+    out.includes('## Lo que sé del usuario'),
+    'Memoria conservada cuando sobra presupuesto (7)'
+  );
+  assert(out.startsWith('IDENTIDAD'), 'identidad nunca se toca (7)');
+  assert(out.length <= mid, 'límite respetado (7)');
+}
+
 console.log(
   `\n${C.bold('test_truncate_prompt')}: ${C.green(passed + ' pasaron')}${failed ? ', ' + C.red(failed + ' fallaron') : ''}`
 );

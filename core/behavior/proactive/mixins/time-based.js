@@ -54,6 +54,12 @@ module.exports = {
       return;
     }
 
+    // Curiosidad sobre la memoria (Fase nueva): antes del silencio largo, se
+    // evalúan los candidatos de hechos stale / inferencias de confianza media /
+    // contradicciones. El gate ya impone el cupo propio (CURIOSITY_DAILY_CAP)
+    // y el boost de contexto; cada envío real consume solo ese cupo.
+    await this._maybeCuriosity();
+
     await this._maybeLongSilence(now);
   },
 

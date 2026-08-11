@@ -191,6 +191,103 @@ function testMemoryExcludedByDefault() {
   assert(!oai.systemPrompt.includes('Lo que sé del usuario'), 'OpenAI: excluida por defecto');
 }
 
+// ── F3.3: inferencias NUNCA se presentan como hechos ─────────────────────────
+
+const path = require('path');
+const fs = require('fs');
+const os = require('os');
+
+function testInferredSeparatedFromFacts() {
+  console.log(C.bold('\n── F3.3: inferred=1 va a Impresiones, nunca a los hechos ──'));
+
+  const { StateGraph } = require('../core/state-graph/StateGraph.js');
+  const { ContextAssembler } = require('../core/grounding/ContextAssembler.js');
+
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'nf-inf-'));
+  const graph = new StateGraph(path.join(dir, 'core.db')).init();
+
+  const factId = graph.createNode({
+    type: 'User',
+    label: 'nombre_usuario',
+    content: 'El usuario se llama Luka',
+    importance: 0.9,
+  });
+  graph.createNode({
+    type: 'Belief',
+    label: 'valor_cocinar_en_casa',
+    content: 'Al usuario le gusta cocinar en casa y probar platos nuevos',
+    importance: 0.8,
+    tags: ['inferred', 'value'],
+    inferred: 1,
+    confidence: 0.75,
+  });
+
+  // Simula el retrieval: incluye TAMBIÉN la inferencia colada en los nodos de
+  // hechos (recall semántico) — el ContextAssembler debe re-particionarla.
+  const factRow = graph.getNode(factId);
+  const inferredRow = graph.getUserModel({ limit: 8 })[0];
+
+  const assembler = new ContextAssembler(graph);
+  const result = assembler.build({
+    sessionHistory: [{ role: 'user', content: 'hola' }],
+    retrievalResult: { nodes: [factRow, inferredRow], episodeNodes: [] },
+    activeProvider: 'groq',
+    includeMemory: true,
+  });
+  const prompt = result.systemPrompt;
+  const factsSection = prompt.split('## Impresiones')[0];
+
+  assertIncludes(
+    prompt,
+    '## Lo que sé del usuario',
+    'La sección de hechos está presente en el prompt'
+  );
+  assert(
+    !factsSection.includes('cocinar en casa'),
+    'La inferencia NO aparece en la sección de hechos (aunque vino colada en retrieval)'
+  );
+  assertIncludes(
+    prompt,
+    'El usuario se llama Luka',
+    'El hecho real sí está en la sección de hechos'
+  );
+  assertIncludes(
+    prompt,
+    '## Impresiones (no confirmadas por el usuario)',
+    'La sección de impresiones está presente y bien titulada'
+  );
+  assertIncludes(
+    prompt,
+    'cocinar en casa',
+    'La inferencia SÍ aparece en la sección de impresiones'
+  );
+  assertIncludes(prompt, '(75%)', 'El confidence es visible en la impresión');
+  assertIncludes(prompt, 'inferencias de Kaoru', 'Disclaimer: son inferencias de Kaoru, no dichos');
+  assertIncludes(
+    prompt,
+    'Nunca las presentes como un hecho',
+    'Prohibición explícita de presentarlas como hecho'
+  );
+  assertIncludes(
+    prompt,
+    'como pregunta o hipótesis abierta',
+    'Instrucción de formularlas como pregunta/hipótesis'
+  );
+
+  // getWorldModel NO devuelve inferencias (la fuente de hechos se mantiene pura).
+  assert(
+    !graph.getWorldModel().some((n) => n.inferred === 1),
+    'getWorldModel() devuelve solo hechos (inferred=0)'
+  );
+  assert(
+    graph.getUserModel({ limit: 8 }).every((n) => n.inferred === 1),
+    'getUserModel() devuelve solo inferencias (inferred=1)'
+  );
+
+  graph.close();
+  fs.rmSync(dir, { recursive: true, force: true });
+}
+
 // ── Run ─────────────────────────────────────────────────────────────────────
 
 console.log(C.bold(C.cyan('\n════════════════════════════════════════════════════════')));
@@ -201,6 +298,7 @@ testHighLevelHasAntiFabrication();
 testMediumLevelHasAntiFabrication();
 testNoIntentNoFabricationBlock();
 testMemoryExcludedByDefault();
+testInferredSeparatedFromFacts();
 
 console.log(C.bold('\n════════════════════════════════════════════════════════'));
 const total = passed + failed + skipped;

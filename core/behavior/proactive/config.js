@@ -25,6 +25,26 @@ const SESSION_END_MIN_SEC = 20 * 60; // mínimo de racha para trigger "fin de se
 const DAILY_BUDGET = DEFAULT_POLICY.budget.base;
 const PENDING_LOOKAHEAD_MS = 45 * 60 * 1000; // pendientes a <45 min para el recap de arranque
 
+// ── Curiosidad sobre la memoria (presupuesto PROPIO) ─────────────────────────
+// Preguntas sobre hechos sospechosos (F3.1 'stale'), inferencias de confianza
+// media (Fase 4) y contradicciones vivas (getTensions). Viven en un cupo
+// diario SEPARADO del presupuesto general (DAILY_BUDGET/dinámico): un día con
+// mucha proactividad de código no agota la curiosidad, y viceversa. El gate
+// (ContextGate) rechaza (DROP) cuando se alcanza el cupo, sin importar cuánto
+// quede del presupuesto general.
+const CURIOSITY_DAILY_CAP = 2;
+const CURIOSITY_TYPES = new Set([
+  'memory_stale',
+  'pattern_uncertain',
+  'memory_tension',
+  'intention_stale',
+]);
+
+// Una intención activa con `last_progress_at` más viejo que esto (días) se
+// considera ABANDONADA y genera un candidato de curiosidad con el texto REAL
+// de la meta ("dijiste que ibas a X, ¿cómo va?").
+const INTENTION_STALE_DAYS = 5;
+
 // G.1: proactividad de alta calidad. Mensajes "relleno" que no aportan nada
 // (saludos vacíos, check-ins genéricos) se descartan en modo producción (gate
 // admitió). El gate ya validó relevancia; el mensaje debe tener sustancia.
@@ -190,6 +210,28 @@ const PROPOSAL_HINTS = {
       action: null,
     },
   },
+  // Curiosidad sobre una inferencia de confianza media (Fase 4): la respuesta
+  // (aceptar/descartar) confirma o archiva el nodo inferido vía
+  // UserModelBuilder.confirmInferred() — además del feedback general.
+  pattern_uncertain: {
+    default: {
+      title: 'Aclarar esa conclusión',
+      preview: 'Confirmas o corriges si lo que asumí sobre ti sigue siendo cierto o no.',
+      kind: 'info',
+      action: null,
+    },
+  },
+  // Curiosidad sobre una intención abandonada: el mensaje real lo arma el LLM
+  // con el TEXTO REAL de la meta (message-gen). Este bloque solo es el título/
+  // preview determinista de la propuesta en el chat.
+  intention_stale: {
+    default: {
+      title: 'Retomar esa meta',
+      preview: 'Preguntarte cómo va lo que me pediste hacer hace días.',
+      kind: 'info',
+      action: null,
+    },
+  },
   // Fase D: error de código detectado por el LSP. La propuesta pide un parche;
   // si el LLM no logra generar uno válido, cae a informativa (ver el error).
   lsp_error: {
@@ -232,6 +274,12 @@ const TRIGGER_COOLDOWN_MS = {
   upcoming_event: 30 * 60 * 1000,
   pending_recap: 60 * 60 * 1000,
   lsp_error: 45 * 60 * 1000,
+  // Curiosidad sobre la memoria: cupo bajo (2/día) y cooldown largo por tipo
+  // para no repetir la pregunta del mismo tipo varias veces en el día.
+  memory_stale: 6 * 60 * 60 * 1000,
+  pattern_uncertain: 6 * 60 * 60 * 1000,
+  memory_tension: 6 * 60 * 60 * 1000,
+  intention_stale: 6 * 60 * 60 * 1000,
 };
 
 module.exports = {
@@ -246,6 +294,9 @@ module.exports = {
   SESSION_END_MIN_SEC,
   DAILY_BUDGET,
   PENDING_LOOKAHEAD_MS,
+  CURIOSITY_DAILY_CAP,
+  CURIOSITY_TYPES,
+  INTENTION_STALE_DAYS,
   LOW_VALUE_MSGS,
   FOCUS_RULES,
   THRASH_WINDOW_MS,

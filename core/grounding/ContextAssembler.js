@@ -138,8 +138,13 @@ function _buildMinimalOSContext() {
 }
 
 class ContextAssembler {
-  constructor() {
+  /**
+   * @param {any} [stateGraph] — StateGraph opcional (F3.3): de él se lee el
+   *   modelo inferido del usuario (`getUserModel`), separado de los hechos.
+   */
+  constructor(stateGraph = null) {
     this._osSensor = null;
+    this._graph = stateGraph;
   }
 
   setOSSensor(osSensor) {
@@ -167,12 +172,35 @@ class ContextAssembler {
     const history = sessionHistory.slice(0, -1);
     const currentMsg = sessionHistory.length > 0 ? sessionHistory[sessionHistory.length - 1] : null;
 
+    // F3.3: separación estricta hechos vs. inferencias. Los nodos de retrieval
+    // que lleguen con `inferred=1` (recall semántico, etc.) van SIEMPRE a la
+    // sección de inferencias, NUNCA a `persistentMemory` (hechos). El modelo
+    // inferido adicional viene del graph por `getUserModel` (confidence ×
+    // importancia), con el mismo gating de privacidad que la memoria.
+    const retrieved = retrievalResult
+      ? { nodes: retrievalResult.nodes || [], episodes: retrievalResult.episodeNodes || [] }
+      : { nodes: [], episodes: [] };
+    const factNodes = retrieved.nodes.filter((n) => n.inferred !== 1);
+
+    let inferredModel = [];
+    if (includeMemory && this._graph && typeof this._graph.getUserModel === 'function') {
+      try {
+        inferredModel = this._graph.getUserModel({ limit: 8 }) || [];
+      } catch (e) {
+        logger.warn(
+          'ContextAssembler',
+          '[context-assembler] getUserModel falló, se omite la sección de inferencias:',
+          e.message
+        );
+        inferredModel = [];
+      }
+    }
+
     const contextPackage = {
       identity,
       osContext: osCtx,
-      persistentMemory: retrievalResult
-        ? { nodes: retrievalResult.nodes, episodes: retrievalResult.episodeNodes }
-        : { nodes: [], episodes: [] },
+      persistentMemory: { nodes: factNodes, episodes: retrieved.episodes },
+      inferredModel,
       sessionHistory: history,
       currentMessage: currentMsg,
       toolIntent, // ← Fase 3: el GroqSerializer lo lee e inyecta en el system prompt
@@ -188,6 +216,7 @@ class ContextAssembler {
         ` tokens≈${estimatedTokens}` +
         ` nodes=${retrievalResult?.nodes?.length ?? 0}` +
         ` episodes=${retrievalResult?.episodeNodes?.length ?? 0}` +
+        ` inferred=${inferredModel.length}` +
         ` app=${osCtx.friendlyName ?? 'none'}` +
         ` toolIntent=${toolIntent?.action ?? 'none'}`
     );

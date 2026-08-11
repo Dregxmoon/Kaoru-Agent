@@ -31,6 +31,11 @@ cuándo interrumpir, y esa decisión no puede ser un "sorteo" del modelo de leng
   `ProposalStore`; el `LearningEngine` los escribe de vuelta y el gate los aplica.
 - `AuditLog` / `AuditEntry` — registro trazable de cada decisión (score, veredicto, motivo, flow).
 - `receptividad`/`presupuesto`/`scoreRelevancia`/`decide` permanecen puros y unit-testables.
+- **Contratos JSDoc en toda la superficie exportada** (`@ts-check` estricto, sin `@ts-nocheck`):
+  los overrides de política viajan como `ProactivePolicy` (parcial — cada campo opcional — y se
+  fusiona sobre `DEFAULT_POLICY` en runtime); `decide` devuelve `Decision`
+  (`verdict` | `reason` | `relevance` | `decisionId`); las configs se tipan por familia
+  (`WeightsConfig`/`ThresholdsConfig`/`ReceptivityConfig`/`BudgetConfig`/`LearningConfig`).
 
 Todo es determinista y testable en aislamiento (`test_decision_core`, 55 tests).
 

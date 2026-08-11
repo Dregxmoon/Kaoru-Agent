@@ -323,9 +323,12 @@ function truncateSystemPrompt(systemPrompt, opts = {}) {
   }
 
   // 2) Secciones `---`-delimitadas del prompt base, de menor a mayor
-  //    importancia: MCP → OpenClaw → episodios → memoria → OS → comportamiento
-  //    → tools intent → identidad.
+  //    importancia: impresiones → MCP → OpenClaw → episodios → memoria → OS →
+  //    comportamiento → tools intent → identidad. Las impresiones (modelo
+  //    inferido del usuario, F3.3) son la sección NO crítica por excelencia:
+  //    se recortan PRIMERO, antes que la identidad (critical, nunca se toca).
   const sectionMarkers = [
+    { name: 'Impresiones', marker: '## Impresiones (no confirmadas', keepIf: null },
     { name: 'MCP', marker: '# HERRAMIENTAS MCP', keepIf: null },
     { name: 'OpenClaw', marker: '# HERRAMIENTAS DISPONIBLES', keepIf: null },
     { name: 'Plan', marker: '# MODO PLAN', keepIf: null },

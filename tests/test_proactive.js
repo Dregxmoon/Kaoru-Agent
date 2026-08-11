@@ -1169,7 +1169,56 @@ function testGenericContentFilter() {
   }
 }
 
-// ── Test 21: memoria del prompt prioriza gustos ──────────────────────────────
+// ── Test 20b: hechos 'stale' aparecen como gaps de revalidación (F3.1) ───────
+
+function testStaleGaps() {
+  console.log(
+    C.bold('\nTest 20b: hechos fixed marcados stale se revalida por gap de baja prioridad')
+  );
+  const prevGraph = state.graph;
+  try {
+    // Un trabajo_usuario con contenido real pero taggado 'stale' por el
+    // FactReasonerStore ya no "tapa" el gap: aparece un gap de REVALIDACIÓN.
+    state.graph = {
+      _ready: true,
+      usingFallback: false,
+      queryNodes: () => [
+        {
+          id: 1,
+          type: 'User',
+          label: 'trabajo_usuario',
+          content: 'Editor de video',
+          tags: '["stale"]',
+        },
+      ],
+    };
+    assert(
+      getMemoryGaps().some((g) => g.trait === 'si sigue trabajando en lo mismo'),
+      'trabajo stale → reaparece como gap de revalidación'
+    );
+
+    // Sin tag stale, un dato real sigue contando como conocido (sin gap).
+    state.graph.queryNodes = () => [
+      { id: 1, type: 'User', label: 'trabajo_usuario', content: 'Editor de video', tags: '[]' },
+    ];
+    assert(
+      !getMemoryGaps().some((g) => g.trait === 'si sigue trabajando en lo mismo'),
+      'trabajo vigente (sin stale) → ningún gap de revalidación'
+    );
+
+    // Un label PERMANENTE (nombre_usuario) aunque esté taggado stale no genera
+    // gap: no tiene STALE_ASK, su vigencia no se revalida.
+    state.graph.queryNodes = () => [
+      { id: 1, type: 'User', label: 'nombre_usuario', content: 'Ana', tags: '["stale"]' },
+    ];
+    assert(
+      !getMemoryGaps().some((g) => g.trait === 'su nombre'),
+      'nombre stale → sigue siendo conocido (permanente, no se revalida)'
+    );
+  } finally {
+    state.graph = prevGraph;
+  }
+}
 
 function testMemoryTastePriority() {
   console.log(C.bold('\nTest 21: _buildMemoryContext prioriza gustos y filtra ruido'));
@@ -1446,6 +1495,118 @@ async function testSilenceCause() {
   restore();
 }
 
+// ── Test 26: intención abandonada → candidato con el texto REAL ──────────────
+
+function testIntentionStaleCandidate() {
+  console.log(C.bold('\nTest 26: intention_stale — candidato desde la pila de intenciones'));
+  const { CURIOSITY_TYPES, INTENTION_STALE_DAYS } = require('../core/behavior/proactive/config.js');
+  const DAY_MS = 24 * 60 * 60 * 1000;
+
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'proactive-int-'));
+  const graph = new StateGraph(path.join(dir, 'core.db')).init();
+  const now = Date.now();
+
+  // Meta vieja y abandonada (10 días sin actividad) → debe generar candidato.
+  const abandoned = graph.createIntention({
+    sessionId: 's1',
+    goal: 'Migrar el backend a PostgreSQL',
+    steps: [],
+  });
+  graph._db
+    .prepare('UPDATE intentions SET created_at=?, updated_at=?, last_progress_at=? WHERE id=?')
+    .run(now - 10 * DAY_MS, now - 10 * DAY_MS, now - 10 * DAY_MS, abandoned);
+
+  // Meta con actividad RECIENTE → no debe generar candidato.
+  const fresh = graph.createIntention({
+    sessionId: 's1',
+    goal: 'Preparar la demo de mañana',
+    steps: [],
+  });
+  graph.updateIntention(fresh, { lastProgress: 'ensayé la demo' });
+
+  // Meta resuelta hace meses → tampoco (status done ≠ active).
+  const done = graph.createIntention({ sessionId: 's1', goal: 'Arreglar el login', steps: [] });
+  graph._db
+    .prepare('UPDATE intentions SET created_at=?, updated_at=?, last_progress_at=? WHERE id=?')
+    .run(now - 90 * DAY_MS, now - 90 * DAY_MS, now - 90 * DAY_MS, done);
+  graph.completeIntention(done);
+
+  assert(
+    CURIOSITY_TYPES.has('intention_stale'),
+    'intention_stale está en CURIOSITY_TYPES (cupo propio)'
+  );
+  assert(
+    INTENTION_STALE_DAYS === 5,
+    'INTENTION_STALE_DAYS arranca en 5',
+    `got=${INTENTION_STALE_DAYS}`
+  );
+
+  const engine = new ProactiveEngine(graph);
+  const cands = engine._collectCuriosityCandidates();
+  const staleCands = cands.filter((c) => c.type === 'intention_stale');
+
+  assert(
+    staleCands.length === 1,
+    'solo la intención ABANDONADA genera candidato (activa vieja)',
+    JSON.stringify(staleCands.map((c) => c.goal))
+  );
+  assert(
+    staleCands[0].goal === 'Migrar el backend a PostgreSQL',
+    'el candidato lleva el TEXTO REAL de la meta',
+    staleCands[0]?.goal
+  );
+  assert(
+    staleCands[0].nodeId === abandoned && typeof staleCands[0].lastProgressAt === 'number',
+    'referencia el id de la intención y su last_progress_at'
+  );
+  assert(
+    fresh && staleCands.every((c) => c.goal !== 'Preparar la demo de mañana'),
+    'la meta con actividad RECIENTE NO genera candidato'
+  );
+
+  engine.stop();
+  graph.close();
+  fs.rmSync(dir, { recursive: true, force: true });
+}
+
+// ── Test 27: el mensaje usa el texto real de la intención ────────────────────
+
+async function testIntentionStaleMessage() {
+  console.log(C.bold('\nTest 27: el mensaje de intention_stale usa el texto REAL de la meta'));
+  const engine = makeEngine();
+  let captured = '';
+  const restore = stubLLM({
+    complete: async (msgs) => {
+      captured = msgs[0].content;
+      return '¿Cómo va lo de migrar a PostgreSQL?';
+    },
+  });
+
+  await engine._generateMessage({
+    type: 'intention_stale',
+    goal: 'Migrar el backend a PostgreSQL',
+    lastProgress: 'falta el refactor de la capa de datos',
+    lastProgressAt: Date.now() - 6 * 24 * 60 * 60 * 1000,
+  });
+
+  assert(
+    captured.includes('Migrar el backend a PostgreSQL'),
+    'el prompt cita la meta con las PALABRAS DEL USUARIO'
+  );
+  assert(
+    captured.includes('falta el refactor de la capa de datos'),
+    'el prompt cita el último progreso real que dejó'
+  );
+  assert(
+    captured.includes('dijiste que ibas a') || captured.includes('continuidad real'),
+    'instrucción de retomar como continuidad real de conversación, no template',
+    captured.slice(0, 200)
+  );
+  assert(!captured.includes('mensaje de silencio'), 'nada de silencio genérico en el prompt');
+  engine.stop();
+  restore();
+}
+
 // ── Runner ───────────────────────────────────────────────────────────────────
 
 (async () => {
@@ -1474,11 +1635,14 @@ async function testSilenceCause() {
   testTasteMatch();
   await testMediaTriggerCarriesTaste();
   testGenericContentFilter();
+  testStaleGaps();
   testMemoryTastePriority();
   testMediaBoostGate();
   await testSituationFrame();
   await testRelationBookend();
   await testSilenceCause();
+  testIntentionStaleCandidate();
+  await testIntentionStaleMessage();
 
   console.log(
     C.bold(`\nResultado: ${C.green(`${passed} ✓`)}${failed ? ` / ${C.red(`${failed} ✗`)}` : ''}`)

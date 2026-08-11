@@ -27,7 +27,7 @@ class GroundingEngine {
   constructor(stateGraph) {
     this._graph = stateGraph;
     this._planner = new RetrievalPlanner(/** @type {object} */ (stateGraph));
-    this._assembler = new ContextAssembler();
+    this._assembler = new ContextAssembler(stateGraph);
     /** @type {{ getCurrentContext(): object } | null} */
     this._osSensor = null;
   }

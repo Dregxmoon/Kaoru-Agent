@@ -257,6 +257,110 @@ function _looksLikeColor(content) {
   return meaningful.every((t) => KNOWN_COLORS.has(t));
 }
 
+// ── Edad calculada desde cumpleaños (F3.1) ───────────────────────────────────
+// El cumpleaños es permanente (nunca stale), así que es la MEJOR fuente de
+// vigencia para la edad: si el usuario dio su fecha de nacimiento, la edad se
+// calcula de ahí en vez de depender de que `edad_usuario` esté guardado y se
+// actualice a mano. `edad_usuario` sigue existiendo como fallback.
+const BIRTHDAY_MONTHS = [
+  null,
+  'enero',
+  'febrero',
+  'marzo',
+  'abril',
+  'mayo',
+  'junio',
+  'julio',
+  'agosto',
+  'septiembre',
+  'octubre',
+  'noviembre',
+  'diciembre',
+];
+const BIRTHDAY_MONTHS_EN = {
+  january: 1,
+  february: 2,
+  march: 3,
+  april: 4,
+  may: 5,
+  june: 6,
+  july: 7,
+  august: 8,
+  september: 9,
+  october: 10,
+  november: 11,
+  december: 12,
+};
+
+/**
+ * Extrae { day, month, year } de un contenido con fecha de nacimiento.
+ * Soportes: "Cumpleaños: 15 de junio" (sin año → age no computable),
+ * "15 de junio de 1995", "15/06/1995", "1995-06-15", "June 15, 1995".
+ * @param {string} content
+ * @returns {{ day: number, month: number, year: number | null } | null}
+ */
+function _parseBirthday(content) {
+  const s = String(content || '')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase();
+  if (!s) return null;
+
+  // "15 de junio [de 1995]"
+  const m1 = s.match(
+    /(\d{1,2})\s+de\s+(enero|febrero|marzo|abril|mayo|junio|julio|agosto|septiembre|octubre|noviembre|diciembre)(\s+de\s+(\d{1,4}))?/
+  );
+  if (m1) {
+    const month = BIRTHDAY_MONTHS.indexOf(m1[2]);
+    return { day: Number(m1[1]), month, year: m1[4] ? Number(m1[4]) : null };
+  }
+
+  // "15/06/1995" | "1995-06-15"
+  const m2 = s.match(/(\d{1,2})[/-](\d{1,2})[/-](\d{2,4})/);
+  if (m2) return { day: Number(m2[1]), month: Number(m2[2]), year: Number(m2[3]) };
+
+  const m3 = s.match(/(\d{2,4})-(\d{1,2})-(\d{1,2})/);
+  if (m3) return { year: Number(m3[1]), month: Number(m3[2]), day: Number(m3[3]) };
+
+  // "June 15, 1995"
+  const m4 = s.match(
+    /(january|february|march|april|may|june|july|august|september|october|november|december)\s+(\d{1,2}),?\s+(\d{2,4})/
+  );
+  if (m4) return { day: Number(m4[2]), month: BIRTHDAY_MONTHS_EN[m4[1]], year: Number(m4[3]) };
+
+  return null;
+}
+
+/**
+ * Edad calculada a partir del cumpleaños del usuario. Devuelve `null` si no
+ * hay un cumpleaños con AÑO en memoria (sin año no se puede calcular una edad),
+ * si no hay grafo o si el grafo está en modo fallback. Cuando el cumpleaños
+ * tiene año, el cálculo gana sobre `edad_usuario` guardado a mano.
+ * @param {object} [graph] Grafo a consultar (por defecto el compartido en `state`).
+ * @returns {number | null}
+ */
+function getComputedAge(graph = state.graph) {
+  if (!graph || graph.usingFallback) return null;
+  try {
+    const bday =
+      typeof graph._findActiveNodeByLabel === 'function'
+        ? graph._findActiveNodeByLabel('cumpleanos_usuario')
+        : null;
+    if (!bday) return null;
+    const parsed = _parseBirthday(bday.content);
+    if (!parsed || !parsed.year) return null;
+
+    const now = new Date();
+    let age = now.getFullYear() - parsed.year;
+    const thisYear = new Date(now.getFullYear(), parsed.month - 1, parsed.day);
+    if (now < thisYear) age--;
+    return age;
+  } catch (e) {
+    logger.warn('misc', '[core] error calculando edad desde cumpleaños:', e.message);
+    return null;
+  }
+}
+
 // Tipos que forman la identidad/memoria real del usuario (excluye Episode:
 // sesiones y compactaciones son ruido para la vista).
 const IDENTITY_TYPES = ['User', 'Project', 'Preference', 'Belief'];
@@ -460,12 +564,35 @@ function getMemoryGaps() {
       if (!_isRealIdentity(n)) continue;
       for (const g of KNOWLEDGE_GAPS) if (g.re.test(n.label)) known.add(g);
     }
-    return KNOWLEDGE_GAPS.filter((g) => !known.has(g)).map((g) => ({ trait: g.ask }));
+    const gaps = KNOWLEDGE_GAPS.filter((g) => !known.has(g)).map((g) => ({ trait: g.ask }));
+
+    // F3.1: los hechos fijos de larga duración marcados 'stale' por el
+    // FactReasonerStore son gaps de BAJA prioridad — no es que no sepamos el
+    // dato, es que hay que revalidarlo (el valor puede haber caducado). Se
+    // agregan después de los unknown, sin duplicar el mismo trait.
+    const staleSeen = new Set();
+    for (const n of nodes) {
+      if (!Array.isArray(n.tags) || !n.tags.includes('stale')) continue;
+      if (!STALE_ASK[n.label] || staleSeen.has(n.label)) continue;
+      staleSeen.add(n.label);
+      gaps.push({ trait: STALE_ASK[n.label] });
+    }
+
+    return gaps;
   } catch (e) {
     logger.warn('misc', '[core] error calculando gaps de memoria:', e.message);
     return [];
   }
 }
+
+// F3.1: cómo se pregunta/revalida un hecho fijo que marcó 'stale'. Solo los
+// labels con vigencia (los de STALENESS_DAYS) entran — los permanentes
+// (nombre, cumpleaños, gustos) nunca preguntan cómo "reconfirmar".
+const STALE_ASK = {
+  trabajo_usuario: 'si sigue trabajando en lo mismo',
+  proyecto_principal: 'si su proyecto principal sigue siendo el mismo',
+  ubicacion_usuario: 'si sigue viviendo en el mismo lugar',
+};
 
 /**
  * Grafo de memoria: nodos + aristas. Deriva conexiones implícitas entre nodos:
@@ -604,6 +731,7 @@ module.exports = {
   listNodes,
   listNodeGraph,
   getMemoryGaps,
+  getComputedAge,
   storeFact,
   isRealIdentityNode,
   extractThemeTerms,

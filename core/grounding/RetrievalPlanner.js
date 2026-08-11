@@ -226,6 +226,11 @@ class RetrievalPlanner {
     const nodes = [];
 
     const addNode = (n) => {
+      // F3.3: los nodos inferidos (modelo del usuario) NO entran al bucket de
+      // hechos del retrieval — van solo a la sección de impresiones vía
+      // ContextAssembler.getUserModel(). Evita que un rasgo inferido consuma
+      // presupuesto del recall y se cuele al prompt como "hecho".
+      if (n && n.inferred === 1) return;
       if (n && !nodeIds.has(n.id)) {
         nodeIds.add(n.id);
         nodes.push(n);

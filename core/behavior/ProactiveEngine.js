@@ -15,7 +15,10 @@
  *                                     ventana, portapapeles, recordatorios, LSP).
  *   - proactive/mixins/time-based.js→ triggers temporales (fecha especial,
  *                                     madrugada, silencio, recap de pendientes).
- *   - proactive/mixins/gate.js      → árbitro central: gate Fase F + cooldowns.
+ *   - proactive/mixins/curiosity.js  → preguntas sobre la memoria (hechos
+ *                                     stale, inferencias de confianza media,
+ *                                     contradicciones) con cupo propio.
+ *   - proactive/mixins/gate.js       → árbitro central: gate Fase F + cooldowns.
  *   - proactive/mixins/proposals.js → propuestas con consentimiento (Fase A/B).
  *   - proactive/mixins/message-gen.js → generación del mensaje con el LLM.
  *   - proactive/mixins/testing.js   → evaluación forzada + getStats.
@@ -76,6 +79,7 @@ const lifecycle = require('./proactive/mixins/lifecycle.js');
 const osEvents = require('./proactive/mixins/os-events.js');
 const sensorEvents = require('./proactive/mixins/sensor-events.js');
 const timeBased = require('./proactive/mixins/time-based.js');
+const curiosity = require('./proactive/mixins/curiosity.js'); // Fase nueva: preguntas sobre la memoria
 const gate = require('./proactive/mixins/gate.js');
 const proposals = require('./proactive/mixins/proposals.js');
 const messageGen = require('./proactive/mixins/message-gen.js');
@@ -162,6 +166,16 @@ class ProactiveEngine {
     this._receptivity = 0; // Rec acumulada (EMA) — actualizada por handleDecision
     this._sentFeedback = new Map(); // proposalId → { type, at } para marcar ignored
     this._ignoredAfterMs = opts.ignoredAfterMs || 12 * 60 * 60 * 1000; // 12h sin respuesta = ignored
+
+    // ── Curiosidad sobre la memoria (Fase nueva) ────────────────────────────
+    // Cupo DIARIO PROPIO (CURIOSITY_DAILY_CAP, por defecto 2), separado del
+    // presupuesto general. El gate decide con estos números; el contador se
+    // resetea al cambiar de día.
+    this._curiosityDay = null;
+    this._curiosityFired = 0;
+    // proposalId → { nodeId } para conectar el outcome de pattern_uncertain
+    // con UserModelBuilder.confirmInferred().
+    this._proposalRefs = new Map();
   }
 }
 
@@ -169,6 +183,7 @@ Object.assign(ProactiveEngine.prototype, lifecycle);
 Object.assign(ProactiveEngine.prototype, osEvents);
 Object.assign(ProactiveEngine.prototype, sensorEvents);
 Object.assign(ProactiveEngine.prototype, timeBased);
+Object.assign(ProactiveEngine.prototype, curiosity);
 Object.assign(ProactiveEngine.prototype, gate);
 Object.assign(ProactiveEngine.prototype, proposals);
 Object.assign(ProactiveEngine.prototype, messageGen);

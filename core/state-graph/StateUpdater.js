@@ -17,6 +17,21 @@ const logger = require('../observability/Logger.js');
 
 const LLMProvider = require('../llm/LLMProvider.js');
 const { ContradictionResolver } = require('./ContradictionResolver.js');
+const EmbedService = require('../grounding/EmbedService.js');
+
+// ── Segmentación temática de sesiones ─────────────────────────────────────────
+// processSession() ya no comprime TODA la sesión en un solo Episode: la divide
+// por tema y extrae UN Episode por segmento (mismo prompt/formato, sub-historial
+// por segmento). El corte se decide por similitud coseno entre los embeddings de
+// turnos consecutivos.
+//   - SEGMENT_COSINE_THRESHOLD: bajo este valor (cambio claro de tema) se corta.
+//   - MIN_SEGMENT_TURNS: un segmento nunca baja de 3 turnos (no trocear charlas).
+//   - MIN_SESSION_TURNS_FOR_SEGMENTATION: con mínimo 3 turnos por segmento, una
+//     sesión de menos de 6 turnos no tiene espacio para 2 segmentos con sentido —
+//     se trata completa, sin intentar cortar nada.
+const SEGMENT_COSINE_THRESHOLD = 0.4;
+const MIN_SEGMENT_TURNS = 3;
+const MIN_SESSION_TURNS_FOR_SEGMENTATION = 6;
 
 const EXTRACTION_SYSTEM = `Eres la memoria del asistente personal. Analiza la conversación y extrae lo memorable.
 
@@ -119,6 +134,29 @@ const COMMAND_PATTERNS = [
 
 function _isCommandContent(text) {
   return COMMAND_PATTERNS.some((p) => p.test(text.trim()));
+}
+
+/**
+ * Similitud coseno entre dos vectores (embeddings). Devuelve 0 si alguno está
+ * vacío o no se puede comparar — tratar como "sin relación" (corte) es seguro
+ * porque el mínimo de segmento protege de cortar charlas cortas.
+ * @param {ArrayLike<number>} a
+ * @param {ArrayLike<number>} b
+ * @returns {number}
+ */
+function cosine(a, b) {
+  const len = Math.min(a.length, b.length);
+  if (len === 0) return 0;
+  let dot = 0,
+    na = 0,
+    nb = 0;
+  for (let i = 0; i < len; i++) {
+    dot += a[i] * b[i];
+    na += a[i] * a[i];
+    nb += b[i] * b[i];
+  }
+  if (na === 0 || nb === 0) return 0;
+  return dot / (Math.sqrt(na) * Math.sqrt(nb));
 }
 
 function isValidLabel(label) {
@@ -331,6 +369,66 @@ class StateUpdater {
   }
 
   /**
+   * Divide un historial de sesión en segmentos temáticos. Un "ningún corte" se
+   * traduce en UN solo segmento (la sesión completa). El corte se decide por
+   * similitud coseno entre los embeddings de turnos consecutivos (EmbedService):
+   * donde la similitud cae bajo SEGMENT_COSINE_THRESHOLD hay un cambio de tema.
+   *
+   * Reglas de no over-segmentación:
+   *  - Sesiones con menos de MIN_SESSION_TURNS_FOR_SEGMENTATION (6) turnos:
+   *    un solo segmento — no tiene sentido intentar cortar.
+   *  - Un segmento nunca arranca con menos de MIN_SEGMENT_TURNS (3) turnos:
+   *    un corte no se acepta si el segmento actual o lo que queda por delante
+   *    quedaría en menos de 3 turnos.
+   *
+   * Si EmbedService falla o devuelve algo que no se puede comparar ("null" o
+   * vacío), se respeta el caso más conservador: la sesión completa en un solo
+   * segmento. Nunca rompe el pipeline de cierre de sesión.
+   *
+   * @param {Array<{ role: string, content: string }>} history
+   * @returns {Promise<Array<Array<{ role: string, content: string }>>>}
+   */
+  async _segmentByTopic(history) {
+    const turns = Array.isArray(history) ? history : [];
+    if (turns.length < MIN_SESSION_TURNS_FOR_SEGMENTATION) {
+      return [turns];
+    }
+
+    // Embeber todos los turnos en paralelo. Cualquier fallo de embebido
+    // devuelve la sesión como un único segmento (nunca cortamos a ciegas).
+    try {
+      const vectors = await Promise.all(
+        turns.map((t) => EmbedService.embedText(`${t.role}: ${t.content}`))
+      );
+      if (vectors.some((v) => !v || v.length === 0)) return [turns];
+
+      const segments = [];
+      let start = 0;
+      for (let i = 1; i < turns.length; i++) {
+        const sim = cosine(vectors[i - 1], vectors[i]);
+        const currentLen = i - start;
+        const remaining = turns.length - i;
+        const isTopicShift = sim < SEGMENT_COSINE_THRESHOLD;
+        // No aceptar un corte que deje un segmento de menos de 3 turnos.
+        const respectsMinSize = currentLen >= MIN_SEGMENT_TURNS && remaining >= MIN_SEGMENT_TURNS;
+        if (isTopicShift && respectsMinSize) {
+          segments.push(turns.slice(start, i));
+          start = i;
+        }
+      }
+      segments.push(turns.slice(start));
+      return segments;
+    } catch (e) {
+      logger.warn(
+        'StateUpdater',
+        '[state-updater] error al segmentar por tema (sesión completa como 1 segmento):',
+        e.message
+      );
+      return [turns];
+    }
+  }
+
+  /**
    * Análisis LLM al cierre de sesión.
    * Todo pasa por el resolver, y los labels se validan antes — si el LLM
    * inventa una variante de un label fijo, se descarta en vez de crear
@@ -340,6 +438,15 @@ class StateUpdater {
    * sobre los mensajes del usuario para capturar patrones triviales (nombre,
    * edad, color favorito, etc.) sin gastar tokens. Si no hay mensajes del
    * usuario (sesión de solo asistente), se omite el LLM por completo.
+   *
+   * SEGMENTACIÓN: la sesión se divide por tema (_segmentByTopic). El caso
+   * común (1 segmento, sesiones cortas o monotemáticas) mantiene el
+   * comportamiento exacto de antes: una sola llamada al LLM produce a la vez
+   * el resumen de sesión (sessions.summary) y el Episode. En sesiones
+   * multi-tema se hace UNA llamada al LLM por segmento, y cada segmento crea
+   * su propio nodo Episode — la memoria pasa a describir cada tema, en vez de
+   * comprimir toda la sesión a un solo resumen. sessions.summary SIEMPRE se
+   * genera a nivel sesión completa, como hoy, para no romper getLastSessions.
    */
   async processSession(sessionId, history, turnCount) {
     if (!history || history.length < 2) {
@@ -369,19 +476,102 @@ class StateUpdater {
       `[state-updater] analizando sesión (${history.length} mensajes, ${instantSaved} instantáneos)...`
     );
 
-    let extracted;
-    try {
-      extracted = await this._extractMemories(history);
-    } catch (e) {
-      logger.error('StateUpdater', '[state-updater] error LLM:', e.message);
-      this._graph.endSession(sessionId, { turnCount, summary: null });
-      return { saved: instantSaved, error: e.message };
+    // Segmentos temáticos; _segmentByTopic nunca rompe el pipeline (ante
+    // cualquier fallo devuelve la sesión completa como un único segmento).
+    const segments = await this._segmentByTopic(history);
+
+    // Map label→id para resolver las relaciones extraídas (solo nodos activos).
+    // Compartido entre segmentos: un segmento puede referenciar nodos de otro.
+    const idByLabel = new Map();
+    let saved = 0,
+      discarded = 0,
+      relations = 0;
+    const episodeIds = [];
+
+    // Caso común (1 segmento = la sesión): UNA llamada al LLM hace todo,
+    // exactamente como antes — resumen de sesión + Episode.
+    if (segments.length === 1) {
+      let extracted;
+      try {
+        extracted = await this._extractMemories(history);
+      } catch (e) {
+        logger.error('StateUpdater', '[state-updater] error LLM:', e.message);
+        this._graph.endSession(sessionId, { turnCount, summary: null });
+        return { saved: instantSaved, error: e.message };
+      }
+      const r = this._saveExtraction(extracted, idByLabel);
+      saved += r.saved;
+      discarded += r.discarded;
+      relations += r.relations;
+      const epId = this._createEpisodeNode(extracted);
+      if (epId) episodeIds.push(epId);
+
+      this._graph.endSession(sessionId, {
+        turnCount,
+        summary: extracted.episode_summary,
+        episodeId: episodeIds[0] ?? null,
+      });
+      logger.info(
+        'StateUpdater',
+        `[state-updater] guardados: ${saved} nodos, ${relations} relaciones, descartados: ${discarded}, episodios: ${episodeIds.length}`
+      );
+      return { saved, relations, discarded, episodeId: episodeIds[0] ?? null, segments: 1 };
     }
 
+    // Multi-segmento: UNA llamada al LLM por segmento, cada una con SU
+    // sub-historial; cada resumen crea su propio Episode.
+    const segmentSummaryTexts = [];
+    for (let i = 0; i < segments.length; i++) {
+      try {
+        const extracted = await this._extractMemories(segments[i]);
+        const r = this._saveExtraction(extracted, idByLabel);
+        saved += r.saved;
+        discarded += r.discarded;
+        relations += r.relations;
+        const epId = this._createEpisodeNode(extracted);
+        if (epId) episodeIds.push(epId);
+        if (extracted.episode_summary) segmentSummaryTexts.push(extracted.episode_summary);
+      } catch (e) {
+        logger.warn('StateUpdater', `[state-updater] error LLM en segmento ${i + 1}:`, e.message);
+      }
+    }
+
+    // sessions.summary a nivel sesión completa, SIN llamada LLM extra: se
+    // compone de los resúmenes por segmento (cubre toda la sesión y mantiene
+    // getLastSessions legible, como pide el requisito "no romper esa función").
+    // Si un segmento falló, el resto de tema(s) aún dejan un summary legible.
+    const sessionSummary = segmentSummaryTexts.length ? segmentSummaryTexts.join(' | ') : null;
+
+    this._graph.endSession(sessionId, {
+      turnCount,
+      summary: sessionSummary,
+      episodeId: episodeIds[0] ?? null,
+    });
+    logger.info(
+      'StateUpdater',
+      `[state-updater] ${segments.length} segmentos: ${saved} nodos, ${relations} relaciones, descartados: ${discarded}, episodios: ${episodeIds.length}`
+    );
+    return {
+      saved,
+      relations,
+      discarded,
+      episodeId: episodeIds[0] ?? null,
+      segments: segments.length,
+    };
+  }
+
+  /**
+   * Guarda nodos y relaciones de una extracción (a través del resolver y con
+   * validación de labels). Mutaciones vía `idByLabel` (compartido entre
+   * segmentos).
+   * @param {{ nodes?: any[], relations?: any[] }} extracted
+   * @param {Map<string, number>} idByLabel
+   * @returns {{ saved: number, discarded: number, relations: number }}
+   */
+  _saveExtraction(extracted, idByLabel) {
     let saved = 0,
-      discarded = 0;
-    // Map label→id para resolver las relaciones extraídas (solo nodos activos)
-    const idByLabel = new Map();
+      discarded = 0,
+      relations = 0;
     for (const node of extracted.nodes || []) {
       try {
         if (!node.type || !node.label || !node.content) continue;
@@ -417,7 +607,6 @@ class StateUpdater {
 
     // Relaciones extraídas: conectan nodos por label (usando ids recién guardados
     // o nodos activos preexistentes). Se descartan las que no resuelvan.
-    let relations = 0;
     for (const rel of extracted.relations || []) {
       try {
         const sourceLabel = String(rel.source || '')
@@ -441,29 +630,28 @@ class StateUpdater {
         logger.warn('StateUpdater', '[state-updater] error guardando relación:', e.message);
       }
     }
+    return { saved, discarded, relations };
+  }
 
-    let episodeId = null;
-    if (extracted.episode_summary) {
-      const dateStr = new Date().toLocaleDateString('es-MX', {
-        weekday: 'long',
-        day: 'numeric',
-        month: 'long',
-      });
-      episodeId = this._graph.createNode({
-        type: 'Episode',
-        label: `sesion_${Date.now()}`,
-        content: `[${dateStr}] ${extracted.episode_summary}`,
-        importance: Math.min(1.0, Math.max(0.1, extracted.episode_importance ?? 0.5)),
-        tags: ['sesion'],
-      });
-    }
-
-    this._graph.endSession(sessionId, { turnCount, summary: extracted.episode_summary, episodeId });
-    logger.info(
-      'StateUpdater',
-      `[state-updater] guardados: ${saved} nodos, ${relations} relaciones, descartados: ${discarded}, episodio: ${episodeId ? 'sí' : 'no'}`
-    );
-    return { saved, relations, discarded, episodeId };
+  /**
+   * Crea el nodo Episode de una extracción (una extracción por segmento).
+   * @param {{ episode_summary?: string, episode_importance?: number }} extracted
+   * @returns {number | null} id del Episode, o null si no hay resumen.
+   */
+  _createEpisodeNode(extracted) {
+    if (!extracted.episode_summary) return null;
+    const dateStr = new Date().toLocaleDateString('es-MX', {
+      weekday: 'long',
+      day: 'numeric',
+      month: 'long',
+    });
+    return this._graph.createNode({
+      type: 'Episode',
+      label: `sesion_${Date.now()}`,
+      content: `[${dateStr}] ${extracted.episode_summary}`,
+      importance: Math.min(1.0, Math.max(0.1, extracted.episode_importance ?? 0.5)),
+      tags: ['sesion'],
+    });
   }
 
   async _extractMemories(history) {
@@ -472,8 +660,14 @@ class StateUpdater {
       .map((m) => `${m.role === 'user' ? 'Usuario' : 'Asistente'}: ${m.content}`)
       .join('\n');
 
-    // Para sesiones largas (> 20 turnos), usar smart mode para mejor
-    // razonamiento sobre el contexto completo.
+    // DECISIÓN smart mode: con la segmentación por tema, el umbral de >20 turnos
+    // ahora aplica POR SEGMENTO, no por sesión completa. Antes una sesión de
+    // 30 turnos cambiaba a smart aunque fueran 2 temas de 15; hoy cada segmento
+    // decide por sí mismo: un segmento largo (tema pesado, >20 turnos) usa
+    // smart sobre SU contexto completo, y los segmentos cortos usan el modo
+    // normal. Es más justo con el contexto real que recibe cada llamada. El
+    // caso de 1 segmento (sesión corta/monotemática) se comporta igual que
+    // siempre, porque su longitud == la de la sesión.
     const useSmart = history.length > 20;
     const raw = useSmart
       ? await LLMProvider.completeTask(

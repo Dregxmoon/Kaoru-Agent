@@ -12,6 +12,7 @@ const logger = require('../observability/Logger.js');
  *   - AppHistoryStore    → uso de aplicaciones (Fase 2)
  *   - DecayStore         → decay de importancia y archivado
  *   - ConsolidatorStore  → consolidación episodio→semántica (Fase 2, ítem 2)
+ *   - FactReasonerStore  → vigencia de hechos fijos y cascada de invalidación (F3.1)
  *   - IntentionsStore    → metas persistentes: stack de intenciones activas (Fase 3, ítem 1)
  */
 
@@ -24,7 +25,9 @@ const { SessionStore } = require('./stores/SessionStore.js');
 const { AppHistoryStore } = require('./stores/AppHistoryStore.js');
 const { DecayStore } = require('./stores/DecayStore.js');
 const { ConsolidatorStore } = require('./stores/ConsolidatorStore.js');
+const { FactReasonerStore } = require('./stores/FactReasonerStore.js');
 const { IntentionsStore } = require('./stores/IntentionsStore.js');
+const { UserModelBuilder } = require('./UserModelBuilder.js');
 const { ContradictionResolver } = require('./ContradictionResolver.js');
 const { NODE_TYPES, DECAY_RATES } = require('./stores/constants.js');
 
@@ -182,6 +185,9 @@ class MemoryStatement {
 
     if (this._sql.includes('archived=0')) list = list.filter((n) => n.archived === 0);
     else if (this._sql.includes('archived=1')) list = list.filter((n) => n.archived === 1);
+    // F3.3: separación hechos/inferencias también en modo memoria (RAM).
+    if (this._sql.includes('inferred=1')) list = list.filter((n) => n.inferred === 1);
+    else if (this._sql.includes('inferred=0')) list = list.filter((n) => n.inferred !== 1);
     const typeIn = this._sql.match(/type IN \(([^)]+)\)/);
     if (typeIn) {
       const types = typeIn[1].split(',').map((x) => x.trim().replace(/'/g, ''));
@@ -202,9 +208,14 @@ class MemoryStatement {
         const p = parts[i];
         const desc = p.endsWith(' DESC');
         const col = p.replace(/ DESC$/, '').trim();
+        const byConfidenceTimesImportance = col.includes('COALESCE(confidence');
         list.sort((a, b) => {
-          const av = a[col],
-            bv = b[col];
+          const av = byConfidenceTimesImportance
+            ? (a.confidence ?? 0) * (a.importance ?? 0)
+            : a[col];
+          const bv = byConfidenceTimesImportance
+            ? (b.confidence ?? 0) * (b.importance ?? 0)
+            : b[col];
           if (av === bv) return 0;
           return (av < bv ? -1 : 1) * (desc ? -1 : 1);
         });
@@ -442,8 +453,10 @@ class StateGraph {
     this._appHistory = new AppHistoryStore(this._db);
     this._decay = new DecayStore(this._db);
     this._consolidator = new ConsolidatorStore(this._db, this);
+    this._factReasoner = new FactReasonerStore(this._db, this);
     this._intentions = new IntentionsStore(this._db, this);
     this._resolver = new ContradictionResolver(this);
+    this._userModel = new UserModelBuilder(this._db, this);
   }
 
   // Schema
@@ -496,7 +509,10 @@ class StateGraph {
         archived         INTEGER NOT NULL DEFAULT 0,
         created_at       INTEGER NOT NULL,
         updated_at       INTEGER NOT NULL,
-        last_accessed_at INTEGER NOT NULL
+        last_accessed_at INTEGER NOT NULL,
+        verified_at      INTEGER,
+        inferred         INTEGER NOT NULL DEFAULT 0,
+        confidence       REAL
       );
 
       CREATE INDEX IF NOT EXISTS idx_nodes_type       ON nodes(type);
@@ -547,6 +563,7 @@ class StateGraph {
         status        TEXT    NOT NULL DEFAULT 'active',
         steps         TEXT    NOT NULL DEFAULT '[]',
         last_progress TEXT,
+        last_progress_at INTEGER,
         created_at    INTEGER NOT NULL,
         updated_at    INTEGER NOT NULL
       );
@@ -594,6 +611,31 @@ class StateGraph {
         this._db.exec(`ALTER TABLE sessions ADD COLUMN history_json TEXT;`);
       }
 
+      const nodeCols = this._db.prepare(`PRAGMA table_info(nodes)`).all();
+      const nodeNames = new Set(nodeCols.map((c) => c.name));
+      const nodeAlters = [];
+      // F3.1-standards: los FIXED_LABELS dejan de ser "se escribe una vez y se
+      // confía para siempre" — ganan una noción de vigencia (verified_at),
+      // origen (inferred) y certeza (confidence). Ver FactReasonerStore.js.
+      if (!nodeNames.has('verified_at')) {
+        nodeAlters.push('ALTER TABLE nodes ADD COLUMN verified_at INTEGER');
+      }
+      if (!nodeNames.has('inferred')) {
+        nodeAlters.push('ALTER TABLE nodes ADD COLUMN inferred INTEGER NOT NULL DEFAULT 0');
+      }
+      if (!nodeNames.has('confidence')) {
+        nodeAlters.push('ALTER TABLE nodes ADD COLUMN confidence REAL');
+      }
+      if (nodeAlters.length > 0) {
+        logger.info('StateGraph', '[state-graph] migrando schema: nodes verificación de hechos...');
+        this._db.exec(nodeAlters.join('; '));
+        // Backfill conservador: para filas existentes no sabemos cuándo se
+        // confirmó por última vez el hecho — se usa el dato más conservador
+        // disponible (created_at), no una fecha inventada.
+        this._db.exec(`UPDATE nodes SET verified_at = created_at WHERE verified_at IS NULL;`);
+        logger.info('StateGraph', '[state-graph] migración nodes verificación completada');
+      }
+
       const relationsTable = this._db
         .prepare(`SELECT name FROM sqlite_master WHERE type='table' AND name='node_relations'`)
         .get();
@@ -634,6 +676,22 @@ class StateGraph {
           CREATE INDEX IF NOT EXISTS idx_intentions_active ON intentions(status, updated_at DESC);
         `);
         logger.info('StateGraph', '[state-graph] migración intentions completada');
+      }
+
+      // Proactividad con intenciones: `last_progress_at` (cuándo hubo actividad
+      // por última vez) no existía en el schema heredado — solo estaba
+      // `last_progress` (TEXT, la descripción del progreso, no un timestamp).
+      // Misma estrategia guardada que nodes.verified_at: PRAGMA table_info +
+      // ALTER TABLE ADD COLUMN + backfill con created_at (el dato más
+      // conservador disponible, no una fecha inventada).
+      const intentionCols = this._db.prepare(`PRAGMA table_info(intentions)`).all();
+      if (!intentionCols.some((c) => c.name === 'last_progress_at')) {
+        logger.info('StateGraph', '[state-graph] migrando schema: intentions.last_progress_at...');
+        this._db.exec(`ALTER TABLE intentions ADD COLUMN last_progress_at INTEGER;`);
+        this._db.exec(
+          `UPDATE intentions SET last_progress_at = created_at WHERE last_progress_at IS NULL;`
+        );
+        logger.info('StateGraph', '[state-graph] migración intentions.last_progress_at completada');
       }
     } catch (e) {
       logger.warn('StateGraph', '[state-graph] error en migración (no crítico):', e.message);
@@ -703,6 +761,16 @@ class StateGraph {
   getWorldModel() {
     return this._nodes.getWorldModel();
   }
+
+  /**
+   * Modelo inferido del usuario (F3.3): nodos `inferred=1` activos, ordenados
+   * por `confidence × importance`. SEPARADO de `getWorldModel()` (hechos).
+   * @param {{limit?: number}} [opts]
+   * @returns {Array<object>}
+   */
+  getUserModel({ limit = 8 } = {}) {
+    return this._nodes.queryInferredModels({ limit });
+  }
   upsertNode(opts) {
     return this._nodes.upsertNode(opts);
   }
@@ -723,6 +791,24 @@ class StateGraph {
   }
   _findNodesByLabel(label) {
     return this._nodes._findNodesByLabel(label);
+  }
+
+  /**
+   * Ejecuta una pasada de vigencia de hechos fijos (FactReasonerStore).
+   * @returns {{ checked: number, stale: number }}
+   */
+  runFactReasoner() {
+    return this._factReasoner ? this._factReasoner.run() : { checked: 0, stale: 0 };
+  }
+
+  /**
+   * Cascada de invalidación tras un overwrite de un label en CASCADE_STALENESS.
+   * Lo invoca ContradictionResolver._applyPolicy.
+   * @param {string} label
+   * @returns {number}
+   */
+  _invalidateCascade(label) {
+    return this._factReasoner ? this._factReasoner.invalidateCascade(label) : 0;
   }
 
   /**
@@ -803,7 +889,46 @@ class StateGraph {
     } catch (e) {
       logger.warn('StateGraph', '[state-graph] consolidación fallida:', e.message);
     }
+    // F3.1: la vigencia de los hechos fijos también es un job piggyback del
+    // ciclo de mantenimiento — mismo patrón no-bloqueante que la consolidación.
+    try {
+      this._factReasoner.run();
+    } catch (e) {
+      logger.warn('StateGraph', '[state-graph] fact-reasoner fallido:', e.message);
+    }
+    // F3.3: el modelo del usuario inferido corre DESPUÉS de la consolidación
+    // (necesita la señal de qué episodios quedaron sin modelar). Es async
+    // (usa LLM), así que se dispara sin esperar — mismo patrón no-bloqueante.
+    try {
+      this._userModel.run().catch((e) => {
+        logger.warn('StateGraph', '[state-graph] user-model fallido:', e.message);
+      });
+    } catch (e) {
+      logger.warn('StateGraph', '[state-graph] user-model fallido:', e.message);
+    }
     return result;
+  }
+
+  /**
+   * Ejecuta una pasada de inferencia del modelo de usuario (UserModelBuilder).
+   * @param {object} [opts]
+   * @returns {Promise<{clusters:number, inferred:number, merged:number, rejected:number, skipped:number}>}
+   */
+  runUserModel(opts) {
+    return this._userModel
+      ? this._userModel.run(opts)
+      : Promise.resolve({ clusters: 0, inferred: 0, merged: 0, rejected: 0, skipped: 0 });
+  }
+
+  /**
+   * Gancho de la Fase 5: confirma o rechaza un nodo inferido.
+   * @param {number} nodeId
+   * @param {'accepted' | 'rejected'} outcome
+   */
+  confirmInferred(nodeId, outcome) {
+    return this._userModel
+      ? this._userModel.confirmInferred(nodeId, outcome)
+      : { ok: false, reason: 'no_user_model' };
   }
 
   runConsolidation(opts) {
@@ -818,6 +943,9 @@ class StateGraph {
   }
   listActiveIntentions(opts) {
     return this._intentions.listActive(opts);
+  }
+  listStaleIntentions(opts) {
+    return this._intentions.listStale(opts);
   }
   updateIntention(id, opts) {
     return this._intentions.update(id, opts);

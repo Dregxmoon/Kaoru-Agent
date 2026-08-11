@@ -2,6 +2,69 @@
 
 Todas las versiones notables de este proyecto se documentan en este archivo.
 
+## [1.3.0] — 2026-08-11
+
+### Tipado
+
+- **Type-safety en el núcleo de decisión y reconciliación:** `core/decision/DecisionCore.js` y
+  `core/state-graph/ContradictionResolver.js` pasan de `// @ts-nocheck` a `// @ts-check` estricto
+  (`strict`/`noImplicitAny`/`strictNullChecks`) **sin tocar lógica — solo tipos**. `DecisionCore`
+  declara contratos JSDoc para toda la superficie exportada (`scoreRelevancia`, `receptividad`,
+  `presupuesto`, `decide`, `ajustarScorePorAprendizaje`, `deriveWeights`, `AuditLog`) con overrides
+  de política tipados como `ProactivePolicy` (parcial, fusionado sobre `DEFAULT_POLICY`).
+  `ContradictionResolver` tipa sus entradas/salidas y la superficie mínima de grafo que usa
+  (`StateGraphApi`), preservando la compatibilidad estructural con los callers ya tipados
+  (`SessionManager`, `LearningEngine`). `npm run typecheck` limpio; `test_state_graph` (178) y
+  `test_decision_core` (55) en verde, sin regresiones.
+
+### Memoria: vigencia de hechos fijos (F3.1)
+
+- **Los FIXED_LABELS dejan de ser "se escribe una vez y se confía para siempre":** migración de
+  esquema idempotente (mismo patrón que node_relations legacy — `PRAGMA table_info` + `ALTER TABLE`
+  - backfill conservador `verified_at = created_at`) agrega `verified_at`, `inferred` y
+    `confidence` a `nodes` sin romper DBs existentes.
+- **`core/state-graph/stores/FactReasonerStore.js` (nuevo, `@ts-check`):** `STALENESS_DAYS`
+  (trabajo 150d, proyecto 90d, ubicación 180d) y `CASCADE_STALENESS` (`trabajo_usuario →
+proyecto_principal`). `run()` hace piggyback en `applyDecay()` y taggea `stale` los hechos
+  pasados de vigencia; los labels permanentes (nombre, cumpleaños, gustos) nunca entran.
+- **Cascada de invalidación desde el resolver:** en la rama `overwrite`, el label re-confirmado
+  refresca su `verified_at` y sus dependientes de `CASCADE_STALENESS` quedan `verified_at=NULL`
+  para revalidar.
+- **Edad computada:** `core/core/misc.js#getComputedAge()` calcula la edad desde
+  `cumpleanos_usuario` (con año) y se expone en `getWorldModel()` cuando no hay `edad_usuario`
+  guardado — el dato calculado gana sobre el manual desactualizado.
+- **Gaps de memoria:** `getMemoryGaps()` devuelve también los hechos `stale` (baja prioridad,
+  mismo shape `{ trait }` que los `unknown`).
+- Tests nuevos `tests/test_fact_reasoner.js` (21 ✓: umbral, no-umbral, labels fuera del mapa,
+  cascada, refresh de vigencia) + caso de migración en `test_state_graph`.
+
+### Memoria: modelo del usuario inferido (F3.3)
+
+- **`core/state-graph/UserModelBuilder.js` (nuevo, `@ts-check`):** infiere rasgos estables del
+  usuario (PATRONES, VALORES, OBJETIVOS) que nunca verbalizó como hechos, a partir de episodios
+  viejos. Agrupa por tema (embeddings `EmbedService` + coseno, umbral de cluster 0.5) y por cada
+  cluster con ≥ 4 episodios hace **una** llamada LLM (modo smart) con anti-fabricación estricta:
+  respuesta `null` si no hay patrón claro y JSON validado en código ANTES de escribir.
+- **Nodos inferidos separados de hechos:** `type:'Belief'` + `inferred=1` + tags
+  `['inferred', kind]`, `decay_rate` alto (0.06) y trazabilidad total con relaciones
+  `EVIDENCIA_DE` hacia los episodios fuente. Prefijos exclusivos `patron_` / `valor_` /
+  `objetivo_` hacen estructuralmente imposible colisionar con `FIXED_LABELS` y prefijos dinámicos.
+- **`reconcileInferred()` — reconciliación PROPIA (nunca pasa por `ContradictionResolver`):** si ya
+  existe un nodo inferido semánticamente similar (≥ 0.75) refuerza su confidence con refuerzo
+  decreciente (`conf + 0.15·(1−conf)`) en vez de duplicar; si no, crea el nodo y registra la
+  evidencia. **`confirmInferred(nodeId, outcome)`** es el gancho de la Fase 5: `accepted` lleva la
+  confidence a 0.9+, `rejected` archiva el nodo directamente.
+- **Comparte el criterio de candidatos** con el consolidator (`queryEpisodeCandidates` extraído a
+  helper común en `ConsolidatorStore`): episodios viejos, activos, sin tag `consolidated` — ambos
+  jobs ven exactamente el mismo conjunto. Corre piggyback en `applyDecay()` después de la
+  consolidación (async, no bloquea) y saltea clusters cuya evidencia ya está modelada.
+- `NodeStore.createNode`/`upsertNode` aceptan `decay_rate` por nodo (default `DECAY_RATES[type]`);
+  `ContradictionResolver` exporta `COMMAND_PATTERNS`.
+- Tests nuevos `tests/test_user_model_builder.js` (51 ✓: creación con `EVIDENCIA_DE`, rechazos de
+  validación — confidence, labels fijos/dinámicos, episodios inventados, contenido comando,
+  kind↔prefijo, respuesta null —, no pasa por `ContradictionResolver`, fusión por similitud,
+  `confirmInferred`, piggyback y candidatos compartidos).
+
 ## [1.2.0] — 2026-08-06
 
 ### Seguridad

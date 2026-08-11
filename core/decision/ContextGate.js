@@ -23,7 +23,12 @@
  * por política, no en esta clase.
  */
 
-const { decide, presupuesto, REASON, DEFAULT_POLICY } = require('./DecisionCore.js');
+const { decide, presupuesto, REASON } = require('./DecisionCore.js');
+// CURIOSITY_DAILY_CAP / CURIOSITY_TYPES: el cupo diario de preguntas de
+// curiosidad sobre la memoria (hechos stale, inferencias de confianza media,
+// contradicciones) vive en proactive/config.js — NO hay un tercer lugar de
+// config. Separado del presupuesto general.
+const { CURIOSITY_DAILY_CAP, CURIOSITY_TYPES } = require('../behavior/proactive/config.js');
 
 const FLOW = {
   IDLE: 'idle', // AFK o sin actividad reciente → no molestar salvo crítico
@@ -49,6 +54,9 @@ const DEFAULT_GATE_POLICY = {
   recentChatMs: 2 * 60 * 1000,
   // Candidatos con score menor a esto nunca se envían (piso de silencio).
   floorRelevance: 0.4,
+  // Cupo diario de curiosidad (preguntas sobre memoria). Vale el de
+  // proactive/config.js; se puede overridear por política (tests).
+  curiosityDailyCap: CURIOSITY_DAILY_CAP,
 };
 
 /**
@@ -87,20 +95,49 @@ function evaluate(candidate, context = {}, policy = DEFAULT_GATE_POLICY) {
   // 1) Flow detection (para selfGated es solo informativo en el audit).
   const flow = detectFlow(context, policy);
 
-  // 2) Presupuesto dinámico.
+  // 2) Presupuesto dinámico general.
   const budgetLimit = dynamicBudget(context.receptivity ?? 0, policy);
   const budgetUsed = context.budgetUsed ?? 0;
-  const withinBudget = budgetUsed < budgetLimit;
+  // Cupo de curiosidad: PRESUPUESTO PROPIO, independiente del general. Un día
+  // con mucha proactividad de código no agota la curiosidad, y viceversa.
+  const curiosityType = CURIOSITY_TYPES.has(candidate.tipo);
+  const curiosityCap = policy.curiosityDailyCap ?? CURIOSITY_DAILY_CAP;
+  const curiosityUsed = context.curiosityUsed ?? 0;
+  const withinBudget = curiosityType ? curiosityUsed < curiosityCap : budgetUsed < budgetLimit;
+
+  // Cupo de curiosidad agotado → DROP determinista aunque sobre presupuesto
+  // general (y aunque la relevancia sea alta): es un cupo propio.
+  if (curiosityType && !withinBudget) {
+    return {
+      admit: false,
+      decision: {
+        verdict: 'DROP',
+        reason: REASON.DROP_CURIOSITY_CAP,
+        relevance: candidate.score ?? 0,
+        flow: flow.level,
+      },
+      flow: flow.level,
+      budgetLimit,
+    };
+  }
 
   // 3) SLO degradation (F-5).
   const degraded = context.degradedTypes?.has?.(candidate.tipo) ?? false;
 
-  // ── Triggers temporales (selfGated, F-4 / Gap 2) ──────────────────────────
+  // ── Triggers auto-validados (F-4 / Gap 2) ─────────────────────────────────
   // long_silence, return_from_break, special_date... su condición de disparo ya
   // validó el momento (horas de silencio, vuelta de pausa, fecha especial). El
   // gate aquí NO re-valida chat/idle/flow — solo impone presupuesto y SLO. Con
   // eso cada mensaje temporal queda con score + audit (ROADMAP).
-  if (candidate.selfGated) {
+  //
+  // CURIOSIDAD (memory_stale/pattern_uncertain/memory_tension): el mixin la
+  // evalúa una vez por heartbeat en un momento de baja fricción y el boost de
+  // saliencia ya priorizó contexto; NADA gana con el piso de relevancia ni con
+  // el flow (el cooldown de 6h por tipo y el cupo diario son los que evitan el
+  // acoso). Un extraño "dato conocido" NO es ruido a silenciar por score: es
+  // contenido a explorar → bypass del piso (mismo trato que los selfGated).
+  const selfValidated = candidate.selfGated || curiosityType;
+  if (selfValidated) {
     if (!withinBudget) {
       return {
         admit: false,
@@ -131,7 +168,7 @@ function evaluate(candidate, context = {}, policy = DEFAULT_GATE_POLICY) {
       admit: true,
       decision: {
         verdict: 'ACT',
-        reason: REASON.SELF_GATED_ADMIT,
+        reason: curiosityType ? REASON.CURIOSITY_ADMIT : REASON.SELF_GATED_ADMIT,
         relevance: candidate.score ?? 0,
         flow: flow.level,
       },

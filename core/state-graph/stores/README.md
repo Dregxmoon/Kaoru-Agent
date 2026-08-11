@@ -15,10 +15,12 @@ centraliza tipos, tasas y umbrales.
 | `VectorIndex`       | `node_vectors`             | Recall semántico vía `sqlite-vec` (384-d); cae a búsqueda LIKE si el vector no está disponible                               |
 | `DecayStore`        | `nodes` + `vec`            | Aplica el decaimiento exponencial por tipo y archiva nodos bajo el umbral                                                    |
 | `ConsolidatorStore` | `nodes` + `node_relations` | Consolidación determinista: episodios viejos → `Belief` `consolidacion_<término>` con enlaces `CONSOLIDA`                    |
+| `FactReasonerStore` | `nodes`                    | Vigencia de hechos fijos (F3.1): taggea `stale` los `FIXED_LABELS` pasados de `STALENESS_DAYS` y propaga `CASCADE_STALENESS` |
 
 ## `constants.js`
 
 `NODE_TYPES`, `DECAY_RATES`, `ARCHIVE_THRESHOLD`, `RECENCY_HALFLIFE_DAYS`, `SEMANTIC_CANDIDATES`,
 `_formatSec`.
 
-Verificación: parte de `test_state_graph`, `test_persistent`, `test_intentions` y `test_memory_f2`.
+Verificación: parte de `test_state_graph`, `test_persistent`, `test_intentions`, `test_memory_f2` y
+`test_fact_reasoner`.

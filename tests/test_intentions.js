@@ -42,6 +42,8 @@ function makeGraph() {
   return { graph, dir };
 }
 
+const DAY_MS = 24 * 60 * 60 * 1000;
+
 // ── Test 1: IntentionsStore — stack persistente ────────────────────────────
 function testStore() {
   console.log(C.bold('\nTest 1: IntentionsStore — stack de intenciones activas'));
@@ -206,6 +208,135 @@ function testCoreFacade() {
   }
 }
 
+// ── Test 6: migración de last_progress_at (schema heredado) ────────────────
+function testMigration() {
+  console.log(C.bold('\nTest 6: migración — intentions.last_progress_at'));
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'int-mig-'));
+  const dbPath = path.join(dir, 'core.db');
+
+  // DB con el SCHEMA VIEJO (sin last_progress_at) y una fila ya existente.
+  const Database = require('better-sqlite3');
+  const legacy = new Database(dbPath);
+  legacy.exec(`
+    CREATE TABLE intentions (
+      id            INTEGER PRIMARY KEY AUTOINCREMENT,
+      session_id    TEXT    NOT NULL,
+      goal          TEXT    NOT NULL,
+      status        TEXT    NOT NULL DEFAULT 'active',
+      steps         TEXT    NOT NULL DEFAULT '[]',
+      last_progress TEXT,
+      created_at    INTEGER NOT NULL,
+      updated_at    INTEGER NOT NULL
+    );
+  `);
+  const t = Date.now() - 10 * DAY_MS; // creada hace 10 días
+  legacy
+    .prepare(
+      `INSERT INTO intentions (session_id, goal, status, created_at, updated_at)
+       VALUES ('s1', 'Meta vieja', 'active', ?, ?)`
+    )
+    .run(t, t);
+  legacy.close();
+
+  // StateGraph.init() corre la migración (PRAGMA table_info + ALTER + backfill).
+  const graph = new StateGraph(dbPath).init();
+  const cols = graph._db.prepare(`PRAGMA table_info(intentions)`).all();
+  assert(
+    cols.some((c) => c.name === 'last_progress_at'),
+    'columna last_progress_at agregada'
+  );
+  const row = graph._db
+    .prepare(`SELECT last_progress_at FROM intentions WHERE goal='Meta vieja'`)
+    .get();
+  assert(
+    row.last_progress_at === t,
+    'backfill conservador: last_progress_at = created_at',
+    `got=${row.last_progress_at}`
+  );
+
+  // La fila migrada se puede leer a través del store (con last_progress_at).
+  const fromStore = graph.listStaleIntentions({ olderThanMs: 5 * DAY_MS });
+  assert(
+    fromStore.length === 1 && fromStore[0].goal === 'Meta vieja',
+    'la fila migrada es detectable como stale'
+  );
+
+  graph.close();
+  fs.rmSync(dir, { recursive: true, force: true });
+}
+
+// ── Test 7: listStaleIntentions — abandonadas vs. con actividad ────────────
+function testListStale() {
+  console.log(C.bold('\nTest 7: listStaleIntentions separa abandonadas de recientes'));
+  const { graph, dir } = makeGraph();
+  const now = Date.now();
+
+  // Intención creada hace 10 días y SIN actividad desde entonces → stale.
+  const old = graph.createIntention({
+    sessionId: 's1',
+    goal: 'Terminar la documentación del módulo',
+    steps: [],
+  });
+  assert(typeof old === 'number' && old > 0, 'createIntention crea la intención vieja');
+  const oldRow = graph.getIntention(old);
+  assert(typeof oldRow.last_progress_at === 'number', 'create deja last_progress_at (ahora)');
+  // Envejecerla: bajamos los timestamps para simular el paso del tiempo.
+  graph._db
+    .prepare(`UPDATE intentions SET created_at=?, updated_at=?, last_progress_at=? WHERE id=?`)
+    .run(now - 10 * DAY_MS, now - 10 * DAY_MS, now - 10 * DAY_MS, old);
+
+  // Intención reciente (con actividad) → NO stale.
+  const fresh = graph.createIntention({ sessionId: 's1', goal: 'Actualizar el README', steps: [] });
+  graph.updateIntention(fresh, { lastProgress: 'avancé' });
+
+  const stale = graph.listStaleIntentions({ olderThanMs: 5 * DAY_MS });
+  assert(stale.length === 1, 'solo la abandonada (10 días) es stale', JSON.stringify(stale));
+  assert(
+    stale[0].goal === 'Terminar la documentación del módulo',
+    'la stale es la que quedó sin actividad',
+    stale[0]?.goal
+  );
+  assert(
+    stale[0].last_progress_at <= now - 5 * DAY_MS,
+    'la fila stale expone last_progress_at viejo'
+  );
+
+  // Con actividad reciente, la abandonada deja de ser stale.
+  graph.updateIntention(old, { lastProgress: 'volví a avanzar' });
+  const afterActivity = graph.listStaleIntentions({ olderThanMs: 5 * DAY_MS });
+  assert(afterActivity.length === 0, 'tras actividad reciente → ya no es stale');
+
+  // Una intención resuelta, aunque vieja, nunca es stale.
+  const doneOld = graph.createIntention({
+    sessionId: 's1',
+    goal: 'Meta completada hace meses',
+    steps: [],
+  });
+  graph._db
+    .prepare(`UPDATE intentions SET created_at=?, updated_at=?, last_progress_at=? WHERE id=?`)
+    .run(now - 90 * DAY_MS, now - 90 * DAY_MS, now - 90 * DAY_MS, doneOld);
+  graph.completeIntention(doneOld);
+  const afterDone = graph.listStaleIntentions({ olderThanMs: 5 * DAY_MS });
+  assert(afterDone.length === 0, 'intención done (aunque vieja) → no es stale');
+
+  // límite: la más abandonada primero (last_progress_at ASC).
+  graph._db
+    .prepare(`UPDATE intentions SET created_at=?, updated_at=?, last_progress_at=? WHERE id=?`)
+    .run(now - 10 * DAY_MS, now - 10 * DAY_MS, now - 10 * DAY_MS, old);
+  graph._db
+    .prepare(`UPDATE intentions SET created_at=?, updated_at=?, last_progress_at=? WHERE id=?`)
+    .run(now - 6 * DAY_MS, now - 6 * DAY_MS, now - 6 * DAY_MS, fresh);
+  const limited = graph.listStaleIntentions({ olderThanMs: 5 * DAY_MS, limit: 1 });
+  assert(
+    limited.length === 1 && limited[0].goal === 'Terminar la documentación del módulo',
+    'limit funciona (la más abandonada primero)',
+    JSON.stringify(limited)
+  );
+
+  graph.close();
+  fs.rmSync(dir, { recursive: true, force: true });
+}
+
 // ── Runner ─────────────────────────────────────────────────────────────────
 async function main() {
   testStore();
@@ -213,6 +344,8 @@ async function main() {
   testBuilder();
   await testLoopInjection();
   testCoreFacade();
+  testMigration();
+  testListStale();
 
   const total = passed + failed;
   console.log(C.bold('\n═══════════════════════════════════════════'));

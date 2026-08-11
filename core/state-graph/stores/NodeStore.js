@@ -10,14 +10,24 @@ class NodeStore {
     this._g = graph;
   }
 
-  createNode({ type, label, content, importance = 1.0, tags = [] }) {
+  createNode({
+    type,
+    label,
+    content,
+    importance = 1.0,
+    tags = [],
+    verified_at,
+    inferred = 0,
+    confidence = null,
+    decay_rate,
+  }) {
     if (!NODE_TYPES.includes(type)) throw new Error(`Tipo inválido: ${type}`);
     const now = Date.now();
     const result = this._db
       .prepare(
         `
-      INSERT INTO nodes (type, label, content, importance, decay_rate, tags, created_at, updated_at, last_accessed_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+      INSERT INTO nodes (type, label, content, importance, decay_rate, tags, created_at, updated_at, last_accessed_at, verified_at, inferred, confidence)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `
       )
       .run(
@@ -25,17 +35,20 @@ class NodeStore {
         label,
         content,
         importance,
-        DECAY_RATES[type],
+        decay_rate ?? DECAY_RATES[type],
         JSON.stringify(tags),
         now,
         now,
-        now
+        now,
+        verified_at ?? now,
+        inferred ? 1 : 0,
+        confidence
       );
     this._g._scheduleNodeEmbedding(result.lastInsertRowid, content);
     return result.lastInsertRowid;
   }
 
-  updateNode(id, { content, label, importance, tags } = {}) {
+  updateNode(id, { content, label, importance, tags, verified_at, inferred, confidence } = {}) {
     const now = Date.now();
     const node = this.getNode(id);
     if (!node) return false;
@@ -44,16 +57,30 @@ class NodeStore {
     const newContent = content ?? node.content;
     const newLabel = label ?? node.label;
     const newTags = tags ?? JSON.parse(node.tags || '[]');
+    const newVerifiedAt = verified_at ?? node.verified_at;
+    const newInferred = inferred !== undefined ? (inferred ? 1 : 0) : node.inferred;
+    const newConfidence = confidence !== undefined ? confidence : node.confidence;
 
     this._db
       .prepare(
         `
       UPDATE nodes
-      SET content=?, label=?, importance=?, tags=?, updated_at=?, last_accessed_at=?, access_count=access_count+1
+      SET content=?, label=?, importance=?, tags=?, verified_at=?, inferred=?, confidence=?, updated_at=?, last_accessed_at=?, access_count=access_count+1
       WHERE id=?
     `
       )
-      .run(newContent, newLabel, newImportance, JSON.stringify(newTags), now, now, id);
+      .run(
+        newContent,
+        newLabel,
+        newImportance,
+        JSON.stringify(newTags),
+        newVerifiedAt,
+        newInferred,
+        newConfidence,
+        now,
+        now,
+        id
+      );
 
     if (content && content !== node.content) {
       this._g._scheduleNodeEmbedding(id, newContent);
@@ -94,6 +121,27 @@ class NodeStore {
     return results;
   }
 
+  /**
+   * Nodos inferidos (modelo del usuario, F3.3): `inferred=1` y activos,
+   * ordenados por certeza (confidence) × importancia. Es el origen EXCLUSIVO
+   * de la sección "Impresiones" del prompt — separado de `getWorldModel()`,
+   * que solo devuelve hechos (`inferred=0`).
+   * @param {{limit?: number}} [opts]
+   * @returns {Array<object>}
+   */
+  queryInferredModels({ limit = 8 } = {}) {
+    return this._db
+      .prepare(
+        `
+      SELECT * FROM nodes
+      WHERE inferred=1 AND archived=0
+      ORDER BY COALESCE(confidence, 0) * importance DESC
+      LIMIT ?
+    `
+      )
+      .all(limit);
+  }
+
   getRecentEpisodes(limit = 20) {
     const results = this._db
       .prepare(
@@ -118,6 +166,7 @@ class NodeStore {
       SELECT * FROM nodes
       WHERE type IN ('User','Project','Preference','Belief')
         AND archived=0
+        AND inferred=0
       ORDER BY importance DESC
       LIMIT 30
     `
@@ -130,19 +179,72 @@ class NodeStore {
     // llegaría al umbral de archivo. Solo los recalls intencionales
     // (queryNodes/getRecentEpisodes/queryNodesSemantic) alimentan la recencia.
 
+    // F3.1: si hay un cumpleaños con año, la edad CALCULADA gana sobre
+    // `edad_usuario` guardado a mano (que puede estar desactualizado). Se
+    // expone aquí, en el world model, porque es el punto único por el que
+    // pasa el contexto estable hacia el LLM — sin duplicar la lógica en el
+    // chat y en la proactividad. Solo se inyecta si no hay un nodo
+    // edad_usuario real activo (ahí el guardado gana como fallback).
+    try {
+      const computed = require('../../core/misc.js').getComputedAge(this._g);
+      if (typeof computed === 'number') {
+        const hasStoredAge = results.some((n) => n.label === 'edad_usuario' && n.archived === 0);
+        if (!hasStoredAge) {
+          results.push({
+            id: -1,
+            type: 'User',
+            label: 'edad_usuario',
+            content: `El usuario tiene ${computed} años (calculados a partir de su cumpleaños)`,
+            importance: 0.95,
+            tags: '[]',
+            archived: 0,
+          });
+        }
+      }
+    } catch (e) {
+      logger.warn('NodeStore', '[state-graph] no se pudo computar edad en world model:', e.message);
+    }
+
     return results;
   }
 
-  upsertNode({ type, label, content, importance, tags = [] }) {
+  upsertNode({
+    type,
+    label,
+    content,
+    importance,
+    tags = [],
+    verified_at,
+    inferred,
+    confidence,
+    decay_rate,
+  }) {
     const existing = this._db
       .prepare('SELECT id FROM nodes WHERE type=? AND label=? AND archived=0 LIMIT 1')
       .get(type, label);
 
     if (existing) {
-      this.updateNode(existing.id, { content, importance, tags });
+      this.updateNode(existing.id, {
+        content,
+        importance,
+        tags,
+        verified_at,
+        inferred,
+        confidence,
+      });
       return existing.id;
     }
-    return this.createNode({ type, label, content, importance, tags });
+    return this.createNode({
+      type,
+      label,
+      content,
+      importance,
+      tags,
+      verified_at,
+      inferred,
+      confidence,
+      decay_rate,
+    });
   }
 
   _touchNodes(ids, label = '') {
