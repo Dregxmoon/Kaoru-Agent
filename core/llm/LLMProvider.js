@@ -802,7 +802,9 @@ async function callOpenAI(providerId, messages, systemPrompt, mode = 'fast', opt
   // En streaming, postStream normaliza a { content, tool_calls } (sin el
   // campo choices de OpenAI crudo) — no acceder a choices[0] en ese caso.
   if (opts.onToken) return (res.body.content || '').trim();
-  return (res.body.choices[0].message.content || '').trim();
+  const content = res.body.choices?.[0]?.message?.content || '';
+  if (!content) throw new Error(`${def.name}: respuesta sin choices válidos`);
+  return content.trim();
 }
 
 // ── Generic Gemini caller ─────────────────────────────────────────────────────

@@ -136,6 +136,12 @@ module.exports = {
     });
     this._audit.push({ type, proposalId, outcome: decision, reason, at: Date.now() });
 
+    // Hilo relacional: marca el desenlace en el registro de mensajes previos
+    // (el bookend y el registro adaptativo leen estos outcomes).
+    for (const e of this._relationLog) {
+      if (e.proposalId === proposalId) e.outcome = decision;
+    }
+
     let state = false;
     if (this._store) {
       try {

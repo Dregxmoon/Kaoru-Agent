@@ -50,6 +50,10 @@ async function processMessage(text, files = []) {
   const trimmed = text.trim();
   if (!trimmed && files.length === 0) return;
 
+  // Ocultar el grafo de memoria inline al enviar un mensaje (no al usar
+  // /memoria, que lo reabre).
+  if (!trimmed.startsWith('/memoria') && typeof hideNodes === 'function') hideNodes();
+
   // Hide landing on first message
   const landing = document.getElementById('landing');
   if (landing && !landing.classList.contains('hidden')) {
@@ -76,6 +80,8 @@ async function processMessage(text, files = []) {
       processMessage,
       openSettings,
       openSessions,
+      openNodes,
+      hideNodes,
       openMcp: openMcpModal,
       openPerms: openPermsModal,
       pickWorkspace: () => ipcRenderer.invoke('pick-workspace-folder'),
@@ -135,18 +141,31 @@ async function processMessage(text, files = []) {
   triggerMotion();
   resetActivities();
 
-  // Botón de cancelación: visible durante la generación, envía 'agent-cancel'
-  // al main (aborta el AbortController → rompe el stream y el loop).
+  // Botón de cancelación: visible durante la generación. Aborta el agent-run
+  // openclaw (agent-cancel → AbortController del main) Y el AbortController
+  // local del flujo simple (LLMProvider.complete vía opts.signal).
   const cancelBtn = document.getElementById('cancel-btn');
+  const simpleAbort = new AbortController();
+  let cancelArmed = true;
   if (cancelBtn) cancelBtn.style.display = 'inline-flex';
   const cancelOnce = () => {
+    if (!cancelArmed) return;
+    cancelArmed = false;
     ipcRenderer.send('agent-cancel');
+    simpleAbort.abort();
     if (cancelBtn) {
       cancelBtn.style.display = 'none';
       cancelBtn.removeEventListener('click', cancelOnce);
     }
   };
   if (cancelBtn) cancelBtn.addEventListener('click', cancelOnce);
+  const disarmCancel = () => {
+    cancelArmed = false;
+    if (cancelBtn) {
+      cancelBtn.style.display = 'none';
+      cancelBtn.removeEventListener('click', cancelOnce);
+    }
+  };
 
   let response;
   let error = null;
@@ -193,10 +212,7 @@ async function processMessage(text, files = []) {
 
       offStream();
       if (cursor.parentNode) cursor.remove();
-      if (cancelBtn) {
-        cancelBtn.style.display = 'none';
-        cancelBtn.removeEventListener('click', cancelOnce);
-      }
+      disarmCancel();
 
       // Si el loop fue cancelado por el usuario, no tratar la respuesta
       // parcial como un error — solo mostrar lo que ya se generó.
@@ -245,10 +261,7 @@ async function processMessage(text, files = []) {
       }
     } catch (err) {
       console.error('error en agent-run:', err.message);
-      if (cancelBtn) {
-        cancelBtn.style.display = 'none';
-        cancelBtn.removeEventListener('click', cancelOnce);
-      }
+      disarmCancel();
       error = err.message;
       response = null;
       setAgentState('error', 'Error');
@@ -277,8 +290,20 @@ async function processMessage(text, files = []) {
         ctx.systemPrompt = `${agentPrompt}\n\n---\n\n${ctx.systemPrompt}`;
       }
 
-      response = await LLMProvider.complete(ctx.messages, ctx.systemPrompt);
+      // Cancelable: LLMProvider.complete acepta opts.signal (AbortError se
+      // propaga como e.code === 'ABORTED') para el flujo sin openclaw.
+      response = await LLMProvider.complete(ctx.messages, ctx.systemPrompt, {
+        signal: simpleAbort.signal,
+      });
     } catch (err) {
+      disarmCancel();
+      if (err?.code === 'ABORTED' || err?.name === 'AbortError') {
+        // El usuario canceló la generación simple — mostrar lo que haya y
+        // salir sin tratar como error.
+        removeThinking();
+        setAgentState('done', 'Cancelado');
+        return;
+      }
       console.error('error LLM:', err.message);
       response = LLMProvider.getActiveProvider()
         ? 'Algo falló al conectar. Revisa tu conexión o la key.'
@@ -287,6 +312,7 @@ async function processMessage(text, files = []) {
     }
   }
 
+  disarmCancel();
   removeThinking();
   setAgentState('streaming', 'Respondiendo');
 

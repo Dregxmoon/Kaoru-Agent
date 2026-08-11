@@ -321,6 +321,22 @@ const TOOL_SCHEMAS = [
     },
   },
   {
+    name: 'git_add',
+    description:
+      'Stagea archivos en el index de git. Sin paths hace git add -A (todo). MUTADOR: requiere aprobación del usuario.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        paths: {
+          type: 'array',
+          items: { type: 'string' },
+          description: 'Archivos/rutas a stagear (opcional; sin esto stagea todo)',
+        },
+      },
+      required: [],
+    },
+  },
+  {
     name: 'git_stash',
     description:
       'Lista stashes (action=list, lectura) o ejecuta push/pop/apply/drop (muta, requiere aprobación).',

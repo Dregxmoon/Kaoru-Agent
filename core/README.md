@@ -28,40 +28,49 @@ Responsable del ciclo de vida completo de la aplicación:
 
 ### API pública principal
 
-| Función | Propósito |
-|---|---|
-| `init(app)` | Inicializa todos los subsistemas y los conecta al bus |
-| `shutdown()` | Cierre ordenado (desconecta MCP, navegador, sensores y mata procesos hijo) |
-| `startSession() / closeSession()` | Ciclo de vida de la sesión de conversación |
-| `addTurn(role, content)` | Registra un turno (alimenta historial, memoria y telemetría) |
-| `buildContext(history, provider, opts)` | Ensambla el contexto del LLM (modos chat/plan/execute/agent) |
-| `runAgent(message, opts)` | Ejecuta el bucle agente con herramientas |
-| `handleProposalDecision(id, decision)` | Procesa aceptar/descartar de una propuesta proactiva |
-| `setActiveWorkspace(path)` / `getWorkspace()` | Cambia/consulta el workspace activo (proyecto del usuario) |
-| `getStats()` | Estado de sesión, sensores, motor proactivo, señales, telemetría |
+| Función                                       | Propósito                                                                  |
+| --------------------------------------------- | -------------------------------------------------------------------------- |
+| `init(app)`                                   | Inicializa todos los subsistemas y los conecta al bus                      |
+| `shutdown()`                                  | Cierre ordenado (desconecta MCP, navegador, sensores y mata procesos hijo) |
+| `startSession() / closeSession()`             | Ciclo de vida de la sesión de conversación                                 |
+| `addTurn(role, content)`                      | Registra un turno (alimenta historial, memoria y telemetría)               |
+| `buildContext(history, provider, opts)`       | Ensambla el contexto del LLM (modos chat/plan/execute/agent)               |
+| `runAgent(message, opts)`                     | Ejecuta el bucle agente con herramientas                                   |
+| `handleProposalDecision(id, decision)`        | Procesa aceptar/descartar de una propuesta proactiva                       |
+| `setActiveWorkspace(path)` / `getWorkspace()` | Cambia/consulta el workspace activo (proyecto del usuario)                 |
+| `getStats()`                                  | Estado de sesión, sensores, motor proactivo, señales, telemetría           |
 
 ---
 
 ## Módulos
 
-| Carpeta | Responsabilidad |
-|---|---|
-| [`agents/`](./agents/README.md) | Definiciones de agentes especializados (modos de sistema) |
-| [`behavior/`](./behavior/README.md) | Modelo de comportamiento y motor de proactividad + executor |
-| [`commands/`](./commands/README.md) | Registro de comandos de chat (`/comando`) |
-| [`decision/`](./decision/README.md) | Núcleo determinista de decisión proactiva (Fase F) |
-| [`git/`](./git/README.md) | Wrapper nativo de Git (tools `git_*`, higiene del repo) |
-| [`github/`](./github/README.md) | Cliente REST de GitHub (issues, PRs, OAuth device flow) |
-| [`grounding/`](./grounding/README.md) | Pipeline de contexto: intención, memoria, serializadores |
-| [`identity/`](./identity/README.md) | Personalidad del asistente |
-| [`llm/`](./llm/README.md) | Abstracción multi-proveedor de LLM |
-| [`lsp/`](./lsp/README.md) | Cliente LSP e índice de símbolos para el agente de código |
-| [`mcp/`](./mcp/README.md) | Cliente Model Context Protocol |
-| [`planner/`](./planner/README.md) | Agente: parsing, bucle de ejecución y bridges |
-| [`skills/`](./skills/README.md) | Sistema de skills con inyección contextual |
-| [`state-graph/`](./state-graph/README.md) | Grafo de conocimiento persistente (SQLite + vectores) |
-| [`task/`](./task/README.md) | Detección de tareas, registro y resolución de herramientas |
-| [`telemetry/`](./telemetry/README.md) | Telemetría local (métricas de uso) |
+| Carpeta                                       | Responsabilidad                                                               |
+| --------------------------------------------- | ----------------------------------------------------------------------------- |
+| [`agents/`](./agents/README.md)               | Definiciones de agentes especializados (modos de sistema)                     |
+| [`behavior/`](./behavior/README.md)           | Modelo de comportamiento y motor de proactividad + executor                   |
+| [`commands/`](./commands/README.md)           | Registro de comandos de chat (`/comando`)                                     |
+| [`config/`](./config/README.md)               | Carga/validación de `config.json` (mitxed schema)                             |
+| [`core/`](./core/README.md)                   | Orquestación interna: init, agente, contexto, sesiones, misc, state           |
+| [`decision/`](./decision/README.md)           | Núcleo determinista de decisión proactiva (Fase F)                            |
+| [`git/`](./git/README.md)                     | Wrapper nativo de Git (tools `git_*`, higiene del repo)                       |
+| [`github/`](./github/README.md)               | Cliente REST de GitHub (issues, PRs, OAuth device flow)                       |
+| [`grounding/`](./grounding/README.md)         | Pipeline de contexto: intención, memoria, serializadores                      |
+| [`identity/`](./identity/README.md)           | Personalidad del asistente                                                    |
+| [`learning/`](./learning/README.md)           | Aprendizaje que cierra el círculo: pesos de proactividad + outcomes de tareas |
+| [`llm/`](./llm/README.md)                     | Abstracción multi-proveedor de LLM                                            |
+| [`lsp/`](./lsp/README.md)                     | Cliente LSP e índice de símbolos para el agente de código                     |
+| [`mcp/`](./mcp/README.md)                     | Cliente Model Context Protocol                                                |
+| [`observability/`](./observability/README.md) | `Logger` centralizado y `UsageTracker` (tokens/costos LLM)                    |
+| [`planner/`](./planner/README.md)             | Agente: parsing, bucle de ejecución y bridges                                 |
+| [`plugins/`](./plugins/README.md)             | Plugins locales (sandbox VM, firma Ed25519, marketplace firmado)              |
+| [`rules/`](./rules/README.md)                 | Reglas de proyecto (`AGENTS.md`/`CLAUDE.md`/`.cursorrules` → prompt)          |
+| [`security/`](./security/README.md)           | Permisos granulares `allow/ask/deny` por tool y path                          |
+| [`skills/`](./skills/README.md)               | Sistema de skills con inyección contextual                                    |
+| [`state-graph/`](./state-graph/README.md)     | Grafo de conocimiento persistente (SQLite + vectores)                         |
+| [`task/`](./task/README.md)                   | Detección de tareas, registro y resolución de herramientas                    |
+| [`telemetry/`](./telemetry/README.md)         | Telemetría local (métricas de uso)                                            |
+| [`trust/`](./trust/README.md)                 | Modelo de confianza (costo×éxito) para el modo del agente                     |
+| [`utils/`](./utils/README.md)                 | Helpers compartidos: env de hijos, fs/JSON, ignore dirs, formato              |
 
 ---
 

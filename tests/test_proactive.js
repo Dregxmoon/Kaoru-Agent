@@ -56,6 +56,10 @@ const { StateGraph } = require('../core/state-graph/StateGraph.js');
 const { SessionManager } = require('../core/state-graph/SessionManager.js');
 const LLMProvider = require('../core/llm/LLMProvider.js');
 const { getEventBus } = require('../infrastructure/event-bus/EventBus.js');
+const { _detectMediaTitle, _matchMediaTaste } = require('../core/behavior/proactive/helpers.js');
+const { getMemoryGaps, isRealIdentityNode } = require('../core/core/misc.js');
+const { candidateFromTrigger } = require('../core/decision/SignalNormalizer.js');
+const state = require('../core/core/state.js');
 
 function flush() {
   return new Promise((r) => setTimeout(r, 0));
@@ -257,180 +261,146 @@ async function testIdleGate() {
   restore();
 }
 
-// ── Test 6: sustained_focus no consume la racha si queda bloqueado ───────────
+// ── Test 6: fin de bloque de foco (borde natural, no contador) ───────────────
 
-async function testStreakNotConsumedWhenBlocked() {
-  console.log(
-    C.bold('\nTest 6: sustained_focus NO consume la racha si el trigger queda bloqueado')
-  );
+async function testFocusBlockEnd() {
+  console.log(C.bold('\nTest 6: focus_block_end (fin de bloque — borde, no contador)'));
 
-  // 6a. Conversación reciente al cruzar el umbral → la racha NO se consume
+  // 6a. Bloque corto (< el mínimo de la categoría) → ni focus_block_end ni session_end
   let restore = stubLLM();
   let engine = makeEngine();
-  engine.onUserMessage();
-  await engine._onAppTick({
-    friendlyName: 'VSCode',
-    category: 'code',
-    elapsed: 301,
-    elapsedFormatted: '5m',
-  });
+  engine._onAppChanged({ app: 'code', category: 'code' }); // inicia bloque
+  engine._categoryStreakStart = Date.now() - 2 * 60 * 1000; // 2 min
+  await engine._onAppChanged({ app: 'firefox', category: 'browser' });
+  await flush();
   assert(
-    engine._categoryStreakFired === false,
-    'bloqueado por conversación reciente → _categoryStreakFired queda false (reintentará)'
+    !engine._lastAttemptByType['focus_block_end'] && !engine._lastAttemptByType['session_end'],
+    'bloque de 2 min → ni focus_block_end ni session_end'
   );
   engine.stop();
   restore();
 
-  // 6b. Desbloqueado y el LLM dice NO → la racha SÍ se consume (fue consultado)
+  // 6b. Bloque de 10 min → focus_block_end con duración y ventana (hito)
   restore = stubLLM({ complete: async () => 'NO' });
   engine = makeEngine();
-  await engine._onAppTick({
-    friendlyName: 'VSCode',
+  let captured = null;
+  const origTry = engine._tryTrigger;
+  engine._tryTrigger = async (t) => {
+    captured = t;
+    return 'NO';
+  };
+  engine._onAppChanged({ app: 'code', category: 'code' });
+  engine._categoryStreakStart = Date.now() - 10 * 60 * 1000;
+  engine._lastFocusedWindow = {
     category: 'code',
-    elapsed: 301,
-    elapsedFormatted: '5m',
-  });
+    app: 'VS Code',
+    title: 'foo.js — Visual Studio Code',
+    at: Date.now(),
+  };
+  await engine._onAppChanged({ app: 'firefox', category: 'browser' });
+  await flush();
   assert(
-    engine._categoryStreakFired === true,
-    'LLM dijo NO → _categoryStreakFired true (consultado)'
+    captured && captured.type === 'focus_block_end',
+    'salto tras 10 min de foco → focus_block_end'
   );
+  assert(
+    captured && captured.streakSec === 600 && captured.context.includes('10 minutos'),
+    'contexto con la duración del bloque'
+  );
+  assert(
+    captured && captured.context.includes('foo.js'),
+    'contexto con la ventana del bloque (hito)'
+  );
+  engine._tryTrigger = origTry;
   engine.stop();
   restore();
 
-  // 6c. Desbloqueado y el LLM dice algo → se envía y la racha se consume
-  restore = stubLLM({ complete: async () => 'Llevas rato en esto. ¿Atorada en algo?' });
+  // 6b2. Flujo real: el fin de bloque consulta al LLM (consume cooldown por tipo)
+  restore = stubLLM({ complete: async () => 'NO' });
   engine = makeEngine();
-  const fired = [];
-  const listener = (p) => fired.push(p);
-  getEventBus().on('initiative:trigger', listener);
-  await engine._onAppTick({
-    friendlyName: 'VSCode',
-    category: 'code',
-    elapsed: 301,
-    elapsedFormatted: '5m',
-  });
+  engine._onAppChanged({ app: 'code', category: 'code' });
+  engine._categoryStreakStart = Date.now() - 10 * 60 * 1000;
+  await engine._onAppChanged({ app: 'firefox', category: 'browser' });
+  await flush();
   assert(
-    fired.length === 1 && fired[0].reason === 'sustained_focus',
-    'se emite el mensaje de sustained_focus'
+    typeof engine._lastAttemptByType['focus_block_end'] === 'number',
+    '…consulta el LLM (consumido por tipo)'
   );
-  assert(
-    engine._categoryStreakFired === true && engine._categoryStreakFiredAt > 0,
-    'racha marcada como disparada'
-  );
-  getEventBus().off('initiative:trigger', listener);
+  assert(!engine._lastAttemptByType['session_end'], '…sin session_end (racha < 20 min)');
   engine.stop();
   restore();
 
-  // 6d. Bloqueo por gap global al cruzar el umbral → la racha NO se consume
+  // 6c. Bloque largo work→no-work (≥20 min) → lo cubre session_end, NO duplica
+  restore = stubLLM({ complete: async () => 'NO' });
+  engine = makeEngine();
+  engine._onAppChanged({ app: 'code', category: 'code' });
+  engine._categoryStreakStart = Date.now() - 26 * 60 * 1000;
+  await engine._onAppChanged({ app: 'firefox', category: 'browser' });
+  await flush();
+  assert(
+    typeof engine._lastAttemptByType['session_end'] === 'number',
+    'racha ≥ 20 min work→no-work → session_end consultado'
+  );
+  assert(!engine._lastAttemptByType['focus_block_end'], '…sin duplicar con focus_block_end');
+  engine.stop();
+  restore();
+
+  // 6d. Bloqueado por conversación reciente → el borde se procesa una sola vez
   restore = stubLLM();
   engine = makeEngine();
-  engine._lastProactive = Date.now(); // acabamos de enviar algo hace 0s
-  await engine._onAppTick({
-    friendlyName: 'VSCode',
-    category: 'code',
-    elapsed: 301,
-    elapsedFormatted: '5m',
-  });
-  assert(
-    engine._categoryStreakFired === false,
-    'bloqueado por gap global → la racha NO se consume'
-  );
-  engine._lastProactive = 0;
-  await engine._onAppTick({
-    friendlyName: 'VSCode',
-    category: 'code',
-    elapsed: 301,
-    elapsedFormatted: '5m',
-  });
+  engine.onUserMessage(); // conversación reciente → el gate lo frena
+  engine._onAppChanged({ app: 'code', category: 'code' });
+  engine._categoryStreakStart = Date.now() - 10 * 60 * 1000;
+  await engine._onAppChanged({ app: 'firefox', category: 'browser' });
+  await flush();
   assert(
     engine._categoryStreakFired === true,
-    'pasado el gap global → reintenta y consume la racha'
+    'el borde se procesa una vez aunque quede bloqueado (no se re-dispara)'
   );
   engine.stop();
   restore();
 }
 
-// ── Test 7: follow-up de sustained_focus ─────────────────────────────────────
+// ── Test 7: sin contador mid-flow en el bloque ───────────────────────────────
 
-async function testFollowup() {
-  console.log(C.bold('\nTest 7: follow-up de sustained_focus (minSec × 3)'));
+async function testNoMidFlowNag() {
+  console.log(C.bold('\nTest 7: sin comentarios mid-flow por contador (solo en el borde)'));
 
-  const restore = stubLLM({ complete: async () => '¿Ya atorada?' });
+  const restore = stubLLM({ complete: async () => 'NO' });
   const engine = makeEngine();
-
-  // Primer disparo (racha consumida, _lastProactive=now, cooldown=now)
+  // Even 20 min in the SAME block: no mid-flow sustained_focus anymore.
   await engine._onAppTick({
     friendlyName: 'VSCode',
     category: 'code',
     elapsed: 301,
     elapsedFormatted: '5m',
   });
-  assert(engine._categoryStreakFired === true, 'primer disparo consume la racha');
-
-  // 7a. Todavía no llega al umbral de follow-up → no dispara, flag queda false
   await engine._onAppTick({
-    friendlyName: 'VSCode',
-    category: 'code',
-    elapsed: 600,
-    elapsedFormatted: '10m',
-  });
-  assert(
-    engine._categoryStreakFollowupFired === false,
-    'antes de minSec×3 → el follow-up NO dispara ni se consume'
-  );
-  engine.stop();
-
-  // 7b. En el umbral pero con cooldown/gap activos → bloqueado y NO se consume
-  const engine2 = makeEngine();
-  await engine2._onAppTick({
-    friendlyName: 'VSCode',
-    category: 'code',
-    elapsed: 301,
-    elapsedFormatted: '5m',
-  });
-  await engine2._onAppTick({
-    friendlyName: 'VSCode',
-    category: 'code',
-    elapsed: 900,
-    elapsedFormatted: '15m',
-  });
-  assert(
-    engine2._categoryStreakFollowupFired === false,
-    'en el umbral con cooldown por tipo + gap activos → bloqueado y NO consume el follow-up'
-  );
-  engine2.stop();
-
-  // 7c. Con cooldown y gap simulados como pasados → el follow-up dispara
-  const engine3 = makeEngine();
-  await engine3._onAppTick({
-    friendlyName: 'VSCode',
-    category: 'code',
-    elapsed: 301,
-    elapsedFormatted: '5m',
-  });
-  engine3._lastAttemptByType = {}; // cooldown por tipo pasado
-  engine3._lastProactive = 0; // gap global pasado
-  await engine3._onAppTick({
-    friendlyName: 'VSCode',
-    category: 'code',
-    elapsed: 900,
-    elapsedFormatted: '15m',
-  });
-  assert(
-    engine3._categoryStreakFollowupFired === true,
-    'con cooldown/gap pasados → el follow-up dispara y se consume'
-  );
-  await engine3._onAppTick({
     friendlyName: 'VSCode',
     category: 'code',
     elapsed: 1200,
     elapsedFormatted: '20m',
   });
+  await flush();
   assert(
-    engine3._categoryStreakFollowupFired === true,
-    'segundo follow-up → ya consumido, no dispara de nuevo'
+    !engine._lastAttemptByType['sustained_focus'],
+    '20 min de foco en el mismo bloque → NO se consulta sustained_focus mid-flow'
   );
-  engine3.stop();
+  assert(
+    engine._categoryStreakFired === false,
+    '…la racha no se consume mientras el bloque sigue (el comentario es del borde)'
+  );
+
+  // El borde SÍ dispara cuando el bloque termina (contraparte de 6b).
+  engine._onAppChanged({ app: 'code', category: 'code' });
+  engine._categoryStreakStart = Date.now() - 10 * 60 * 1000;
+  await engine._onAppChanged({ app: 'firefox', category: 'browser' });
+  await flush();
+  assert(
+    typeof engine._lastAttemptByType['focus_block_end'] === 'number',
+    '…al terminar el bloque, el comentario sale por el borde'
+  );
+  engine.stop();
   restore();
 }
 
@@ -662,6 +632,820 @@ async function testSessionTs() {
   fs.rmSync(dir, { recursive: true, force: true });
 }
 
+// ── Test 14: media_watching (contenido en pantalla) ──────────────────────────
+
+function testDetectMediaTitle() {
+  console.log(C.bold('\nTest 14a: _detectMediaTitle (YouTube/Spotify/VLC)'));
+  let r = _detectMediaTitle('Video épico - YouTube', 'browser');
+  assert(
+    r && r.title === 'Video épico' && r.platform === 'youtube',
+    'título con - YouTube → limpio + plataforma'
+  );
+  r = _detectMediaTitle('League - Twitch', 'browser');
+  assert(
+    r && r.title === 'League' && r.platform === 'twitch',
+    'título - Twitch → limpio + plataforma'
+  );
+  r = _detectMediaTitle('Canción - Artista', 'media');
+  assert(
+    r && r.title === 'Canción - Artista' && r.platform === 'media',
+    'app media → el título ES el contenido'
+  );
+  r = _detectMediaTitle('Never Gonna - Spotify', 'media');
+  assert(
+    r && r.title === 'Never Gonna' && r.platform === 'spotify',
+    'Spotify app → limpia sufijo y detecta plataforma'
+  );
+  r = _detectMediaTitle('pelicula.mkv - VLC media player', 'media');
+  assert(r && r.title === 'pelicula.mkv', 'VLC → limpia sufijo del reproductor');
+  r = _detectMediaTitle('Chrome sin video', 'browser');
+  assert(r === null, 'browser sin plataforma reconocible → null');
+  r = _detectMediaTitle('', 'media');
+  assert(r === null, 'título vacío → null');
+}
+
+async function testMediaWatching() {
+  console.log(C.bold('\nTest 14b: media_watching (racha sobre el mismo título)'));
+  const restore = stubLLM({ complete: async () => 'NO' });
+  const engine = makeEngine();
+  await engine._onAppTick({
+    friendlyName: 'Firefox',
+    category: 'browser',
+    title: 'Video épico - YouTube',
+    elapsed: 0,
+    elapsedFormatted: '0m',
+  });
+  assert(
+    !engine._lastAttemptByType['media_watching'],
+    'menos de MEDIA_MIN_SEC sobre el título → aún no dispara'
+  );
+  // Forzar la racha: adelantamos el reloj del track.
+  engine._mediaTrack.startedAt = Date.now() - 3 * 60 * 1000;
+  await engine._onAppTick({
+    friendlyName: 'Firefox',
+    category: 'browser',
+    title: 'Video épico - YouTube',
+    elapsed: 3 * 60,
+    elapsedFormatted: '3m',
+  });
+  await flush();
+  assert(
+    typeof engine._lastAttemptByType['media_watching'] === 'number',
+    '3 min sobre el mismo título → media_watching consultado'
+  );
+  assert(engine._mediaFired.has('video épico'), 'título marcado como ya comentado');
+  engine.stop();
+  restore();
+}
+
+async function testMediaDedupAndReset() {
+  console.log(C.bold('\nTest 14c: media_watching dedup por título y reset'));
+  const restore = stubLLM({ complete: async () => 'NO' });
+  const engine = makeEngine();
+
+  // Dedup: mismo título dos veces seguidas → no vuelve a intentar.
+  await engine._onAppTick({
+    friendlyName: 'Firefox',
+    category: 'browser',
+    title: 'Lo Mismo - YouTube',
+    elapsed: 0,
+    elapsedFormatted: '0m',
+  });
+  engine._mediaTrack.startedAt = Date.now() - 3 * 60 * 1000;
+  await engine._onAppTick({
+    friendlyName: 'Firefox',
+    category: 'browser',
+    title: 'Lo Mismo - YouTube',
+    elapsed: 3 * 60,
+    elapsedFormatted: '3m',
+  });
+  await flush();
+  const first = engine._lastAttemptByType['media_watching'];
+  assert(typeof first === 'number', 'primer título → consulta');
+  await engine._onAppTick({
+    friendlyName: 'Firefox',
+    category: 'browser',
+    title: 'Lo Mismo - YouTube',
+    elapsed: 4 * 60,
+    elapsedFormatted: '4m',
+  });
+  await flush();
+  assert(
+    engine._lastAttemptByType['media_watching'] === first,
+    'mismo título ya comentado → NO re-consulta'
+  );
+
+  // Reset: cambia de contenido → se reinicia la racha (nuevo title, nuevo track).
+  await engine._onAppTick({
+    friendlyName: 'Firefox',
+    category: 'browser',
+    title: 'Otro Video - YouTube',
+    elapsed: 0,
+    elapsedFormatted: '0m',
+  });
+  assert(
+    engine._mediaTrack && engine._mediaTrack.key === 'otro video',
+    'cambió el título → nuevo track'
+  );
+  // El cooldown por tipo (2h) aún bloquea la re-consulta; lo expiramos para
+  // verificar que el NUEVO título sí vuelve a intentar (dedup es por título).
+  delete engine._lastAttemptByType['media_watching'];
+  engine._mediaTrack.startedAt = Date.now() - 3 * 60 * 1000;
+  await engine._onAppTick({
+    friendlyName: 'Firefox',
+    category: 'browser',
+    title: 'Otro Video - YouTube',
+    elapsed: 3 * 60,
+    elapsedFormatted: '3m',
+  });
+  await flush();
+  assert(
+    typeof engine._lastAttemptByType['media_watching'] === 'number' &&
+      engine._lastAttemptByType['media_watching'] >= first,
+    'nuevo título (cooldown expirado) → re-consulta (racha distinta)'
+  );
+
+  // Media no visible → reset total.
+  await engine._onAppTick({
+    friendlyName: 'VSCode',
+    category: 'code',
+    title: 'foo.js - Visual Studio Code',
+    elapsed: 1,
+    elapsedFormatted: '1s',
+  });
+  assert(engine._mediaTrack === null, 'app no-media → track reseteado');
+  engine.stop();
+  restore();
+}
+
+// ── Test 15: curiosidad de memoria (Fase A) ──────────────────────────────────
+
+function testCuriosityContext() {
+  console.log(C.bold('\nTest 15: _buildCuriosityContext (baja fricción + gaps/tensiones)'));
+  // getMemoryGaps lee state.graph (global). Lo inyectamos con nodos reales.
+  const prevGraph = state.graph;
+  state.graph = {
+    _ready: true,
+    queryNodes: () => [
+      { id: 1, type: 'User', label: 'nombre_usuario', content: 'luka', tags: '[]' },
+      {
+        id: 2,
+        type: 'User',
+        label: 'ubicacion_usuario',
+        content: 'No determinada',
+        tags: '[]',
+      },
+    ],
+  };
+  try {
+    const engine = makeEngine();
+    // getTensions en el grafo del engine (fake)
+    engine._graph.getTensions = () => [
+      {
+        contentA: 'le gusta la noche',
+        contentB: 'prefiere madrugar',
+      },
+    ];
+
+    // Baja fricción → curiosidad con gaps + tensión.
+    let ctx = engine._buildCuriosityContext({ type: 'return_from_break' });
+    assert(ctx.includes('aún no sabes'), 'return_from_break → curiosidad con gap');
+    assert(ctx.includes('contradicción'), 'tensión de memoria incluida');
+    ctx = engine._buildCuriosityContext({ type: 'long_silence' });
+    assert(
+      ctx.includes('aún no sabes') && !ctx.includes('aún no sabes su edad'),
+      'long_silence → curiosidad con rotación (pide un gap distinto)'
+    );
+    // Trigger no-baja-fricción → sin curiosidad.
+    ctx = engine._buildCuriosityContext({ type: 'context_switch_thrash' });
+    assert(ctx === '', 'thrash (alta fricción) → sin curiosidad');
+    ctx = engine._buildCuriosityContext({ type: 'media_watching' });
+    assert(ctx === '', 'media_watching → sin curiosidad forzada');
+    // Sin gaps ni tensiones → vacío. Cubrimos TODOS los KNOWLEDGE_GAPS.
+    state.graph.queryNodes = () => [
+      { id: 1, type: 'User', label: 'nombre_usuario', content: 'luka', tags: '[]' },
+      { id: 2, type: 'User', label: 'edad_usuario', content: '25 años', tags: '[]' },
+      { id: 3, type: 'User', label: 'ubicacion_usuario', content: 'CDMX', tags: '[]' },
+      { id: 4, type: 'User', label: 'trabajo_usuario', content: 'programador', tags: '[]' },
+      { id: 5, type: 'Preference', label: 'musica_favorita', content: 'jazz', tags: '[]' },
+      { id: 6, type: 'Preference', label: 'preferencia_anime', content: 'Evangelion', tags: '[]' },
+      { id: 7, type: 'Preference', label: 'color_favorito', content: 'verde', tags: '[]' },
+      { id: 8, type: 'Preference', label: 'comida_favorita', content: 'tacos', tags: '[]' },
+      { id: 9, type: 'Preference', label: 'preferencia_hobby', content: 'leer', tags: '[]' },
+      {
+        id: 10,
+        type: 'Preference',
+        label: 'preferencia_lenguaje',
+        content: 'typescript',
+        tags: '[]',
+      },
+      { id: 11, type: 'Preference', label: 'preferencia_tonos', content: 'seco', tags: '[]' },
+    ];
+    engine._graph.getTensions = () => [];
+    ctx = engine._buildCuriosityContext({ type: 'return_from_break' });
+    assert(ctx === '', 'sin gaps ni tensiones → sin curiosidad');
+  } finally {
+    state.graph = prevGraph;
+  }
+}
+
+// ── Test 16: thrash con datos reales (Fase B) ────────────────────────────────
+
+async function testThrashRealData() {
+  console.log(C.bold('\nTest 16: context_switch_thrash lleva apps reales y título'));
+  const restore = stubLLM({ complete: async () => 'NO' });
+  const engine = makeEngine();
+  const seen = [];
+  const origTry = engine._tryTrigger;
+  engine._tryTrigger = async (t) => {
+    seen.push(t);
+    return origTry.call(engine, t);
+  };
+  engine._recentSwitches = [
+    { ts: Date.now() - 1000, category: 'code', app: 'cursor' },
+    { ts: Date.now() - 900, category: 'terminal', app: 'kitty' },
+    { ts: Date.now() - 800, category: 'code', app: 'cursor' },
+    { ts: Date.now() - 700, category: 'docs', app: 'firefox' },
+    { ts: Date.now() - 600, category: 'code', app: 'cursor' },
+    { ts: Date.now() - 500, category: 'terminal', app: 'kitty' },
+  ];
+  engine.setOSSensor(
+    fakeSensor(() => ({ title: 'app.ts — Proyecto — Visual Studio Code', idleSecs: 0 }))
+  );
+  await engine._onAppChanged({ app: 'firefox', category: 'browser' });
+  await flush();
+  const thrash = seen.find((t) => t.type === 'context_switch_thrash');
+  assert(!!thrash, 'thrash se disparó');
+  assert(
+    Array.isArray(thrash.apps) && thrash.apps.includes('cursor') && thrash.apps.includes('kitty'),
+    'payload incluye nombres reales de apps',
+    JSON.stringify(thrash.apps)
+  );
+  assert(
+    thrash.title === 'app.ts — Proyecto — Visual Studio Code',
+    'payload incluye el título de la ventana actual'
+  );
+  assert(
+    thrash.context.includes('cursor') && thrash.context.includes('app.ts'),
+    'context usa datos reales'
+  );
+  engine.stop();
+  restore();
+}
+
+// ── Test 17: contexto de código (Fase C) ─────────────────────────────────────
+
+async function testCodeContext() {
+  console.log(C.bold('\nTest 17: _buildCodeContext (archivo enfocado + símbolos)'));
+  const engine = new ProactiveEngine(fakeGraph(), {
+    getFocusedFile: () => '/proyecto/src/app.ts',
+    getSymbols: async () => [
+      { name: 'handleLogin', line: 12 },
+      { name: 'validateForm', line: 40 },
+      { name: 'logout', line: 90 },
+    ],
+  });
+
+  // Trigger de código en modo producción → archivo + símbolos.
+  let ctx = await engine._buildCodeContext({ type: 'sustained_focus', _gate: { score: 0.9 } });
+  assert(ctx.includes('app.ts'), 'incluye el archivo enfocado');
+  assert(
+    ctx.includes('handleLogin') && ctx.includes('validateForm'),
+    'incluye símbolos del archivo'
+  );
+  assert(ctx.includes('opinar algo concreto'), 'instrucción de opinar sobre el archivo');
+
+  // Sin gate (modo no-producción) → solo el archivo, sin símbolos.
+  ctx = await engine._buildCodeContext({ type: 'sustained_focus' });
+  assert(
+    ctx.includes('app.ts') && !ctx.includes('handleLogin'),
+    'sin gate → archivo pero NO símbolos'
+  );
+
+  // Trigger no-código → vacío.
+  ctx = await engine._buildCodeContext({ type: 'late_night' });
+  assert(ctx === '', 'trigger no-código → sin contexto');
+
+  // Sin getter de archivo → vacío.
+  const bare = new ProactiveEngine(fakeGraph());
+  ctx = await bare._buildCodeContext({ type: 'sustained_focus', _gate: {} });
+  assert(ctx === '', 'sin getFocusedFile → sin contexto');
+
+  // LSP que falla (getSymbols rechaza) → no rompe, solo el archivo.
+  const broken = new ProactiveEngine(fakeGraph(), {
+    getFocusedFile: () => '/proyecto/src/foo.ts',
+    getSymbols: async () => {
+      throw new Error('LSP down');
+    },
+  });
+  ctx = await broken._buildCodeContext({ type: 'lsp_error', _gate: { score: 0.9 } });
+  assert(
+    ctx.includes('foo.ts') && !ctx.includes('Símbolos'),
+    'LSP caído → archivo sin símbolos, no lanza'
+  );
+}
+
+// ── Test 18: anti-repetición real (Fase D) ───────────────────────────────────
+
+async function testAntiRepeatHistory() {
+  console.log(C.bold('\nTest 18: anti-repetición usa el historial de mensajes previos'));
+  const engine = makeEngine();
+  engine._recentProactive = [
+    { msg: '¿Cómo va el proyecto?', trigger: 'sustained_focus', at: 100 },
+    { msg: '¿Andas buscando algo?', trigger: 'context_switch_thrash', at: 200 },
+    { msg: 'Buen regreso, ¿descansaste?', trigger: 'return_from_break', at: 300 },
+  ];
+  let captured = null;
+  const restore = stubLLM({
+    complete: async (msgs) => {
+      captured = msgs[0].content;
+      return 'algo distinto';
+    },
+  });
+  await engine._generateMessage({ type: 'sustained_focus', context: 'x' });
+  assert(
+    captured.includes('¿Andas buscando algo?') && captured.includes('Buen regreso'),
+    'el prompt cita los últimos mensajes previos'
+  );
+  assert(
+    captured.includes('No repitas esos temas ni hagas preguntas equivalentes'),
+    'instrucción anti-repetición presente'
+  );
+  restore();
+
+  // El gate registra cada envío en _recentProactive.
+  const restore2 = stubLLM({ complete: async () => 'Mensaje de prueba genérico' });
+  const engine2 = makeEngine();
+  const fired = [];
+  const listener = (p) => fired.push(p);
+  getEventBus().on('initiative:trigger', listener);
+  await engine2._tryTrigger({ type: 'long_silence', context: 'x' });
+  assert(
+    engine2._recentProactive.length === 1 && engine2._recentProactive[0].msg.includes('Mensaje'),
+    'tras un envío, el historial guarda el mensaje y su trigger'
+  );
+  getEventBus().off('initiative:trigger', listener);
+  engine2.stop();
+  restore2();
+}
+
+// ── Test 19: match pantalla ↔ memoria de gustos ──────────────────────────────
+
+function testTasteMatch() {
+  console.log(C.bold('\nTest 19: _matchMediaTaste (contenido en pantalla ↔ gustos)'));
+  const nodes = [
+    { label: 'musica_favorita', content: 'G2 Shanks', importance: 0.9 },
+    { label: 'comida_favorita', content: 'tacos al pastor', importance: 0.8 },
+    { label: 'preferencia_anime', content: 'Evangelion', importance: 0.7 },
+  ];
+
+  let r = _matchMediaTaste('G2 Shanks - Spotify', nodes);
+  assert(
+    r.length === 1 && r[0].label === 'musica_favorita',
+    'título que coincide → match del nodo de gusto'
+  );
+  assert(typeof r[0].score === 'number' && r[0].score > 0, 'el match trae score');
+  r = _matchMediaTaste('Dragon Ball - YouTube', nodes);
+  assert(r.length === 0, 'sin términos compartidos → sin match');
+  r = _matchMediaTaste('', nodes);
+  assert(r.length === 0, 'título vacío → sin match');
+  r = _matchMediaTaste('Tacos al pastor receta - YouTube', [nodes[1]]);
+  assert(
+    r.length === 1 && r[0].label === 'comida_favorita',
+    'coincidencia parcial del contenido → match'
+  );
+}
+
+async function testMediaTriggerCarriesTaste() {
+  console.log(C.bold('\nTest 19b: el trigger media_watching lleva mediaTasteMatch + tasteMatches'));
+  const restore = stubLLM({ complete: async () => 'NO' });
+  const engine = makeEngine();
+  engine._graph.getWorldModel = () => [
+    {
+      type: 'Preference',
+      label: 'musica_favorita',
+      content: 'G2 Shanks',
+      importance: 0.9,
+      tags: '[]',
+      id: 1,
+    },
+  ];
+  let captured = null;
+  const origTry = engine._tryTrigger;
+  engine._tryTrigger = async (t) => {
+    captured = t;
+    return 'NO';
+  };
+  await engine._onAppTick({
+    friendlyName: 'Spotify',
+    category: 'media',
+    title: 'G2 Shanks - Spotify',
+    elapsed: 0,
+    elapsedFormatted: '0m',
+  });
+  engine._mediaTrack.startedAt = Date.now() - 3 * 60 * 1000;
+  await engine._onAppTick({
+    friendlyName: 'Spotify',
+    category: 'media',
+    title: 'G2 Shanks - Spotify',
+    elapsed: 3 * 60,
+    elapsedFormatted: '3m',
+  });
+  await flush();
+  assert(
+    captured && captured.type === 'media_watching' && captured.mediaTasteMatch === true,
+    'trigger marcado con mediaTasteMatch cuando el contenido conecta con memoria'
+  );
+  assert(
+    captured &&
+      Array.isArray(captured.tasteMatches) &&
+      captured.tasteMatches[0].label === 'musica_favorita',
+    'tasteMatches llega con el nodo de gusto relacionado'
+  );
+  engine._tryTrigger = origTry;
+  engine.stop();
+  restore();
+}
+
+// ── Test 20: filtro de contenido genérico (falso-real) ───────────────────────
+
+function testGenericContentFilter() {
+  console.log(C.bold('\nTest 20: contenido genérico del LLM ya no cuenta como identidad real'));
+  const prevGraph = state.graph;
+  try {
+    // Caso real de la DB del usuario: preferencia_ubicacion = "PC del usuario"
+    // (boilerplate). Debe dejar de "tapar" el gap de dónde vive.
+    state.graph = {
+      _ready: true,
+      usingFallback: false,
+      queryNodes: () => [
+        {
+          id: 1,
+          type: 'Preference',
+          label: 'preferencia_ubicacion',
+          content: 'PC del usuario',
+          tags: '[]',
+        },
+      ],
+    };
+    assert(
+      getMemoryGaps().some((g) => g.trait === 'dónde vive'),
+      '"PC del usuario" ya no tapa el gap de dónde vive'
+    );
+
+    // Con contenido REAL, el gap sí desaparece (el filtro no es agresivo).
+    state.graph.queryNodes = () => [
+      { id: 1, type: 'Preference', label: 'preferencia_ubicacion', content: 'CDMX', tags: '[]' },
+    ];
+    assert(
+      !getMemoryGaps().some((g) => g.trait === 'dónde vive'),
+      'contenido real (CDMX) → el gap se cierra'
+    );
+
+    // Unidades: isRealIdentityNode filtra boilerplate y placeholders, no lo real.
+    assert(
+      !isRealIdentityNode({
+        type: 'Preference',
+        label: 'preferencia_ubicacion',
+        content: 'PC del usuario',
+        tags: '[]',
+      }),
+      'contenido genérico → no es identidad real'
+    );
+    assert(
+      !isRealIdentityNode({
+        type: 'User',
+        label: 'proyecto_principal',
+        content: 'no se menciona',
+        tags: '[]',
+      }),
+      '"no se menciona" es placeholder → no es identidad real'
+    );
+    assert(
+      isRealIdentityNode({
+        type: 'Preference',
+        label: 'musica_favorita',
+        content: 'G2 Shanks',
+        tags: '[]',
+      }),
+      'contenido real (G2 Shanks) → sí es identidad real'
+    );
+    // Dato real que recibió una cola placeholder (" | Actualizado: No revelada").
+    // Se evalúa por segmentos: si el dato de cabecera es real, el nodo es real.
+    state.graph.queryNodes = () => [
+      {
+        id: 1,
+        type: 'Preference',
+        label: 'preferencia_anime',
+        content: 'Anime con acción y aventuras | Actualizado: No revelada',
+        tags: '[]',
+      },
+    ];
+    assert(
+      !getMemoryGaps().some((g) => g.trait.includes('anime')),
+      'preferencia_anime con dato real + cola placeholder → el gap de anime se cierra'
+    );
+    // Un "color favorito" que no es un color no debe afirmarse ni cerrar el gap.
+    assert(
+      !isRealIdentityNode({
+        type: 'Preference',
+        label: 'color_favorito',
+        content: 'humor negro',
+        tags: '[]',
+      }),
+      '"humor negro" no es color → no identidad real (gap de color queda abierto)'
+    );
+    assert(
+      isRealIdentityNode({
+        type: 'Preference',
+        label: 'color_favorito',
+        content: 'Colores favoritos: rojo',
+        tags: '[]',
+      }),
+      'color real → identidad (varias palabras + estructura válidas)'
+    );
+  } finally {
+    state.graph = prevGraph;
+  }
+}
+
+// ── Test 21: memoria del prompt prioriza gustos ──────────────────────────────
+
+function testMemoryTastePriority() {
+  console.log(C.bold('\nTest 21: _buildMemoryContext prioriza gustos y filtra ruido'));
+  const engine = makeEngine();
+  engine._graph.getWorldModel = () => [
+    {
+      type: 'Preference',
+      label: 'preferencia_archivo',
+      content: 'C:\\Users\\Usuario\\Documents\\proyecto.docx',
+      importance: 0.9,
+      tags: '[]',
+      id: 1,
+    },
+    {
+      type: 'Preference',
+      label: 'musica_favorita',
+      content: 'G2 Shanks',
+      importance: 0.85,
+      tags: '[]',
+      id: 2,
+    },
+    {
+      type: 'Preference',
+      label: 'preferencia_idioma',
+      content: 'Más de 100 idiomas, incluyendo español, etc.',
+      importance: 0.8,
+      tags: '[]',
+      id: 3,
+    },
+    {
+      type: 'Preference',
+      label: 'preferencia_commando',
+      content: 'ls core/',
+      importance: 0.7,
+      tags: '[]',
+      id: 4,
+    },
+    {
+      type: 'Preference',
+      label: 'anime_favorito',
+      content: 'Evangelion',
+      importance: 0.6,
+      tags: '[]',
+      id: 5,
+    },
+  ];
+  const ctx = engine._buildMemoryContext();
+  assert(ctx.includes('G2 Shanks'), 'gusto de música entra al prompt');
+  assert(ctx.includes('Evangelion'), 'gusto de anime entra al prompt');
+  assert(
+    !ctx.includes('Usuario\\Documents'),
+    'path de archivo ruidoso NO entra (prioridad de gustos)'
+  );
+  assert(!ctx.includes('Más de 100 idiomas'), 'boilerplate de capacidades filtrado del prompt');
+  engine.stop();
+}
+
+// ── Test 22: gate media_watching sube score con match de gustos ──────────────
+
+function testMediaBoostGate() {
+  console.log(C.bold('\nTest 22: mediaTasteMatch sube saliencia/urgencia del candidato'));
+  const base = candidateFromTrigger({ type: 'media_watching', title: 'x', mediaTasteMatch: false });
+  const boosted = candidateFromTrigger({
+    type: 'media_watching',
+    title: 'x',
+    mediaTasteMatch: true,
+  });
+  assert(base && boosted, 'candidateFromTrigger arma candidatos media_watching');
+  assert(boosted.saliencia > base.saliencia, 'saliencia sube con match de gustos');
+  assert(boosted.urgencia > base.urgencia, 'urgencia sube con match de gustos');
+}
+
+// ── Test 23: registro adaptativo (frame de situación) ────────────────────────
+
+async function testSituationFrame() {
+  console.log(C.bold('\nTest 23: registro adaptativo (_buildSituationFrame)'));
+
+  // 23a. Recepción mala → registro conservador.
+  const engine = makeEngine();
+  engine._relationLog = [
+    {
+      proposalId: 'a',
+      trigger: 'git_redflag',
+      msg: 'x',
+      at: Date.now() - 3000,
+      outcome: 'rejected',
+    },
+    {
+      proposalId: 'b',
+      trigger: 'system_warning',
+      msg: 'y',
+      at: Date.now() - 2000,
+      outcome: 'ignored',
+    },
+    {
+      proposalId: 'c',
+      trigger: 'lsp_error',
+      msg: 'z',
+      at: Date.now() - 1000,
+      outcome: 'rejected',
+    },
+  ];
+  let frame = engine._buildSituationFrame();
+  assert(
+    frame.includes('MUY conservadora'),
+    'descartes/ignorados recientes → registro conservador',
+    frame
+  );
+  assert(frame.includes('no ofrezcas acciones nuevas'), '…y evita ofrecer acciones nuevas');
+
+  // 23b. Recepción buena → registro natural.
+  const engine2 = makeEngine();
+  engine2._relationLog = [
+    {
+      proposalId: 'a',
+      trigger: 'git_redflag',
+      msg: 'x',
+      at: Date.now() - 3000,
+      outcome: 'accepted',
+    },
+    { proposalId: 'b', trigger: 'lsp_error', msg: 'y', at: Date.now() - 2000, outcome: 'accepted' },
+  ];
+  frame = engine2._buildSituationFrame();
+  assert(frame.includes('bien recibidas'), 'aceptaciones → registro natural');
+
+  // 23c. Habló hace poco → no repetir.
+  const engine3 = makeEngine();
+  engine3._lastProactive = Date.now() - 5 * 60 * 1000;
+  frame = engine3._buildSituationFrame();
+  assert(frame.includes('menos de 45 min'), 'habló hace poco → advertencia de no repetir');
+
+  // 23d. Flow de código → ultra breve.
+  const engine4 = makeEngine([], () => ({ category: 'code', idleSecs: 5, elapsed: 700 }));
+  engine4._categoryStreakStart = Date.now() - 12 * 60 * 1000;
+  frame = engine4._buildSituationFrame();
+  assert(frame.includes('MÁXIMO 1 oración'), 'flow de código → registro ultra-breve', frame);
+  engine4.stop();
+
+  // 23e. El frame se inyecta en el prompt de generación.
+  const engine5 = makeEngine();
+  engine5._relationLog = [
+    {
+      proposalId: 'a',
+      trigger: 'git_redflag',
+      msg: 'x',
+      at: Date.now() - 3000,
+      outcome: 'rejected',
+    },
+    {
+      proposalId: 'b',
+      trigger: 'system_warning',
+      msg: 'y',
+      at: Date.now() - 2000,
+      outcome: 'rejected',
+    },
+  ];
+  let captured = null;
+  const restore = stubLLM({
+    complete: async (msgs) => {
+      captured = msgs[0].content;
+      return 'mensaje de prueba';
+    },
+  });
+  await engine5._generateMessage({ type: 'return_from_break', context: 'x' });
+  assert(
+    captured.includes('REGISTRO DEL MOMENTO') && captured.includes('MUY conservadora'),
+    'el frame de situación llega al prompt del LLM'
+  );
+  restore();
+
+  engine.stop();
+  engine2.stop();
+  engine3.stop();
+  engine5.stop();
+}
+
+// ── Test 24: hilo relacional (bookend + outcomes) ────────────────────────────
+
+async function testRelationBookend() {
+  console.log(C.bold('\nTest 24: hilo relacional (_relationLog + bookend + outcomes)'));
+
+  // 24a. Un envío queda registrado en el hilo relacional.
+  const restore = stubLLM({ complete: async () => 'Hay un conflicto de merge pendiente.' });
+  const engine = makeEngine();
+  const fired = [];
+  const listener = (p) => fired.push(p);
+  getEventBus().on('initiative:trigger', listener);
+  const res = await engine._tryTrigger({
+    type: 'git_redflag',
+    kind: 'merge_conflict',
+    context: 'x',
+  });
+  assert(res === 'Hay un conflicto de merge pendiente.', 'envía el mensaje');
+  assert(engine._relationLog.length === 1, 'mensaje registrado en el hilo relacional');
+  assert(
+    engine._relationLog[0].trigger === 'git_redflag' &&
+      typeof engine._relationLog[0].proposalId === 'string' &&
+      engine._relationLog[0].outcome === null,
+    'entrada con trigger + proposalId + outcome pendiente'
+  );
+
+  // 24b. Sin respuesta → bookend "sin respuesta" al insistir con el mismo tipo.
+  let bookend = engine._buildBookend({ type: 'git_redflag', kind: 'merge_conflict' });
+  assert(bookend.includes('sin respuesta'), 'reintento mismo día → bookend sin respuesta', bookend);
+  assert(bookend.includes('conflicto'), 'bookend cita el mensaje previo');
+
+  // 24c. Descartada → bookend de reiteración.
+  engine.handleDecision({
+    proposalId: engine._relationLog[0].proposalId,
+    type: 'git_redflag',
+    decision: 'rejected',
+  });
+  assert(
+    engine._relationLog[0].outcome === 'rejected',
+    'handleDecision marca el outcome en el hilo'
+  );
+  bookend = engine._buildBookend({ type: 'git_redflag', kind: 'merge_conflict' });
+  assert(
+    bookend.includes('Reiteración') && bookend.includes('descartado o ignorado'),
+    'bookend de reiteración tras rechazo'
+  );
+
+  // 24d. Aceptada → sin bookend.
+  engine._relationLog.push({
+    proposalId: 'zz',
+    trigger: 'lsp_error',
+    msg: 'parche aplicado',
+    at: Date.now(),
+    outcome: null,
+  });
+  engine.handleDecision({ proposalId: 'zz', type: 'lsp_error', decision: 'accepted' });
+  assert(engine._buildBookend({ type: 'lsp_error' }) === '', 'aceptado → sin bookend');
+
+  // 24e. Otros tipos no se ven afectados por el bookend (granularidad por tipo).
+  assert(
+    engine._buildBookend({ type: 'system_warning' }) === '',
+    'otro tipo sin historial → sin bookend'
+  );
+
+  getEventBus().off('initiative:trigger', listener);
+  engine.stop();
+  restore();
+}
+
+// ── Test 25: silencio largo solo "porque pasó algo" ──────────────────────────
+
+async function testSilenceCause() {
+  console.log(C.bold('\nTest 25: long_silence solo "porque pasó algo"'));
+
+  const restore = stubLLM({ complete: async () => 'NO' });
+
+  // 25a. Silencio largo SIN razón → el LLM ni se consulta.
+  let engine = makeEngine();
+  engine._lastUserMsg = Date.now() - 5 * 60 * 60 * 1000; // 5h sin hablar
+  assert(engine._silenceHasReason() === false, 'sin pendientes/cola/gaps → sin razón');
+  await engine._maybeLongSilence(new Date());
+  assert(
+    !engine._lastAttemptByType['long_silence'],
+    'silencio 5h SIN razón → no se consulta al LLM'
+  );
+  engine.stop();
+
+  // 25b. Con un diferido en cola → hay causa y el silencio se vuelve mensaje.
+  engine = makeEngine();
+  engine._lastUserMsg = Date.now() - 5 * 60 * 60 * 1000;
+  engine._queue.push({ tipo: 'git_redflag', kind: 'default' }, { now: Date.now() });
+  assert(engine._silenceHasReason() === true, 'diferido en cola → hay razón');
+  await engine._maybeLongSilence(new Date());
+  assert(
+    typeof engine._lastAttemptByType['long_silence'] === 'number',
+    'silencio 5h CON causa → consulta el LLM'
+  );
+  engine.stop();
+  restore();
+}
+
 // ── Runner ───────────────────────────────────────────────────────────────────
 
 (async () => {
@@ -672,14 +1456,29 @@ async function testSessionTs() {
   await testGlobalGap();
   await testDecidingLock();
   await testIdleGate();
-  await testStreakNotConsumedWhenBlocked();
-  await testFollowup();
+  await testFocusBlockEnd();
+  await testNoMidFlowNag();
   await testSessionEnd();
   await testThrash();
   await testReturnFromBreak();
   testSpecialDate();
   testBehaviorUrgency();
   await testSessionTs();
+  testDetectMediaTitle();
+  await testMediaWatching();
+  await testMediaDedupAndReset();
+  testCuriosityContext();
+  await testThrashRealData();
+  await testCodeContext();
+  await testAntiRepeatHistory();
+  testTasteMatch();
+  await testMediaTriggerCarriesTaste();
+  testGenericContentFilter();
+  testMemoryTastePriority();
+  testMediaBoostGate();
+  await testSituationFrame();
+  await testRelationBookend();
+  await testSilenceCause();
 
   console.log(
     C.bold(`\nResultado: ${C.green(`${passed} ✓`)}${failed ? ` / ${C.red(`${failed} ✗`)}` : ''}`)

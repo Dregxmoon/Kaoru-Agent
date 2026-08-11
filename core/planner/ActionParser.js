@@ -153,6 +153,7 @@ function isHighImpact(tool, params) {
   if (tool === 'git_commit' || tool === 'git_merge' || tool === 'git_rebase') return true;
   if (tool === 'git_push') return true;
   if (tool === 'git_stash') return params?.action !== 'list';
+  if (tool === 'git_add') return true;
   if (tool === 'github_issue_create') return true;
   if (tool === 'github_issue_comment') return true;
   if (tool === 'github_issue_close') return true;

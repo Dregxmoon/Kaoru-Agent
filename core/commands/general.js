@@ -180,6 +180,19 @@ module.exports = function registerCommands(register) {
   });
 
   register({
+    name: 'memoria',
+    description: 'Muestra el grafo de nodos de memoria en el chat',
+    usage: '/memoria',
+    handler: async (args, ctx) => {
+      if (typeof ctx.openNodes === 'function') {
+        ctx.openNodes();
+        return 'Mostrando el grafo de memoria en el chat.';
+      }
+      return 'Este comando solo funciona desde la ventana del chat.';
+    },
+  });
+
+  register({
     name: 'sesiones',
     description: 'Abre el panel de sesiones pasadas (reanudar conversaciones)',
     usage: '/sesiones',

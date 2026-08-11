@@ -26,41 +26,58 @@ flowchart TD
 No genera lenguaje: evalúa en cada turno el estado del usuario y produce un `BehaviorContext` que
 describe cómo debe comportarse el asistente.
 
-| Campo | Valores | Descripción |
-|---|---|---|
-| `tone` | playful / curious / empathetic / dry / direct | Tono de la respuesta |
-| `toolTendency` | none / low / medium / high | Inclinación a usar herramientas |
-| `detailLevel` | concise / normal / thorough | Nivel de detalle |
-| `proactiveScore` | 0.0 – 1.0 | Cuánto debería tomar la iniciativa |
-| `initiativeReason` | string | Justificación de la iniciativa (o del silencio) |
+| Campo              | Valores                                       | Descripción                                     |
+| ------------------ | --------------------------------------------- | ----------------------------------------------- |
+| `tone`             | playful / curious / empathetic / dry / direct | Tono de la respuesta                            |
+| `toolTendency`     | none / low / medium / high                    | Inclinación a usar herramientas                 |
+| `detailLevel`      | concise / normal / thorough                   | Nivel de detalle                                |
+| `proactiveScore`   | 0.0 – 1.0                                     | Cuánto debería tomar la iniciativa              |
+| `initiativeReason` | string                                        | Justificación de la iniciativa (o del silencio) |
 
 Entradas: mensaje del usuario, contexto del SO, historial reciente y hora del día.
 
-## `ProactiveEngine.js` — motor de proactividad autónoma
+## `ProactiveEngine.js` — motor de proactividad autónoma (v2)
 
-Se suscribe al `EventBus` y escucha los eventos de los sensores para detectar patrones.
+Se suscribe al `EventBus` y escucha los eventos de los sensores para detectar patrones en vivo. Está
+**compuesto por mixins** en [`proactive/`](./proactive/README.md): `os-events`, `sensor-events`,
+`time-based`, `gate`, `proposals`, `message-gen`, `lifecycle` y `testing`, más `config.js`
+(umbrales/`PROPOSAL_HINTS`/cooldowns) y `helpers.js` (funciones puras).
 
 **Patrones detectados:**
-| Patrón | Gatillo |
-|---|---|
-| `sustained_focus` | Misma app > 15 min |
-| `context_switch` | Cambio de categoría de app |
-| `return_from_afk` | Vuelta de inactividad |
-| `long_silence` | Sin hablar > umbral configurable |
-| `lsp_error` | Errores del editor (verificación con el LSP real) |
-| `pending_recap` | Pendientes de memoria al arrancar |
-| …y todos los señalados por `infrastructure/sensors/` | |
 
-**Flujo:** heurística barata (gates de cooldown, presupuesto, chat reciente, AFK) → núcleo determinista
-de decisión (`core/decision/`) con score y *reason code* → el LLM **genera** el mensaje con identidad y
-memoria factual → propuesta al chat con consentimiento.
+| Patrón                                               | Gatillo                                                                                       |
+| ---------------------------------------------------- | --------------------------------------------------------------------------------------------- |
+| `sustained_focus`                                    | Foco sostenido en una categoría (5–40 min según sea código/terminal/docs/diseño/browser/game) |
+| `context_switch_thrash`                              | ≥ 6 cambios de app en 10 min (≥ 3 categorías)                                                 |
+| `return_from_break`                                  | Vuelta de una pausa de 15 min–3 h                                                             |
+| `long_silence`                                       | Sin hablar > 3 h                                                                              |
+| `session_end`                                        | Racha de trabajo ≥ 20 min que termina                                                         |
+| `media_watching`                                     | Mismo título ≥ 2 min (YouTube/Twitch/Netflix/Spotify/VLC)                                     |
+| `lsp_error`                                          | Errores del editor (verificación con el LSP real)                                             |
+| `pending_recap`                                      | Pendientes de memoria al arrancar                                                             |
+| …y todos los señalados por `infrastructure/sensors/` |                                                                                               |
+
+**Flujo:** pre-filtros baratos (cooldowns por tipo, gap global, chat reciente, AFK, lock) → **gate de
+contexto determinista** (`core/decision/`) con score y _reason code_ → el LLM **produce** el mensaje
+con identidad y memoria factual → propuesta al chat con consentimiento.
+
+**Dónde está el código:** `core/behavior/proactive/` — ver
+[README del motor](./proactive/README.md) para el detalle de fases A–G, catálogo de triggers y cola.
 
 ### Características clave
+
 - **Cooldowns por tipo** que crecen con los rechazos consecutivos (factor hasta ×3) y se resetean al aceptar.
-- **Presupuesto diario** (tope duro) chequeado antes del LLM; persistido por día.
+- **Presupuesto diario dinámico** impuesto por el gate (`ContextGate`), según la receptividad del
+  usuario (2–20/día); ya no es un tope duro estático del engine.
+- **ESCALATE** (señal crítica) salta el gap global, el cooldown del tipo y el guard de AFK — sigue
+  respetando la conversación reciente.
+- **Cola QUEUE** de diferidos que se drena en el heartbeat, al volver de una pausa y al cerrar el chat.
 - **Lock `_deciding`** que no se sostiene mientras espera confirmación.
 - **Triggers temporales** (long_silence, fechas especiales) con candidato `selfGated` que respeta el gate.
-- **Anti-repetición y memoria factual** — el prompt proactivo prohíbe inventar recuerdos.
+- **Anti-repetición y memoria factual** — el prompt proactivo prohíbe inventar recuerdos; historial
+  corto (últimos 5) + filtro de relleno en producción.
+- **Aprendizaje por feedback (Fase G):** `ProposalStore` + `core/learning/LearningEngine` recalibran
+  los pesos de scoring que el gate lee (ver [`core/learning`](../learning/README.md)).
 - **Prompt de parche con lenguaje:** al generar parches LSP, `_generatePatch` declara el idioma del
   archivo (`languageId`/`fileType`) y prohíbe sintaxis ajena (JS → JSDoc, nunca anotaciones TS).
 
@@ -152,13 +169,13 @@ resuelven eso **sin escribir en disco** y conectándolo al flujo del asistente:
 
 ## Verificación
 
-| Suite | Cobertura |
-|---|---|
-| `test_proactive` (55) | Contrato `_tryTrigger`, cooldowns, gates, patrones |
-| `test_proposals` (40) | Payload de propuesta, decisiones, feedback, slider de autonomía |
-| `test_proposals_executor` (69) | Executor: whitelist, preview, verificación, idempotencia |
-| `test_persistent` (44) | Persistencia de feedback y estado entre reinicios |
-| `test_gate_integration` (32) | Integración con el núcleo determinista |
-| `test_gesture_lexicon` | Vocabulario, normalización, ruido, índices inversos |
-| `test_gesture_heuristic` | Scoring, dedupe de gestos, resolveAll, mappings |
-| `test_gesture_engine` | Prioridades, cooldowns, revert, fallback, attach |
+| Suite                          | Cobertura                                                       |
+| ------------------------------ | --------------------------------------------------------------- |
+| `test_proactive` (112)         | Contrato `_tryTrigger`, cooldowns, gates, patrones, curiosidad  |
+| `test_proposals` (40)          | Payload de propuesta, decisiones, feedback, slider de autonomía |
+| `test_proposals_executor` (69) | Executor: whitelist, preview, verificación, idempotencia        |
+| `test_persistent` (44)         | Persistencia de feedback y estado entre reinicios               |
+| `test_gate_integration` (34)   | Integración con el núcleo determinista + drenado de cola        |
+| `test_gesture_lexicon`         | Vocabulario, normalización, ruido, índices inversos             |
+| `test_gesture_heuristic`       | Scoring, dedupe de gestos, resolveAll, mappings                 |
+| `test_gesture_engine`          | Prioridades, cooldowns, revert, fallback, attach                |

@@ -65,6 +65,10 @@ function createMockGit(overrides = {}) {
       calls.push(['commit', cwd, o]);
       return { committed: true, hash: 'abc1234' };
     },
+    add: async (cwd, paths) => {
+      calls.push(['add', cwd, paths]);
+      return { added: Array.isArray(paths) && paths.length ? paths : ['(todo)'] };
+    },
     stash: async (cwd, o) => {
       calls.push(['stash', cwd, o]);
       return { ok: true, stashes: [] };
@@ -221,6 +225,7 @@ async function testGitStatusNoApproval() {
     'stash list no es high impact'
   );
   assert(AP.isHighImpact('git_commit', {}) === true, 'git_commit es high impact');
+  assert(AP.isHighImpact('git_add', {}) === true, 'git_add es high impact');
   assert(AP.isHighImpact('git_push', {}) === true, 'git_push es high impact');
   assert(AP.isHighImpact('git_stash', { action: 'push' }) === true, 'stash push es high impact');
   assert(AP.isHighImpact('git_merge', {}) === true, 'git_merge es high impact');
@@ -301,11 +306,11 @@ async function testRegistry() {
 
   const gitTools = reg._getGitTools();
   const githubTools = reg._getGitHubTools();
-  assert(gitTools.length === 9, '9 tools git', `git: ${gitTools.length}`);
+  assert(gitTools.length === 10, '10 tools git', `git: ${gitTools.length}`);
   assert(githubTools.length === 9, '9 tools github', `github: ${githubTools.length}`);
 
   const cat = reg.getCatalog();
-  assert(cat.bySource.git === 9 && cat.bySource.github === 9, 'getCatalog bySource');
+  assert(cat.bySource.git === 10 && cat.bySource.github === 9, 'getCatalog bySource');
 
   const gitCommit = reg.getToolById('git.git_commit');
   assert(gitCommit && gitCommit.highImpact === true, 'git_commit marcado highImpact en catálogo');
@@ -379,6 +384,87 @@ async function testGitPushApproval() {
   }
 }
 
+// ── Test 11: pedido acotado de git termina sin acciones adicionales ──────────
+
+async function testBoundedGitTaskStopsAfterPush() {
+  console.log(
+    C.bold('\n── Test 11: "sube los cambios a github" termina tras el push (sin extras) ──')
+  );
+  const bridge = createTrackingBridge();
+  const git = createMockGit();
+  const { AgentLoop } = require('../core/planner/AgentLoop.js');
+  // Secuencia exacta del bug de producción: exec("git add .") → commit → push →
+  // respuesta. Si el loop intentara algo más (p. ej. un edit() no solicitado),
+  // el bridge lo registraría y el test fallaría.
+  const stub = stubCompleteWithTools(
+    [
+      { tool: 'exec', params: { command: 'git add .' } },
+      { tool: 'git_commit', params: { message: 'feat: cambios' } },
+      { tool: 'git_push', params: { branch: 'produccion' } },
+    ],
+    'Cambios subidos a github.'
+  );
+  try {
+    const loop = new AgentLoop({ bridge, git, maxIterations: 5 });
+    const out = await loop.run('sube los cambios a github con su descripción', 'Sistema', [], {
+      tools: [
+        { name: 'exec', inputSchema: {} },
+        { name: 'git_commit', inputSchema: {} },
+        { name: 'git_push', inputSchema: {} },
+      ],
+      onApprovalNeeded: async () => true,
+    });
+    assert(out.toolResults.length === 3, 'solo 3 tools ejecutadas (add/commit/push)');
+    const names = out.toolResults.map((t) => t.tool);
+    assert(
+      names.includes('exec') && names.includes('git_commit') && names.includes('git_push'),
+      'las 3 tools de git se ejecutaron',
+      names.join(', ')
+    );
+    const extra = names.filter((n) => n === 'edit' || n === 'write' || n === 'read');
+    assert(extra.length === 0, 'NO hay tools no solicitadas (p. ej. edit/write)', names.join(', '));
+    assert(
+      bridge.calls.join(',') === 'exec',
+      'el bridge solo ejecutó el add (sin edit() extra)',
+      bridge.calls.join(',')
+    );
+    assert(!out.error, 'el run terminó sin error');
+  } finally {
+    stub.restore();
+  }
+}
+
+// ── Test 12: git_add es tool nativa (no exec) que pide aprobación ─────────────
+
+async function testGitAddNative() {
+  console.log(C.bold('\n── Test 12: git_add = tool nativa que stagea y pide aprobación ────'));
+  const bridge = createTrackingBridge();
+  const git = createMockGit();
+  const { AgentLoop } = require('../core/planner/AgentLoop.js');
+  const approvals = [];
+  const stub = stubCompleteWithTools([{ tool: 'git_add', params: { paths: ['src/x.js'] } }]);
+  try {
+    const loop = new AgentLoop({ bridge, git, maxIterations: 3 });
+    const out = await loop.run('agrega src/x.js al index', 'Sistema', [], {
+      tools: [{ name: 'git_add', inputSchema: {} }],
+      onApprovalNeeded: async (action) => {
+        approvals.push(action.tool);
+        return true;
+      },
+    });
+    assert(approvals.length === 1 && approvals[0] === 'git_add', 'pidió aprobación para git_add');
+    assert(out.toolResults[0].ok === true, 'ejecutó tras aprobar');
+    assert(
+      git.calls.some(([tool, , paths]) => tool === 'add' && paths?.[0] === 'src/x.js'),
+      'GitManager.add llamado con los paths',
+      JSON.stringify(git.calls)
+    );
+    assert(bridge.calls.length === 0, 'el bridge NO fue llamado (git_add es nativa)');
+  } finally {
+    stub.restore();
+  }
+}
+
 // ── Main ───────────────────────────────────────────────────────────────────────
 
 async function main() {
@@ -396,6 +482,8 @@ async function main() {
   await testResolver();
   await testToolSchemas();
   await testGitPushApproval();
+  await testBoundedGitTaskStopsAfterPush();
+  await testGitAddNative();
 
   console.log(C.bold('\n════════════════════════════════════════════════════════'));
   const total = passed + failed;

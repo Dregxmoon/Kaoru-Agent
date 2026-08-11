@@ -25,6 +25,7 @@ const { AppHistoryStore } = require('./stores/AppHistoryStore.js');
 const { DecayStore } = require('./stores/DecayStore.js');
 const { ConsolidatorStore } = require('./stores/ConsolidatorStore.js');
 const { IntentionsStore } = require('./stores/IntentionsStore.js');
+const { ContradictionResolver } = require('./ContradictionResolver.js');
 const { NODE_TYPES, DECAY_RATES } = require('./stores/constants.js');
 
 let Database;
@@ -442,6 +443,7 @@ class StateGraph {
     this._decay = new DecayStore(this._db);
     this._consolidator = new ConsolidatorStore(this._db, this);
     this._intentions = new IntentionsStore(this._db, this);
+    this._resolver = new ContradictionResolver(this);
   }
 
   // Schema
@@ -721,6 +723,38 @@ class StateGraph {
   }
   _findNodesByLabel(label) {
     return this._nodes._findNodesByLabel(label);
+  }
+
+  /**
+   * Registra una relación semántica entre dos nodos (node_relations).
+   * Idempotente: no duplica el mismo par+type.
+   * @param {{ source: number, target: number, type: string }} rel
+   * @returns {boolean} true si se insertó
+   */
+  createRelation({ source, target, type }) {
+    if (!this.isReady) return false;
+    if (!source || !target || source === target) return false;
+    try {
+      const exists = this._db
+        .prepare('SELECT id FROM node_relations WHERE source_id=? AND target_id=? AND type=?')
+        .get(source, target, String(type).toUpperCase());
+      if (exists) return false;
+      this._db
+        .prepare('INSERT INTO node_relations (source_id, target_id, type) VALUES (?,?,?)')
+        .run(source, target, String(type).toUpperCase());
+      return true;
+    } catch (e) {
+      logger.warn('StateGraph', '[state-graph] error en createRelation:', e.message);
+      return false;
+    }
+  }
+
+  /**
+   * Contradicciones sin resolver (relación CONTRADICES entre nodos activos).
+   * @returns {Array<{label:string,a:number,b:number,contentA:string,contentB:string}>}
+   */
+  getTensions() {
+    return this._resolver ? this._resolver.getTensions() : [];
   }
 
   startSession() {

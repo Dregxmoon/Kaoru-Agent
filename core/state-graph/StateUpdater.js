@@ -30,8 +30,18 @@ LABELS PERMITIDOS (usa EXACTAMENTE estos):
 - musica_favorita → música o artistas favoritos
 - proyecto_principal → proyecto más importante activo
 - observaciones_usuario → rasgos de carácter observados del usuario (NO del asistente)
+- estado_usuario → estado/ánimo/energía actual del usuario en esta conversación ("Está agotado tras la mudanza", "Está de buen humor", "Está concentrado en el proyecto")
 Para proyectos secundarios: proyecto_[nombre] (ej: proyecto_asistente)
 Para preferencias extra: preferencia_[tema] (ej: preferencia_anime)
+
+RELACIONES: si dos nodos extraídos están relacionados entre sí, decláralo en "relations"
+usando los mismos labels (source/target deben existir en "nodes"):
+- RELATED_TO → conexión general (nodos del mismo tema/proyecto)
+- IMPLIES → un hecho implica otro (ej: usa Java IMPLIES lenguaje de programación)
+- PART_OF → uno es parte de otro (ej: proyecto_calculadora PART_OF trabajo_usuario)
+- CONTRADICES → un hecho nuevo contradice uno viejo conocido
+- USES → un proyecto usa una tecnología/preferencia (ej: proyecto_calculadora USES Java)
+Solo relaciones genuinas de la conversación actual — no inventes.
 
 REGLAS CRÍTICAS:
 - Si el usuario CORRIGE algo ("en realidad", "me equivoqué", "ahora"), usa el valor NUEVO
@@ -52,6 +62,13 @@ JSON válido únicamente, sin texto extra ni backticks:
       "importance": 0.0,
       "tags": []
     }
+  ],
+  "relations": [
+    {
+      "source": "label del nodo source",
+      "target": "label del nodo target",
+      "type": "RELATED_TO|IMPLIES|PART_OF|CONTRADICES|USES"
+    }
   ]
 }`;
 
@@ -70,6 +87,7 @@ const FIXED_LABELS = new Set([
   'musica_favorita',
   'comida_favorita',
   'observaciones_usuario',
+  'estado_usuario',
 ]);
 // Legacy: aceptar también el label antiguo
 const LEGACY_LABELS = new Map([
@@ -106,6 +124,8 @@ function _isCommandContent(text) {
 function isValidLabel(label) {
   if (FIXED_LABELS.has(label)) return true;
   if (LEGACY_LABELS.has(label)) return true;
+  // Leaks de plantilla del LLM ("proyecto_[nombre]") — nunca son datos reales.
+  if (/[[\]]/.test(label)) return false;
   return DYNAMIC_PREFIXES.some((prefix) => label.startsWith(prefix));
 }
 
@@ -129,10 +149,15 @@ const INSTANT_PATTERNS = [
     }),
   },
   {
+    // Cobertura amplia de cómo la gente dice su edad en español/inglés:
+    //   "21 años" · "tengo 21 años" · "mi edad es 21" · "mi edad son 30"
+    //   "soy 19 años" · "en realidad tengo 33 años" · "i'm 28 (years old)"
+    // "años" es OBLIGATORIO salvo con "mi edad es/son", para no confundir
+    // "tengo 2 perros" con una edad. El prefijo de corrección va explícito.
     regex:
-      /(?:en realidad |ahora |ya )?tengo\s+(\d{1,3})\s+años|(?:actually |now )?i'?m\s+(\d{1,3})\s+(?:years old|years?\s*yo)/i,
+      /(?:en realidad |ahora |ya )?(?:mi edad (?:es|son)\s+)?(\d{1,3})\s*años|(?:en realidad |ahora |ya )?(?:mi edad (?:es|son)\s+)(\d{1,3})\b|(?:en realidad |ahora |ya )?tengo\s+(\d{1,3})\s+años|(?:en realidad |ahora |ya )?soy\s+(?:de )?(\d{1,3})\s+años|(?:actually |now )?i'?m\s+(\d{1,3})\s*(?:years? old|yr)\b|(?:actually |now )?my age is\s+(\d{1,3})\b/i,
     node: (m) => {
-      const edad = m[1] || m[2];
+      const edad = m[1] || m[2] || m[3] || m[4] || m[5] || m[6];
       return {
         type: 'User',
         label: 'edad_usuario',
@@ -207,8 +232,11 @@ const INSTANT_PATTERNS = [
     }),
   },
   {
+    // Proyecto principal. Descartamos "trabajando en|programando|working on":
+    // son tareas del momento, NO el proyecto principal — sin esto, cualquier
+    // mensaje ("estoy trabajando en este bug") pisa el proyecto canónico.
     regex:
-      /(?:estoy (?:desarrollando|construyendo|trabajando en|programando)|mi proyecto(?:\s+principal)? (?:es|se llama)|i'?m (?:developing|building|working on)|my (?:main\s+)?project (?:is|called))\s*(?:un\s+|una\s+|an?\s+)?(.{3,60})/i,
+      /(?:estoy (?:desarrollando|construyendo|haciendo)|mi proyecto(?:\s+principal)? (?:es|se llama)|i'?m (?:developing|building|working on my)|my (?:main\s+)?project (?:is|called))\s*(?:un\s+|una\s+|an?\s+)?(.{3,60})/i,
     node: (m) => {
       const proj = m[1] || m[2];
       return {
@@ -244,6 +272,20 @@ const INSTANT_PATTERNS = [
       content: `Pidió recordar: ${m[1].trim()}`,
       importance: 0.88,
       tags: ['recordar'],
+    }),
+  },
+  {
+    // Estado del usuario (humor/energía/ánimo). Overwrite: el último gana.
+    // Debe ir DESPUÉS de los patrones más específicos para no capturar
+    // fragmentos de otras frases ("estoy desarrollando..." ya matcheó antes).
+    regex:
+      /(?:estoy|me siento|anda(?:ba)?|vengo)\s+(?:muy\s+|re\s+|bastante\s+|super\s+|súper\s+|bien\s+de\s+)?(cansad[oa]|agotad[oa]|frustrad[oa]|estresad[oa]|preocupad[oa]|content[oa]|feliz|triste|aburrid[oa]|motivad[oa]|concentrad[oa]|ocupad[oa]|enérgic[oa]|con\s+energía|de\s+buen\s+humor|de\s+mal\s+humor|sin\s+ganas|agobiad[oa])/i,
+    node: (m) => ({
+      type: 'User',
+      label: 'estado_usuario',
+      content: `Estado: ${m[0].trim()}`,
+      importance: 0.7,
+      tags: ['estado'],
     }),
   },
 ];
@@ -338,6 +380,8 @@ class StateUpdater {
 
     let saved = 0,
       discarded = 0;
+    // Map label→id para resolver las relaciones extraídas (solo nodos activos)
+    const idByLabel = new Map();
     for (const node of extracted.nodes || []) {
       try {
         if (!node.type || !node.label || !node.content) continue;
@@ -357,16 +401,44 @@ class StateUpdater {
         // Migrar labels legacy (ej. personalidad_observada → observaciones_usuario)
         const migratedLabel = migrateLabel(label);
 
-        this._resolver.resolve({
+        const id = this._resolver.resolve({
           type: node.type,
           label: migratedLabel,
           content: node.content,
           importance: Math.min(1.0, Math.max(0.1, node.importance ?? 0.6)),
           tags: Array.isArray(node.tags) ? node.tags : [],
         });
+        idByLabel.set(migratedLabel, id);
         saved++;
       } catch (e) {
         logger.warn('StateUpdater', '[state-updater] error guardando nodo:', e.message);
+      }
+    }
+
+    // Relaciones extraídas: conectan nodos por label (usando ids recién guardados
+    // o nodos activos preexistentes). Se descartan las que no resuelvan.
+    let relations = 0;
+    for (const rel of extracted.relations || []) {
+      try {
+        const sourceLabel = String(rel.source || '')
+          .toLowerCase()
+          .replace(/\s+/g, '_')
+          .slice(0, 80);
+        const targetLabel = String(rel.target || '')
+          .toLowerCase()
+          .replace(/\s+/g, '_')
+          .slice(0, 80);
+        const sourceId =
+          idByLabel.get(sourceLabel) ?? this._graph._findActiveNodeByLabel(sourceLabel)?.id;
+        const targetId =
+          idByLabel.get(targetLabel) ?? this._graph._findActiveNodeByLabel(targetLabel)?.id;
+        const type = String(rel.type || 'RELATED_TO').toUpperCase();
+        if (!/^(RELATED_TO|IMPLIES|PART_OF|CONTRADICES|USES)$/.test(type)) continue;
+        if (this._graph.createRelation({ source: sourceId, target: targetId, type })) {
+          relations++;
+        }
+      } catch (e) {
+        logger.warn('StateUpdater', '[state-updater] error guardando relación:', e.message);
       }
     }
 
@@ -389,9 +461,9 @@ class StateUpdater {
     this._graph.endSession(sessionId, { turnCount, summary: extracted.episode_summary, episodeId });
     logger.info(
       'StateUpdater',
-      `[state-updater] guardados: ${saved} nodos, descartados: ${discarded}, episodio: ${episodeId ? 'sí' : 'no'}`
+      `[state-updater] guardados: ${saved} nodos, ${relations} relaciones, descartados: ${discarded}, episodio: ${episodeId ? 'sí' : 'no'}`
     );
-    return { saved, discarded, episodeId };
+    return { saved, relations, discarded, episodeId };
   }
 
   async _extractMemories(history) {
@@ -416,7 +488,7 @@ class StateUpdater {
   }
 
   _parseJSON(raw) {
-    if (!raw) return { episode_summary: null, episode_importance: 0, nodes: [] };
+    if (!raw) return { episode_summary: null, episode_importance: 0, nodes: [], relations: [] };
     try {
       return JSON.parse(raw.trim());
     } catch (_) {}
@@ -426,7 +498,7 @@ class StateUpdater {
         return JSON.parse(match[0]);
       } catch (_) {}
     }
-    return { episode_summary: null, episode_importance: 0, nodes: [] };
+    return { episode_summary: null, episode_importance: 0, nodes: [], relations: [] };
   }
 
   runDecay() {

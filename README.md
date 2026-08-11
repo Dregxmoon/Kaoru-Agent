@@ -1,8 +1,8 @@
-## ASISTENTE PERSONAL 
+## ASISTENTE PERSONAL
 
 **Un compañero de escritorio con IA que observa el sistema operativo, recuerda con contexto, y actúa solo cuando tiene permiso — con un motor de decisión determinista y auditable.**
 
-Una plataforma de asistencia personal que vive en el escritorio del usuario. Combina un avatar Live2D, un modelo de lenguaje conversacional, memoria semántica persistente con decaimiento temporal, percepción en tiempo real del sistema operativo, y un motor de proactividad que decide *cuándo* hablar, *cuándo* callar y *cómo* entregar su ayuda — sin depender de un chatbot reactivo ni de temporizadores ciegos.
+Una plataforma de asistencia personal que vive en el escritorio del usuario. Combina un avatar Live2D, un modelo de lenguaje conversacional, memoria semántica persistente con decaimiento temporal, percepción en tiempo real del sistema operativo, y un motor de proactividad que decide _cuándo_ hablar, _cuándo_ callar y _cómo_ entregar su ayuda — sin depender de un chatbot reactivo ni de temporizadores ciegos.
 
 ---
 
@@ -13,21 +13,21 @@ Una plataforma de asistencia personal que vive en el escritorio del usuario. Com
 Los asistentes de escritorio tradicionales son **reactivos**: esperan a que el usuario escriba. Este asistente está diseñado para ser **proactivo de forma responsable**:
 
 - **Observa en silencio.** Detecta contexto real del sistema operativo: aplicación activa, tiempo de enfoque, inactividad, señales de riesgo en el repositorio (`.env` sin ignorar, conflictos de merge, commits sin push), errores del editor (LSP) y eventos próximos del calendario.
-- **Habla cuando aporta.** Cada mensaje proactivo está justificado por un **score de relevancia determinista** (no por corazonadas del modelo), pasa por un *gate de contexto* que respeta el momento del usuario (foco, inactividad, presupuesto diario), y se entrega como **propuesta con consentimiento**: el asistente propone, el usuario decide.
+- **Habla cuando aporta.** Cada mensaje proactivo está justificado por un **score de relevancia determinista** (no por corazonadas del modelo), pasa por un _gate de contexto_ que respeta el momento del usuario (foco, inactividad, presupuesto diario), y se entrega como **propuesta con consentimiento**: el asistente propone, el usuario decide.
 - **Recuerda con contexto.** Mantiene un grafo de conocimiento persistente sobre el usuario (proyectos, preferencias, hechos) con búsqueda semántica local y decaimiento temporal — lo de ayer pesa más que lo de hace tres semanas, sin descartar lo importante.
 - **Ejecuta con defensa en profundidad.** Las acciones de alto impacto (edición de archivos, comandos de shell, navegación web, herramientas externas) requieren aprobación explícita, están confinadas al proyecto del usuario y se verifican post-ejecución con rollback automático si algo sale mal.
 
 ### Segmentos objetivo
 
-| Segmento | Valor entregado |
-|---|---|
-| **Desarrolladores** | Asistente de código proactivo: detecta errores LSP en el editor, propone parches con diff y verificación real, cuida la higiene del repo (`.env`, conflictos, commits) y ejecuta tareas vía MCP/OpenClaw con control total. |
-| **Usuarios de escritorio** | Compañero persistente con memoria: retoma hilos pendientes, recuerda lo que importa, ofrece ayuda contextual en el momento adecuado y respeta la privacidad (todo local). |
-| **Creadores y streamers** | Overlay Live2D en tiempo real con voz sintetizada (Edge TTS), reconocimiento de voz offline (Vosk) y personalidad consistente. |
+| Segmento                   | Valor entregado                                                                                                                                                                                                             |
+| -------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Desarrolladores**        | Asistente de código proactivo: detecta errores LSP en el editor, propone parches con diff y verificación real, cuida la higiene del repo (`.env`, conflictos, commits) y ejecuta tareas vía MCP/OpenClaw con control total. |
+| **Usuarios de escritorio** | Compañero persistente con memoria: retoma hilos pendientes, recuerda lo que importa, ofrece ayuda contextual en el momento adecuado y respeta la privacidad (todo local).                                                   |
+| **Creadores y streamers**  | Overlay Live2D en tiempo real con voz sintetizada (Edge TTS), reconocimiento de voz offline (Vosk) y personalidad consistente.                                                                                              |
 
 ### Diferenciadores
 
-1. **Decisión auditable.** El motor proactivo usa un núcleo determinista (`DecisionCore`) con *reason codes* en cada decisión: cualquier mensaje proactivo puede rastrearse hasta su puntuación, sus pesos y su política. El LLM **produce contenido, nunca decide** cuándo hablar.
+1. **Decisión auditable.** El motor proactivo usa un núcleo determinista (`DecisionCore`) con _reason codes_ en cada decisión: cualquier mensaje proactivo puede rastrearse hasta su puntuación, sus pesos y su política. El LLM **produce contenido, nunca decide** cuándo hablar.
 2. **Privacidad por diseño.** Memoria, embeddings, telemetría y preferencias viven en la máquina del usuario (SQLite + modelos locales ONNX). No se sube nada por defecto.
 3. **Soberanía de proveedores.** Soporta Groq, Google Gemini y OpenAI con fallback automático y reintento exponencial. Sin vendor lock-in.
 4. **Extensible por MCP.** Cliente Model Context Protocol propio: cualquier servidor de herramientas del ecosistema se conecta sin tocar el núcleo.
@@ -113,69 +113,89 @@ Todo mensaje proactivo es una **propuesta** con botones de aceptar/descartar; la
 ## 3. Capacidades técnicas
 
 ### Memoria semántica con decaimiento temporal
+
 Grafo de conocimiento en SQLite + `sqlite-vec`, embeddings locales (`all-MiniLM-L6-v2` vía ONNX), búsqueda por similitud coseno ponderada por recencia, decaimiento automático de nodos viejos y resolución de contradicciones (sobrescribir / acumular / archivar).
 
 ### Proactividad responsable
-Motor de iniciativa en dos niveles: heurística barata + núcleo determinista de decisión (score, gate de contexto, presupuesto dinámico, cola de diferidos) y **el LLM como generador de contenido**. El modelo de receptividad calibra frecuencia y presupuesto con datos reales de aceptación/descartes.
+
+Motor de iniciativa en dos niveles: pre-filtros baratos (cooldowns, gap global, chat reciente, AFK) +
+**núcleo determinista de decisión** (`core/decision/`: score, gate de contexto, presupuesto dinámico,
+cola de diferidos, señal crítica _ESCALATE_) y **el LLM como generador de contenido**. Cada outcome
+(aceptar/descartar/ignorar) realimenta la receptividad, el presupuesto y — vía `core/learning` —
+los pesos de scoring del gate: el asistente aprende cuándo y cuánto proponer.
 
 ### Agente de código profundo
+
 Detección de errores del editor vía **LSP real** (typescript-language-server): sensor de errores, índice de símbolos, propuestas de parche con diff, verificación post-ejecución con el LSP y `node --check`, y rollback automático si el parche rompe el archivo.
 
 ### Ejecución de acciones gobernada
+
 Ninguna acción de alto impacto se ejecuta sin aprobación explícita. Combina: whitelist de herramientas, confinamiento de rutas al proyecto, bloqueo de rutas sensibles (credenciales, `.env`, cookies), idempotencia por `proposalId` y verificación real post-acción.
 
 ### Multi-proveedor de LLM
+
 Groq · Google Gemini · OpenAI con cadena de fallback, reintento exponencial con jitter, límite de fallas consecutivas por proveedor y modo de "rate-limit" con mensajes accionables.
 
 ### Model Context Protocol (MCP)
+
 Cliente MCP propio (stdio), reconexión automática con backoff, namespacing de herramientas por servidor y catálogo dinámico inyectado al prompt del LLM.
 
 ### Automatización de navegador
+
 `BrowserBridge` con Playwright headless: navegación, lectura de páginas, capturas y búsqueda web — separado del navegador personal del usuario.
 
 ### Masa de herramientas
+
 `grep` (búsqueda regex por contenido), `glob` (patrones de archivos) y `subagent` (sub-agente anidado) se suman a la whitelist de `AgentLoop`: el asistente explora el proyecto sin volcar todo al contexto, con límites de resultados y profundidad.
 
 ### Sandbox de renderers
+
 Ambas ventanas (overlay Live2D y chat) corren con `nodeIntegration:false` + `contextIsolation:true` y preloads acotados (`src/preload.js`, `src/chat/preload.js`) que exponen una API mínima vía `contextBridge`: los scripts remotos de PixiJS/Live2D no tienen acceso a Node, `require`, `process` ni `child_process`. `GestureEngine` (una clase ES que necesita `new` y recibe el objeto Live2D real) se ejecuta **en la página** vía un loader mínimo (`__coreLoader`) que solo resuelve fuentes whitelisteadas de `GestureLexicon`/`GestureHeuristic`/`GestureEngine`. Los comandos `/` se ejecutan en el mundo aislado con `fs`/`path` reales de Node (método `runCommand` del preload); la página nunca recibe `fs`/`path` crudos.
 
 ### Contexto largo con memoria
+
 Al compactar la historia, `AgentLoop` persiste el resumen como episodio en el grafo semántico y al inicio de cada run inyecta el recall de episodios relevantes al objetivo actual — reconstruye contexto en tareas largas o retomadas.
 
 ### Streaming de respuesta
+
 El LLM responde con `stream: true`; cada fragmento viaja por IPC (`agent-token`) hasta la ventana de chat y se pinta **en vivo** en la burbuja del asistente (patrón opencode), con render de Markdown al terminar. Cubre tool-calling nativo y fallback textual, en OpenAI-compatible y Gemini.
 
 ### Ejecución no bloqueante
+
 `exec`/`code_execution` usan `spawn` asíncrono (no `spawnSync`): un comando largo ya no congela el proceso main. Mismo contrato de salida `{ stdout, stderr, exitCode, signal, error }`, `maxBuffer` y timeout por `SIGKILL`.
 
 ### Sesiones multi-turno
+
 Conversación persistente por sesión (hasta 40 turnos) con reanudación tras crash. El contexto inyectado al LLM es **incremental**: presupuesto de 8000 caracteres — turnos recientes completos, el excedente se condensa en un resumen `system` al inicio.
 
 ### Tipado con JSDoc estricto
+
 `npm run typecheck` valida los módulos marcados con `// @ts-check` (`tsconfig.json`, `strict` + `noImplicitAny` + `strictNullChecks`). El pipeline de contexto/grounding está tipado con 0 errores.
 
 ### CI y releases
+
 CI de GitHub Actions con jobs de **calidad** (ESLint + typecheck + Prettier), **tests** con Electron y **build Windows portable**; un tag `v*` dispara la **release automática** (`.exe` + notas). Localmente: `bash scripts/release.sh [patch|minor|major]`.
 
 ### Telemetría local
+
 `TelemetryStore`: turnos, sesiones, silencios, tiempos de respuesta y reporte mensual con deltas — para responder "¿estamos mejor que el mes pasado?" con datos locales.
 
 ---
 
 ## 4. Stack tecnológico
 
-| Capa | Tecnología |
-|---|---|
-| Runtime de escritorio | Electron 28 |
-| Modelo de personaje | Live2D Cubism 5 (Pixi.js + live2d-display) |
-| Persistencia | SQLite (`better-sqlite3`) + `sqlite-vec` |
-| Embeddings locales | `@xenova/transformers` (ONNX Runtime, `all-MiniLM-L6-v2`) |
-| Reconocimiento de voz | Vosk (offline) |
-| Síntesis de voz | Edge TTS (streaming vía Python) |
-| Automatización de navegador | Playwright |
-| Modelos de lenguaje | Groq (Llama 3.3 70B) · Google Gemini · OpenAI |
-| Protocolo de herramientas | Model Context Protocol (`@modelcontextprotocol/sdk`) |
-| Renderizado de chat | `marked` + `DOMPurify` |
+| Capa                        | Tecnología                                                |
+| --------------------------- | --------------------------------------------------------- |
+| Runtime de escritorio       | Electron 28                                               |
+| Modelo de personaje         | Live2D Cubism 5 (Pixi.js + live2d-display)                |
+| Persistencia                | SQLite (`better-sqlite3`) + `sqlite-vec`                  |
+| Embeddings locales          | `@xenova/transformers` (ONNX Runtime, `all-MiniLM-L6-v2`) |
+| Reconocimiento de voz       | Vosk (offline)                                            |
+| Síntesis de voz             | Edge TTS (streaming vía Python)                           |
+| Automatización de navegador | Playwright                                                |
+| Modelos de lenguaje         | Groq (Llama 3.3 70B) · Google Gemini · OpenAI             |
+| Protocolo de herramientas   | Model Context Protocol (`@modelcontextprotocol/sdk`)      |
+| Renderizado de chat         | `marked` + `DOMPurify`                                    |
 
 ---
 
@@ -185,25 +205,34 @@ CI de GitHub Actions con jobs de **calidad** (ESLint + typecheck + Prettier), **
 ├── core/                      # Núcleo de inteligencia y orquestación
 │   ├── Core.js           #   Orquestador central (init, sesiones, contexto)
 │   ├── agents/                #   Definiciones de agentes especializados
-│   ├── behavior/              #   Comportamiento + motor de proactividad
+│   ├── behavior/              #   Comportamiento + motor de proactividad (proactive/)
 │   ├── commands/              #   Registro de comandos (/comando)
+│   ├── config/                #   Carga/validación de config.json
+│   ├── core/                  #   Orquestación interna (misc, state, agent)
 │   ├── decision/              #   Núcleo determinista de decisión proactiva
 │   ├── git/                   #   Wrapper nativo de Git (git_status, push, merge…)
 │   ├── github/                #   Cliente REST de GitHub (issues, PRs, OAuth device flow)
 │   ├── grounding/             #   Pipeline de contexto (intención, memoria, serializers)
 │   ├── identity/              #   Personalidad del asistente (identity.json)
+│   ├── learning/              #   Aprendizaje por feedback (pesos de proactividad, outcomes)
 │   ├── llm/                   #   Abstracción de proveedores de LLM
 │   ├── lsp/                   #   Cliente LSP + índice de símbolos
 │   ├── mcp/                   #   Cliente Model Context Protocol
+│   ├── observability/         #   Logger centralizado y seguimiento de uso (tokens/costos)
 │   ├── planner/               #   Agente: parsing, loop de ejecución, bridges
+│   ├── plugins/               #   Plugins locales (VM aislada, firma Ed25519)
+│   ├── rules/                 #   Reglas de proyecto (AGENTS.md/CLAUDE.md → prompt)
+│   ├── security/              #   Permisos granulares allow/ask/deny por tool y path
 │   ├── skills/                #   Sistema de skills (inyección contextual)
 │   ├── state-graph/           #   Grafo de conocimiento persistente
 │   ├── task/                  #   Detección de tareas + registro de herramientas
-│   └── telemetry/             #   Telemetría local (métricas de uso)
+│   ├── telemetry/             #   Telemetría local (métricas de uso)
+│   ├── trust/                 #   Modelo de confianza (costo×éxito) para el modo del agente
+│   └── utils/                 #   Helpers compartidos (env de hijos, fs/JSON, ignore dirs)
 ├── ipc/                       # Capa IPC (puente renderer ↔ núcleo)
 │   ├── state.js               #   Estado compartido del proceso principal
 │   └── *-handlers.js          #   Handlers por dominio (openclaw, mcp, github, …)
-├── infrastructure/            # # Capa de bajo nivel
+├── infrastructure/            # Capa de bajo nivel
 │   ├── database/              #   Inicialización de índices vectoriales
 │   ├── event-bus/             #   Bus de eventos interno (pub/sub)
 │   ├── keychain/              #   Llavero del SO (credenciales seguras)
@@ -222,6 +251,7 @@ CI de GitHub Actions con jobs de **calidad** (ESLint + typecheck + Prettier), **
 ## 6. Inicio rápido
 
 ### Requisitos
+
 - Node.js ≥ 18 y npm
 - Python 3 con `edge-tts` (solo si se usa síntesis de voz)
 - Sistema operativo: Windows (sensor nativo) o Linux/Hyprland (sensor Wayland)
@@ -249,21 +279,28 @@ En `config.json` (fuente de claves) o `.env` (alternativa):
     "fallback": ["gemini", "openai"]
   },
   "autonomy": "suggest",
-  "sensors": { "git": true, "system": true, "title": true, "clipboard": false, "events": true, "lsp": true },
+  "sensors": {
+    "git": true,
+    "system": true,
+    "title": true,
+    "clipboard": false,
+    "events": true,
+    "lsp": true
+  },
   "mcp": { "servers": [] }
 }
 ```
 
-| Clave | Descripción |
-|---|---|
-| `activeModel` | Modelo Live2D activo (carpeta dentro de `models/`) |
-| `activeWorkspace` | Carpeta/proyecto activo sobre el que opera el asistente |
-| `llm.primary` | Proveedor principal (`groq` / `gemini` / `openai`) |
-| `llm.apiKeys` | Claves API por proveedor (o `LLM_KEY_*` en `.env`) |
-| `llm.fallback` | Cadena de fallback entre proveedores |
-| `autonomy` | `observe` (solo observa) · `suggest` (propone, default) · `act` (actúa con confirmación) |
-| `sensors.*` | Activa/desactiva sensores de señales (git, sistema, título, portapapeles, eventos, LSP) |
-| `mcp.servers` | Servidores MCP a conectar al arrancar |
+| Clave             | Descripción                                                                              |
+| ----------------- | ---------------------------------------------------------------------------------------- |
+| `activeModel`     | Modelo Live2D activo (carpeta dentro de `models/`)                                       |
+| `activeWorkspace` | Carpeta/proyecto activo sobre el que opera el asistente                                  |
+| `llm.primary`     | Proveedor principal (`groq` / `gemini` / `openai`)                                       |
+| `llm.apiKeys`     | Claves API por proveedor (o `LLM_KEY_*` en `.env`)                                       |
+| `llm.fallback`    | Cadena de fallback entre proveedores                                                     |
+| `autonomy`        | `observe` (solo observa) · `suggest` (propone, default) · `act` (actúa con confirmación) |
+| `sensors.*`       | Activa/desactiva sensores de señales (git, sistema, título, portapapeles, eventos, LSP)  |
+| `mcp.servers`     | Servidores MCP a conectar al arrancar                                                    |
 
 ### Cambiar el modelo Live2D
 
@@ -320,16 +357,19 @@ ELECTRON_RUN_AS_NODE=1 ./node_modules/electron/dist/electron tests/test_skills.j
 
 ## 7. Estado del proyecto
 
-| Componente | Estado |
-|---|---|
-| Overlay Live2D + chat | ✅ Operativo |
-| Memoria semántica persistente | ✅ Operativo |
-| Sensor de SO (Windows/Linux) | ✅ Operativo |
-| Ejecución de acciones con consentimiento | ✅ Operativo |
-| MCP + agentes + skills | ✅ Operativo |
-| Motor de decisión proactiva (Fase F) | ✅ Operativo |
-| Telemetría local | ✅ Operativo |
-| Agente de código profundo (LSP) | ✅ Operativo |
+| Componente                                  | Estado       |
+| ------------------------------------------- | ------------ |
+| Overlay Live2D + chat                       | ✅ Operativo |
+| Memoria semántica persistente               | ✅ Operativo |
+| Sensor de SO (Windows/Linux)                | ✅ Operativo |
+| Ejecución de acciones con consentimiento    | ✅ Operativo |
+| MCP + agentes + skills                      | ✅ Operativo |
+| Motor de decisión proactiva (Fases F–G)     | ✅ Operativo |
+| Aprendizaje por feedback (pesos + outcomes) | ✅ Operativo |
+| Telemetría local                            | ✅ Operativo |
+| Agente de código profundo (LSP)             | ✅ Operativo |
+| Plugins y skills                            | ✅ Operativo |
+| Modelo de confianza del agente              | ✅ Operativo |
 
 El proyecto se desarrolla por fases — ver [`ROADMAP.md`](./ROADMAP.md) para la estrategia completa y las siguientes entregas.
 
@@ -337,25 +377,26 @@ El proyecto se desarrolla por fases — ver [`ROADMAP.md`](./ROADMAP.md) para la
 
 ## 8. Documentación
 
-| Documento | Contenido |
-|---|---|
-| [`ROADMAP.md`](./ROADMAP.md) | Visión, estrategia y hoja de ruta |
-| [`docs/arquitectura.md`](./docs/arquitectura.md) | Diagrama de arquitectura detallado |
-| [`core/`](./core/README.md) | Núcleo de inteligencia y orquestación |
-| [`core/git/`](./core/git/README.md) | Integración nativa con Git |
-| [`core/github/`](./core/github/README.md) | Cliente REST de GitHub y OAuth |
-| [`infrastructure/`](./infrastructure/README.md) | Capa de bajo nivel |
-| [`ipc/`](./ipc/README.md) | Capa IPC (renderer ↔ núcleo) |
-| [`src/`](./src/README.md) | Interfaz de usuario |
-| [`tests/`](./tests/README.md) | Estrategia de pruebas |
+| Documento                                        | Contenido                             |
+| ------------------------------------------------ | ------------------------------------- |
+| [`ROADMAP.md`](./ROADMAP.md)                     | Visión, estrategia y hoja de ruta     |
+| [`docs/arquitectura.md`](./docs/arquitectura.md) | Diagrama de arquitectura detallado    |
+| [`core/`](./core/README.md)                      | Núcleo de inteligencia y orquestación |
+| [`core/git/`](./core/git/README.md)              | Integración nativa con Git            |
+| [`core/github/`](./core/github/README.md)        | Cliente REST de GitHub y OAuth        |
+| [`infrastructure/`](./infrastructure/README.md)  | Capa de bajo nivel                    |
+| [`ipc/`](./ipc/README.md)                        | Capa IPC (renderer ↔ núcleo)          |
+| [`src/`](./src/README.md)                        | Interfaz de usuario                   |
+| [`tests/`](./tests/README.md)                    | Estrategia de pruebas                 |
 
 ---
 
 ## 9. Pruebas y capturas
 
-La suite de pruebas es **ejecutable e independiente por archivo** (`tests/`), con cobertura de comandos, motor de proactividad, detección de intenciones, skills, integraciones LSP, Git/GitHub y seguridad de la Control API. La regresión completa se ejecuta con `npm test` (usando el Node de Electron): **1371 pruebas en verde** (incluyen regresiones del fix LSP G.1, del parser de CONTENIDO multilínea, de la compactación de contexto, del edit determinista, de las tools grep/glob/subagent y de la compactación con memoria). Antes de correrla, cierra el asistente para que las suites de seguridad puedan levantar su propio servidor en `:18789` (si la app está corriendo, `test_server_security` y `test_integration_stress` fallan por conflicto de puerto).
+La suite de pruebas es **ejecutable e independiente por archivo** (`tests/`), con cobertura de comandos, motor de proactividad, detección de intenciones, skills, integraciones LSP, Git/GitHub y seguridad de la Control API. La regresión completa se ejecuta con `npm test` (usando el Node de Electron): **1441 pruebas en verde** (incluyen regresiones del fix LSP G.1, del parser de CONTENIDO multilínea, de la compactación de contexto, del edit determinista, de las tools grep/glob/subagent, de la compactación con memoria y del motor proactivo v2 con mixins + gate). Antes de correrla, cierra el asistente para que las suites de seguridad puedan levantar su propio servidor en `:18789` (si la app está corriendo, `test_server_security` y `test_integration_stress` fallan por conflicto de puerto).
 
 Calidad de código:
+
 - `npm run lint` — ESLint (0 errores).
 - `npm run typecheck` — `tsc` sobre los módulos con `// @ts-check` (JSDoc estricto, 0 errores).
 - `npm run format:check` — Prettier.
@@ -380,8 +421,8 @@ La Control API de diagnóstico (`http://localhost:3131`, token por sesión — i
 
 El overlay Live2D con el modelo por defecto (**March 7th**) sobre el escritorio, el chat con una conversación real, el panel de comandos `/stats`, el renderizado de Markdown, una propuesta proactiva y las vistas del modelo:
 
-| | |
-|---|---|
+|                                                            |                                                                |
+| ---------------------------------------------------------- | -------------------------------------------------------------- |
 | ![Overlay March 7th](./screenshots/01-overlay-desktop.png) | ![Personaje March 7th](./screenshots/02-overlay-character.png) |
 
 ![Conversación en el chat](./screenshots/03-chat-conversacion.png)
@@ -394,8 +435,7 @@ El overlay Live2D con el modelo por defecto (**March 7th**) sobre el escritorio,
 
 ![Modelos disponibles](./screenshots/12-modelos.png)
 
-> Los modelos mostrados en `12-modelos.png` son de terceros y de uso de fan: *hutao* y *huohuo* © HoYoverse; *Miku* Solo **March 7th** se distribuye con el repositorio (ver [Licencia y atribuciones](#10-licencia-y-atribuciones)).
-
+> Los modelos mostrados en `12-modelos.png` son de terceros y de uso de fan: _hutao_ y _huohuo_ © HoYoverse; _Miku_ Solo **March 7th** se distribuye con el repositorio (ver [Licencia y atribuciones](#10-licencia-y-atribuciones)).
 
 ---
 
@@ -403,6 +443,6 @@ El overlay Live2D con el modelo por defecto (**March 7th**) sobre el escritorio,
 
 El código fuente se distribuye bajo licencia **MIT** — ver [`LICENSE`](./LICENSE).
 
-**Los assets del modelo Live2D de `models/March 7th/`** son propiedad de Cognosphere Pte. Ltd. / HoYoverse (personaje *March 7th* de *Honkai: Star Rail*) y se usan aquí como contenido de fan sin fines comerciales. Es el único modelo que se distribuye con el repo; los modelos que el usuario importa quedan fuera del control de versiones. Cualquier reutilización de este proyecto debe proveer su propio modelo o excluir esa carpeta.
+**Los assets del modelo Live2D de `models/March 7th/`** son propiedad de Cognosphere Pte. Ltd. / HoYoverse (personaje _March 7th_ de _Honkai: Star Rail_) y se usan aquí como contenido de fan sin fines comerciales. Es el único modelo que se distribuye con el repo; los modelos que el usuario importa quedan fuera del control de versiones. Cualquier reutilización de este proyecto debe proveer su propio modelo o excluir esa carpeta.
 
 Este proyecto es un trabajo de fan **no oficial**, sin afiliación con Cognosphere Pte. Ltd. ni con HoYoverse.

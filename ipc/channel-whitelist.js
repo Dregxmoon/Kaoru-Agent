@@ -59,6 +59,9 @@ const INVOKE_ALLOWLIST = new Set([
   'sessions-list',
   'session-load',
   'session-stats',
+  'nodes-list',
+  'nodes-graph',
+  'memory-gaps',
   'memory-forget',
   'store-fact',
   // Metas persistentes (Fase 3, ítem 1)

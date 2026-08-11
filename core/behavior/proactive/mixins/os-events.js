@@ -13,8 +13,14 @@ const {
   RETURN_MAX_GAP_SEC,
   WORK_CATEGORIES,
   SESSION_END_MIN_SEC,
-  FOLLOWUP_MULTIPLIER,
+  MEDIA_MIN_SEC,
 } = require('../config.js');
+const { _detectMediaTitle, _matchMediaTaste } = require('../helpers.js');
+const { isRealIdentityNode } = require('../../../core/misc.js');
+
+// Máximo de títulos de contenido ya comentados que se recuerdan. Sin tope, una
+// sesión larga (o años de uso del mismo equipo) acumula el Set sin límite.
+const MAX_MEDIA_FIRED = 300;
 
 module.exports = {
   /** El usuario cambió de app — actualiza racha de enfoque y detecta "thrashing". */
@@ -34,6 +40,45 @@ module.exports = {
     }
 
     if (categoryChanged) {
+      // ── Fin de bloque de foco (borde natural, no un contador) ────────────
+      // El comentario mid-flow basado en "llevas X min enfocado" se eliminó:
+      // se sentía programado. El momento humano para hablar de un bloque de
+      // foco es cuando TERMINA — aquí, al cambiar de categoría — con el
+      // contexto de la ventana sobre la que estaba ("hito"). Las sesiones de
+      // trabajo largas (work → no-work, ≥ 20 min) las cubre session_end, para
+      // no disparar dos veces el mismo momento.
+      const prevRule = FOCUS_RULES[this._prevCategory];
+      const bigWorkEnd =
+        this._prevCategory &&
+        WORK_CATEGORIES.has(this._prevCategory) &&
+        !WORK_CATEGORIES.has(category) &&
+        this._prevCategoryStreakSec >= SESSION_END_MIN_SEC;
+      if (
+        this._prevCategory &&
+        prevRule &&
+        this._prevCategoryStreakSec >= prevRule.minSec &&
+        !bigWorkEnd &&
+        !this._categoryStreakFired
+      ) {
+        this._categoryStreakFired = true; // el fin de este bloque se maneja una vez
+        const mins = Math.round(this._prevCategoryStreakSec / 60);
+        const lastWin =
+          this._lastFocusedWindow?.category === this._prevCategory ? this._lastFocusedWindow : null;
+        const titleCtx = lastWin?.title
+          ? ` Estaba en "${String(lastWin.title).slice(0, 80)}".`
+          : '';
+        this._tryTrigger({
+          type: 'focus_block_end',
+          prevCategory: this._prevCategory,
+          label: prevRule.label,
+          streakSec: this._prevCategoryStreakSec,
+          app: lastWin?.app || app,
+          context: `El usuario dejó de estar ${prevRule.label} después de ${mins} minutos.${titleCtx} Es un buen momento para comentar el bloque que terminó — si hay algo genuino que decir, sin romperle el flujo.`,
+        }).catch((e) =>
+          logger.warn('os-events', '[proactive] error en trigger de fin de bloque:', e.message)
+        );
+      }
+
       // Session-end: transición de trabajo → no-trabajo después de racha significativa
       if (
         this._prevCategory &&
@@ -52,90 +97,58 @@ module.exports = {
         );
       }
 
-      // Nueva racha de enfoque (solo cuando cambia la categoría)
+      // Nueva racha de enfoque (solo cuando cambia la categoría). OJO: NO se
+      // resetea _categoryStreakFired aquí. El fin de un bloque de foco es un
+      // borde que se procesa UNA vez por sesión activa (aunque el gate lo
+      // bloquee: la oportunidad del momento pasó, no se persigue). El reset
+      // real ocurre al volver de una pausa (_onIdleChanged), que es cuando
+      // empieza una senda de foco nueva.
       this._currentCategory = category;
       this._categoryStreakStart = now;
-      this._categoryStreakFired = false;
-      this._categoryStreakFiredAt = 0;
-      this._categoryStreakFollowupFired = false;
     }
 
     const distinctCategories = [...new Set(this._recentSwitches.map((s) => s.category))];
+    const distinctApps = [...new Set(this._recentSwitches.map((s) => s.app).filter(Boolean))];
     if (
       this._recentSwitches.length >= THRASH_MIN_SWITCHES &&
       distinctCategories.length >= THRASH_MIN_DISTINCT_CATEGORY
     ) {
       const windowMin = Math.round(THRASH_WINDOW_MS / 60000);
+      // Fase B: el contexto lleva los nombres REALES de las apps y el título de
+      // la ventana actual, para que Kaoru pueda decir algo concreto y no caer
+      // siempre en el genérico "¿anda buscando algo?".
+      const currentTitle = this._osSensor?.getCurrentContext?.()?.title ?? null;
       this._tryTrigger({
         type: 'context_switch_thrash',
         switchCount: this._recentSwitches.length,
         categories: distinctCategories,
-        context: `El usuario cambió de aplicación ${this._recentSwitches.length} veces en los últimos ${windowMin} minutos, saltando entre: ${distinctCategories.join(', ')}.`,
+        apps: distinctApps,
+        title: currentTitle,
+        context: `El usuario cambió de aplicación ${this._recentSwitches.length} veces en los últimos ${windowMin} minutos, saltando entre: ${distinctCategories.join(', ')} (${distinctApps.join(', ')}).${currentTitle ? ` Ahora mismo está en: "${currentTitle.slice(0, 80)}".` : ''}`,
       }).catch((e) =>
         logger.warn('os-events', '[proactive] error en trigger de thrash:', e.message)
       );
     }
   },
 
-  /** El usuario sigue en la misma app — revisa si ya lleva suficiente racha de enfoque. */
-  async _onAppTick({ friendlyName, category, elapsed, elapsedFormatted, title }) {
-    const rule = FOCUS_RULES[category];
-    if (!rule) return;
-    if (elapsed < rule.minSec) return;
+  /**
+   * Tick de la app activa. NO dispara comentarios mid-flow por contador: el
+   * momento natural para hablar de un bloque de foco es su FIN (focus_block_end
+   * en _onAppChanged). Aquí solo se recuerda la ventana/contenido del bloque
+   * actual para dar contexto de "hito" cuando el bloque termine, y se rastrea
+   * media_watching (contenido en pantalla).
+   */
+  async _onAppTick({ friendlyName, category, title }) {
+    this._trackMedia({ category, title, friendlyName });
 
-    if (!this._categoryStreakFired) {
-      // Primer trigger: acaba de cruzar el umbral mínimo. Solo se consume la
-      // racha si el trigger llegó a consultar al LLM (o se envió); si quedó
-      // bloqueado (chat abierto, cooldown, idle...), se reintenta en el
-      // próximo tick sin perder la oportunidad.
-      let outcome = null;
-      try {
-        outcome = await this._tryTrigger({
-          type: 'sustained_focus',
-          category,
-          label: rule.label,
-          friendlyName,
-          title,
-          elapsedSec: elapsed,
-          elapsedFormatted,
-          context: `El usuario lleva ${elapsedFormatted} ${rule.label} en ${friendlyName}${title ? ` ("${title.slice(0, 80)}")` : ''}.`,
-        });
-      } catch (e) {
-        logger.warn('os-events', '[proactive] error en trigger de enfoque sostenido:', e.message);
-      }
-      if (outcome && outcome.blocked) return;
-      this._categoryStreakFired = true;
-      this._categoryStreakFiredAt = Date.now();
-      return;
-    }
-
-    // Follow-up: si ya pasó bastante más tiempo desde el primer trigger
-    if (this._categoryStreakFollowupFired) return;
-    const followupThreshold = rule.minSec * FOLLOWUP_MULTIPLIER;
-    if (elapsed < followupThreshold) return;
-
-    let outcome = null;
-    try {
-      outcome = await this._tryTrigger({
-        type: 'sustained_focus',
-        subtype: 'followup',
+    if (FOCUS_RULES[category]) {
+      this._lastFocusedWindow = {
         category,
-        label: rule.label,
-        friendlyName,
-        title,
-        elapsedSec: elapsed,
-        elapsedFormatted,
-        context: `El usuario sigue concentrado después de ${elapsedFormatted} ${rule.label} en ${friendlyName}${title ? ` ("${title.slice(0, 80)}")` : ''}.`,
-      });
-    } catch (e) {
-      logger.warn(
-        'os-events',
-        '[proactive] error en trigger de enfoque sostenido (follow-up):',
-        e.message
-      );
+        app: friendlyName,
+        title: title || null,
+        at: Date.now(),
+      };
     }
-    if (outcome && outcome.blocked) return;
-    this._categoryStreakFollowupFired = true;
   },
 
   /** El usuario se fue o volvió del PC — detecta regreso de una ausencia real. */
@@ -181,7 +194,7 @@ module.exports = {
     const ready = this._queue.poll(this._buildGateContext(Date.now()));
     if (!ready.length) return;
     logger.info('os-events', `[proactive] reintentando ${ready.length} diferido(s) de la cola...`);
-    for (const { candidate, decision } of ready) {
+    for (const { candidate, decision: _decision } of ready) {
       this._tryTrigger({
         type: candidate.tipo,
         kind: candidate.kind,
@@ -191,5 +204,77 @@ module.exports = {
         logger.warn('os-events', '[proactive] error reintentando diferido:', e.message)
       );
     }
+  },
+
+  /**
+   * media_watching: detecta contenido en pantalla (YouTube, Spotify, VLC...) y,
+   * tras MEDIA_MIN_SEC sobre el MISMO título, dispara un trigger para comentarlo.
+   * Dedup por título (una vez por video/canción) y reset cuando cambia el
+   * contenido o la app deja de ser media/browser con plataforma.
+   */
+  _trackMedia({ category, title, friendlyName }) {
+    const media = _detectMediaTitle(title, category);
+
+    // Sin contenido reconocible → reset del track.
+    if (!media) {
+      if (this._mediaTrack) {
+        logger.info('os-events', '[proactive] media: contenido ya no visible — reset');
+        this._mediaTrack = null;
+      }
+      return;
+    }
+
+    const key = media.title.toLowerCase().trim();
+    const now = Date.now();
+
+    // Cambió de contenido (otro video/canción) → nueva racha.
+    if (!this._mediaTrack || this._mediaTrack.key !== key) {
+      this._mediaTrack = { key, title: media.title, platform: media.platform, startedAt: now };
+    }
+
+    // Ya comentamos este título → no insistir.
+    if (this._mediaFired.has(key)) return;
+
+    const elapsedSec = Math.round((now - this._mediaTrack.startedAt) / 1000);
+    if (elapsedSec < MEDIA_MIN_SEC) return;
+
+    this._mediaFired.add(key);
+    // Ventana acotada: los títulos más viejos comentados salen primero, para
+    // que el Set no crezca para siempre en una sesión de larga duración.
+    if (this._mediaFired.size > MAX_MEDIA_FIRED) {
+      const it = this._mediaFired.keys();
+      while (this._mediaFired.size > MAX_MEDIA_FIRED) {
+        this._mediaFired.delete(it.next().value);
+      }
+    }
+    this._mediaLastFired = now;
+
+    // ¿El contenido en pantalla conecta con algún gusto guardado? Si sí, el
+    // trigger lo lleva para que el prompt pueda decir "ah, ese es de los que
+    // te gustan" y el gate puntúe mejor la señal (comentar algo que conecta
+    // con la persona vale más que un comentario genérico).
+    const worldModel = this._graph?.getWorldModel?.() ?? [];
+    const tasteMatches = _matchMediaTaste(media.title, worldModel.filter(isRealIdentityNode));
+
+    const content = `El usuario lleva ${this._formatSec(elapsedSec)} viendo o escuchando "${media.title}"${media.platform !== 'media' ? ` (${media.platform})` : ''} en ${friendlyName || category}.`;
+    this._tryTrigger({
+      type: 'media_watching',
+      category,
+      friendlyName,
+      title: media.title,
+      platform: media.platform,
+      elapsedSec,
+      tasteMatches,
+      mediaTasteMatch: tasteMatches.length > 0,
+      context: content,
+    }).catch((e) =>
+      logger.warn('os-events', '[proactive] error en trigger de media_watching:', e.message)
+    );
+  },
+
+  _formatSec(secs) {
+    if (!secs || secs < 60) return `${secs || 0} segundos`;
+    const m = Math.round(secs / 60);
+    return m === 1 ? '1 minuto' : `${m} minutos`;
   },
 };

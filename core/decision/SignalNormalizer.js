@@ -223,6 +223,16 @@ const TEMPORAL_PROFILES = {
     urgencia: 0.5,
     confianza: 0.9,
   },
+  // Fin de un bloque de foco: el usuario DEJÓ de estar X min en una categoría.
+  // Es el borde natural para comentar el bloque (no un contador mid-flow).
+  focus_block_end: {
+    severity: 0.35,
+    actionability: 0.4,
+    salience: 0.5,
+    costOfIgnore: 0.2,
+    urgencia: 0.35,
+    confianza: 0.85,
+  },
   context_switch_thrash: {
     severity: 0.4,
     actionability: 0.6,
@@ -259,6 +269,14 @@ const TEMPORAL_PROFILES = {
     severity: 0.3,
     actionability: 0.3,
     salience: 0.4,
+    costOfIgnore: 0.2,
+    urgencia: 0.35,
+    confianza: 0.8,
+  },
+  media_watching: {
+    severity: 0.3,
+    actionability: 0.35,
+    salience: 0.6,
     costOfIgnore: 0.2,
     urgencia: 0.35,
     confianza: 0.8,
@@ -418,10 +436,19 @@ function candidateFromTrigger(trigger = {}, opts = {}) {
 
   const base = TEMPORAL_PROFILES[trigger.type];
   if (base) {
+    const p = { ...base };
+    // Quien mira contenido que conecta con un gusto guardado es una señal más
+    // relevante: comentar "ese es de los que te gustan" vale más que un
+    // comentario genérico sobre el video. Ajuste suave dentro del perfil.
+    if (trigger.type === 'media_watching' && trigger.mediaTasteMatch) {
+      p.salience = clamp(p.salience + 0.15);
+      p.urgencia = clamp(p.urgencia + 0.1);
+      p.confianza = clamp(p.confianza + 0.05);
+    }
     return _buildCandidate(
       _sanitizeType(trigger.type),
       trigger.kind || 'default',
-      base,
+      p,
       { ...trigger },
       { sensor: `trigger:${trigger.type}`, selfGated: true },
       opts

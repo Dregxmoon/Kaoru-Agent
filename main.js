@@ -615,8 +615,12 @@ function createChatWindow() {
   S.chatWindow.webContents.once('did-finish-load', () => {
     S.chatWindow.webContents.send('init-theme', S.chatTheme);
 
-    const usingFallback = Core.getGraph()?.usingFallback ?? false;
-    S.chatWindow.webContents.send('memory-status', { usingFallback });
+    const graph = Core.getGraph();
+    const usingFallback = graph?.usingFallback ?? false;
+    S.chatWindow.webContents.send('memory-status', {
+      usingFallback,
+      reason: usingFallback ? graph.fallbackReason || null : null,
+    });
 
     sessionPromise
       .then((result) => {
@@ -1014,10 +1018,13 @@ app.whenReady().then(() => {
     }
     if (payload.openChat) {
       createChatWindow();
+      // Guard idempotente: la ventana puede cargar antes o después del timeout,
+      // pero la iniciativa se entrega UNA sola vez (evita bubble duplicado).
+      let sent = false;
       const sendWhenReady = () => {
-        setTimeout(() => {
-          sendToChat('initiative', payload);
-        }, 800);
+        if (sent || !S.chatWindow || S.chatWindow.isDestroyed()) return;
+        sent = true;
+        sendToChat('initiative', payload);
       };
       if (S.chatWindow && !S.chatWindow.isDestroyed()) {
         S.chatWindow.webContents.once('did-finish-load', sendWhenReady);

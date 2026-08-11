@@ -360,6 +360,29 @@ const TOOL_SCHEMAS = [
     highImpact: false,
   },
   {
+    id: 'git.git_add',
+    name: 'git_add',
+    domain: ['git', 'code'],
+    source: 'git',
+    description:
+      'Stagea archivos en git. Sin paths hace git add -A (todo). Con paths, stagea solo esos (REQUIERE APROBACIÓN)',
+    params: [
+      {
+        name: 'paths',
+        type: 'array',
+        description: 'Archivos/rutas a stagear (opcional; sin esto stagea todo)',
+        required: false,
+      },
+      {
+        name: 'cwd',
+        type: 'string',
+        description: 'Directorio de trabajo (opcional)',
+        required: false,
+      },
+    ],
+    highImpact: true,
+  },
+  {
     id: 'git.git_commit',
     name: 'git_commit',
     domain: ['git', 'code'],
@@ -818,11 +841,12 @@ class ToolRegistry {
       }
       lines.push(
         'Guía de uso: PREFIERE estas herramientas nativas a exec para operaciones de',
-        'git (son más confiables y git_commit ya hace add -A). Si usas exec con',
-        'comandos git: (1) corre git status antes de commitear; (2) usa "git add ."',
-        'salvo que el usuario pida un archivo puntual; (3) si no hay cambios staged,',
-        'AVISA y no inventes un commit; (4) usa el mensaje de commit que pidió el',
-        'usuario; (5) cuando el push confirme éxito la tarea está completa — detente.'
+        'git (son más confiables; git_commit ya hace add -A, git_add stagea sin',
+        'commitear). Si usas exec con comandos git: (1) corre git status antes de',
+        'commitear; (2) usa "git add ." salvo que el usuario pida un archivo puntual;',
+        '(3) si no hay cambios staged, AVISA y no inventes un commit; (4) usa el',
+        'mensaje de commit que pidió el usuario; (5) cuando el push confirme éxito',
+        'la tarea está completa — detente.'
       );
       lines.push('');
     }

@@ -184,15 +184,18 @@ async function refreshFooterSession() {
 }
 
 // FIX QW-1 (UI): muestra/oculta el banner de memoria no persistente.
-// main.js envía esto una sola vez, justo cuando esta ventana termina de
-// cargar (ver did-finish-load de chatWindow en main.js), leyendo el flag
-// usingFallback directamente de StateGraph.
-ipcRenderer.on('memory-status', (e, { usingFallback }) => {
+// main.js envía esto justo cuando esta ventana termina de cargar (ver
+// did-finish-load de chatWindow en main.js), leyendo usingFallback +
+// fallbackReason directamente de StateGraph. El texto muestra la CAUSA real
+// (módulo faltante, schema legacy, etc.), no un mensaje genérico.
+ipcRenderer.on('memory-status', (e, { usingFallback, reason }) => {
   const banner = document.getElementById('memory-banner');
   if (!banner) return;
   banner.classList.toggle('visible', !!usingFallback);
   if (usingFallback) {
-    console.warn('[asistente] memoria no persistente — better-sqlite3 no cargó, usando MemoryDB');
+    const cause = reason ? String(reason).split('\n')[0].slice(0, 120) : 'motivo desconocido';
+    banner.textContent = `Memoria no persistente — ${cause}. Lo que hablen hoy se perderá al cerrar la app.`;
+    console.warn('[asistente] memoria no persistente:', cause);
   }
 });
 

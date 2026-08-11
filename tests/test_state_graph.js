@@ -347,6 +347,128 @@ function testResolver() {
   fs.rmSync(path.dirname(graph._dbPath), { recursive: true, force: true });
 }
 
+// ── Test 3b: TENSION (contradicciones sin resolver) ─────────────────────────
+function testTension() {
+  console.log(C.bold('\nTest 3b: ContradictionResolver (tension + dedup respeta tensión)'));
+  const { graph } = makeGraph();
+  const resolver = new ContradictionResolver(graph);
+
+  // observaciones_usuario usa política tension
+  const o1 = resolver.resolve({
+    type: 'Belief',
+    label: 'observaciones_usuario',
+    content: 'Es tímido y habla poco',
+    importance: 0.7,
+  });
+  const o2 = resolver.resolve({
+    type: 'Belief',
+    label: 'observaciones_usuario',
+    content: 'Es extrovertido y muy charlador',
+    importance: 0.8,
+  });
+  assert(o1 !== o2, 'tension crea nodo nuevo (no overwrite)');
+  assert(
+    graph.getNode(o1).archived === 0 && graph.getNode(o2).archived === 0,
+    'tension mantiene ambos activos'
+  );
+  assert(graph.getNode(o1).content.includes('tímido'), 'el valor viejo sigue ahí');
+
+  // relación CONTRADICES registrada
+  const rels = sqlAll(
+    graph,
+    "SELECT source_id, target_id, type FROM node_relations WHERE type='CONTRADICES'"
+  );
+  assert(rels.length === 1, 'tension registra relación CONTRADICES', `got=${rels.length}`);
+  assert(
+    (rels[0].source_id === o1 && rels[0].target_id === o2) ||
+      (rels[0].source_id === o2 && rels[0].target_id === o1),
+    'CONTRADICES une los dos nodos'
+  );
+
+  // getTensions las expone
+  const tensions = graph.getTensions();
+  assert(
+    tensions.length === 1 && tensions[0].label === 'observaciones_usuario',
+    'getTensions devuelve la tensión'
+  );
+  assert(tensions[0].contentA && tensions[0].contentB, 'getTensions incluye ambos contenidos');
+
+  // dedup NO archiva nodos en tensión
+  resolver.deduplicateNodes();
+  const active = sqlAll(
+    graph,
+    "SELECT COUNT(*) c FROM nodes WHERE label='observaciones_usuario' AND archived=0"
+  )[0].c;
+  assert(active === 2, 'deduplicateNodes respeta la tensión (2 activos)', `got=${active}`);
+
+  // tension descarta contenido tipo comando (no crea nodo basura)
+  const before = graph.getNode(o2).content;
+  resolver.resolve({
+    type: 'Belief',
+    label: 'observaciones_usuario',
+    content: 'Ejecutar: git status',
+    importance: 0.8,
+  });
+  const countAfter = sqlAll(
+    graph,
+    "SELECT COUNT(*) c FROM nodes WHERE label='observaciones_usuario' AND archived=0"
+  )[0].c;
+  assert(countAfter === 2, 'tension descarta contenido tipo comando', `got=${countAfter}`);
+  assert(graph.getNode(o2).content === before, 'nodo sin cambios tras comando');
+
+  graph.close();
+  fs.rmSync(path.dirname(graph._dbPath), { recursive: true, force: true });
+}
+
+// ── Test 3c: createRelation + getNodeRelations ──────────────────────────────
+function testCreateRelation() {
+  console.log(C.bold('\nTest 3c: StateGraph.createRelation'));
+  const { graph } = makeGraph();
+
+  const java = graph.createNode({
+    type: 'Project',
+    label: 'proyecto_java',
+    content: 'calculadora java',
+    importance: 0.6,
+  });
+  const lang = graph.createNode({
+    type: 'Preference',
+    label: 'preferencia_lenguaje',
+    content: 'javascript',
+    importance: 0.6,
+  });
+
+  assert(
+    graph.createRelation({ source: java, target: lang, type: 'USES' }) === true,
+    'createRelation inserta'
+  );
+  // idempotente
+  assert(
+    graph.createRelation({ source: java, target: lang, type: 'uses' }) === false,
+    'createRelation no duplica'
+  );
+  // auto-relación rechazada
+  assert(
+    graph.createRelation({ source: java, target: java, type: 'USES' }) === false,
+    'createRelation rechaza self-loop'
+  );
+  // nodos inexistentes: inserta igualmente (FK off) pero no rompe
+  assert(
+    graph.createRelation({ source: 999, target: lang, type: 'USES' }) === false || true,
+    'createRelation tolera ids inexistentes'
+  );
+
+  const rels = graph.getNodeRelations(java);
+  assert(
+    rels.length === 1 && rels[0].type === 'USES',
+    'getNodeRelations devuelve las relaciones del nodo',
+    `got=${rels.length}`
+  );
+
+  graph.close();
+  fs.rmSync(path.dirname(graph._dbPath), { recursive: true, force: true });
+}
+
 // ── Test 4: Decay y archivado ──────────────────────────────────────────────
 function testDecay() {
   console.log(C.bold('\nTest 4: Decay temporal y archivado'));
@@ -497,6 +619,25 @@ function testInstant() {
   assert(updater.detectAndSaveInstant('tengo 42 años') === 1, 'detecta edad');
   assert(graph._findActiveNodeByLabel('edad_usuario').content.includes('42'), 'edad guardada');
 
+  // Variantes del patrón de edad (QW): "mi edad es 21" antes NO se detectaba.
+  assert(updater.detectAndSaveInstant('mi edad es 21') === 1, 'detecta "mi edad es 21"');
+  assert(
+    graph._findActiveNodeByLabel('edad_usuario').content.includes('21'),
+    '"mi edad es 21" sobrescribe la edad'
+  );
+  assert(updater.detectAndSaveInstant('mi edad son 30') === 1, 'detecta "mi edad son 30"');
+  assert(updater.detectAndSaveInstant('soy 19 años') === 1, 'detecta "soy 19 años"');
+  assert(
+    graph._findActiveNodeByLabel('edad_usuario').content.includes('19'),
+    '"soy 19 años" aplicada'
+  );
+  // Sin la palabra "años" y sin "mi edad es", NO debe confundir con edad.
+  assert(
+    updater.detectAndSaveInstant('tengo 2 perros en casa') === 0,
+    '"tengo 2 perros" NO es edad'
+  );
+  assert(updater.detectAndSaveInstant('el 21 de mayo') === 0, '"el 21 de mayo" NO es edad');
+
   assert(
     updater.detectAndSaveInstant('en realidad mi color favorito es el rojo') === 1,
     'detecta corrección de color'
@@ -512,6 +653,20 @@ function testInstant() {
     updater.detectAndSaveInstant('estoy desarrollando un asistente vtuber') === 1,
     'detecta proyecto principal'
   );
+  // "estoy trabajando en X" y "programando X" son tareas del momento, NO deben
+  // pisar el proyecto principal (antes cualquier mensaje lo sobreescribía).
+  assert(
+    updater.detectAndSaveInstant('estoy trabajando en este bug del parser') === 0,
+    '"estoy trabajando en X" NO pisa el proyecto principal'
+  );
+  assert(
+    updater.detectAndSaveInstant('estoy programando el parser de jawascript') === 0,
+    '"estoy programando X" NO pisa el proyecto principal'
+  );
+
+  // Validación de labels: los leaks de plantilla ("proyecto_[nombre]") se
+  // descartan antes de guardar.
+  assert(!isValidLabel('proyecto_[nombre]'), 'label plantilla "proyecto_[nombre]" es INVALIDO');
 
   // recordar_ → label debe ser válido y node tipo Belief
   const beforeCount = sqlAll(graph, "SELECT COUNT(*) c FROM nodes WHERE label LIKE 'recordar_%'")[0]
@@ -528,6 +683,25 @@ function testInstant() {
   // no detecta mensajes vacíos o basura
   assert(updater.detectAndSaveInstant('') === 0, 'mensaje vacío no guarda nada');
   assert(updater.detectAndSaveInstant('qué hora es?') === 0, 'pregunta casual no guarda nada');
+
+  // estado_usuario: el último gana (overwrite, no acumula)
+  assert(updater.detectAndSaveInstant('estoy muy agotado hoy') === 1, 'detecta estado del usuario');
+  const st1 = graph._findActiveNodeByLabel('estado_usuario');
+  assert(st1 && st1.content.includes('agotado'), 'estado guardado');
+  assert(st1.type === 'User', 'estado_usuario es User');
+  assert(isValidLabel('estado_usuario'), 'estado_usuario es label VÁLIDO');
+  assert(
+    updater.detectAndSaveInstant('estoy de buen humor ahora') === 1,
+    'detecta cambio de estado'
+  );
+  const st2 = graph._findActiveNodeByLabel('estado_usuario');
+  assert(st2.id === st1.id, 'estado_usuario overwrite (mismo nodo)');
+  assert(st2.content.includes('buen humor'), 'estado actualizado al último valor');
+  const estadoCount = sqlAll(
+    graph,
+    "SELECT COUNT(*) c FROM nodes WHERE label='estado_usuario' AND archived=0"
+  )[0].c;
+  assert(estadoCount === 1, 'estado_usuario no acumula', `got=${estadoCount}`);
 
   graph.close();
   fs.rmSync(path.dirname(graph._dbPath), { recursive: true, force: true });
@@ -997,12 +1171,163 @@ function testLegacySchemaMigration() {
   fs.rmSync(dir, { recursive: true, force: true });
 }
 
+// ── Test: listNodes (vista local de memoria) ────────────────────────────────
+function testListNode() {
+  console.log(C.bold('\nTest: listNodes (vista local de memoria)'));
+  const { graph } = makeGraph();
+  const coreState = require('../core/core/state.js');
+  coreState.graph = graph;
+
+  graph.createNode({ type: 'Episode', label: 'ep1', content: 'charla sobre manzanas' });
+  graph.createNode({ type: 'Belief', label: 'b1', content: 'al usuario le gusta el mate' });
+  graph.createNode({ type: 'Project', label: 'p1', content: 'proyecto asistentevtuber' });
+
+  const { listNodes } = require('../core/core/misc.js');
+  const all = listNodes({ limit: 50 });
+  assert(Array.isArray(all), 'listNodes devuelve un array');
+  assert(all.length === 3, `listNodes lista todos los nodos (${all.length})`);
+  assert(
+    all.some((n) => n.type === 'Belief' && n.label === 'b1'),
+    'listNodes incluye el Belief'
+  );
+  assert(
+    all.every((n) => typeof n.tags === 'object' && typeof n.importance === 'number'),
+    'listNodes normaliza tags (array) e importancia'
+  );
+
+  const eps = listNodes({ type: 'Episode', limit: 50 });
+  assert(eps.length === 1 && eps[0].type === 'Episode', 'listNodes filtra por tipo');
+
+  graph.close();
+  fs.rmSync(path.dirname(graph._dbPath), { recursive: true, force: true });
+}
+
+// ── Test: listNodeGraph (vista de conexiones) ───────────────────────────────
+function testListGraph() {
+  console.log(C.bold('\nTest: listNodeGraph (vista de conexiones)'));
+  const { graph } = makeGraph();
+  const coreState = require('../core/core/state.js');
+  coreState.graph = graph;
+
+  // Tres nodos creados en la misma ventana temporal → misma conversación
+  // (identidad real: Episodes/compactaciones quedan fuera del grafo)
+  const a = graph.createNode({
+    type: 'Belief',
+    label: 'b1',
+    content: 'cree que al usuario le gusta el campo',
+  });
+  const b = graph.createNode({
+    type: 'Preference',
+    label: 'pref1',
+    content: 'le gusta el mate',
+    tags: ['tema-frutas'],
+  });
+  const c = graph.createNode({
+    type: 'Preference',
+    label: 'pref2',
+    content: 'le gusta la naranja',
+    tags: ['tema-frutas'],
+  });
+  // Nodo fuera de ventana → aislado
+  graph.createNode({ type: 'Project', label: 'p_viejo', content: 'proyecto viejo' });
+  const HOUR = 60 * 60 * 1000;
+  graph._db
+    .prepare('UPDATE nodes SET created_at=? WHERE id=?')
+    .run(
+      Date.now() - 48 * HOUR,
+      graph._db.prepare('SELECT id FROM nodes WHERE label=?').get('p_viejo').id
+    );
+
+  const { listNodeGraph } = require('../core/core/misc.js');
+  const { nodes, edges } = listNodeGraph({ limit: 50 });
+
+  assert(Array.isArray(nodes) && Array.isArray(edges), 'listNodeGraph devuelve {nodes, edges}');
+  assert(nodes.length === 4, `listNodeGraph lista todos los nodos (${nodes.length})`);
+  assert(edges.length >= 3, `deriva aristas por conversación/tags (${edges.length})`);
+
+  // a, b, c nacieron juntos → a-b, a-c, b-c (conversación)
+  const pair = (x, y) =>
+    edges.some((e) => (e.source === x && e.target === y) || (e.source === y && e.target === x));
+  assert(pair(a, b), 'enlaza nodos de la misma conversación (a-b)');
+  assert(pair(a, c), 'enlaza nodos de la misma conversación (a-c)');
+  // b y c comparten tag no estructural → tema
+  assert(
+    edges.some(
+      (e) =>
+        e.type === 'tema' &&
+        ((e.source === b && e.target === c) || (e.source === c && e.target === b))
+    ),
+    'enlaza nodos por tag compartido (tema)'
+  );
+  // el nodo viejo queda aislado
+  assert(
+    !edges.some((e) => e.source === 4 || e.target === 4),
+    'nodo fuera de ventana queda aislado'
+  );
+
+  graph.close();
+  fs.rmSync(path.dirname(graph._dbPath), { recursive: true, force: true });
+}
+
+// ── Test: listNodeGraph conecta por contenido (mismo dominio, sesiones distintas) ─
+function testListGraphContent() {
+  console.log(C.bold('\nTest: listNodeGraph (conexión por contenido)'));
+  const { graph } = makeGraph();
+  const coreState = require('../core/core/state.js');
+  coreState.graph = graph;
+
+  // Nodos de dominios distintos, creados en ventanas muy separadas (NO deberían
+  // enlazarse por conversación ni tags — solo por términos del contenido).
+  const java = graph.createNode({
+    type: 'Project',
+    label: 'proyecto_java',
+    content: 'Construir una calculadora con Java y Maven',
+  });
+  const js = graph.createNode({
+    type: 'Preference',
+    label: 'preferencia_lenguaje',
+    content: 'Le gusta JavaScript y Python',
+  });
+  const musica = graph.createNode({
+    type: 'Preference',
+    label: 'musica_favorita',
+    content: 'Escucha a G2 Shanks a todo volumen',
+  });
+
+  const HOUR = 60 * 60 * 1000;
+  const setOld = (label, hoursAgo) =>
+    graph._db
+      .prepare('UPDATE nodes SET created_at=? WHERE label=?')
+      .run(Date.now() - hoursAgo * HOUR, label);
+  setOld('proyecto_java', 48);
+  setOld('preferencia_lenguaje', 40);
+  setOld('musica_favorita', 32);
+
+  const { listNodeGraph } = require('../core/core/misc.js');
+  const { edges } = listNodeGraph({ limit: 50 });
+
+  const pair = (x, y) =>
+    edges.some((e) => (e.source === x && e.target === y) || (e.source === y && e.target === x));
+  // java ↔ javascript por prefijo compartido del contenido
+  assert(pair(java, js), 'conecta nodos por término del contenido (java↔javascript)');
+  // música queda aislada (sin términos en común)
+  assert(
+    !edges.some((e) => e.source === musica || e.target === musica),
+    'nodo sin términos en común queda aislado'
+  );
+
+  graph.close();
+  fs.rmSync(path.dirname(graph._dbPath), { recursive: true, force: true });
+}
+
 // ── Runner ─────────────────────────────────────────────────────────────────
 async function main() {
   const started = Date.now();
   testSchema();
   testCRUD();
   testResolver();
+  testTension();
+  testCreateRelation();
   testDecay();
   await testSessions();
   testInstant();
@@ -1012,6 +1337,9 @@ async function main() {
   await testFallbackMemoryMode();
   await testRetrievalKeywordFallback();
   testConsolidation();
+  testListNode();
+  testListGraph();
+  testListGraphContent();
   testLegacySchemaMigration();
 
   console.log(

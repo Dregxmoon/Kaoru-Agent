@@ -6,6 +6,8 @@ const logger = require('../../../observability/Logger.js');
 
 const { _parseEventTime } = require('../../../../infrastructure/sensors/UpcomingEventsWatcher.js');
 const { assess: assessSlo } = require('../../../decision/SloMonitor.js');
+const { receptividad } = require('../../../decision/DecisionCore.js');
+const { getMemoryGaps } = require('../../../core/misc.js');
 
 const {
   LATE_NIGHT_START,
@@ -52,16 +54,51 @@ module.exports = {
       return;
     }
 
+    await this._maybeLongSilence(now);
+  },
+
+  /**
+   * Silencio largo, pero "porque PASÓ algo", no por el reloj: sin pendientes,
+   * sin diferidos en cola y sin un hueco de memoria que valga la pena
+   * preguntar, un chequeo a las 3 h no es una conversación con causa — es un
+   * ladrido de agenda. Antes solo importaba el tiempo; ahora hace falta una
+   * razón real para hablar (forma humana, no programada).
+   */
+  async _maybeLongSilence(_now) {
     const silenceBase = this._lastUserMsg || this._startedAt;
     const silenceMs = Date.now() - silenceBase;
-    if (silenceMs > SILENCE_THRESHOLD_MS) {
-      const silenceHours = Math.round(silenceMs / (1000 * 60 * 60));
-      await this._tryTrigger({
-        type: 'long_silence',
-        hours: silenceHours,
-        context: `Han pasado ${silenceHours} horas desde la última conversación con el usuario.`,
-      });
+    if (silenceMs <= SILENCE_THRESHOLD_MS) return;
+
+    if (!this._silenceHasReason()) {
+      logger.info(
+        'time-based',
+        '[proactive] silencio largo sin razón de fondo: el usuario no habla y no hay nada con causa — silencio (sin ladrido de agenda)'
+      );
+      return;
     }
+
+    const silenceHours = Math.round(silenceMs / (1000 * 60 * 60));
+    await this._tryTrigger({
+      type: 'long_silence',
+      hours: silenceHours,
+      context: `Han pasado ${silenceHours} horas desde la última conversación con el usuario.`,
+    });
+  },
+
+  /** ¿Hay algo con causa que valga la pena decirle tras un silencio largo? */
+  _silenceHasReason() {
+    try {
+      if (this._collectPendingReminders().length > 0) return true;
+    } catch (e) {
+      logger.warn('time-based', '[proactive] error leyendo pendientes para silencio:', e.message);
+    }
+    if (this._queue && this._queue.size() > 0) return true;
+    try {
+      if (getMemoryGaps().length > 0) return true;
+    } catch (e) {
+      logger.warn('time-based', '[proactive] error leyendo gaps para silencio:', e.message);
+    }
+    return false;
   },
 
   /**
@@ -201,6 +238,15 @@ module.exports = {
     for (const [proposalId, info] of this._sentFeedback) {
       if (now - info.at >= this._ignoredAfterMs) {
         this._store.record({ proposalId, type: info.type, decision: 'ignored' });
+        // Hilo relacional: la propuesta ignorada también se marca en el registro.
+        for (const e of this._relationLog) {
+          if (e.proposalId === proposalId) e.outcome = 'ignored';
+        }
+        // Fase F: la propuesta ignorada también baja la receptividad global
+        // (EMA), no solo el SLO del tipo — si el usuario deja varias sin
+        // tocar, el presupuesto dinámico del día debe encogerse, no quedarse
+        // en 20 porque las aceptaciones puntuales lo mantengan alto.
+        this._receptivity = receptividad(this._receptivity, { ignored: true });
         this._audit.push({
           type: info.type,
           proposalId,

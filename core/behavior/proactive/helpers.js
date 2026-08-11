@@ -2,7 +2,8 @@
 // helpers.js — funciones puras del ProactiveEngine (sin estado de instancia).
 
 const { getIdentity } = require('../../grounding/GroundingEngine.js');
-const { LOW_VALUE_MSGS } = require('./config.js');
+const { LOW_VALUE_MSGS, MEDIA_PLATFORMS } = require('./config.js');
+const { extractThemeTerms } = require('../../core/misc.js');
 
 function _isLowValueMessage(msg) {
   const norm = msg
@@ -48,8 +49,12 @@ function _triggerDescription(trigger) {
       return `Hoy es una fecha especial: ${trigger.node}. Reacciona de forma natural, no exagerada.`;
     case 'sustained_focus':
       return `El usuario lleva ${trigger.elapsedFormatted || 'un buen rato'} ${trigger.label || 'enfocado'} en ${trigger.friendlyName || 'una aplicación'}${trigger.title ? ` (título de la ventana: "${trigger.title.slice(0, 80)}")` : ''}. Si el título te da una pista concreta de lo que está haciendo, úsala — sé específica, no genérica ("¿cómo va el código?" es el tipo de pregunta que NO quieres repetir siempre). Puedes preguntar algo puntual, comentar el tiempo que lleva metido en esto, o simplemente no decir nada si no tienes algo genuino.`;
+    case 'focus_block_end':
+      return `El usuario acaba de terminar un bloque de ${Math.round((trigger.streakSec || 0) / 60)} minutos ${trigger.label || 'de enfoque'}${trigger.title ? ` (estaba en: "${trigger.title.slice(0, 80)}")` : ''}. Es el borde natural del bloque — el momento humano para comentar lo que estuvo haciendo: un logro, preguntar cómo le fue, o simplemente quedarse en silencio. No interrumpas nada: ya cambió de tarea. Si no tienes algo concreto y genuino, responde NO.`;
     case 'context_switch_thrash':
-      return `El usuario cambió de aplicación ${trigger.switchCount} veces en pocos minutos, saltando entre: ${trigger.categories?.join(', ')}. Esto puede ser una señal de que está atorado, distraído, o buscando algo que no encuentra. No lo regañes ni asumas lo peor — puedes preguntar con curiosidad genuina si anda buscando algo o si algo no le está saliendo. Si no se siente genuino, responde NO.`;
+      return `El usuario cambió de aplicación ${trigger.switchCount} veces en pocos minutos, saltando entre: ${trigger.categories?.join(', ')}${trigger.apps?.length ? ` (apps: ${trigger.apps.join(', ')})` : ''}.${trigger.title ? ` Ahora mismo la ventana activa es: "${trigger.title.slice(0, 80)}".` : ''} Esto puede ser una señal de que está atorado, distraído, o buscando algo que no encuentra. Usa los datos REALES (apps y ventana actual) para decir algo específico y natural — nada de genéricos tipo "¿andas buscando algo?" por enésima vez. No lo regañes ni asumas lo peor: puedes comentar lo que ves con curiosidad genuina, ofrecer ayuda si el título sugiere un problema, o simplemente no decir nada si no se siente genuino. Si no hay algo concreto que decir, responde NO.`;
+    case 'media_watching':
+      return `El usuario está viendo o escuchando: "${trigger.title}"${trigger.platform ? ` (${trigger.platform})` : ''}. Puedes OPINAR o hacer un comentario casual sobre ese contenido — no hace falta que termines en pregunta. Si en la memoria hay gustos relacionados (música, anime, género...), conéctalos: p.ej. "ah, ese es de los que te gustan". Si NO sabes nada de sus gustos sobre este contenido, pregúntale con curiosidad genuina qué es o si le gusta — es una buena forma de conocerle. NUNCA afirmes datos del usuario que no estén respaldados por la memoria del prompt. Un comentario vacío o genérico es peor que no decir nada: si no hay nada genuino, responde NO.`;
     case 'return_from_break':
       return `El usuario estuvo fuera de la PC unos ${Math.round((trigger.gapSec || 0) / 60)} minutos y acaba de volver. Un comentario breve y casual de bienvenida puede ser genuino aquí — pero no es obligatorio, si no tienes algo natural que decir responde NO.`;
     case 'session_end':
@@ -79,6 +84,76 @@ function _safeGetIdentity() {
       core: 'Eres la asistente personal. Tienes carácter propio y eres cercana a la persona con quien hablas.',
     };
   }
+}
+
+/**
+ * Detecta contenido de media (video/canción) en el título de una ventana.
+ * Cubre dos vías:
+ *   - apps de media por categoría del OSSensor (`media`: Spotify, VLC...) — el
+ *     título ES el contenido ("Canción - Artista").
+ *   - navegador con plataforma reconocible al final del título ("X - YouTube",
+ *     "X - Twitch"...). Devuelve el título limpio (sin la plataforma) y el
+ *     nombre de la plataforma, o null si no hay contenido reconocible.
+ * @param {string} title  título de la ventana activa (ya sin el navegador)
+ * @param {string} category  categoría del OSSensor ('media', 'browser', ...)
+ * @returns {{ title: string, platform: string } | null}
+ */
+function _detectMediaTitle(title, category) {
+  if (!title) return null;
+  const t = String(title).trim();
+  if (!t) return null;
+
+  if (category === 'media') {
+    // Spotify/VLC: limpiar sufijos de reproductor y quedarnos con el contenido.
+    const cleaned = t
+      .replace(/\s*[-–—]\s*VLC media player\s*$/i, '')
+      .replace(/\s*[-–—]\s*Spotify\s*$/i, '')
+      .trim();
+    if (!cleaned) return null;
+    return { title: cleaned, platform: /spotify/i.test(t) ? 'spotify' : 'media' };
+  }
+
+  if (category === 'browser') {
+    for (const { platform, re } of MEDIA_PLATFORMS) {
+      const m = re.exec(t);
+      if (m) {
+        const clean = t
+          .slice(0, m.index)
+          .replace(/\s*[-–—]\s*$/, '')
+          .trim();
+        if (!clean) return null;
+        return { title: clean, platform };
+      }
+    }
+  }
+
+  return null;
+}
+
+/**
+ * Busca en la memoria real de gustos los nodos relacionados con el título de
+ * contenido en pantalla (video/canción). Compara por términos significativos
+ * compartidos: si el título trae "G2 Shanks" y la memoria tiene
+ * `musica_favorita: "G2 Shanks"`, hay match y Kaoru puede decir "ah, ese es
+ * de los que te gustan".
+ * @param {string} title  título de media ya limpio (sin la plataforma)
+ * @param {Array<any>} nodes  nodos de memoria real (ya filtrados por identidad)
+ * @returns {Array<{ label: string, content: string, score: number }>}
+ */
+function _matchMediaTaste(title, nodes) {
+  const titleTerms = extractThemeTerms(title);
+  if (!titleTerms.length || !Array.isArray(nodes) || !nodes.length) return [];
+  const matches = [];
+  for (const node of nodes) {
+    const content = String(node?.content || '').trim();
+    if (!content) continue;
+    const haystack = content.toLowerCase();
+    const shared = titleTerms.filter((t) => haystack.includes(t)).length;
+    if (shared > 0) {
+      matches.push({ label: node.label || '', content: content.slice(0, 140), score: shared });
+    }
+  }
+  return matches.sort((a, b) => b.score - a.score || a.label.localeCompare(b.label));
 }
 
 // ── Helpers de Fase C ─────────────────────────────────────────────────────────
@@ -163,6 +238,8 @@ module.exports = {
   _monthName,
   _triggerDescription,
   _safeGetIdentity,
+  _detectMediaTitle,
+  _matchMediaTaste,
   _localDayString,
   _dayOffset,
   _friendlyWhen,

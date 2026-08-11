@@ -132,6 +132,11 @@ function init(app) {
     store: (state.proposalStore = new ProposalStore({
       filePath: app ? path.join(app.getPath('userData'), 'proactive_feedback.json') : null,
     })),
+    // Fase C: contexto de código para los mensajes proactivos. Getters lazy
+    // porque lspErrorWatcher/symbolIndex se crean MÁS ABAJO en init(); cuando
+    // el engine consulta (en caliente), ya existen.
+    getFocusedFile: () => state.lspErrorWatcher?.getFocusedFile?.() ?? null,
+    getSymbols: (file) => state.symbolIndex?.getSymbolsFor?.(file) ?? Promise.resolve([]),
     executor: (state.proactiveExecutor = new ProactiveExecutor({
       getWorkspace: () => state.activeWorkspace,
       // Fase D: guard de archivos abiertos en el editor + verificación LSP
@@ -445,10 +450,7 @@ function init(app) {
       logger.error('init', '║  Causa: better-sqlite3 no pudo inicializarse.              ║');
       logger.error('init', '║  Solución: npm install                                    ║');
     } else {
-      logger.error(
-        'init',
-        `║  Causa: ${String(reason).slice(0, 46).padEnd(46)}║`
-      );
+      logger.error('init', `║  Causa: ${String(reason).slice(0, 46).padEnd(46)}║`);
     }
     logger.error('init', '╚══════════════════════════════════════════════════════════╝');
     logger.error('init', '');

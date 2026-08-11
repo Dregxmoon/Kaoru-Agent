@@ -158,7 +158,96 @@ function _isBlockedCommand(command) {
 const { safeChildEnv } = require('./core/utils/childEnv.js');
 
 function _safeChildEnv() {
-  return safeChildEnv();
+  const env = safeChildEnv();
+  // Dentro del sandbox, `--ro-bind / /` introduce una frontera de mount que
+  // git no cruza por defecto. Permitir el descubrimiento del repo a través
+  // de ella (el acceso real a los archivos sigue acotado al workspace).
+  if (_sandboxEnabled) env.GIT_DISCOVERY_ACROSS_FILESYSTEM = '1';
+  return env;
+}
+
+// ── Sandbox de proceso (bubblewrap) ──────────────────────────────────────────
+// 2.1: sandbox de proceso REAL para comandos aprobados. Bubblewrap (bwrap)
+// crea namespaces de mount/pid/ipc/user: todo el filesystem se monta de solo
+// lectura y únicamente el workspace (ALLOWED_PATH) + /tmp quedan escribibles,
+// con ~/.ssh aislado para no exponer llaves. Un comando escapista (base64,
+// variables, sustitución anidada, comillas partidas) ya no puede escribir
+// fuera del workspace ni leer secretos del usuario. NO se aísla la red porque
+// git push/webfetch necesitan salida real.
+//
+// Degradación transparente: si bwrap no existe, no es Linux o el self-test
+// falla (kernel sin user namespaces), el sandbox se desactiva y se conserva el
+// comportamiento anterior — nunca rompe el server. Desactivable con
+// OPENCLAW_SANDBOX=0.
+let _sandboxEnabled = false;
+let _sandboxReason = null;
+(function _initSandbox() {
+  try {
+    if (process.env.OPENCLAW_SANDBOX === '0') {
+      _sandboxReason = 'desactivado por OPENCLAW_SANDBOX=0';
+      return;
+    }
+    if (process.platform !== 'linux') {
+      _sandboxReason = `plataforma no soportada (${process.platform})`;
+      return;
+    }
+    const which = require('child_process')
+      .execFileSync('which', ['bwrap'], {
+        encoding: 'utf-8',
+      })
+      .trim();
+    if (!which) {
+      _sandboxReason = 'bwrap no encontrado en PATH';
+      return;
+    }
+    require('child_process').execFileSync(
+      which,
+      ['--ro-bind', '/', '/', '--tmpfs', '/tmp', '--unshare-user', 'true'],
+      { stdio: 'ignore', timeout: 10_000 }
+    );
+    _sandboxEnabled = true;
+    console.log('[openclaw-server] sandbox de proceso: bwrap habilitado');
+  } catch (e) {
+    _sandboxReason = `bwrap no usable: ${e.message}`;
+    _sandboxEnabled = false;
+  }
+})();
+
+/**
+ * Envuelve `commandArgs` en bwrap para aislar el proceso hijo. Si el sandbox
+ * no está activo devuelve los args tal cual (comportamiento original).
+ * @param {string[]} commandArgs
+ * @returns {string[]}
+ */
+function _wrapSandbox(commandArgs) {
+  if (!_sandboxEnabled) return commandArgs;
+  const home = process.env.HOME || '/tmp';
+  const wrap = [
+    'bwrap',
+    '--unshare-user',
+    '--unshare-pid',
+    '--unshare-ipc',
+    '--unshare-uts',
+    '--die-with-parent',
+    '--new-session',
+    '--ro-bind',
+    '/',
+    '/',
+    '--proc',
+    '/proc',
+    '--dev',
+    '/dev',
+    '--tmpfs',
+    '/tmp',
+    '--tmpfs',
+    home,
+    '--bind',
+    ALLOWED_PATH,
+    ALLOWED_PATH,
+    '--',
+    ...commandArgs,
+  ];
+  return wrap;
 }
 
 function _buildCommandArgs(fullCommand) {
@@ -442,7 +531,8 @@ const HANDLERS = {
     // Async con spawn (no spawnSync): un comando largo NO bloquea el proceso
     // main ni el event loop del server (antes congelaba la app entera).
     return new Promise((resolve) => {
-      const child = spawn(args[0], args.slice(1), {
+      const sandboxArgs = _wrapSandbox(args);
+      const child = spawn(sandboxArgs[0], sandboxArgs.slice(1), {
         cwd,
         stdio: 'pipe',
         windowsHide: true,
@@ -654,7 +744,8 @@ const HANDLERS = {
     if (!code) return { error: 'code required' };
 
     return new Promise((resolve) => {
-      const child = spawn('python3', ['-c', code], {
+      const sandboxArgs = _wrapSandbox(['python3', '-c', code]);
+      const child = spawn(sandboxArgs[0], sandboxArgs.slice(1), {
         stdio: 'pipe',
         windowsHide: true,
         env: _safeChildEnv(),
@@ -801,7 +892,11 @@ const server = http.createServer((req, res) => {
 
   // Health check (sin autenticación)
   if (req.method === 'GET' && req.url === '/health') {
-    return respond(res, 200, { status: 'ok' });
+    return respond(res, 200, {
+      status: 'ok',
+      sandbox: _sandboxEnabled ? 'bwrap' : 'disabled',
+      sandboxReason: _sandboxEnabled ? null : _sandboxReason,
+    });
   }
 
   // Autenticación

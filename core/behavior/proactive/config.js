@@ -84,6 +84,22 @@ const THRASH_WINDOW_MS = 10 * 60 * 1000; // ventana para detectar "salto entre a
 const THRASH_MIN_SWITCHES = 6; // mínimo de cambios de app en la ventana
 const THRASH_MIN_DISTINCT_CATEGORY = 3; // mínimo de categorías distintas involucradas
 
+// ── Contenido en pantalla (media) ────────────────────────────────────────────
+// El trigger `media_watching` comenta lo que el usuario está viendo/escuchando
+// (YouTube, Twitch, Netflix, Spotify, VLC...). Se dispara una vez por video/
+// canción tras unos minutos de racha sobre el MISMO título, conectándolo con
+// los gustos que haya en memoria (o preguntando con curiosidad si no hay).
+const MEDIA_MIN_SEC = 2 * 60; // racha mínima sobre el mismo título para comentar
+// Plataformas de video/streaming detectables en el título de una ventana del
+// navegador ("Título - YouTube - Google Chrome"). `media` (Spotify/VLC) se
+// detecta por categoría del OSSensor, sin necesidad de patrón.
+const MEDIA_PLATFORMS = [
+  { platform: 'youtube', re: /\s*[-–—]\s*(youtube|ytmusic)\s*$/i },
+  { platform: 'twitch', re: /\s*[-–—]\s*twitch\s*$/i },
+  { platform: 'netflix', re: /\s*[-–—]\s*netflix\s*$/i },
+  { platform: 'spotify', re: /\s*[-–—]\s*spotify\s*$/i },
+];
+
 const RETURN_MIN_GAP_SEC = 15 * 60; // mínimo de ausencia para que valga la pena comentar
 const RETURN_MAX_GAP_SEC = 3 * 60 * 60; // más que esto ya es más parecido a "long_silence"
 
@@ -201,9 +217,11 @@ const TRIGGER_COOLDOWN_MS = {
   late_night: 2 * 60 * 60 * 1000,
   long_silence: 3 * 60 * 60 * 1000,
   sustained_focus: 45 * 60 * 1000,
+  focus_block_end: 45 * 60 * 1000,
   context_switch_thrash: 60 * 60 * 1000,
   return_from_break: 45 * 60 * 1000,
   session_end: 60 * 60 * 1000,
+  media_watching: 2 * 60 * 60 * 1000,
   // Señales de sensores — la frecuencia real la marca cada sensor (re-emiten
   // mientras la condición persista); aquí solo se evita consultar al LLM en
   // exceso para el mismo tipo de señal.
@@ -233,6 +251,8 @@ module.exports = {
   THRASH_WINDOW_MS,
   THRASH_MIN_SWITCHES,
   THRASH_MIN_DISTINCT_CATEGORY,
+  MEDIA_MIN_SEC,
+  MEDIA_PLATFORMS,
   RETURN_MIN_GAP_SEC,
   RETURN_MAX_GAP_SEC,
   WORK_CATEGORIES,

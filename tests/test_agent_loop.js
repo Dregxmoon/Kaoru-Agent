@@ -591,6 +591,74 @@ async function testNativeToolCallEmptyContent() {
   teardown();
 }
 
+// ── Test 7a: tool-call nativo con alias legacy (run_command) se normaliza ────
+// Caso real de producción: Groq emitió { tool: 'run_command' } en un tool-call
+// nativo y el loop falló con "Herramienta desconocida: run_command" → el run
+// terminaba en "El modelo no respondió.". El alias debe resolverse a 'exec'.
+
+async function testNativeToolCallAlias() {
+  console.log(C.bold('\n── Test 7a: tool-call nativo run_command → exec ────────────────'));
+
+  const { AgentLoop } = require('../core/planner/AgentLoop.js');
+  const AP = require('../core/planner/ActionParser.js');
+  const LLMProvider = require('../core/llm/LLMProvider.js');
+
+  const projectCwd = teardown() || setup();
+  AP.setProjectCWD(projectCwd);
+
+  const originalCompleteWithTools = LLMProvider.completeWithTools;
+  let calls = 0;
+  let dispatchedTool = null;
+  LLMProvider.completeWithTools = async () => {
+    calls++;
+    if (calls === 1) {
+      return {
+        content: null,
+        toolCalls: [{ tool: 'run_command', params: { command: 'echo hi' } }],
+      };
+    }
+    return { content: 'Listo.', toolCalls: null };
+  };
+
+  try {
+    const mockLLM = createMockLLM(['no se usa']);
+    const bridge = createMockBridge(projectCwd);
+    const loop = new AgentLoop({
+      maxIterations: 5,
+      llm: mockLLM,
+      bridge,
+    });
+
+    const result = await loop.run('corre un comando', 'Eres un asistente.', [], {
+      tools: [
+        {
+          name: 'exec',
+          description: 'ejecuta un comando',
+          inputSchema: { type: 'object', properties: {} },
+        },
+      ],
+    });
+
+    dispatchedTool = result.toolResults[0]?.tool;
+    assert(
+      result.toolResults.length === 1,
+      'El tool-call nativo se ejecutó',
+      `tools: ${result.toolResults.length}`
+    );
+    assert(
+      dispatchedTool === 'exec',
+      'run_command se normalizó a exec',
+      `tool despachada: ${dispatchedTool}`
+    );
+    assert(result.toolResults[0].ok, 'exec tuvo éxito', result.toolResults[0].error || '');
+    assert(!result.error, 'Sin error "empty_response"', `error: ${result.error}`);
+  } finally {
+    LLMProvider.completeWithTools = originalCompleteWithTools;
+  }
+
+  teardown();
+}
+
 // ── Test 7b: fallo de LLM en iter > 0 conserva tools completadas ────────────
 
 async function testLLMFailureKeepsCompletedTools() {
@@ -1411,6 +1479,7 @@ async function main() {
   await testNoApprovalCallback();
   await testBridgeExecution();
   await testNativeToolCallEmptyContent();
+  await testNativeToolCallAlias();
   await testLLMFailureKeepsCompletedTools();
   await testMCPToolTextFallback();
   await testMCPCallClassicRouting();

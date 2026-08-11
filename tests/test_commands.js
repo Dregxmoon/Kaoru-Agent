@@ -76,6 +76,7 @@ function testRegisteredCommands() {
   assert(!names.includes('mode'), 'mode eliminado (modo automático por intención)');
   assert(names.includes('model'), 'model registrado');
   assert(names.includes('memory'), 'memory registrado');
+  assert(names.includes('memoria'), 'memoria registrado');
   assert(names.includes('retry'), 'retry registrado');
   assert(names.includes('stats'), 'stats registrado');
   assert(names.includes('export'), 'export registrado');
@@ -200,6 +201,20 @@ function testMemory() {
       assert(r.result.includes('2 mensajes'), 'memory muestra cantidad');
       assert(r.result.includes('hola'), 'memory muestra contenido');
     });
+}
+
+// ── Test 7b: /memoria ──────────────────────────────────────────────────────
+
+function testMemoria() {
+  console.log(C.bold('\n── Test 7b: /memoria ───────────────────────────────────────'));
+
+  let opened = false;
+  const ctx = { openNodes: () => (opened = true) };
+  return execute('/memoria', ctx).then((r) => {
+    assert(!r.error, 'memoria sin error');
+    assert(opened === true, 'memoria invoca ctx.openNodes()');
+    assert(r.result.includes('Mostrando'), 'memoria confirma la vista de grafo');
+  });
 }
 
 // ── Test 8: /export ────────────────────────────────────────────────────────
@@ -628,6 +643,7 @@ async function main() {
   await testClear();
   await testModel();
   await testMemory();
+  await testMemoria();
   await testExport();
   await testAgentCommand();
   await testAgentInvalid();

@@ -81,6 +81,9 @@ const {
   getPlanner,
   getBridge,
   listSkills,
+  listNodes,
+  listNodeGraph,
+  getMemoryGaps,
   storeFact,
 } = require('./core/misc.js');
 const {
@@ -142,6 +145,9 @@ module.exports = {
   setActiveWorkspace,
   getWorkspace,
   listSkills,
+  listNodes,
+  listNodeGraph,
+  getMemoryGaps,
   storeFact,
   permissionsSetRule,
   permissionsRemoveRule,

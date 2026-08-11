@@ -17,6 +17,47 @@ function register(ctx) {
   ipcMain.handle('sessions-list', (e, { limit } = {}) => Core.listSessions(limit));
   ipcMain.handle('session-load', (e, { id } = {}) => Core.loadSession(id));
 
+  // IPC: nodos de memoria (vista local /memoria). Devuelve nodos + conteo por tipo.
+  ipcMain.handle('nodes-list', (e, { type, limit } = {}) => {
+    try {
+      const nodes = Core.listNodes({ type, limit });
+      const graph = Core.getGraph();
+      let byType = [];
+      if (graph && !graph.usingFallback) {
+        try {
+          byType = graph.getStats().byType || [];
+        } catch {}
+      }
+      return { nodes, byType, usingFallback: graph?.usingFallback ?? false };
+    } catch (err) {
+      logger.warn('memory-handlers', '[nodes-list] error:', err.message);
+      return { nodes: [], byType: [], usingFallback: true };
+    }
+  });
+
+  // IPC: grafo de memoria (conexiones implícitas derivadas) — vista /memoria.
+  ipcMain.handle('nodes-graph', (e, { limit } = {}) => {
+    try {
+      const graph = Core.getGraph();
+      const { nodes, edges } = Core.listNodeGraph({ limit });
+      const gaps = Core.getMemoryGaps();
+      return { nodes, edges, gaps, usingFallback: graph?.usingFallback ?? false };
+    } catch (err) {
+      logger.warn('memory-handlers', '[nodes-graph] error:', err.message);
+      return { nodes: [], edges: [], gaps: [], usingFallback: true };
+    }
+  });
+
+  // IPC: gaps de conocimiento del usuario (para proactividad / vista).
+  ipcMain.handle('memory-gaps', () => {
+    try {
+      return { gaps: Core.getMemoryGaps() };
+    } catch (err) {
+      logger.warn('memory-handlers', '[memory-gaps] error:', err.message);
+      return { gaps: [] };
+    }
+  });
+
   // IPC: stats de la sesión activa (id real) — lo usa el footer del chat.
   ipcMain.handle('session-stats', () => {
     try {

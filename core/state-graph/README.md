@@ -1,74 +1,104 @@
 # Memoria persistente (`core/state-graph/`)
 
-Grafo de conocimiento semántico sobre SQLite: hechos sobre el usuario, episodios de conversación y
-relaciones entre conceptos, con búsqueda vectorial y decaimiento temporal. Es la base de la memoria
-a largo plazo del asistente.
+Grafo de conocimiento semántico sobre SQLite: hechos sobre el usuario, episodios de conversación,
+relaciones entre conceptos, historial de apps y una pila de intenciones — con búsqueda vectorial y
+decaimiento temporal. Es la base de la memoria a largo plazo del asistente.
+
+`StateGraph` es una **fachada** que posee el ciclo de vida (init, schema, migraciones, fallback),
+la cola de embeddings y delega el resto en `stores/` (ver [`stores/README.md`](./stores/README.md)).
 
 ---
 
-## `StateGraph.js` — núcleo de la base de datos
+## Esquema
 
-Usa `better-sqlite3` + `sqlite-vec`.
+| Tabla            | Propósito                                                                                                                 |
+| ---------------- | ------------------------------------------------------------------------------------------------------------------------- |
+| `nodes`          | Hechos sobre el usuario (`User`, `Project`, `Preference`, `Belief`, `Episode`) con `importance`, `decay_rate`, `archived` |
+| `node_relations` | Relaciones semánticas `(source_id, target_id, type, created_at)` — `ON DELETE CASCADE`                                    |
+| `node_vectors`   | Embeddings 384d para búsqueda semántica — **tabla virtual `vec0`, creada de forma diferida** por `enableVectorSearch()`   |
+| `sessions`       | Metadatos de sesiones (inicio, fin, resumen, turnos) + columna `history_json` para persistencia incremental               |
+| `app_history`    | Historial de aplicaciones usadas (por día, con duración)                                                                  |
+| `intentions`     | Pila de objetivos/planes persistentes (`active` / `done` / `dropped`)                                                     |
 
-**Tablas principales:**
+**Migración universal:** si la base viene con el esquema legacy de `node_relations`
+(`from_id/to_id/rel_type`), se renombra a `node_relations_legacy` y se reinserta con el esquema nuevo
+(`source_id/target_id/type`) **antes** de crear índices — sin esto el `CREATE INDEX` fallaba y el
+arranque caía a memoria.
 
-| Tabla | Propósito |
-|---|---|
-| `nodes` | Hechos sobre el usuario (proyectos, preferencias, datos personales) |
-| `node_relations` | Relaciones semánticas entre nodos |
-| `node_vectors` | Embeddings 384d para búsqueda semántica (tabla virtual `vec0`) |
-| `sessions` | Metadatos de sesiones (inicio, fin, resumen, turnos) |
-| `app_history` | Historial de aplicaciones usadas |
+---
 
-**Características:**
-- **Decaimiento temporal** — los nodos viejos se archivan automáticamente (`runDecay`).
-- **Búsqueda semántica** por similitud coseno con ponderación por recencia.
-- **Fallback a memoria en RAM** si `better-sqlite3` no pudo cargar — el sistema sigue funcionando.
-- **Lazy access-time** — leer un nodo no lo marca como viejo.
-- **Reconciliación** de información nueva vs. existente (sobrescribir/acumular/archivar) vía
-  `ContradictionResolver`.
+## Características
 
-**API pública:**
+- **Decaimiento temporal** — `applyDecay()` (en `DecayStore`): `importance × (1 − decay_rate)^days`,
+  archiva nodos con `importance < 0.05` y purga sus vectores. Se ejecuta con un throttle de ~20 h
+  (marker `decay_marker.json` en `userData`) desde `SessionManager`.
+- **Búsqueda semántica** — `queryNodesSemantic()` (en `VectorIndex`): embeddings en **worker thread**
+  (`core/grounding/embedWorker.js` + fachada `EmbedService`, modelo `Xenova/all-MiniLM-L6-v2`, 384d),
+  scoring `distanceToSimilarity × importance × recencyBoost` (semivida 21 días). Cae a `queryNodes`
+  si el vector no está listo.
+- **Fallback a memoria en RAM** si `better-sqlite3` no pudo cargar — el sistema sigue funcionando
+  (`usingFallback`, con `fallbackReason`).
+- **Acceso diferido a recencia** — `getWorldModel()` **no** toca `last_accessed_at` (se lee en cada
+  turno; tocarlo destruiría el decay). `queryNodes`, `getRecentEpisodes` y `queryNodesSemantic` sí
+  refrescan recencia.
+- **Reconciliación** de información nueva vs. existente (`ContradictionResolver`) con políticas por
+  label: `overwrite` · `archive_and_replace` · `append` (máx. 3 segmentos) · `tension` (ambas viven,
+  unidas por `CONTRADICES`).
+- **Consolidación** — `ConsolidatorStore`: episodios viejos → `Belief`s deterministas
+  (`consolidacion_*`, enlace `CONSOLIDA`), piggybacked en `applyDecay()`.
 
-| Función | Propósito |
-|---|---|
-| `startSession()` | Crea una sesión nueva |
-| `endSession(id, data)` | Cierra sesión con resumen |
-| `updateSessionHistory(id, history)` | Persiste el historial incrementalmente |
-| `findResumableSession(hours)` | Busca sesiones interrumpidas recientes |
-| `saveNode(node)` | Guarda un nodo de conocimiento |
-| `queryNodesSemantic(text, limit)` | Búsqueda semántica por embeddings |
-| `forget(text)` | Archiva un recuerdo (soft-delete) |
-| `enableVectorSearch()` | Activa la búsqueda vectorial |
-| `backfillEmbeddings()` | Genera embeddings para nodos sin ellos |
-| `runDecay()` | Archiva nodos viejos |
+## API pública principal (fachada)
+
+| Función                                                                                                         | Propósito                                                      |
+| --------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------- |
+| `init()` / `enableVectorSearch()`                                                                               | Abre la BD (o cae a RAM) y activa la tabla vectorial           |
+| `createNode(opts)` / `upsertNode(opts)`                                                                         | Guarda un nodo (upsert por tipo+label) y agenda su embedding   |
+| `updateNode(id, patch)` / `getNode(id)` / `forget(text)`                                                        | Actualiza / lee / archiva (soft-delete) nodos                  |
+| `queryNodes(opts)`                                                                                              | Búsqueda por texto (LIKE), toca recencia                       |
+| `queryNodesSemantic(text, opts)`                                                                                | Búsqueda vectorial ponderada por recencia                      |
+| `getWorldModel()`                                                                                               | Los 30 nodos de identidad por importancia (sin tocar recencia) |
+| `getRecentEpisodes(limit)` / `getLastSessions(limit)`                                                           | Episodios y sesiones recientes                                 |
+| `getTensions()`                                                                                                 | Contradicciones vivas (para la curiosidad del motor proactivo) |
+| `createRelation({source, target, type})`                                                                        | Relación semántica idempotente                                 |
+| `startSession()` / `endSession(id, opts)` / `updateSessionHistory(id, history)` / `findResumableSession(hours)` | Ciclo de vida de sesiones (con `history_json`)                 |
+| `saveAppHistory(...)` / `getTodayAppHistory()` / `getAppUsageSummary(days)` / `pruneAppHistory(days)`           | Historial de apps (poda 30 días)                               |
+| `applyDecay()`                                                                                                  | Decay + purga de vectores + consolidación                      |
+| `createIntention(...)` / `listActiveIntentions()` / `completeIntention()` / `dropIntention()`                   | Pila de intenciones persistentes                               |
+| `getStats()` / `close()`                                                                                        | Estado (incluye `usingFallback`) y cierre                      |
 
 ## `SessionManager.js` — ciclo de vida de sesión
 
-- `start()` — crea sesión nueva y limpia duplicados acumulados.
+- `start()` — reanuda una sesión interrumpida (< **48 h**) reusando `sessionId`/historia, o crea una
+  nueva; en ambos caminos corre `deduplicateNodes()`, `cleanupMemoryArtifacts()` y el decay si toca.
 - `addTurn(role, content)` — agrega turno y persiste incrementalmente (sobrevive a cortes).
-- `close()` — procesa la sesión con `StateUpdater` y la cierra.
-- `getHistory()` — copia del historial actual.
+- `close()` — procesa la sesión con `StateUpdater` y la cierra; si el procesamiento falla, cierra con
+  `summary: null`.
+- `restore(history, sessionId)` — soporte de checkpoints (CLI).
+- `getActiveIntentions()` — pila de intenciones para re-planeación al reanudar.
 
 ## `StateUpdater.js` — extracción de memoria
 
-Al cerrar una sesión, extrae hechos memorables de la conversación (con el LLM) y los guarda como nodos:
+- `detectAndSaveInstant(userMessage)` — hechos inmediatos **sin LLM** (regex por label: nombre, edad,
+  cumpleaños, color, trabajo, proyecto, ubicación, `recordar_…`, `estado_usuario`).
+- `processSession(sessionId, history, turnCount)` — extracción con el LLM al cerrar la sesión
+  (modo `smart` si > 20 turnos), validación de labels, relaciones `RELATED_TO | IMPLIES | PART_OF |
+CONTRADICES | USES` y creación del nodo `Episode` con el resumen.
+- Valida labels contra `FIXED_LABELS` + prefijos dinámicos `proyecto_* / preferencia_* / recordar_*`;
+  descarta plantillas con `[`/`]`. Exporta `isValidLabel`/`migrateLabel`.
+- `cleanupMemoryArtifacts()` — archiva nodos contaminados con salida de comandos.
+- `runDecay()` — envuelve `graph.applyDecay()`.
 
-- `processSession(sessionId, history, turnCount)` — procesa la sesión completa.
-- `detectAndSaveInstant(userMessage)` — guarda hechos inmediatos sin LLM (patrones por regex).
-- `runDecay()` — decaimiento de nodos viejos.
-- Valida labels contra un conjunto fijo + labels dinámicos de proyectos/preferencias.
+## `ContradictionResolver.js` — reconciliación
 
-## `ContradictionResolver.js` — reconciliación de información
+| Política              | Comportamiento                                           | Labels típicos                                                 |
+| --------------------- | -------------------------------------------------------- | -------------------------------------------------------------- |
+| `overwrite`           | Reemplaza el valor anterior                              | nombre, edad, cumpleaños, ubicación, trabajo, proyecto, estado |
+| `archive_and_replace` | El viejo se archiva, el nuevo es activo                  | color, música, comida favorita                                 |
+| `append`              | Acumula (máx. 3 segmentos, `                             | Actualizado: `)                                                | no reconocidos |
+| `tension`             | Contradicción sin resolver → ambas viven + `CONTRADICES` | `observaciones_usuario`                                        |
 
-| Política | Comportamiento | Ejemplos |
-|---|---|---|
-| `OVERWRITE` | Reemplaza el valor anterior | `age`, `name`, `hometown` |
-| `APPEND` | Acumula (con límite) | `likes`, `favorite_games` |
-| `ARCHIVE` | El viejo se archiva, el nuevo es activo | `project`, `working_on` |
-| `TENSION` | Contradicción sin resolver | Datos irreconciliables |
-
-La política se determina por el label del nodo; los no reconocidos van a `APPEND`.
+También: `deduplicateNodes()` (conserva el más reciente por label, respetando tensiones) y
+`getTensions()`. Contenido tipo comando se descarta (nunca se guarda).
 
 ---
 
@@ -77,17 +107,17 @@ La política se determina por el label del nodo; los no reconocidos van a `APPEN
 ```mermaid
 flowchart LR
     subgraph SES["SessionManager"]
-        START["start()<br/>sesión nueva"]
-        TURN["addTurn()<br/>persistencia incremental"]
+        START["start()<br/>reanuda o crea"]
+        TURN["addTurn()<br/>persistencia incremental history_json"]
         CLOSE["close()"]
     end
     subgraph UPD["StateUpdater"]
-        INSTANT["detectAndSaveInstant<br/>hechos por regex, sin LLM"]
-        PROCESS["processSession<br/>hechos con LLM"]
+        INSTANT["detectAndSaveInstant<br/>regex, sin LLM"]
+        PROCESS["processSession<br/>LLM + relaciones + Episode"]
     end
     GRAPH["StateGraph<br/>nodes + relations + vectors"]
-    DECAY["runDecay()<br/>decaimiento de nodos viejos"]
-    Q["queryNodesSemantic()<br/>recuperación con recencia"]
+    DECAY["applyDecay()<br/>DecayStore + ConsolidatorStore"]
+    Q["queryNodesSemantic()<br/>EmbedService (worker) + recencia"]
 
     START --> TURN --> CLOSE
     CLOSE --> PROCESS
@@ -103,4 +133,10 @@ flowchart LR
 ## Verificación
 
 `test_state_graph` (schema, CRUD, reconciliación, decay, sesiones con resume tras crash, guardado
-inmediato, recall semántico, limpieza y modo memoria/fallback) y `test_persistent`. Ver `tests/README.md`.
+inmediato, recall semántico, limpieza y modo memoria/fallback), `test_persistent`,
+`test_memory_f2`, `test_intentions`, `test_sessions_ui` y `test_cli_checkpoint`. Ver
+[`tests/README.md`](../../tests/README.md).
+
+Enlaces: [`stores/`](./stores/README.md) (fachadas de BD repartidas por tabla) ·
+[`core/core/misc.js`](../core/misc.js) (`getMemoryGaps`, `storeFact`, `isRealIdentityNode`) ·
+[`core/grounding/EmbedService.js`](../grounding/EmbedService.js) (embeddings en worker).

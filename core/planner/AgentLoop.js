@@ -32,6 +32,7 @@ const GIT_TOOLS = new Set([
   'git_diff',
   'git_log',
   'git_branch',
+  'git_add',
   'git_commit',
   'git_stash',
   'git_merge',
@@ -54,6 +55,36 @@ const GITHUB_TOOLS = new Set([
 
 // Tool de subagentes (§11): se despacha en proceso lanzando un AgentLoop anidado.
 const SUBAGENT_TOOLS = new Set(['subagent', 'task']);
+
+// Alias legacy → tool canónica de OpenClaw para TOOL-CALLS NATIVOS (formato
+// JSON de function-calling). El parser estructurado ya normaliza estos nombres
+// en el camino textual (StructuredActionParser.ACTION_TO_TOOL), pero los
+// tool-calls nativos del LLM llegan con el nombre crudo — sin esto, Groq y
+// otros modelos que emiten "run_command" revientan con "Herramienta
+// desconocida" y el run termina en "El modelo no respondió".
+const NATIVE_TOOL_ALIASES = {
+  run_command: 'exec',
+  run_script: 'exec',
+  git_action: 'exec',
+  install_package: 'exec',
+  delete_file: 'exec',
+  create_directory: 'exec',
+  list_directory: 'exec',
+  read_file: 'read',
+  run_code: 'code_execution',
+  fetch_web: 'webfetch',
+  websearch: 'web_search',
+  navigate_browser: 'browser',
+  browser_action: 'browser',
+  mcp_call: 'mcp',
+  plugin_call: 'plugin',
+  // create_file/edit_file NO van aquí: el bloque LEGACY_TO_TOOL más abajo las
+  // normaliza con lógica extra (instrucción → contenido / resolución a diff).
+};
+
+function _canonicalToolName(tool) {
+  return NATIVE_TOOL_ALIASES[tool] || tool;
+}
 
 // Máxima profundidad de subagentes anidados (previene recursión infinita).
 const MAX_SUBAGENT_DEPTH = 2;
@@ -516,7 +547,7 @@ class AgentLoop {
       let actions = [];
       if (toolCalls && toolCalls.length > 0) {
         actions = toolCalls.map((tc) => ({
-          tool: tc.tool,
+          tool: _canonicalToolName(tc.tool),
           params: tc.params,
           description: `${tc.tool}: ${JSON.stringify(tc.params).slice(0, 100)}`,
           source: 'native_tool_call',
@@ -1072,6 +1103,8 @@ class AgentLoop {
           return okShape(await this._git.branch(cwd));
         case 'git_commit':
           return okShape(await this._git.commit(cwd, { message: params.message }));
+        case 'git_add':
+          return okShape(await this._git.add(cwd, params.paths));
         case 'git_stash':
           return okShape(
             await this._git.stash(cwd, { action: params.action, message: params.message })
@@ -1392,6 +1425,9 @@ class AgentLoop {
       `VEREDICTO: COMPLETA`,
       `VEREDICTO: INCOMPLETA`,
       `Si es INCOMPLETA, añade una línea "RAZÓN: <qué falta o qué corregir>".`,
+      `IMPORTANTE: la intención original es SOLO lo que el usuario pidió explícitamente.`,
+      `Si el agente ya hizo lo pedido, marca COMPLETA y TERMINA — no inventes trabajo`,
+      `extra ni interpretes de forma amplia instrucciones compuestas.`,
     ].join('\n');
 
     const critiqueSystem = [
@@ -1402,6 +1438,10 @@ class AgentLoop {
       'Sé estricto pero justo: solo INCOMPLETA si hay una brecha real.',
       '',
       'Reglas de alcance:',
+      '- La "intención original del usuario" cubre EXACTAMENTE lo que el usuario',
+      '  pidió. NO incluye acciones que el usuario no mencionó directamente, ni',
+      '  mejoras, refactors, cambios de estilo o "detalles" que el agente decidió',
+      '  por su cuenta.',
       '- La tarea es COMPLETA si la acción pedida se ejecutó con éxito (p. ej. el',
       '  push a git terminó OK), aunque existan advertencias de lint/diagnósticos',
       '  en archivos que NO eran parte del pedido.',
@@ -1410,6 +1450,9 @@ class AgentLoop {
       '- Edits no solicitados sobre archivos no relacionados son una DESVIACIÓN:',
       '  si ocurrieron, la tarea ya se cumplió o el run debe terminar, no sumar',
       '  más trabajo.',
+      '- Regla de ambigüedad: si dudas sobre si el usuario pidió algo adicional,',
+      '  interpreta de forma CONSERVADORA — marca COMPLETA y no sigas actuando.',
+      '  Cuando en duda, el run debe TERMINAR, no expandirse.',
     ].join('\n');
 
     try {

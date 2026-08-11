@@ -58,6 +58,8 @@ function main() {
     'setActiveWorkspace',
     'getGraph',
     'storeFact',
+    'listNodes',
+    'listNodeGraph',
     'reloadLLMConfig',
   ];
   const missing = delegated.filter((k) => typeof Core[k] !== 'function');

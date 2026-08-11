@@ -28,10 +28,19 @@ const RECONCILIATION_POLICY = {
   trabajo_usuario: 'overwrite',
   proyecto_principal: 'overwrite',
 
+  // Estado del usuario (humor/energía) — efímero: el último gana, no acumula
+  estado_usuario: 'overwrite',
+
   // Preferencias — pueden cambiar, archivar el viejo y activar el nuevo
   color_favorito: 'archive_and_replace',
   musica_favorita: 'archive_and_replace',
   comida_favorita: 'archive_and_replace',
+
+  // Creencias / observaciones de carácter — el LLM suele "inventar" rasgos y
+  // después contradecirlos. Guardar la tensión (ambos vivos + relación
+  // CONTRADICES) permite que el motor proactivo pregunte en vez de sobreescribir
+  // a ciegas un dato observado.
+  observaciones_usuario: 'tension',
 
   // Todo lo demás — append por defecto (no destruir info)
   default: 'append',
@@ -140,6 +149,20 @@ class ContradictionResolver {
         return newId;
       }
 
+      case 'tension': {
+        // No se destruye nada: el dato viejo y el nuevo conviven, y se registra
+        // la contradicción como relación CONTRADICES para que otros módulos
+        // (proactividad, planificador) puedan detectarla y preguntar.
+        if (_isCommandContent(content)) return existing.id;
+        const newId = this._graph.createNode({ type, label, content, importance, tags });
+        this._graph.createRelation({ source: existing.id, target: newId, type: 'CONTRADICES' });
+        logger.info(
+          'ContradictionResolver',
+          `[resolver] tension: ${label} — conviven "${existing.content.slice(0, 50)}" y "${content.slice(0, 50)}"`
+        );
+        return newId;
+      }
+
       case 'append': {
         // Si el contenido nuevo parece un comando técnico, descartarlo —
         // esos son artefactos del agente, no memoria del usuario
@@ -179,6 +202,8 @@ class ContradictionResolver {
   /**
    * Limpia nodos duplicados del mismo label — si hay más de uno activo,
    * conserva el más reciente y archiva los viejos.
+   * Los nodos en tensión (relación CONTRADICES) se EXCLUYEN: son contradicciones
+   * a propósito que conviven hasta que alguien las resuelva.
    * Llamar al iniciar sesión.
    */
   deduplicateNodes() {
@@ -187,7 +212,27 @@ class ContradictionResolver {
     try {
       const duplicates = this._graph._findDuplicateLabels();
 
+      // Labels cuyo par está en tensión → no tocar ninguno
+      const tensionLabels = new Set();
+      try {
+        const rels = this._graph._db
+          .prepare(
+            "SELECT n1.label as a, n2.label as b FROM node_relations r JOIN nodes n1 ON n1.id=r.source_id JOIN nodes n2 ON n2.id=r.target_id WHERE r.type='CONTRADICES' AND n1.archived=0 AND n2.archived=0"
+          )
+          .all();
+        for (const r of rels) {
+          if (r.a === r.b) tensionLabels.add(r.a);
+        }
+      } catch (e) {
+        logger.warn('ContradictionResolver', '[resolver] error leyendo tensiones:', e.message);
+      }
+
       for (const { label } of duplicates) {
+        if (tensionLabels.has(label)) {
+          logger.info('ContradictionResolver', `[resolver] dedup omitido (en tensión): ${label}`);
+          continue;
+        }
+
         const nodes = this._graph._findNodesByLabel(label);
 
         const toArchive = nodes.slice(1);
@@ -204,6 +249,32 @@ class ContradictionResolver {
       }
     } catch (e) {
       logger.warn('ContradictionResolver', '[resolver] error en dedup:', e.message);
+    }
+  }
+
+  /**
+   * Contradicciones sin resolver: pares de nodos del mismo label activos con
+   * relación CONTRADICES entre sí. El motor proactivo puede usarlas para
+   * preguntar al usuario cuál es la versión correcta.
+   * @returns {Array<{label:string, a:number, b:number, contentA:string, contentB:string}>}
+   */
+  getTensions() {
+    if (!this._graph?.isReady) return [];
+    try {
+      return this._graph._db
+        .prepare(
+          `
+        SELECT n1.label as label, n1.id as a, n2.id as b, n1.content as contentA, n2.content as contentB
+        FROM node_relations r
+        JOIN nodes n1 ON n1.id = r.source_id AND n1.archived = 0
+        JOIN nodes n2 ON n2.id = r.target_id AND n2.archived = 0
+        WHERE r.type = 'CONTRADICES'
+      `
+        )
+        .all();
+    } catch (e) {
+      logger.warn('ContradictionResolver', '[resolver] error en getTensions:', e.message);
+      return [];
     }
   }
 }

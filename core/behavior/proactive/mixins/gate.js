@@ -145,31 +145,39 @@ module.exports = {
     // canal donde se muestran las propuestas (ventana principal de la app).
     if (this._lastUserMsg && now - this._lastUserMsg < RECENT_CHAT_MS) return { blocked: true };
 
-    // Ajusta el gap mínimo según qué tan receptivo esté el usuario
-    const adjustedGap = Math.round(
-      GLOBAL_MIN_GAP_MS * (1 - (this._currentProactiveScore - 0.3) * 0.5)
-    );
-    if (now - this._lastProactive < adjustedGap) return { blocked: true };
+    // ESCALATE (señal crítica con R ≥ escalar): salta los guardas temporales
+    // de no-molestia (gap global, cooldown del tipo y AFK). Un secreto a punto
+    // de commitearse no debería esperar 6 h por la regla de su tipo. Sigue
+    // pasando por el guard de conversación reciente: nunca se interrumpe a
+    // mitad de un intercambio, ni siquiera para algo crítico.
+    const isEscalate = trigger._gate?.verdict === 'ESCALATE';
+    if (!isEscalate) {
+      // Ajusta el gap mínimo según qué tan receptivo esté el usuario
+      const adjustedGap = Math.round(
+        GLOBAL_MIN_GAP_MS * (1 - (this._currentProactiveScore - 0.3) * 0.5)
+      );
+      if (now - this._lastProactive < adjustedGap) return { blocked: true };
+
+      // Cooldown efectivo por tipo — crece si el usuario ha descartado este
+      // tipo varias veces seguidas (Fase A: el rechazo enseña).
+      const baseCooldown = TRIGGER_COOLDOWN_MS[trigger.type] ?? GLOBAL_MIN_GAP_MS;
+      const cooldown = this._effectiveCooldownMs(trigger.type, baseCooldown);
+      const lastAttempt = this._lastAttemptByType[trigger.type] || 0;
+      if (now - lastAttempt < cooldown) return { blocked: true };
+
+      // No interrumpir si lleva mucho AFK — excepto el trigger que ES,
+      // precisamente, "acaba de volver de estar AFK".
+      if (trigger.type !== 'return_from_break') {
+        const idleSecs = this._osSensor?.getCurrentContext()?.idleSecs ?? 0;
+        if (idleSecs > MAX_IDLE_TO_INTERRUPT) return { blocked: true };
+      }
+    }
 
     // Fase F: el presupuesto diario lo impone el gate dinámico
     // (ContextGate.evaluate → budgetLimit = dynamicBudget(receptividad)), que
     // puede subir hasta `DEFAULT_POLICY.budget.max` (20) con buena
     // receptividad. Aquí ya no hay tope estático duro (DAILY_BUDGET) que lo
     // anule — el recuento real solo se hace sobre envíos efectivos.
-
-    // Cooldown efectivo por tipo — crece si el usuario ha descartado este
-    // tipo varias veces seguidas (Fase A: el rechazo enseña).
-    const baseCooldown = TRIGGER_COOLDOWN_MS[trigger.type] ?? GLOBAL_MIN_GAP_MS;
-    const cooldown = this._effectiveCooldownMs(trigger.type, baseCooldown);
-    const lastAttempt = this._lastAttemptByType[trigger.type] || 0;
-    if (now - lastAttempt < cooldown) return { blocked: true };
-
-    // No interrumpir si lleva mucho AFK — excepto el trigger que ES,
-    // precisamente, "acaba de volver de estar AFK".
-    if (trigger.type !== 'return_from_break') {
-      const idleSecs = this._osSensor?.getCurrentContext()?.idleSecs ?? 0;
-      if (idleSecs > MAX_IDLE_TO_INTERRUPT) return { blocked: true };
-    }
 
     this._lastAttemptByType[trigger.type] = now;
     this._deciding = true;
@@ -186,11 +194,27 @@ module.exports = {
       this._lastProactiveMessage = message;
       this._lastProactiveTrigger = trigger.type;
 
+      // Fase D: historial corto para anti-repetición real (últimos 5).
+      this._recentProactive.push({ msg: message, trigger: trigger.type, at: Date.now() });
+      if (this._recentProactive.length > 5) this._recentProactive.shift();
+
       // Fase C: un envío real gasta presupuesto del día (solo cuando el LLM
       // dio el OK — los intentos bloqueados/frustrados no cuentan).
       if (this._store) this._store.incrementDaily();
 
       const payload = await this._buildPayload(trigger, message);
+
+      // Hilo relacional: registro del mensaje enviado (para bookend y para el
+      // registro adaptativo). El outcome lo rellena handleDecision/el barrido
+      // de ignorados; tope acotado para que no crezca sin límite.
+      this._relationLog.push({
+        proposalId: payload.proposalId || null,
+        trigger: trigger.type,
+        msg: message,
+        at: Date.now(),
+        outcome: null, // pendiente: lo rellena handleDecision / el barrido de ignorados
+      });
+      if (this._relationLog.length > 40) this._relationLog.shift();
 
       logger.info('gate', `[proactive] emitiendo: "${message.slice(0, 60)}..."`);
       this._bus.emit('initiative:trigger', payload);

@@ -106,10 +106,22 @@ class ProactiveEngine {
     this._executor = opts.executor || null;
     this._pendingActions = new Map(); // proposalId → { action, type, at }
 
+    // Fase C: contexto de código — getters lazy del archivo enfocado y sus
+    // símbolos (los resuelve init.js desde LSPErrorWatcher/SymbolIndex). Sin
+    // LSP o sin editor, se degradan a null y el prompt simplemente no trae
+    // contexto de código.
+    this._getFocusedFile = opts.getFocusedFile || null;
+    this._getSymbols = opts.getSymbols || null;
+
     this._lastAttemptByType = {}; // último intento (haya dicho sí o no el LLM) por tipo
 
     this._lastProactiveMessage = null;
     this._lastProactiveTrigger = null;
+
+    // Fase D: historial corto de mensajes proactivos enviados (máx 5). Se pasa
+    // al prompt para que Kaoru NO repita temas ni preguntas equivalentes, no
+    // solo el último mensaje.
+    this._recentProactive = []; // [{ msg, trigger, at }] — más reciente al final
 
     // ── Estado para análisis de actividad en tiempo real ──────────────────
     this._currentCategory = null;
@@ -122,8 +134,24 @@ class ProactiveEngine {
     this._recentSwitches = []; // [{ts, category, app}] — ventana de thrash
     this._idleStartedAt = null; // marca de cuándo empezó el AFK actual
 
+    // media_watching: racha de contenido en pantalla (video/canción). Dedup por
+    // título para no volver a comentar lo mismo, reset al cambiar de contenido.
+    this._mediaTrack = null; // { key, title, platform, startedAt }
+    this._mediaFired = new Set(); // keys de títulos ya comentados (ventana)
+    this._mediaLastFired = 0; // último envío media_watching (respaldo del cooldown)
+
     this._currentProactiveScore = 0.5;
     this._setupListeners();
+
+    // ── Hilo relacional (interacción real, no broadcasts) ───────────────────
+    // Registro de los mensajes proactivos ENVIADOS + su desenlace (accepted /
+    // rejected / ignored). Lo usan el registro adaptativo (_buildSituationFrame)
+    // y el bookend (_buildBookend) para que Kaoru construya sobre la relación
+    // en vez de repetir a ciegas. Tope acotado en el push (gate.js).
+    this._relationLog = [];
+    // Ventana/contenido del bloque de foco actual — el "hito" que focus_block_end
+    // usa al comentar cuando el bloque termina (no un contador mid-flow).
+    this._lastFocusedWindow = null;
 
     // ── Fase F: gate de contexto + audit + cola de diferidos ───────────────
     // Determinista, sin LLM. Si `shadowMode` está activo, el gate y el audit

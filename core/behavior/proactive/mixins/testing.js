@@ -185,6 +185,8 @@ module.exports = {
       autonomyMode: this._autonomyMode,
       feedback: this._store?.getStats() ?? null,
       pendingProposals: this._pendingActions.size,
+      relationLog: this._relationLog.slice(-10),
+      lastFocusedWindow: this._lastFocusedWindow,
       dailyBudget: {
         dayKey: this._store?.getDailyStats().dayKey ?? null,
         count: this._store?.dailyCount() ?? 0,

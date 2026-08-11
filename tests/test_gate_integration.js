@@ -200,9 +200,11 @@ async function testQueueDefer() {
   assert(llmCalls === 0, '…sin consultar al LLM', `llmCalls=${llmCalls}`);
   assert(engine._queue.size() === 1, '…y queda en la cola', `size=${engine._queue.size()}`);
 
-  // El usuario cierra el chat y "vuelve de una pausa" → se reintenta la cola.
+  // El usuario cierra el chat → se reintenta la cola automáticamente.
   engine.setChatOpen(false);
-  engine._replayQueued();
+  // _generateMessage es async (con awaits internos de contexto) — dejar que la
+  // cola de microtasks complete antes de verificar la llamada al LLM.
+  await new Promise((r) => setTimeout(r, 0));
 
   assert(engine._queue.size() === 0, 'tras el replay, la cola queda vacía');
   assert(llmCalls === 1, '…y el diferido se reintentó (LLM produce)', `llmCalls=${llmCalls}`);

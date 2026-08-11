@@ -12,6 +12,12 @@ module.exports = {
 
   setChatOpen(open) {
     this._chatOpen = open;
+    // Fase F: al cerrar el chat el usuario deja de estar "en presencia" del
+    // asistente — buen momento para reintentar los diferidos (cola QUEUE) que
+    // el gate apartó mientras el chat estaba abierto. Antes solo se drenaban
+    // en el heartbeat o al volver de una pausa, así que en sesiones largas con
+    // la ventana abierta las señales de sensor expiraban por TTL sin entregarse.
+    if (!open && typeof this._replayQueued === 'function') this._replayQueued();
   },
 
   setAutonomyMode(mode) {
