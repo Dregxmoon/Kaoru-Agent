@@ -295,26 +295,97 @@ module.exports = {
     this._curiosityFired += 1;
   },
 
-  // ── Outcome → confirmInferred (Fase 3) ──────────────────────────────────────
-  // La respuesta del usuario a una propuesta de pattern_uncertain NO solo
-  // alimenta el feedback general (ProposalStore/receptividad, ya cubierto por
-  // handleDecision): además confirma o rechaza el nodo inferido en el modelo
-  // del usuario. `accepted` sube su confidence a 0.9+, `rejected` lo archiva.
+  // ── Outcome → cierre del lazo de revalidación (Fase 3/5) ─────────────────────
+  // La respuesta del usuario a una propuesta de curiosidad NO solo alimenta el
+  // feedback general (ProposalStore/receptividad, ya cubierto por
+  // handleDecision): además cierra el lazo sobre la MEMORIA según el tipo:
+  //   pattern_uncertain → confirmInferred (sube confidence o archiva)
+  //   memory_stale      → accepted: verified_at=now + quita 'stale'; rejected: archiva
+  //   memory_tension    → accepted: se queda nodeA, archiva nodeB; rejected: al revés
+  //   intention_stale   → accepted: refresca last_progress_at (deja de ser stale);
+  //                       rejected: dropIntention
 
   _connectCuriosityOutcome(proposalId, type, decision) {
-    if (type !== 'pattern_uncertain') {
-      this._proposalRefs?.delete(proposalId);
-      return;
-    }
     const ref = this._proposalRefs?.get(proposalId) || null;
     this._proposalRefs?.delete(proposalId);
-    if (!ref?.nodeId) return;
     if (decision !== 'accepted' && decision !== 'rejected') return;
-    if (!this._graph?.confirmInferred) return;
+    if (!this._graph || !ref) return;
     try {
-      this._graph.confirmInferred(ref.nodeId, decision);
+      switch (type) {
+        case 'pattern_uncertain':
+          if (ref.nodeId && typeof this._graph.confirmInferred === 'function') {
+            this._graph.confirmInferred(ref.nodeId, decision);
+          }
+          break;
+        case 'memory_stale':
+          this._resolveStaleRef(ref, decision);
+          break;
+        case 'memory_tension':
+          this._resolveTensionRef(ref, decision);
+          break;
+        case 'intention_stale':
+          this._resolveIntentionRef(ref, decision);
+          break;
+        default:
+          break;
+      }
     } catch (e) {
-      logger.warn('curiosity', '[proactive] error confirmando inferencia:', e.message);
+      logger.warn('curiosity', '[proactive] error cerrando outcome de curiosidad:', e.message);
+    }
+  },
+
+  /**
+   * Hecho 'stale' revalidado. Aceptado: el dato sigue vigente → se refresca
+   * verified_at (el FactReasoner usa esa fecha para volver a marcarlo caduco)
+   * y se quita el tag 'stale' para que no reaparezca en el barrido; la
+   * importancia se ancla a 0.7 mínimo (una reconfirmación refuerza el dato).
+   * Rechazado: el dato ya no vale → se archiva.
+   */
+  _resolveStaleRef(ref, decision) {
+    const node = this._graph.getNode ? this._graph.getNode(ref.nodeId) : null;
+    if (!node) return;
+    if (decision === 'rejected') {
+      if (typeof this._graph._archiveNode === 'function') {
+        this._graph._archiveNode(node.id);
+      }
+      return;
+    }
+    const tags = _tagsOf(node).filter((t) => t !== 'stale');
+    if (typeof this._graph.updateNode !== 'function') return;
+    this._graph.updateNode(ref.nodeId, {
+      verified_at: Date.now(),
+      importance: Math.max(node.importance ?? 0.5, 0.7),
+      tags,
+    });
+  },
+
+  /**
+   * Contradicción viva resuelta: el usuario elige qué versión se queda
+   * (nodeA al aceptar, nodeB al rechazar). Se archiva la descartada; con un
+   * lado archivado el par CONTRADICES deja de aparecer (getTensions filtra
+   * por archived=0) sin necesidad de borrar la relación.
+   */
+  _resolveTensionRef(ref, decision) {
+    if (typeof this._graph._archiveNode !== 'function') return;
+    const toArchive = decision === 'accepted' ? ref.nodeB : ref.nodeA;
+    if (toArchive != null) this._graph._archiveNode(toArchive);
+  },
+
+  /**
+   * Meta abandonada: aceptar = sigue vigente → se refresca last_progress_at
+   * (IntentionsStore.update lo actualiza a ahora, así deja de salir como
+   * 'stale'); rechazar = ya no interesa → dropIntention.
+   */
+  _resolveIntentionRef(ref, decision) {
+    if (!ref.nodeId) return;
+    if (decision === 'rejected') {
+      if (typeof this._graph.dropIntention === 'function') {
+        this._graph.dropIntention(ref.nodeId);
+      }
+      return;
+    }
+    if (typeof this._graph.updateIntention === 'function') {
+      this._graph.updateIntention(ref.nodeId, { lastProgress: 'Retomada por el usuario' });
     }
   },
 };

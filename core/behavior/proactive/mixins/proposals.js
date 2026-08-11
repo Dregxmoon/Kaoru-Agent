@@ -7,7 +7,7 @@ const logger = require('../../../observability/Logger.js');
 const crypto = require('crypto');
 
 const { receptividad } = require('../../../decision/DecisionCore.js');
-const { PROPOSAL_HINTS } = require('../config.js');
+const { PROPOSAL_HINTS, CURIOSITY_TYPES } = require('../config.js');
 
 module.exports = {
   // ── Fase A: propuestas con consentimiento ────────────────────────────────────
@@ -95,13 +95,19 @@ module.exports = {
       createdAt: Date.now(),
     };
 
-    // Fase nueva (curiosidad): la propuesta de pattern_uncertain recuerda el
-    // nodo inferido al que apunta, para que el outcome del usuario pueda
-    // confirmarlo/archivarlo (UserModelBuilder.confirmInferred) además del
-    // feedback general.
-    if (trigger.type === 'pattern_uncertain' && trigger.nodeId) {
+    // Fase nueva (curiosidad): la propuesta recuerda a qué nodo de memoria
+    // apunta para que el outcome del usuario cierre el lazo de revalidación
+    // (confirmInferred para pattern_uncertain; stale/tensión/intención en
+    // _connectCuriosityOutcome) además del feedback general.
+    if (CURIOSITY_TYPES.has(trigger.type) && trigger.nodeId != null) {
       proposal.nodeId = trigger.nodeId;
       this._proposalRefs.set(proposal.id, { nodeId: trigger.nodeId });
+    }
+    if (trigger.type === 'memory_tension' && trigger.nodeA != null) {
+      this._proposalRefs.set(proposal.id, {
+        nodeA: trigger.nodeA,
+        nodeB: trigger.nodeB,
+      });
     }
 
     if (action) {

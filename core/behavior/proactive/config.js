@@ -221,6 +221,28 @@ const PROPOSAL_HINTS = {
       action: null,
     },
   },
+  // Curiosidad sobre un hecho sospechoso (F3.1 'stale'): la respuesta CIERRA el
+  // lazo de revalidación — aceptar refresca verified_at y quita el tag 'stale',
+  // rechazar archiva el dato caduco (curiosity._connectCuriosityOutcome).
+  memory_stale: {
+    default: {
+      title: 'Confirmar que sigue vigente',
+      preview: 'Confirmas si el dato que me contaste antes sigue siendo cierto o si ya cambió.',
+      kind: 'info',
+      action: null,
+    },
+  },
+  // Curiosidad sobre una contradicción viva (getTensions): aceptar conserva la
+  // primera versión, rechazar la segunda; la descartada se archiva y el par
+  // CONTRADICES deja de aparecer en el siguiente barrido.
+  memory_tension: {
+    default: {
+      title: 'Cuál de las dos es la correcta',
+      preview: 'Eliges cuál de las dos versiones contradictorias se queda en mi memoria.',
+      kind: 'info',
+      action: null,
+    },
+  },
   // Curiosidad sobre una intención abandonada: el mensaje real lo arma el LLM
   // con el TEXTO REAL de la meta (message-gen). Este bloque solo es el título/
   // preview determinista de la propuesta en el chat.

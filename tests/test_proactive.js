@@ -1607,6 +1607,202 @@ async function testIntentionStaleMessage() {
   restore();
 }
 
+// ── Test 28: el outcome de curiosidad cierra el lazo de revalidación ─────────
+
+async function testCuriosityOutcomeLoop() {
+  console.log(
+    C.bold('\nTest 28: outcome de curiosidad → cierra el lazo (stale/tensión/intención)')
+  );
+  const { PROPOSAL_HINTS } = require('../core/behavior/proactive/config.js');
+
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'proactive-loop-'));
+  const graph = new StateGraph(path.join(dir, 'core.db')).init();
+  const now = Date.now();
+
+  // ── memory_stale: dos hechos taggeados 'stale' ─────────────────────────────
+  const ins = graph._db.prepare(
+    'INSERT INTO nodes (type, label, content, importance, tags, verified_at, created_at, updated_at, last_accessed_at) VALUES (?,?,?,?,?,?,?,?,?)'
+  );
+  const staleKeep = ins.run(
+    'User',
+    'trabajo_usuario',
+    'trabajando en SpaceX',
+    0.8,
+    '["stale"]',
+    now - 40 * 24 * 60 * 60 * 1000,
+    now,
+    now,
+    now
+  ).lastInsertRowid;
+  const staleDrop = ins.run(
+    'User',
+    'trabajo_usuario',
+    'compro unicornios',
+    0.8,
+    '["stale"]',
+    now - 40 * 24 * 60 * 60 * 1000,
+    now,
+    now,
+    now
+  ).lastInsertRowid;
+
+  assert(
+    PROPOSAL_HINTS.memory_stale && PROPOSAL_HINTS.memory_tension,
+    'memory_stale y memory_tension ahora tienen PROPOSAL_HINTS (botones reales)'
+  );
+
+  let engine = new ProactiveEngine(graph);
+
+  const staleProposal = await engine._buildProposal({
+    type: 'memory_stale',
+    kind: 'trabajo_usuario',
+    nodeId: staleKeep,
+    label: 'trabajo_usuario',
+    content: 'trabajando en SpaceX',
+  });
+  assert(
+    staleProposal && staleProposal.id && engine._proposalRefs.has(staleProposal.id),
+    'la propuesta memory_stale lleva proposalId + ref al nodo'
+  );
+  engine.handleDecision({
+    proposalId: staleProposal.id,
+    type: 'memory_stale',
+    decision: 'accepted',
+  });
+  const afterKeep = graph.getNode(staleKeep);
+  const staleTags = JSON.parse(afterKeep.tags || '[]');
+  assert(
+    !staleTags.includes('stale'),
+    'aceptado → se quita el tag "stale"',
+    JSON.stringify(staleTags)
+  );
+  assert(
+    afterKeep.verified_at >= now,
+    'aceptado → verified_at refrescado (FactReasoner no lo vuelve a marcar)'
+  );
+
+  const dropProposal = await engine._buildProposal({
+    type: 'memory_stale',
+    kind: 'trabajo_usuario',
+    nodeId: staleDrop,
+    label: 'trabajo_usuario',
+    content: 'compro unicornios',
+  });
+  engine.handleDecision({
+    proposalId: dropProposal.id,
+    type: 'memory_stale',
+    decision: 'rejected',
+  });
+  assert(graph.getNode(staleDrop).archived === 1, 'rechazado → el hecho caduco se archiva');
+
+  // ── memory_tension: un par CONTRADICES vivo ────────────────────────────────
+  const tA = ins.run(
+    'User',
+    'comida_favorita',
+    'pizza',
+    0.7,
+    '[]',
+    now,
+    now,
+    now,
+    now
+  ).lastInsertRowid;
+  const tB = ins.run(
+    'User',
+    'comida_favorita',
+    'sushi',
+    0.7,
+    '[]',
+    now,
+    now,
+    now,
+    now
+  ).lastInsertRowid;
+  graph.createRelation({ source: tA, target: tB, type: 'CONTRADICES' });
+  assert(graph.getTensions().length === 1, 'la tensión vive (getTensions la ve)');
+
+  const tensionProposal = await engine._buildProposal({
+    type: 'memory_tension',
+    kind: 'default',
+    label: 'comida_favorita',
+    nodeA: tA,
+    nodeB: tB,
+    contentA: 'pizza',
+    contentB: 'sushi',
+  });
+  assert(
+    tensionProposal.id && engine._proposalRefs.has(tensionProposal.id),
+    'la propuesta memory_tension lleva ref { nodeA, nodeB }'
+  );
+  engine.handleDecision({
+    proposalId: tensionProposal.id,
+    type: 'memory_tension',
+    decision: 'accepted',
+  });
+  assert(graph.getTensions().length === 0, 'aceptado → se conserva nodeA y la tensión desaparece');
+  assert(
+    graph.getNode(tB).archived === 1 && graph.getNode(tA).archived === 0,
+    'el lado descartado (nodeB) queda archivado, el conservado vivo'
+  );
+
+  // ── intention_stale: meta abandonada ───────────────────────────────────────
+  const intention = graph.createIntention({
+    sessionId: 's1',
+    goal: 'Migrar a PostgreSQL',
+    steps: [],
+  });
+  graph._db
+    .prepare('UPDATE intentions SET created_at=?, updated_at=?, last_progress_at=? WHERE id=?')
+    .run(
+      now - 10 * 24 * 60 * 60 * 1000,
+      now - 10 * 24 * 60 * 60 * 1000,
+      now - 10 * 24 * 60 * 60 * 1000,
+      intention
+    );
+
+  const intProposal = await engine._buildProposal({
+    type: 'intention_stale',
+    kind: 'default',
+    nodeId: intention,
+    goal: 'Migrar a PostgreSQL',
+  });
+  assert(
+    intProposal.id && engine._proposalRefs.has(intProposal.id),
+    'la propuesta intention_stale lleva ref al id de la intención'
+  );
+
+  engine.handleDecision({
+    proposalId: intProposal.id,
+    type: 'intention_stale',
+    decision: 'accepted',
+  });
+  const refreshed = graph.getIntention(intention);
+  assert(
+    refreshed.status === 'active' && refreshed.last_progress_at >= now,
+    'aceptado → la meta sigue activa y su last_progress_at se refresca (deja de salir stale)'
+  );
+
+  const intProposal2 = await engine._buildProposal({
+    type: 'intention_stale',
+    kind: 'default',
+    nodeId: intention,
+    goal: 'Migrar a PostgreSQL',
+  });
+  engine.handleDecision({
+    proposalId: intProposal2.id,
+    type: 'intention_stale',
+    decision: 'rejected',
+  });
+  assert(
+    graph.getIntention(intention).status === 'dropped',
+    'rechazado → la meta se descarta (dropIntention)'
+  );
+
+  engine.stop();
+  graph.close();
+  fs.rmSync(dir, { recursive: true, force: true });
+}
+
 // ── Runner ───────────────────────────────────────────────────────────────────
 
 (async () => {
@@ -1643,6 +1839,7 @@ async function testIntentionStaleMessage() {
   await testSilenceCause();
   testIntentionStaleCandidate();
   await testIntentionStaleMessage();
+  await testCuriosityOutcomeLoop();
 
   console.log(
     C.bold(`\nResultado: ${C.green(`${passed} ✓`)}${failed ? ` / ${C.red(`${failed} ✗`)}` : ''}`)
