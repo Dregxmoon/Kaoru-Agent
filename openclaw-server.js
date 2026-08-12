@@ -213,6 +213,81 @@ let _sandboxReason = null;
   }
 })();
 
+// ── Toolchain de Node dentro del sandbox ─────────────────────────────────────
+// CAUSA RAIZ observada en producción: con `--ro-bind / /` + `--tmpfs $HOME`,
+// las toolchains instaladas EN el home (nvm, fnm, volta...) desaparecen del
+// sandbox → `bwrap: execvp npm: No such file or directory` aunque `node` esté
+// disponible. Se resuelve en dos planos complementarios:
+//   - Binds: el directorio raíz bajo $HOME que contiene cada binario de la
+//     toolchain se remonta read-only SOBRE el tmpfs. No afloja el aislamiento:
+//     el resto del home (dotfiles, .ssh, claves) sigue invisible; solo se
+//     expone la toolchain, que es lo que un comando aprobado necesita para
+//     correr (oa npm/npx/tsc).
+//   - Rewrite: como red de seguridad, si el lanzador sigue sin resolverse por
+//     PATH (cadenas de symlink raras), se reescribe a la ruta REAL del binario
+//     (`node <cli>.js` para scripts JS, o la ruta absoluta para binarios).
+// Solo aplica a bins whitelisteados de herramienta; el workspace
+// (ALLOWED_PATH) nunca entra en esta ruta.
+const TOOLCHAIN_BINS = ['node', 'npm', 'npx', 'tsc', 'ts-node', 'tsx', 'yarn', 'pnpm'];
+
+/** Ruta de un binario en el HOST (sin llegar a ejecutarlo). */
+function _whichBin(bin) {
+  try {
+    const out = require('child_process')
+      .execFileSync('which', [bin], {
+        encoding: 'utf-8',
+        stdio: ['ignore', 'pipe', 'ignore'],
+      })
+      .trim();
+    return out || null;
+  } catch {
+    return null;
+  }
+}
+
+/** Resuelve la cadena completa de symlinks de una ruta. */
+function _resolveReal(p) {
+  try {
+    return fs.realpathSync(p);
+  } catch {
+    return p;
+  }
+}
+
+/**
+ * Ancestro más alto de `p` todavía bajo $HOME (el dir cuyo árbol hay que
+ * remontar para que `p` sea visible en el sandbox). Devuelve null si la ruta
+ * NO vive bajo $HOME — entonces `--ro-bind / /` ya la expone y no hace falta
+ * nada (system dirs como /usr/bin ya son visibles).
+ */
+function _maskedRoot(p) {
+  const home = process.env.HOME || '';
+  if (!home || p === home || !p.startsWith(home + '/')) return null;
+  let cur = p;
+  for (;;) {
+    const parent = path.dirname(cur);
+    if (parent === home || parent === cur) return cur;
+    cur = parent;
+  }
+}
+
+// Resuelto UNA vez al arrancar: las toolchains no cambian a mitad de sesión.
+/** @type {string[]} dirs bajo $HOME a remontar read-only */
+const TOOLCHAIN_BINDS = [];
+/** @type {Map<string, { launch: string, real: string, masked: boolean }>} */
+const TOOLCHAIN_LAUNCHERS = new Map();
+if (_sandboxEnabled) {
+  for (const bin of TOOLCHAIN_BINS) {
+    const launch = _whichBin(bin);
+    if (!launch) continue;
+    const real = _resolveReal(launch);
+    const root = _resolveReal(_maskedRoot(real) || _maskedRoot(launch));
+    const masked = root != null;
+    if (masked && !TOOLCHAIN_BINDS.includes(root)) TOOLCHAIN_BINDS.push(root);
+    TOOLCHAIN_LAUNCHERS.set(bin, { launch, real, masked });
+  }
+}
+
 /**
  * Envuelve `commandArgs` en bwrap para aislar el proceso hijo. Si el sandbox
  * no está activo devuelve los args tal cual (comportamiento original).
@@ -241,13 +316,35 @@ function _wrapSandbox(commandArgs) {
     '/tmp',
     '--tmpfs',
     home,
-    '--bind',
-    ALLOWED_PATH,
-    ALLOWED_PATH,
-    '--',
-    ...commandArgs,
   ];
+  // Toolchains instaladas en $HOME (nvm/fnm/volta): se remontan sobre el
+  // tmpfs para que npm/npx/tsc sean ejecutables dentro del sandbox.
+  for (const dir of TOOLCHAIN_BINDS) {
+    if (dir !== ALLOWED_PATH) wrap.push('--ro-bind', dir, dir);
+  }
+  wrap.push('--bind', ALLOWED_PATH, ALLOWED_PATH, '--', ...commandArgs);
   return wrap;
+}
+
+/**
+ * Reescribe el lanzador a la ruta REAL del binario de la toolchain cuando su
+ * resolución por PATH dentro del sandbox no se garantiza (binarios que viven
+ * en $HOME). `node <cli>.js` para scripts con shebang Node; ruta absoluta
+ * para binarios compilados. Solo toca bins whitelisteados.
+ * @param {string[]} args
+ * @returns {string[]}
+ */
+function _rewriteToolchainCommand(args) {
+  if (!args || args.length === 0) return args;
+  const hit = TOOLCHAIN_LAUNCHERS.get(args[0]);
+  if (!hit || !hit.masked || !hit.real) return args;
+  if (/\.(js|cjs|mjs)$/.test(hit.real)) {
+    // Script JS con shebang Node → ejecutarlo con node (que sí es visible).
+    return ['node', hit.real, ...args.slice(1)];
+  }
+  // Binario compilado (node/npx...): se invoca el ejecutable real directo,
+  // sin volver a envolverlo en node (eso duplicaría el argv como script).
+  return [hit.real, ...args.slice(1)];
 }
 
 function _buildCommandArgs(fullCommand) {
@@ -281,6 +378,20 @@ function _buildCommandArgs(fullCommand) {
   }
   if (current) args.push(current);
   return args;
+}
+
+// Shell builtins / operadores que `spawn` no puede ejecutar sin un shell real
+// (`cd`, `&&`, `||`, `;`, pipes `|`/`>>`, redirección, `$(...)`/backticks).
+// Si se detectan, exec corre el comando con `sh -c` dentro del sandbox en vez
+// de partir args a mano (antes eso rompía `cd x && npm i` con "execvp cd").
+const _SHELL_SYNTAX_RE = /(^|\s)cd(\s|$)|(\|\||&&|;|\||>>|>|<|\$\()|`/;
+
+/**
+ * @param {string} command
+ * @returns {boolean}
+ */
+function _needsShellCommand(command) {
+  return _SHELL_SYNTAX_RE.test(command);
 }
 
 // ── Rutas inmutablemente protegidas (nunca accesibles) ─────────────────────
@@ -525,8 +636,19 @@ const HANDLERS = {
     if (_isBlockedCommand(command)) return { error: 'command blocked by server security policy' };
     if (_isOutsideAllowed(cwd)) return { error: `cwd outside allowed path: ${cwd}` };
 
-    const args = _buildCommandArgs(command);
-    if (args.length === 0) return { error: 'empty command after parsing' };
+    // Shell real cuando el comando usa sintaxis que un spawn directo no puede
+    // resolver (builtins `cd`, `&&`, `;`, pipes, redirección). Se corre `sh -c`
+    // DENTRO del sandbox — sh existe bajo `--ro-bind / /`.
+    let args = _needsShellCommand(command)
+      ? ['sh', '-c', command]
+      : _rewriteToolchainCommand(_buildCommandArgs(command));
+    if (!args || args.length === 0) return { error: 'empty command after parsing' };
+
+    // Programas interactivos (readline/prompt-sync): si el llamador manda el
+    // input en `stdin`, se escribe en el pipe del hijo y luego se cierra; si no
+    // hay input, se cierra el stdin de inmediato para que el programa no quede
+    // colgado esperando teclas hasta el timeout.
+    const stdinValue = input.stdin != null ? String(input.stdin) : null;
 
     // Async con spawn (no spawnSync): un comando largo NO bloquea el proceso
     // main ni el event loop del server (antes congelaba la app entera).
@@ -534,7 +656,7 @@ const HANDLERS = {
       const sandboxArgs = _wrapSandbox(args);
       const child = spawn(sandboxArgs[0], sandboxArgs.slice(1), {
         cwd,
-        stdio: 'pipe',
+        stdio: ['pipe', 'pipe', 'pipe'],
         windowsHide: true,
         env: _safeChildEnv(),
       });
@@ -543,6 +665,11 @@ const HANDLERS = {
       let outSize = 0;
       let errSize = 0;
       let killed = false;
+
+      if (child.stdin) {
+        if (stdinValue != null) child.stdin.write(stdinValue);
+        child.stdin.end();
+      }
 
       child.stdout.on('data', (c) => {
         outSize += c.length;
@@ -988,6 +1115,13 @@ module.exports = {
   _checkRateLimit,
   _htmlToText,
   _parseDuckDuckGoHTML,
+  _buildCommandArgs,
+  _needsShellCommand,
+  _rewriteToolchainCommand,
+  _wrapSandbox,
+  _whichBin,
+  sandboxEnabled: () => _sandboxEnabled,
+  TOOLCHAIN_BINDS: () => [...TOOLCHAIN_BINDS],
   API_KEY: () => API_KEY,
   ALLOWED_PATH: () => ALLOWED_PATH,
 };

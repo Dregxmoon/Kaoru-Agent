@@ -86,6 +86,77 @@ function _canonicalToolName(tool) {
   return NATIVE_TOOL_ALIASES[tool] || tool;
 }
 
+// ── Anti-repetición (Fase 2) ─────────────────────────────────────────────────
+// Un fallo mecánico real observado en producción: el mismo `Write` contra un
+// DIRECTORIO (EISDIR) se repitió 3 veces seguidas, quemando iteraciones sin
+// corregir nada. La causa: el loop reintroduce el error al LLM, pero nada
+// impide que emita la MISMA llamada exacta de nuevo. Aquí se registran las
+// llamadas ejecutadas por run (tool + hash de params) y, si una llamada que YA
+// falló vuelve a pedirse idéntica, se SALTA y se inyecta un aviso al LLM para
+// que cambie de estrategia. El dedupe es estricto: solo salta COPIA IDÉNTICA
+// fallida; una variante (otro path, otra flag) no se ve afectada.
+
+/** Hash FNV-1a de 32bits — estable y sin deps para claves de params. */
+function _fnv1a(str) {
+  let h = 0x811c9dc5;
+  for (let i = 0; i < str.length; i++) {
+    h ^= str.charCodeAt(i);
+    h = (h * 0x01000193) >>> 0;
+  }
+  return h.toString(36);
+}
+
+/** Clave estable de una llamada: `tool#hash(params)`. */
+function _toolCallKey(tool, params) {
+  let json;
+  try {
+    json = JSON.stringify(params || {});
+  } catch {
+    json = String(params);
+  }
+  return `${tool}#${_fnv1a(json)}`;
+}
+
+/** Límite de llamadas registradas por run (FFO). */
+const RECENT_TOOL_CALLS_MAX = 30;
+
+/**
+ * Si una llamada idéntica YA falló antes en este run, devuelve
+ * { attempts, error }; si no, null (se puede ejecutar).
+ * @param {{ tool: string, params?: object }} action
+ * @param {Array<{ key: string, ok: boolean, error: string | null }>} recent
+ */
+function _findRepeatedFailure(action, recent) {
+  const key = _toolCallKey(action.tool, action.params);
+  let attempts = 0;
+  let firstError = null;
+  for (const c of recent) {
+    if (c.key !== key) continue;
+    attempts++;
+    if (!c.ok && !firstError) firstError = c.error || 'error desconocido';
+  }
+  if (attempts === 0 || !firstError) return null;
+  return { attempts, error: firstError };
+}
+
+/** Hint barato por código/patrón de error para guiar la próxima jugada. */
+function _hintForToolError(error) {
+  const e = String(error || '');
+  if (/EISDIR|is a directory|\bESUCCESS\b/.test(e) && !/file/i.test(e)) {
+    return 'El path apunta a un DIRECTORIO (EISDIR): la tool espera una ruta de ARCHIVO.';
+  }
+  if (/execvp.*No such file|not found/.test(e)) {
+    return 'El ejecutable no existe en el sandbox. Usa rutas absolutas o un binario disponible (node por ejemplo).';
+  }
+  if (/permission|EACCES|EACCES|denied/.test(e)) {
+    return 'Sin permisos para esa operación. Busca otra ruta o estrategia.';
+  }
+  if (/ENOENT/.test(e)) {
+    return 'No existe el archivo/ruta (ENOENT). Verificá con ls/glob antes de escribir.';
+  }
+  return '';
+}
+
 // Máxima profundidad de subagentes anidados (previene recursión infinita).
 const MAX_SUBAGENT_DEPTH = 2;
 

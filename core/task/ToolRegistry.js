@@ -12,11 +12,23 @@ const TOOL_SCHEMAS = [
       { name: 'command', type: 'string', description: 'Comando a ejecutar', required: true },
       { name: 'cwd', type: 'string', description: 'Directorio de trabajo (opcional)' },
       { name: 'timeout', type: 'number', description: 'Timeout en segundos', default: 15 },
+      {
+        name: 'stdin',
+        type: 'string',
+        description:
+          'Entrada estándar para programas interactivos (readline/prompt-sync). Si el comando pide input del teclado, pásalo aquí en vez de dejar el proceso colgado; si es un programa batch, omítelo.',
+      },
     ],
     examples: [
       { cmd: 'git status', desc: 'Ver estado del repo' },
       { cmd: 'ls -la', desc: 'Listar archivos' },
       { cmd: 'node script.js', desc: 'Ejecutar script' },
+      { cmd: 'cd src && npm i', desc: 'Cambiar de dir y ejecutar en cadena' },
+      {
+        cmd: 'node prompt.js',
+        desc: 'Programa interactivo: pasarle el valor en stdin',
+        stdin: '5',
+      },
     ],
     highImpact: false,
   },
