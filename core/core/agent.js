@@ -230,6 +230,45 @@ async function runAgent(userMessage, opts = {}) {
     loopOpts
   );
 
+  // ── Fase 4: modo degradado (providers caídos / sin herramientas) ─────────
+  // Si el loop terminó por fallo de LLM SIN haber ejecutado herramientas útiles,
+  // se intenta UNA respuesta de texto con el mejor provider disponible. Si
+  // tampoco hay conexión, se responde un aviso claro en vez del error técnico
+  // ("Todos los providers fallaron...") que llegaba crudo al usuario.
+  if (result.error === 'llm_failure' && (result.toolResults || []).length === 0) {
+    try {
+      const LLM = require('../llm/LLMProvider.js');
+      const degradedPrompt =
+        'Kaoru está operando en MODO DEGRADADO: las herramientas de sistema ' +
+        'no están disponibles ahora. Responde al usuario de forma breve y honesta, ' +
+        'sin ejecutar herramientas ni escribir código, explicando que podés ayudarlo ' +
+        'en cuanto el proveedor de IA se recupere.';
+      const text = await LLM.complete(
+        [{ role: 'user', content: effectiveMessage }],
+        degradedPrompt,
+        { signal: opts.signal }
+      );
+      if (text && typeof text === 'string') {
+        return {
+          ...result,
+          response: text,
+          degraded: true,
+          degradedReason: 'providers_degradados',
+        };
+      }
+    } catch (e) {
+      logger.warn('agent', `[core] respuesta degradada tampoco disponible: ${e.message}`);
+    }
+    return {
+      ...result,
+      degraded: true,
+      degradedReason: 'providers_down',
+      response:
+        'No pude conectar con ningún proveedor de IA (todos en rate-limit o sin API key). ' +
+        'Revisá tus credenciales con /credenciales o esperá unos minutos y reintentá.',
+    };
+  }
+
   // ── Fase 3 ítem 1: si la meta queda en vuelo (se agotaron iteraciones o el
   //    usuario canceló), se persiste como intención activa para retomarla al
   //    reanudar la sesión (re-planificación). Las terminadas bien se limpian.

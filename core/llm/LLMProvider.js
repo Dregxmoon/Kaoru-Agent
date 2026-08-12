@@ -1212,6 +1212,55 @@ function _parseRetryAfter(err) {
   return secs ? Math.ceil(parseFloat(secs[1]) * 1000) : 0;
 }
 
+// ── Fase 4: estado de degradación por provider ───────────────────────────────
+// Cuando un provider entra en rate-limit con una espera larga, se recuerda
+// durante un rato y la rotación lo SALTE A (va directo al fallback). Sin esto,
+// un provider agotado (p. ej. Groq "try again in 50m") se martilla en CADA
+// request del mismo período: reintenta, falla y solo después prueba el fallback,
+// quemando latencia y tokens. La memoria se extiende con el retry-after real.
+const _degradedProviders = new Map(); // providerId → { until: number, reason: string }
+const DEGRADED_BASE_MS = 60_000; // memoria mínima (1 min)
+const DEGRADED_TRIGGER_MS = 10_000; // degradar solo si la espera es "larga"
+
+/** Marca un provider como degradado hasta `Date.now() + max(waitMs, base)`. */
+function _markProviderDegraded(providerId, reason, waitMs = 0) {
+  const until = Date.now() + Math.max(waitMs || 0, DEGRADED_BASE_MS);
+  _degradedProviders.set(providerId, { until, reason });
+  logger.info(
+    'LLMProvider',
+    `[llm] ${providerId} marcado DEGRADADO hasta ${new Date(until).toISOString()} (${reason})`
+  );
+  return until;
+}
+
+/** true mientras el provider esté en cooldown de degradación. */
+function _isProviderDegraded(providerId) {
+  const d = _degradedProviders.get(providerId);
+  if (!d) return false;
+  if (Date.now() > d.until) {
+    _degradedProviders.delete(providerId);
+    return false;
+  }
+  return true;
+}
+
+/**
+ * Orden de rotación de providers teniendo en cuenta la degradación: los
+ * providers degradados (en rate-limit con espera larga) se empujan al FINAL
+ * conservando su orden relativo; el resto mantiene el orden configurado.
+ * Así el primary degradado deja de martillarse y el fallback sano responde.
+ */
+function _rotationOrder() {
+  const order = [_config.primary, ...(_config.fallback || [])];
+  const healthy = [];
+  const degraded = [];
+  for (const p of order) {
+    if (p && _isProviderDegraded(p)) degraded.push(p);
+    else healthy.push(p);
+  }
+  return [...healthy, ...degraded];
+}
+
 // ── Fase J: cola de requests por provider ─────────────────────────────────────
 const _queues = new Map(); // providerId → ProviderQueue
 
@@ -1241,7 +1290,7 @@ function getQueueStats() {
 }
 
 async function _callWithFallback(messages, systemPrompt, mode = 'fast', opts = {}) {
-  const order = [_config.primary, ...(_config.fallback || [])];
+  const order = _rotationOrder();
   const tried = [];
   const missingKeys = [];
   const rateLimits = []; // { provider, waitMs } — 429/429-ish para dar consejo útil
@@ -1291,6 +1340,12 @@ async function _callWithFallback(messages, systemPrompt, mode = 'fast', opts = {
         );
         if (retryable && /(\b429\b|rate limit|quota|too many requests)/i.test(e.message)) {
           rateLimits.push({ provider: providerName, waitMs: _parseRetryAfter(e) });
+          // Fase 4: espera larga → marcar degradado para que las próximas
+          // requests vayan directo al fallback en vez de martillar el provider.
+          const waitMs = _parseRetryAfter(e);
+          if (waitMs >= DEGRADED_TRIGGER_MS) {
+            _markProviderDegraded(providerName, 'rate-limit', waitMs);
+          }
         }
         if (!retryable || attempt === MAX_RETRIES_PER_PROVIDER) {
           tried.push(providerName);
@@ -1324,7 +1379,7 @@ async function _callWithFallbackTools(messages, systemPrompt, mode = 'smart', to
     return { content: text, toolCalls: null };
   }
 
-  const order = [_config.primary, ...(_config.fallback || [])];
+  const order = _rotationOrder();
   const tried = [];
   const missingKeys = [];
 
@@ -1358,6 +1413,13 @@ async function _callWithFallbackTools(messages, systemPrompt, mode = 'smart', to
         lastErr = e;
         if (e?.code === 'ABORTED' || e?.name === 'AbortError') throw e;
         const retryable = _isRetryableError(e);
+        // Fase 4: espera larga en tool-calling → marcar degradado también aquí.
+        if (retryable && /(\b429\b|rate limit|quota|too many requests)/i.test(e.message)) {
+          const waitMs = _parseRetryAfter(e);
+          if (waitMs >= DEGRADED_TRIGGER_MS) {
+            _markProviderDegraded(providerName, 'rate-limit (tool-calling)', waitMs);
+          }
+        }
         if (!retryable || attempt === MAX_RETRIES_PER_PROVIDER) {
           tried.push(providerName);
           break;
@@ -1402,7 +1464,7 @@ async function completeWithTools(messages, systemPrompt, tools = [], mode = 'sma
 }
 
 function getActiveProvider() {
-  const order = [_config.primary, ...(_config.fallback || [])];
+  const order = _rotationOrder();
   for (const name of order) {
     if (defHasKey(name)) return name;
   }
@@ -1488,4 +1550,8 @@ module.exports = {
   getUsageTracker,
   _debug_recordUsage: _recordUsage,
   _debug_resolveModel: _resolveModel,
+  _debug_rotationOrder: _rotationOrder,
+  _debug_markProviderDegraded: _markProviderDegraded,
+  _debug_isProviderDegraded: _isProviderDegraded,
+  _debug_degradedProviders: _degradedProviders,
 };
