@@ -82,177 +82,36 @@ function getProviders() {
 }
 
 // ── Built-in providers ─────────────────────────────────────────────────────────
-// Catálogo estático de modelos por proveedor. Es el fallback de la lista
+// Catálogo data-driven (core/llm/catalog.js). Es el fallback de la lista
 // "todos los modelos disponibles" que muestra el selector: si el proveedor
 // expone GET /models (OpenAI-compatible), refreshProviderModels() consulta la
-// lista viva y la interseca con este catálogo estático (solo se ofrecen
-// modelos curados que la cuenta del usuario realmente tiene accesibles — evita
-// listar modelos que devuelven 404 "Function not found" por no estar
-// desplegados en la cuenta); si no, esta es la que se muestra.
-const MODEL_CATALOG = {
-  groq: [
-    'llama-3.1-8b-instant',
-    'llama-3.1-70b-versatile',
-    'llama-3.3-70b-versatile',
-    'llama-3.2-3b-preview',
-    'llama-3.2-11b-vision-preview',
-    'llama-3.2-90b-vision-preview',
-    'gemma2-9b-it',
-    'gemma2-27b-it',
-    'mixtral-8x7b-32768',
-    'deepseek-r1-distill-llama-70b',
-    'openai/gpt-oss-120b',
-    'openai/gpt-oss-20b',
-  ],
-  gemini: [
-    'gemini-2.0-flash',
-    'gemini-2.0-flash-lite',
-    'gemini-2.0-pro',
-    'gemini-2.5-flash',
-    'gemini-2.5-pro',
-    'gemini-1.5-flash',
-    'gemini-1.5-flash-8b',
-    'gemini-1.5-pro',
-  ],
-  openai: [
-    'gpt-4o-mini',
-    'gpt-4o',
-    'gpt-4.1-mini',
-    'gpt-4.1',
-    'gpt-4.1-nano',
-    'gpt-4-turbo',
-    'gpt-4',
-    'o3-mini',
-    'o4-mini',
-    'gpt-5',
-    'gpt-5-mini',
-  ],
-  anthropic: [
-    'claude-3-haiku-20240307',
-    'claude-3-sonnet-20240229',
-    'claude-3-opus-20240229',
-    'claude-3-5-haiku-latest',
-    'claude-3-5-sonnet-latest',
-    'claude-3-7-sonnet-latest',
-    'claude-4-sonnet',
-    'claude-4-opus',
-  ],
-  xai: ['grok-beta', 'grok-2', 'grok-2-1212', 'grok-3', 'grok-3-mini', 'grok-3-fast'],
-  nvidia: [
-    'meta/llama-3.3-70b-instruct',
-    'meta/llama-3.1-70b-instruct',
-    'meta/llama-3.1-8b-instruct',
-    'meta/llama-3.2-11b-vision-instruct',
-    'mistralai/mistral-large-2-instruct',
-    'mistralai/mixtral-8x22b-v0.1',
-    'minimaxai/minimax-m3',
-    'nvidia/nemotron-3-nano-30b-a3b',
-    'nvidia/nemotron-3-super-120b-a12b',
-    'nvidia/llama-3.3-nemotron-super-49b-v1.5',
-    'openai/gpt-oss-120b',
-    'openai/gpt-oss-20b',
-    'z-ai/glm-5.2',
-    'stepfun-ai/step-3.7-flash',
-    'google/gemma-3-12b-it',
-    'google/gemma-3-4b-it',
-    'google/gemma-4-31b-it',
-    'ai21labs/jamba-1.5-large-instruct',
-  ],
-  huggingface: [
-    'meta-llama/Llama-3.2-3B-Instruct',
-    'meta-llama/Llama-3.3-70B-Instruct',
-    'mistralai/Mistral-7B-Instruct-v0.3',
-    'google/gemma-2-27b-it',
-    'Qwen/Qwen2.5-7B-Instruct',
-  ],
-  deepseek: ['deepseek-chat', 'deepseek-reasoner', 'deepseek-v3.1', 'deepseek-r1', 'deepseek-v4'],
-};
+// lista viva y la interseca con este catálogo curado (solo se ofrecen modelos
+// que la cuenta del usuario realmente tiene accesibles — evita listar modelos
+// que devuelven 404 "Function not found" por no estar desplegados en la
+// cuenta); si no, esta es la que se muestra.
+const {
+  BUILTIN_PROVIDERS,
+  ROLE_LABELS,
+  resolveRole,
+  getModelMeta: getCuratedModelMeta,
+  getProviderDef: getCuratedProviderDef,
+  resolveModelId: resolveCuratedModelId,
+} = require('./catalog.js');
 
-registerProvider({
-  id: 'groq',
-  name: 'Groq',
-  type: 'openai',
-  baseURL: 'https://api.groq.com/openai/v1',
-  models: { fast: 'llama-3.1-8b-instant', smart: 'llama-3.3-70b-versatile' },
-  catalog: MODEL_CATALOG.groq,
-  builtin: true,
-  free: true,
-});
-
-registerProvider({
-  id: 'gemini',
-  name: 'Google Gemini',
-  type: 'gemini',
-  baseURL: 'https://generativelanguage.googleapis.com/v1beta',
-  models: { fast: 'gemini-2.0-flash', smart: 'gemini-2.0-flash' },
-  catalog: MODEL_CATALOG.gemini,
-  builtin: true,
-  free: true,
-});
-
-registerProvider({
-  id: 'openai',
-  name: 'OpenAI',
-  type: 'openai',
-  baseURL: 'https://api.openai.com/v1',
-  models: { fast: 'gpt-4o-mini', smart: 'gpt-4o-mini' },
-  catalog: MODEL_CATALOG.openai,
-  builtin: true,
-});
-
-registerProvider({
-  id: 'anthropic',
-  name: 'Anthropic',
-  type: 'anthropic',
-  baseURL: 'https://api.anthropic.com/v1',
-  models: { fast: 'claude-3-haiku-20240307', smart: 'claude-3-sonnet-20240229' },
-  catalog: MODEL_CATALOG.anthropic,
-  builtin: true,
-});
-
-registerProvider({
-  id: 'xai',
-  name: 'xAI (Grok)',
-  type: 'openai',
-  baseURL: 'https://api.x.ai/v1',
-  models: { fast: 'grok-beta', smart: 'grok-beta' },
-  catalog: MODEL_CATALOG.xai,
-  builtin: true,
-});
-
-registerProvider({
-  id: 'nvidia',
-  name: 'NVIDIA Builds',
-  type: 'openai',
-  baseURL: 'https://integrate.api.nvidia.com/v1',
-  models: { fast: 'openai/gpt-oss-20b', smart: 'minimaxai/minimax-m3' },
-  catalog: MODEL_CATALOG.nvidia,
-  timeoutMs: { fast: 45_000, smart: 120_000 },
-  builtin: true,
-  free: true,
-});
-
-registerProvider({
-  id: 'huggingface',
-  name: 'Hugging Face',
-  type: 'openai',
-  baseURL: 'https://api-inference.huggingface.co/v1',
-  models: { fast: 'meta-llama/Llama-3.2-3B-Instruct', smart: 'meta-llama/Llama-3.3-70B-Instruct' },
-  catalog: MODEL_CATALOG.huggingface,
-  builtin: true,
-  free: true,
-});
-
-registerProvider({
-  id: 'deepseek',
-  name: 'DeepSeek',
-  type: 'openai',
-  baseURL: 'https://api.deepseek.com/v1',
-  models: { fast: 'deepseek-chat', smart: 'deepseek-reasoner' },
-  catalog: MODEL_CATALOG.deepseek,
-  builtin: true,
-  free: true,
-});
+for (const def of BUILTIN_PROVIDERS) {
+  registerProvider({
+    id: def.id,
+    name: def.name,
+    type: def.type,
+    baseURL: def.baseURL,
+    models: { fast: def.defaults.fast, smart: def.defaults.smart },
+    catalog: Object.keys(def.models),
+    modelMeta: def.models,
+    timeoutMs: def.timeoutMs,
+    builtin: true,
+    free: def.free,
+  });
+}
 
 // ── Límites ────────────────────────────────────────────────────────────────────
 const MAX_OUTPUT = { fast: 1024, smart: 3072 };
@@ -290,6 +149,10 @@ let _config = {
   // Fase J: cola por provider (concurrency 1 = serial, cooldown por 429,
   // presupuesto de espera por request). Desactivable con queue.enabled=false.
   queue: { enabled: true, concurrency: 1, maxWaitMs: MAX_RETRY_WAIT_MS, priority: 0 },
+  // Fase híbrida: el catálogo remoto (models.dev/api.json) enriquece el catálogo
+  // curado con modelos nuevos + metadata. Solo datos, no toca keys ni envía
+  // nada del usuario. Desactivable con remoteCatalog.enabled=false.
+  remoteCatalog: { enabled: true },
 };
 
 // Marca de tiempo del último refresh exitoso del catálogo por provider
@@ -303,6 +166,9 @@ function configure(cfg) {
   if (llm.fallback) _config.fallback = llm.fallback;
   if (llm.queue) {
     _config.queue = { ..._config.queue, ...llm.queue };
+  }
+  if (llm.remoteCatalog) {
+    _config.remoteCatalog = { ..._config.remoteCatalog, ...llm.remoteCatalog };
   }
   if (llm.apiKeys) {
     for (const [id, key] of Object.entries(llm.apiKeys)) {
@@ -322,7 +188,7 @@ function configure(cfg) {
     }
   }
   // Env var fallback for all built-in providers
-  for (const [id, def] of _registry) {
+  for (const [id] of _registry) {
     const envKey = `LLM_KEY_${id.toUpperCase()}`;
     const envVal = process.env[envKey];
     if (envVal && envVal.trim()) {
@@ -519,6 +385,147 @@ async function refreshProviderModels(providerId, fetcher = get) {
     return validated;
   } catch {
     return listModels(providerId);
+  }
+}
+
+// ── Catálogo remoto híbrido (models.dev) ──────────────────────────────────────
+// Capa de conocimiento adicional al catálogo curado: consulta
+// https://models.dev/api.json (GET sin datos del usuario, JSON validado) y
+// enriquece el registry con modelos nuevos + metadata (contexto, output, tools,
+// visión, coste). TTL largo + cache a disco en userData → funciona offline con
+// lo último conocido. NUNCA borra lo curado: solo añade y rellena campos que
+// el catálogo curado no trae. Si la red falla o la respuesta es inválida,
+// degrada en silencio al catálogo curado.
+const REMOTE_CATALOG_URL = 'https://models.dev/api.json';
+const REMOTE_CATALOG_TTL_MS = 24 * 60 * 60 * 1000;
+
+let _remoteCatalog = null; // { providerId: { modelId: meta } } (en memoria)
+let _remoteRefreshedAt = 0;
+let _catalogCachePath = null; // userData/llm-catalog.json (injectado por init.js)
+
+/** Inyecta la ruta de cache (app.getPath('userData')). Best-effort. */
+function setCatalogCachePath(path) {
+  _catalogCachePath = path;
+}
+
+function _mapRemoteModel(id, raw) {
+  return {
+    label: (raw && raw.name) || id,
+    context: raw && raw.limits && raw.limits.context ? raw.limits.context : 0,
+    maxOutput: raw && raw.limits && raw.limits.output ? raw.limits.output : 0,
+    tools: !!(raw && raw.tool_call),
+    vision: !!(raw && raw.attachment),
+    reasoning: !!(raw && raw.reasoning),
+    free: false,
+    cost: {
+      in: raw && raw.cost && typeof raw.cost.prompt === 'number' ? raw.cost.prompt : 0,
+      out: raw && raw.cost && typeof raw.cost.completion === 'number' ? raw.cost.completion : 0,
+    },
+    remote: true,
+  };
+}
+
+/** Mapea el body de models.dev/api.json a { providerId: { modelId: meta } }. */
+function _mapRemoteCatalog(body) {
+  const data = (body && body.providers) || body;
+  if (!data || typeof data !== 'object') return null;
+  const out = {};
+  for (const [pid, raw] of Object.entries(data)) {
+    if (!raw || typeof raw !== 'object' || !raw.models || typeof raw.models !== 'object') continue;
+    const models = {};
+    for (const [mid, m] of Object.entries(raw.models)) {
+      models[mid] = _mapRemoteModel(mid, m);
+    }
+    if (Object.keys(models).length > 0) out[pid] = models;
+  }
+  return Object.keys(out).length > 0 ? out : null;
+}
+
+function _loadCachedCatalog() {
+  if (!_catalogCachePath) return null;
+  try {
+    const fs = require('fs');
+    if (!fs.existsSync(_catalogCachePath)) return null;
+    const parsed = JSON.parse(fs.readFileSync(_catalogCachePath, 'utf8'));
+    return _mapRemoteCatalog({ providers: parsed }) || null;
+  } catch {
+    return null;
+  }
+}
+
+function _saveCatalogCache(remote) {
+  if (!_catalogCachePath) return;
+  try {
+    const fs = require('fs');
+    fs.writeFileSync(_catalogCachePath, JSON.stringify(remote, null, 2));
+  } catch {
+    /* best-effort */
+  }
+}
+
+/**
+ * Fusiona el catálogo remoto en el registry. Reglas:
+ *  - modelos nuevos → se añaden al catálogo del provider (con flag remote);
+ *  - modelos existentes → el remoto solo RELLENA campos que el curado deja
+ *    sin definir (nunca pisa lo curado ni el override del usuario).
+ */
+function _mergeRemoteCatalog(remote) {
+  for (const [pid, models] of Object.entries(remote || {})) {
+    const def = _registry.get(pid);
+    if (!def) continue;
+    const metas = def.modelMeta || (def.modelMeta = {});
+    for (const [mid, meta] of Object.entries(models || {})) {
+      const existing = metas[mid];
+      if (!existing) {
+        metas[mid] = meta;
+        if (!Array.isArray(def.catalog)) def.catalog = [];
+        if (!def.catalog.includes(mid)) def.catalog.push(mid);
+      } else {
+        for (const [k, v] of Object.entries(meta)) {
+          if (existing[k] === undefined || existing[k] === null || existing[k] === 0) {
+            existing[k] = v;
+          }
+        }
+      }
+    }
+  }
+}
+
+function _applyRemoteCatalog(remote, now) {
+  if (!remote) return;
+  _remoteCatalog = remote;
+  _remoteRefreshedAt = now;
+  _mergeRemoteCatalog(remote);
+}
+
+/**
+ * Refresca (y cachea) el catálogo remoto. Con TTL: dentro de
+ * REMOTE_CATALOG_TTL_MS no re-consulta la red. Fallo → cache a disco → curado.
+ * @param {function(string, object, number, AbortSignal|null): Promise<{status:number, body:any}>} [fetcher]
+ * @returns {Promise<boolean>}
+ */
+async function refreshRemoteCatalog(fetcher = get) {
+  if (_config.remoteCatalog?.enabled === false) return false;
+  const now = Date.now();
+  if (_remoteCatalog && now - _remoteRefreshedAt < REMOTE_CATALOG_TTL_MS) return true;
+  try {
+    const res = await fetcher(REMOTE_CATALOG_URL, {}, 20_000, null);
+    const mapped = res && res.status === 200 ? _mapRemoteCatalog(res.body) : null;
+    if (!mapped) {
+      _applyRemoteCatalog(_loadCachedCatalog(), now);
+      return false;
+    }
+    _applyRemoteCatalog(mapped, now);
+    _saveCatalogCache(mapped);
+    const count = Object.values(mapped).reduce((n, m) => n + Object.keys(m).length, 0);
+    logger.info(
+      'LLMProvider',
+      `[llm] catálogo remoto (models.dev) aplicado: ${Object.keys(mapped).length} providers, ${count} modelos`
+    );
+    return true;
+  } catch {
+    _applyRemoteCatalog(_loadCachedCatalog(), now);
+    return false;
   }
 }
 
@@ -1492,6 +1499,9 @@ function getAvailableProviders() {
     // Fase Q: el selector de modelos muestra el catálogo completo del
     // provider (estático o refrescado) y qué modelo está activo por modo.
     catalog: _providerCatalog(p.id),
+    // Fase catálogo: metadata por modelo (label, contexto, tools, visión,
+    // coste) para que la UI recomiende y advierta sin IDs crudos.
+    modelMeta: p.modelMeta || {},
     activeModel: { fast: _resolveModel(p.id, 'fast'), smart: _resolveModel(p.id, 'smart') },
   }));
 }
@@ -1518,6 +1528,41 @@ function removeCustomProvider(id) {
   _rebuildMaps();
 }
 
+// ── Metadata de modelos (catálogo) ────────────────────────────────────────────
+// El registry es la fuente viva (incluye lo que el catálogo remoto añadió);
+// el catálogo curado es el fallback de los built-ins.
+
+/** Metadata de un modelo: curada/remota del registry, si no del catálogo. */
+function getModelMeta(providerId, modelId) {
+  const def = _registry.get(providerId);
+  if (def && def.modelMeta && def.modelMeta[modelId]) return def.modelMeta[modelId];
+  return getCuratedModelMeta(providerId, modelId);
+}
+
+/** Metadata del provider (registry o catálogo curado). */
+function getProviderMeta(providerId) {
+  const def = _registry.get(providerId);
+  if (def) return { ...def };
+  return getCuratedProviderDef(providerId);
+}
+
+/**
+ * Resuelve un token a un id de modelo del provider: id exacto, alias del
+ * catálogo o substring (case-insensitive) sobre el catálogo vivo.
+ */
+function resolveModelId(providerId, token) {
+  const curated = resolveCuratedModelId(providerId, token);
+  if (curated) return curated;
+  const def = _registry.get(providerId);
+  if (!def || !token) return null;
+  const t = String(token).trim().toLowerCase();
+  const ids = [
+    ...(Array.isArray(def.catalog) ? def.catalog : []),
+    ...Object.keys(def.modelMeta || {}),
+  ];
+  return ids.find((id) => id.toLowerCase().includes(t)) || null;
+}
+
 module.exports = {
   configure,
   complete,
@@ -1534,6 +1579,13 @@ module.exports = {
   getQueueStats,
   listModels,
   refreshProviderModels,
+  refreshRemoteCatalog,
+  setCatalogCachePath,
+  getModelMeta,
+  getProviderMeta,
+  resolveModelId,
+  ROLE_LABELS,
+  resolveRole,
   storeProviderApiKey,
   removeProviderApiKey,
   migrateApiKeysToKeychain,

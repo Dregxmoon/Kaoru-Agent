@@ -56,6 +56,14 @@ const SCHEMA = {
       fallback: { type: 'array', default: ['gemini'], itemType: 'string' },
       apiKeys: { type: 'object', default: {} },
       providers: { type: 'object', default: {} },
+      // Fase catálogo: antes vivían solo en memoria; ahora se validan y
+      // persisten igual que el resto de llm.*.
+      customProviders: { type: 'array', default: [], itemType: 'object' },
+      queue: {
+        type: 'object',
+        default: { enabled: true, concurrency: 1, maxWaitMs: 30000, priority: 0 },
+      },
+      remoteCatalog: { type: 'object', default: { enabled: true } },
     },
   },
   sensors: {

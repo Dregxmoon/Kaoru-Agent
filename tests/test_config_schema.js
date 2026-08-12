@@ -196,6 +196,46 @@ function testSaveReload() {
   assertEqual(fresh.load().autonomy, 'act', 'relectura desde disco refleja el cambio');
 }
 
+// ── Test 8b: persistencia de llm.customProviders / queue / remoteCatalog ─────
+function testLLMCatalogPersistence() {
+  console.log(C.bold('\n── llm customProviders/queue/remoteCatalog ─────────────────'));
+
+  const fp = makeTmpConfig();
+  const mgr = new ConfigManager(fp, { verbose: false });
+  mgr.load();
+  const res = mgr.save({
+    llm: {
+      primary: 'groq',
+      customProviders: [{ id: 'mi-proxy', name: 'Mi Proxy', baseURL: 'http://localhost:8080/v1' }],
+      queue: { enabled: false, concurrency: 2 },
+      remoteCatalog: { enabled: false },
+    },
+  });
+  assert(res.ok, 'save con customProviders/queue/remoteCatalog ok');
+
+  const fresh = new ConfigManager(fp, { verbose: false });
+  const cfg = fresh.load();
+  assert(
+    Array.isArray(cfg.llm.customProviders) && cfg.llm.customProviders.length === 1,
+    'customProviders persiste',
+    JSON.stringify(cfg.llm.customProviders)
+  );
+  assert(
+    cfg.llm.customProviders[0].id === 'mi-proxy' &&
+      cfg.llm.customProviders[0].baseURL.includes('8080'),
+    'contenido de customProviders intacto'
+  );
+  assert(
+    cfg.llm.queue && cfg.llm.queue.enabled === false && cfg.llm.queue.concurrency === 2,
+    'queue persiste con valores',
+    JSON.stringify(cfg.llm.queue)
+  );
+  assert(
+    cfg.llm.remoteCatalog && cfg.llm.remoteCatalog.enabled === false,
+    'remoteCatalog persiste con valores'
+  );
+}
+
 // ── Test 9: load() devuelve clon (mutación no envenena cache) ──────────────
 function testCloneIsolation() {
   console.log(C.bold('\n── Aislamiento del clon ───────────────────────────────'));
@@ -239,6 +279,7 @@ function main() {
   testUnknownKeys();
   testGet();
   testSaveReload();
+  testLLMCatalogPersistence();
   testCloneIsolation();
   testValidatePure();
 

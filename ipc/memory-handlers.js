@@ -102,6 +102,24 @@ function register(ctx) {
     if (!primary) return;
     const LLMProvider = require('../core/llm/LLMProvider.js');
     LLMProvider.configure({ llm: { primary } });
+    // Fase C: persistir el provider activo en config.json (antes quedaba solo
+    // en memoria; se acabó la disociación entre provider y modelo).
+    try {
+      if (ctx && typeof ctx.loadConfig === 'function' && typeof ctx.saveConfig === 'function') {
+        const cfg = ctx.loadConfig() || {};
+        const providers = { ...(cfg.llm?.providers || {}) };
+        ctx.saveConfig({
+          llm: {
+            primary,
+            fallback: cfg.llm?.fallback || ['gemini'],
+            providers,
+            apiKeys: cfg.llm?.apiKeys || {},
+          },
+        });
+      }
+    } catch (err) {
+      logger.warn('memory-handlers', '[config] no se pudo persistir el provider:', err.message);
+    }
     logger.info('memory-handlers', '[config] provedor cambiado a:', primary);
   });
 }

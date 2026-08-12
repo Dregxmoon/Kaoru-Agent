@@ -1,76 +1,160 @@
 // @ts-nocheck
 'use strict';
 
+// Chips de metadata para listar modelos en los comandos.
+function modelChip(meta) {
+  const chips = [];
+  if (meta.tools) chips.push('tools');
+  if (meta.vision) chips.push('visión');
+  if (meta.reasoning) chips.push('razonamiento');
+  if (meta.free) chips.push('gratis');
+  return chips.length ? ` — *${chips.join(', ')}*` : '';
+}
+
+function formatContext(tokens) {
+  if (typeof tokens !== 'number' || tokens <= 0) return '';
+  if (tokens >= 1000000) return `${(tokens / 1000000).toFixed(1).replace(/\.0$/, '')}M ctx`;
+  if (tokens >= 1000) return `${Math.round(tokens / 1000)}k ctx`;
+  return `${tokens} ctx`;
+}
+
+// Accesos defensivos al LLMProvider: los tests (y ctx sin metadata) pueden
+// exponer un mock mínimo sin estos métodos del catálogo.
+function providerMeta(LLMProvider, pid, mid) {
+  return (
+    (typeof LLMProvider.getModelMeta === 'function' && LLMProvider.getModelMeta(pid, mid)) || {}
+  );
+}
+function providerResolveRole(LLMProvider, token) {
+  return typeof LLMProvider.resolveRole === 'function' ? LLMProvider.resolveRole(token) : null;
+}
+function providerResolveModel(LLMProvider, pid, token, catalog) {
+  if (typeof LLMProvider.resolveModelId === 'function') {
+    const id = LLMProvider.resolveModelId(pid, token);
+    if (id) return id;
+  }
+  const t = String(token || '').toLowerCase();
+  return (catalog || []).find((m) => m.toLowerCase().includes(t)) || null;
+}
+function providerRoleLabels(LLMProvider) {
+  return LLMProvider.ROLE_LABELS || { fast: 'charla', smart: 'agente' };
+}
+
 module.exports = function registerCommands(register) {
   register({
     name: 'model',
-    description: 'Cambia el proveedor LLM activo y su modelo (fast/smart)',
-    usage: '/model <nombre> [modelo] [fast|smart]',
+    description: 'Cambia el proveedor LLM activo y su modelo (por rol: charla o tareas de agente)',
+    usage: '/model [proveedor] [modelo|alias] [charla|agente]',
     handler: async (args, ctx) => {
       const LLMProvider = ctx.LLMProvider;
       if (!LLMProvider) return 'LLMProvider no disponible.';
 
-      const provider = (args[0] || '').toLowerCase();
+      const arg0 = (args[0] || '').toLowerCase();
       const available = LLMProvider.getAvailableProviders();
-      const valid = available.find((p) => p.id === provider);
+      const valid = available.find((p) => p.id === arg0 || p.name.toLowerCase() === arg0);
 
-      // Sin proveedor: lista los disponibles.
+      // ── Sin proveedor válido ──────────────────────────────────────────────
       if (!valid) {
+        // Alias global: ¿arg0 es un modelo de algún proveedor? → proponer.
+        if (arg0 && !providerResolveRole(LLMProvider, arg0)) {
+          const hits = [];
+          for (const p of available) {
+            const m = providerResolveModel(LLMProvider, p.id, arg0, p.catalog);
+            if (m) hits.push({ p, m });
+          }
+          if (hits.length === 1) {
+            const h = hits[0];
+            const meta = providerMeta(LLMProvider, h.p.id, h.m);
+            return [
+              `**${meta.label || h.m}** está en **${h.p.name}**.`,
+              '',
+              `Activalo con: \`/model ${h.p.id} ${h.m}\` (charla) o \`/model ${h.p.id} ${h.m} agente\``,
+            ].join('\n');
+          }
+          if (hits.length > 1) {
+            const lines = hits.map((h) => `  \`/model ${h.p.id} ${h.m}\``);
+            return `"${arg0}" coincide con varios modelos. Elegí uno:\n${lines.join('\n')}`;
+          }
+        }
+
         const current = LLMProvider.getActiveProvider();
         const lines = available
           .map((p) => {
             const cost = p.free ? '*gratis*' : '*pago*';
+            const toolsOk = Object.values(p.modelMeta || {}).some((m) => m && m.tools);
             const active = p.id === current ? ' >' : '';
-            return `  \`/${p.id}\`${active} — ${p.name} (${cost})`;
+            return `  \`${p.id}\`${active} — ${p.name} (${cost}${toolsOk ? ', tools ✓' : ''})`;
           })
           .join('\n');
-        return `Proveedor activo: **${current || 'ninguno'}**\n\n**Disponibles:**\n${lines}`;
+        return [
+          `Proveedor activo: **${current || 'ninguno'}**`,
+          '',
+          '**Disponibles:**',
+          lines,
+          '',
+          'Elegí un proveedor: `/model <proveedor>` (lista sus modelos).',
+          'O asigná un modelo directo: `/model <proveedor> <modelo> [charla|agente]` (default charla).',
+        ].join('\n');
       }
 
-      // Con proveedor pero sin modelo: activa ese proveedor y lista sus
-      // modelos disponibles para elegir cuál usar.
+      // ── Con proveedor pero sin modelo: activarlo y listar sus modelos ─────
       if (!args[1]) {
         LLMProvider.configure({ llm: { primary: valid.id } });
         if (ctx.sendIPC) ctx.sendIPC('set-provider', { primary: valid.id });
         // Valida el catálogo contra el endpoint real (con TTL) antes de
         // listar: descarta modelos que la cuenta no tiene accesibles (p.ej.
         // 404 "Function not found" en NVIDIA Build). Sin key no hace red y
-        // usa el catálogo estático.
+        // usa el catálogo.
         await LLMProvider.refreshProviderModels(valid.id);
         const catalog = LLMProvider.listModels(valid.id);
-        const active = valid.activeModel || valid.models || {};
+        const active = valid.activeModel || {};
         const modelLines = catalog
           .map((m) => {
+            const meta = providerMeta(LLMProvider, valid.id, m);
             const marks = [];
-            if (m === active.fast) marks.push('fast');
-            if (m === active.smart) marks.push('smart');
+            if (m === active.fast) marks.push('charla');
+            if (m === active.smart) marks.push('agente');
             const badge = marks.length ? ` — *${marks.join(' + ')}*` : '';
-            return `  \`${m}\`${badge}`;
+            const ctxLabel = meta.context ? `, ${formatContext(meta.context)}` : '';
+            const label = meta.label && meta.label !== m ? `${meta.label} (\`${m}\`)` : `\`${m}\``;
+            return `  ${label}${modelChip(meta)}${ctxLabel}${badge}`;
           })
           .join('\n');
         const hint = valid.hasKey
           ? ''
           : `\n\n**${valid.name}** no tiene API key configurada. Todos los proveedores (incluso los "gratis") necesitan su propia key — agrega la de ${valid.name} con \`/credenciales\` antes de usarlo.`;
-        return `Proveedor activo: **${valid.name}**\n\n**Modelos disponibles (${catalog.length}):**\n${modelLines || '  *(sin modelos)*'}\n\nElige uno: \`/model ${valid.id} <modelo> [fast|smart]\` (default fast)${hint}`;
+        return `Proveedor activo: **${valid.name}**\n\n**Modelos disponibles (${catalog.length}):**\n${modelLines || '  *(sin modelos)*'}\n\nElige uno: \`/model ${valid.id} <modelo> [charla|agente]\` (default charla)${hint}`;
       }
 
-      // Con proveedor + modelo: cambia el modelo. /model id <modelo> [smart]
-      // — sin [smart] setea 'fast', con 'smart' setea 'smart'.
-      const modelName = args[1];
-      const mode = (args[2] || 'fast').toLowerCase();
-      if (!['fast', 'smart'].includes(mode)) {
-        return 'Modo inválido. Usa: `/model <id> <modelo> [fast|smart]` (default fast).';
+      // ── Con proveedor + modelo: cambia el modelo por rol ──────────────────
+      const roleWord = (args[2] || 'charla').toLowerCase();
+      const mode =
+        providerResolveRole(LLMProvider, roleWord) ||
+        (['fast', 'smart'].includes(roleWord) ? roleWord : null);
+      if (!mode) {
+        return 'Rol inválido. Usa: `charla` (rápido) o `agente` (tareas de agente).\nEj: `/model groq llama-3.3-70b agente`';
       }
-      const catalog = LLMProvider.listModels(valid.id);
-      if (!catalog.includes(modelName)) {
+      const modelName = providerResolveModel(
+        LLMProvider,
+        valid.id,
+        args[1],
+        LLMProvider.listModels(valid.id)
+      );
+      if (!modelName) {
+        const catalog = LLMProvider.listModels(valid.id);
         const closest = catalog
-          .filter((m) => m.toLowerCase().includes(modelName.toLowerCase()))
+          .filter((m) => m.toLowerCase().includes(args[1].toLowerCase()))
           .slice(0, 5);
         const suggestion = closest.length
           ? `\n\n¿Quizá quisiste decir?\n${closest.map((m) => `  \`${m}\``).join('\n')}`
           : '';
-        return `\`${modelName}\` no está en los modelos disponibles de **${valid.name}**.${suggestion}`;
+        return `\`${args[1]}\` no está en los modelos disponibles de **${valid.name}**.${suggestion}`;
       }
+      const meta = providerMeta(LLMProvider, valid.id, modelName);
+      const warn =
+        mode === 'smart' && meta.tools === false
+          ? `\n\n⚠ **${meta.label || modelName}** no soporta tools — **no sirve para tareas de agente** (solo charla). Elegí un modelo con *tools* para el rol de agente.`
+          : '';
 
       // Persistir en config.json (IPCs) y aplicar en memoria.
       const cfg = {
@@ -87,7 +171,8 @@ module.exports = function registerCommands(register) {
           });
         } catch {}
       }
-      return `Modelo **${modelName}** (${mode}) activado para **${valid.name}**.`;
+      const roleLabel = providerRoleLabels(LLMProvider)[mode] || mode;
+      return `**${meta.label || modelName}** activado como *${roleLabel}* en **${valid.name}**.${warn}`;
     },
   });
 
@@ -190,11 +275,12 @@ module.exports = function registerCommands(register) {
       lines.push('', '**Para configurar keys:** `/credenciales`');
 
       if (activeDef) {
+        const roles = LLMProvider.ROLE_LABELS || { fast: 'charla', smart: 'agente' };
         const modelFast = activeDef.models?.fast || '?';
         const modelSmart = activeDef.models?.smart || '?';
         lines.push(
           '',
-          `**Activo:** ${activeDef.name} — fast: \`${modelFast}\`, smart: \`${modelSmart}\``
+          `**Activo:** ${activeDef.name} — ${roles.fast}: \`${modelFast}\`, ${roles.smart}: \`${modelSmart}\``
         );
       }
 

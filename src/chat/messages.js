@@ -225,6 +225,12 @@ function openSettings() {
   const guideEl = document.getElementById('settings-guide');
   guideEl.style.display = hasAnyKey ? 'none' : 'block';
 
+  // Fase catálogo: recomendación por rol (usa metadata del catálogo).
+  const recChatList =
+    (typeof LLMProvider.recommend === 'function' ? LLMProvider.recommend('chat') : []) || [];
+  const recAgentList =
+    (typeof LLMProvider.recommend === 'function' ? LLMProvider.recommend('agent') : []) || [];
+
   listEl.innerHTML = providers
     .map((p) => {
       const isActive = LLMProvider.getActiveProvider() === p.id;
@@ -235,30 +241,49 @@ function openSettings() {
       if (p.custom) badges.push('<span class="pill custom">CUSTOM</span>');
 
       // Selector de modelo: el catálogo del proveedor (estático o refrescado)
-      // con el modelo activo por modo preseleccionado. El usuario elige qué
-      // modelo usa cada proveedor en fast y smart.
+      // con el modelo activo por rol preseleccionado. Las opciones muestran el
+      // label amigable + chips de metadata (tools/gratis); el valor del
+      // <option> sigue siendo el id real del modelo.
+      const modelMeta = p.modelMeta || {};
       const catalog = (p.catalog && p.catalog.length ? p.catalog : [])
         .concat(Object.values(p.activeModel || {}))
         .filter((m, i, arr) => m && arr.indexOf(m) === i);
       const fastSel = p.activeModel?.fast || p.models?.fast || '';
       const smartSel = p.activeModel?.smart || p.models?.smart || '';
+      const recChat = recChatList.find((r) => r.provider === p.id) || null;
+      const recAgent = recAgentList.find((r) => r.provider === p.id) || null;
+      const smartMeta = modelMeta[smartSel] || {};
+      const option = (m, activeId) => {
+        const mm = modelMeta[m] || {};
+        const label = mm.label && mm.label !== m ? `${mm.label} (${m})` : m;
+        const chips = [];
+        if (mm.tools) chips.push('tools');
+        if (mm.free) chips.push('gratis');
+        const chip = chips.length ? ` · ${chips.join(' · ')}` : '';
+        return `<option value="${escapeHtml(m)}"${m === activeId ? ' selected' : ''}>${escapeHtml(label)}${escapeHtml(chip)}</option>`;
+      };
+      const recHint = [];
+      if (recChat && recChat.model !== fastSel)
+        recHint.push(`Charla → ${recChat.label || recChat.model}`);
+      if (recAgent && recAgent.model !== smartSel)
+        recHint.push(`Agente → ${recAgent.label || recAgent.model}`);
+      const warnTools =
+        smartMeta.tools === false
+          ? `<div class="settings-warn">⚠ ${escapeHtml(smartMeta.label || smartSel)} no soporta tools — no sirve para tareas de agente.</div>`
+          : '';
       const modelSelects = catalog.length
         ? `<div class="settings-model-row">
-             <label class="settings-model-label">fast</label>
+             <label class="settings-model-label">Charla</label>
              <select class="settings-input settings-model provider-model-fast" data-provider="${escapeHtml(p.id)}">${catalog
-               .map(
-                 (m) =>
-                   `<option value="${escapeHtml(m)}"${m === fastSel ? ' selected' : ''}>${escapeHtml(m)}</option>`
-               )
+               .map((m) => option(m, fastSel))
                .join('')}</select>
-             <label class="settings-model-label">smart</label>
+             <label class="settings-model-label">Agente</label>
              <select class="settings-input settings-model provider-model-smart" data-provider="${escapeHtml(p.id)}">${catalog
-               .map(
-                 (m) =>
-                   `<option value="${escapeHtml(m)}"${m === smartSel ? ' selected' : ''}>${escapeHtml(m)}</option>`
-               )
+               .map((m) => option(m, smartSel))
                .join('')}</select>
-           </div>`
+           </div>
+           ${recHint.length ? `<div class="settings-reco">Recomendado → ${recHint.join(' · ')}</div>` : ''}
+           ${warnTools}`
         : '';
       return `<div class="settings-field">
       <div class="settings-label">${escapeHtml(p.name)} ${badges.join(' ')}</div>

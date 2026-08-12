@@ -36,7 +36,11 @@ const { getToolRegistry } = require('../task/ToolRegistry.js');
 const { getPluginManager } = require('../plugins/PluginManager.js');
 const { PermissionManager } = require('../security/PermissionManager.js');
 const { getIntentDetector } = require('../grounding/IntentDetector.js');
-const { setUsageTracker } = require('../llm/LLMProvider.js');
+const {
+  setUsageTracker,
+  setCatalogCachePath,
+  refreshRemoteCatalog,
+} = require('../llm/LLMProvider.js');
 const { UsageTracker } = require('../observability/UsageTracker.js');
 const logger = require('../observability/Logger.js');
 
@@ -94,6 +98,7 @@ function init(app) {
   if (app) {
     const dataDir = app.getPath('userData');
     setUsageTracker(new UsageTracker(path.join(dataDir, 'usage.jsonl')));
+    setCatalogCachePath(path.join(dataDir, 'llm-catalog.json'));
     const logDir = path.join(dataDir, 'logs');
     try {
       fs.mkdirSync(logDir, { recursive: true });
@@ -401,6 +406,10 @@ function init(app) {
   scheduleDailyPrune();
   loadLLMConfig();
   loadMCPConfig();
+
+  // Catálogo remoto (models.dev): best-effort, NO bloquea el init — si la red
+  // falla degrada en silencio al catálogo curado o al cache en disco.
+  refreshRemoteCatalog();
 
   // Workspace inicial — cargar ANTES de startOpenClaw para pasar
   // OPENCLAW_ALLOWED_PATH con el directorio correcto. El workspace SIGUE el

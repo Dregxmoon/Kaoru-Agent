@@ -176,7 +176,7 @@ class IntentionsStore {
    * en los últimos `olderThanMs` ms. Se usan para preguntar con curiosidad por
    * metas que el usuario dejó a medias ("dijiste que ibas a X, ¿cómo va?").
    * El orden es el de más abandonada primero (last_progress_at ASC).
-   * @param {{olderThanMs: number, limit?: number}} [opts]
+   * @param {{olderThanMs?: number, limit?: number}} [opts]
    * @returns {IntentionRow[]}
    */
   listStale({ olderThanMs, limit = 10 } = {}) {

@@ -392,6 +392,18 @@ body {
   text-transform: uppercase;
   flex-shrink: 0;
 }
+.settings-reco {
+  margin-top: 4px;
+  font-size: 10px;
+  color: #a855f7;
+  font-family: var(--font-mono);
+}
+.settings-warn {
+  margin-top: 4px;
+  font-size: 10px;
+  color: #f59e0b;
+  font-family: var(--font-mono);
+}
 .settings-model {
   flex: 1;
   min-width: 0;

@@ -41,6 +41,11 @@ function _boundedLLM() {
     getAvailableProviders: () => LLMProvider.getAvailableProviders(),
     listModels: (providerId) => LLMProvider.listModels(providerId),
     refreshProviderModels: (providerId) => LLMProvider.refreshProviderModels(providerId),
+    getModelMeta: (providerId, modelId) => LLMProvider.getModelMeta(providerId, modelId),
+    recommend: (task) => {
+      const { recommend } = require('../../core/llm/recommend.js');
+      return recommend(task);
+    },
     getUsageTracker: () => LLMProvider.getUsageTracker(),
   };
 }
