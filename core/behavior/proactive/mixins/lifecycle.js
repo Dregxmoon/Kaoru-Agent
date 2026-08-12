@@ -3,7 +3,12 @@ const logger = require('../../../observability/Logger.js');
 // lifecycle.js — ciclo de vida del ProactiveEngine: arranque/parada,
 // setters públicos y registro de listeners del bus.
 
-const { EVAL_INTERVAL_MS, AUTONOMY_MODES, DEFAULT_AUTONOMY_MODE } = require('../config.js');
+const {
+  EVAL_INTERVAL_MS,
+  AUTONOMY_MODES,
+  DEFAULT_AUTONOMY_MODE,
+  CONVO_ACTIVE_WINDOW_MS,
+} = require('../config.js');
 
 module.exports = {
   setOSSensor(osSensor) {
@@ -38,7 +43,20 @@ module.exports = {
   },
 
   onUserMessage() {
-    this._lastUserMsg = Date.now();
+    this._recordUserTurn();
+  },
+
+  // ── Fase 5: registro de turnos del usuario ────────────────────────────────
+  // Guarda el timestamp de cada mensaje del usuario en una ventana móvil de
+  // 30 min. El gate lo usa para saber si la conversación está ACTIVA (≥ 3
+  // turnos) y no interrumpir en mitad de un intercambio real.
+  _recordUserTurn() {
+    const now = Date.now();
+    this._lastUserMsg = now;
+    if (!Array.isArray(this._recentUserTurns)) this._recentUserTurns = [];
+    this._recentUserTurns.push(now);
+    const cutoff = now - CONVO_ACTIVE_WINDOW_MS;
+    this._recentUserTurns = this._recentUserTurns.filter((t) => t >= cutoff);
   },
 
   start() {
@@ -77,7 +95,7 @@ module.exports = {
 
   _setupListeners() {
     this._boundOnTurnAdded = ({ role }) => {
-      if (role === 'user') this._lastUserMsg = Date.now();
+      if (role === 'user') this._recordUserTurn();
     };
     this._boundOnAppChanged = (p) => this._onAppChanged(p);
     this._boundOnAppTick = (p) => this._onAppTick(p);

@@ -95,6 +95,7 @@ class ProactiveEngine {
     this._chatOpen = false;
     this._lastProactive = 0; // último mensaje autónomo ENVIADO (cualquier tipo)
     this._lastUserMsg = 0; // 0 = el usuario aún no ha conversado en esta sesión
+    this._recentUserTurns = []; // Fase 5: timestamps de turnos del usuario (ventana 30 min)
     this._startedAt = Date.now();
     this._timer = null;
     this._running = false;

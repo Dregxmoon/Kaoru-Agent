@@ -872,7 +872,7 @@ async function testThrashRealData() {
   engine.setOSSensor(
     fakeSensor(() => ({ title: 'app.ts — Proyecto — Visual Studio Code', idleSecs: 0 }))
   );
-  await engine._onAppChanged({ app: 'firefox', category: 'browser' });
+  await engine._onAppChanged({ app: 'firefox', category: 'docs' });
   await flush();
   const thrash = seen.find((t) => t.type === 'context_switch_thrash');
   assert(!!thrash, 'thrash se disparó');
@@ -883,11 +883,34 @@ async function testThrashRealData() {
   );
   assert(
     thrash.title === 'app.ts — Proyecto — Visual Studio Code',
-    'payload incluye el título de la ventana actual'
+    'payload incluye el título de la ventana actual (categoría de trabajo)'
   );
   assert(
     thrash.context.includes('cursor') && thrash.context.includes('app.ts'),
     'context usa datos reales'
+  );
+
+  // Fase 5: el título SOLO entra si la ventana actual es de trabajo. Un título
+  // de media/ocio (p. ej. un anime en Crunchyroll) no se revela — vigilancia.
+  engine._recentSwitches = [
+    { ts: Date.now() - 1000, category: 'code', app: 'cursor' },
+    { ts: Date.now() - 900, category: 'terminal', app: 'kitty' },
+    { ts: Date.now() - 800, category: 'media', app: 'vlc' },
+    { ts: Date.now() - 700, category: 'code', app: 'cursor' },
+    { ts: Date.now() - 600, category: 'terminal', app: 'kitty' },
+    { ts: Date.now() - 500, category: 'media', app: 'vlc' },
+  ];
+  engine.setOSSensor(fakeSensor(() => ({ title: 'One Piece Ep 1041 — Crunchyroll', idleSecs: 0 })));
+  seen.length = 0;
+  await engine._onAppChanged({ app: 'vlc', category: 'media' });
+  await flush();
+  const thrashMedia = seen.find((t) => t.type === 'context_switch_thrash');
+  assert(!!thrashMedia, 'thrash en categoría media también se dispara');
+  assert(!thrashMedia.title || thrashMedia.title === null, 'título de media NO entra al payload');
+  assert(
+    !thrashMedia.context.includes('One Piece'),
+    'el contexto NO revela el contenido de media',
+    thrashMedia.context.slice(0, 120)
   );
   engine.stop();
   restore();
@@ -1067,7 +1090,102 @@ async function testMediaTriggerCarriesTaste() {
   restore();
 }
 
-// ── Test 20: filtro de contenido genérico (falso-real) ───────────────────────
+// ── Test 19c: contexto NEUTRO de media cuando no hay gusto guardado ──────────
+// Fase 5: referenciar el título exacto de algo que el usuario no ha compartido
+// se siente a vigilancia ("sé que estás viendo X"). El contexto del trigger
+// solo nombra el contenido si conecta con una preferencia confirmada.
+
+async function testMediaNeutralContext() {
+  console.log(C.bold('\nTest 19c: media_watching usa contexto NEUTRO sin match de gustos'));
+  const restore = stubLLM({ complete: async () => 'NO' });
+  const engine = makeEngine();
+  // Sin memoria de gustos → el contenido NO conecta con nada conocido.
+  engine._graph.getWorldModel = () => [];
+  let captured = null;
+  const origTry = engine._tryTrigger;
+  engine._tryTrigger = async (t) => {
+    captured = t;
+    return 'NO';
+  };
+  await engine._onAppTick({
+    friendlyName: 'Firefox',
+    category: 'browser',
+    title: 'One Piece Ep 1041 - YouTube',
+    elapsed: 0,
+    elapsedFormatted: '0m',
+  });
+  engine._mediaTrack.startedAt = Date.now() - 3 * 60 * 1000;
+  await engine._onAppTick({
+    friendlyName: 'Firefox',
+    category: 'browser',
+    title: 'One Piece Ep 1041 - YouTube',
+    elapsed: 3 * 60,
+    elapsedFormatted: '3m',
+  });
+  await flush();
+  assert(captured && captured.type === 'media_watching', 'media_watching se disparó');
+  assert(captured.mediaTasteMatch === false, 'sin match de gustos → mediaTasteMatch false');
+  assert(
+    !captured.context.includes('One Piece'),
+    'el contexto NO revela el título sin match',
+    captured.context
+  );
+  assert(
+    captured.context.includes('contenido en pantalla'),
+    'el contexto es NEUTRO (contenido en pantalla)',
+    captured.context
+  );
+  engine._tryTrigger = origTry;
+  engine.stop();
+  restore();
+}
+
+// ── Test 19d: ventana ADAPTATIVA de conversación activa (Fase 5) ─────────────
+// No se interrumpe si el usuario tiene ≥ 3 turnos en los últimos 30 min, aunque
+// su último mensaje tenga más de 2 min (pausa para pensar). Complementa el
+// RECENT_CHAT_MS fijo, no lo reemplaza.
+
+async function testConvoActiveWindow() {
+  console.log(C.bold('\nTest 19d: conversación ACTIVA → gate bloquea (ventana adaptativa)'));
+  const restore = stubLLM();
+  const engine = makeEngine();
+
+  const now = Date.now();
+
+  // < 3 turnos y sin mensaje reciente → NO hay conversación activa.
+  engine._lastUserMsg = now - 5 * 60 * 1000;
+  engine._recentUserTurns = [now - 15 * 60 * 1000, now - 5 * 60 * 1000];
+  assert(engine._isConvoActive(now) === false, '2 turnos en 30 min → NO conversación activa');
+
+  // 3 turnos dentro de la ventana → conversación activa.
+  engine._recentUserTurns = [now - 25 * 60 * 1000, now - 12 * 60 * 1000, now - 3 * 60 * 1000];
+  assert(engine._isConvoActive(now) === true, '3 turnos en 30 min → conversación ACTIVA');
+
+  // _recordUserTurn: acumula y PODA a la ventana en cada registro (los turnos
+  // viejos se descartan al añadir uno nuevo).
+  engine._recentUserTurns = [now - 45 * 60 * 1000]; // turno fuera de la ventana
+  engine._recordUserTurn();
+  engine._recordUserTurn();
+  assert(
+    engine._recentUserTurns.length === 2,
+    '_recordUserTurn descarta turnos fuera de la ventana (30 min)',
+    JSON.stringify(engine._recentUserTurns)
+  );
+
+  // Integración: con conversación activa, _tryTrigger bloquea aunque el último
+  // mensaje sea viejo (el gate convoActive frena antes de consultar al LLM).
+  engine._lastUserMsg = now - 5 * 60 * 1000;
+  engine._recentUserTurns = [now - 25 * 60 * 1000, now - 12 * 60 * 1000, now - 3 * 60 * 1000];
+  const res = await engine._tryTrigger({ type: 'long_silence', context: 'x' });
+  assert(
+    res && res.blocked === true,
+    '_tryTrigger con conversación activa → { blocked }',
+    JSON.stringify(res)
+  );
+
+  engine.stop();
+  restore();
+}
 
 function testGenericContentFilter() {
   console.log(C.bold('\nTest 20: contenido genérico del LLM ya no cuenta como identidad real'));
@@ -1830,6 +1948,8 @@ async function testCuriosityOutcomeLoop() {
   await testAntiRepeatHistory();
   testTasteMatch();
   await testMediaTriggerCarriesTaste();
+  await testMediaNeutralContext();
+  await testConvoActiveWindow();
   testGenericContentFilter();
   testStaleGaps();
   testMemoryTastePriority();

@@ -14,6 +14,8 @@ const { evaluate: evaluateGate } = require('../../../decision/ContextGate.js');
 
 const {
   RECENT_CHAT_MS,
+  CONVO_ACTIVE_MIN_TURNS,
+  CONVO_ACTIVE_WINDOW_MS,
   GLOBAL_MIN_GAP_MS,
   TRIGGER_COOLDOWN_MS,
   MAX_IDLE_TO_INTERRUPT,
@@ -117,6 +119,18 @@ module.exports = {
     );
   },
 
+  // Fase 5: ¿conversación ACTIVA? ≥ CONVO_ACTIVE_MIN_TURNS turnos del usuario
+  // dentro de CONVO_ACTIVE_WINDOW_MS. Complementa el RECENT_CHAT_MS fijo: una
+  // conversación real (aunque el usuario pause un rato a pensar) no se
+  // interrumpe. Ventana adaptativa, no un timer de "último mensaje".
+  _isConvoActive(now) {
+    return (
+      Array.isArray(this._recentUserTurns) &&
+      this._recentUserTurns.filter((t) => now - t <= CONVO_ACTIVE_WINDOW_MS).length >=
+        CONVO_ACTIVE_MIN_TURNS
+    );
+  },
+
   /**
    * Árbitro central. Devuelve:
    *   - { blocked: true }  → un pre-filtro lo frenó (chat abierto, cooldown,
@@ -156,10 +170,14 @@ module.exports = {
       trigger._gate = gate;
     }
 
-    // No interrumpir si el usuario está EN MEDIO de una conversación real
-    // (habló hace < 2 min). El chat abierto por sí solo NO bloquea: es el
-    // canal donde se muestran las propuestas (ventana principal de la app).
-    if (this._lastUserMsg && now - this._lastUserMsg < RECENT_CHAT_MS) return { blocked: true };
+    // No interrumpir si el usuario está EN MEDIO de una conversación real. El
+    // chat abierto por sí solo NO bloquea: es el canal donde se muestran las
+    // propuestas (ventana principal de la app). Fase 5: además del mínimo fijo
+    // (habló hace < 2 min), se bloquea si la conversación está ACTIVA — ≥ 3
+    // turnos del usuario en los últimos 30 min — aunque haya pausado un rato
+    // a pensar.
+    const chatRecent = !!this._lastUserMsg && now - this._lastUserMsg < RECENT_CHAT_MS;
+    if (chatRecent || this._isConvoActive(now)) return { blocked: true };
 
     // ESCALATE (señal crítica con R ≥ escalar): salta los guardas temporales
     // de no-molestia (gap global, cooldown del tipo y AFK). Un secreto a punto

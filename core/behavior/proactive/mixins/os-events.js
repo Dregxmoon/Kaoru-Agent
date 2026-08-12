@@ -64,9 +64,13 @@ module.exports = {
         const mins = Math.round(this._prevCategoryStreakSec / 60);
         const lastWin =
           this._lastFocusedWindow?.category === this._prevCategory ? this._lastFocusedWindow : null;
-        const titleCtx = lastWin?.title
-          ? ` Estaba en "${String(lastWin.title).slice(0, 80)}".`
-          : '';
+        // Fase 5: el título de la ventana SOLO si es una categoría de trabajo
+        // (code/terminal/docs/design). Si el bloque era media/ocio, nombrar el
+        // título (p. ej. un anime en Crunchyroll) se siente a vigilancia.
+        const titleCtx =
+          lastWin?.title && lastWin.category && WORK_CATEGORIES.has(lastWin.category)
+            ? ` Estaba en "${String(lastWin.title).slice(0, 80)}".`
+            : '';
         this._tryTrigger({
           type: 'focus_block_end',
           prevCategory: this._prevCategory,
@@ -116,15 +120,21 @@ module.exports = {
       const windowMin = Math.round(THRASH_WINDOW_MS / 60000);
       // Fase B: el contexto lleva los nombres REALES de las apps y el título de
       // la ventana actual, para que Kaoru pueda decir algo concreto y no caer
-      // siempre en el genérico "¿anda buscando algo?".
+      // siempre en el genérico "¿anda buscando algo?". Fase 5: el título SOLO
+      // si la ventana actual es de trabajo — un título de media/ocio es
+      // vigilancia, no contexto útil.
       const currentTitle = this._osSensor?.getCurrentContext?.()?.title ?? null;
+      const titleForPrompt =
+        currentTitle && this._currentCategory && WORK_CATEGORIES.has(this._currentCategory)
+          ? currentTitle
+          : null;
       this._tryTrigger({
         type: 'context_switch_thrash',
         switchCount: this._recentSwitches.length,
         categories: distinctCategories,
         apps: distinctApps,
-        title: currentTitle,
-        context: `El usuario cambió de aplicación ${this._recentSwitches.length} veces en los últimos ${windowMin} minutos, saltando entre: ${distinctCategories.join(', ')} (${distinctApps.join(', ')}).${currentTitle ? ` Ahora mismo está en: "${currentTitle.slice(0, 80)}".` : ''}`,
+        title: titleForPrompt,
+        context: `El usuario cambió de aplicación ${this._recentSwitches.length} veces en los últimos ${windowMin} minutos, saltando entre: ${distinctCategories.join(', ')} (${distinctApps.join(', ')}).${titleForPrompt ? ` Ahora mismo está en: "${String(titleForPrompt).slice(0, 80)}".` : ''}`,
       }).catch((e) =>
         logger.warn('os-events', '[proactive] error en trigger de thrash:', e.message)
       );
@@ -255,8 +265,15 @@ module.exports = {
     // con la persona vale más que un comentario genérico).
     const worldModel = this._graph?.getWorldModel?.() ?? [];
     const tasteMatches = _matchMediaTaste(media.title, worldModel.filter(isRealIdentityNode));
+    const knownTaste = tasteMatches.length > 0;
 
-    const content = `El usuario lleva ${this._formatSec(elapsedSec)} viendo o escuchando "${media.title}"${media.platform !== 'media' ? ` (${media.platform})` : ''} en ${friendlyName || category}.`;
+    // Fase 5: contexto NEUTRO cuando el contenido NO conecta con un gusto
+    // guardado. Referenciar el título exacto de algo que el usuario no ha
+    // compartido se siente a vigilancia ("sé que estás viendo X"). Solo si
+    // hay un match con una preferencia confirmada se nombra el contenido.
+    const content = knownTaste
+      ? `El usuario lleva ${this._formatSec(elapsedSec)} viendo o escuchando "${media.title}"${media.platform !== 'media' ? ` (${media.platform})` : ''} en ${friendlyName || category}. Es contenido que conecta con sus gustos guardados.`
+      : `El usuario lleva ${this._formatSec(elapsedSec)} con contenido en pantalla (${category || 'media'}) en ${friendlyName || 'una app de contenido'}.`;
     this._tryTrigger({
       type: 'media_watching',
       category,
@@ -265,7 +282,7 @@ module.exports = {
       platform: media.platform,
       elapsedSec,
       tasteMatches,
-      mediaTasteMatch: tasteMatches.length > 0,
+      mediaTasteMatch: knownTaste,
       context: content,
     }).catch((e) =>
       logger.warn('os-events', '[proactive] error en trigger de media_watching:', e.message)

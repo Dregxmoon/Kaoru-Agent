@@ -125,6 +125,15 @@ const RETURN_MAX_GAP_SEC = 3 * 60 * 60; // más que esto ya es más parecido a "
 
 const WORK_CATEGORIES = new Set(['code', 'terminal', 'docs', 'design']);
 
+// ── Fase 5: conversación activa (ventana ADAPTATIVA) ──────────────────────────
+// El RECENT_CHAT_MS fijo (2 min desde el último mensaje) no cubre el caso de
+// una conversación real donde el usuario se toma una pausa de 3-4 min para
+// pensar: Kaoru se colaba en mitad del intercambio. Si hay >= 3 turnos de
+// usuario en los últimos 30 min, la conversación está ACTIVA y no se interrumpe,
+// aunque el último mensaje tenga más de 2 min.
+const CONVO_ACTIVE_MIN_TURNS = 3;
+const CONVO_ACTIVE_WINDOW_MS = 30 * 60 * 1000; // 30 min
+
 // ── Fase A: autonomía con consentimiento ──────────────────────────────────────
 // El mensaje proactivo pasa de comentario a *propuesta*: además del texto del
 // LLM, el payload lleva un bloque `proposal` determinista (NUNCA inventado por
@@ -312,6 +321,8 @@ module.exports = {
   LATE_NIGHT_END,
   MAX_IDLE_TO_INTERRUPT,
   RECENT_CHAT_MS,
+  CONVO_ACTIVE_MIN_TURNS,
+  CONVO_ACTIVE_WINDOW_MS,
   FOLLOWUP_MULTIPLIER,
   SESSION_END_MIN_SEC,
   DAILY_BUDGET,
