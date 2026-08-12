@@ -486,6 +486,9 @@ class AgentLoop {
     const iterationHistory = [...(messages || [])];
     let lastToolResult = null;
     const toolResults = [];
+    // Anti-repetición (Fase 2): llamadas ejecutadas en este run (tool + hash de
+    // params). Si una llamada idéntica ya falló, se salta y se avisa al LLM.
+    const recentToolCalls = [];
     let lastResponseText = null; // guarda último output del LLM para max_iterations
     // Self-critique (opts.selfCritique): cuántas pasadas de crítica se
     // agotaron en este run — acota el bucle de corrección (no infinito).
@@ -791,6 +794,25 @@ class AgentLoop {
           continue;
         }
 
+        // ── Anti-repetición (Fase 2) ─────────────────────────────────────────
+        // Caso real de producción: el mismo Write contra un directorio (EISDIR)
+        // se repitió 3 veces seguidas quemando iteraciones. Si esta llamada
+        // EXACTA (tool + params) ya falló en este run, se salta y se le avisa
+        // al LLM para que cambie de estrategia en vez de martillar el error.
+        const repeat = _findRepeatedFailure(action, recentToolCalls);
+        if (repeat) {
+          iterationHistory.push({
+            role: 'user',
+            content: `[Ya intentaste exactamente ${action.tool} ${repeat.attempts} vez(es) en este run y falló: ${repeat.error}. NO lo repitas — cambia de estrategia (otro path, otra herramienta o pedí más contexto).]`,
+          });
+          lastToolResult = {
+            ok: false,
+            error: `repetida: ${repeat.error}`,
+            tool: action.tool,
+          };
+          continue;
+        }
+
         let result;
         if (opts.onProgress) {
           opts.onProgress({
@@ -826,6 +848,13 @@ class AgentLoop {
         }
 
         result._action = action;
+        // Registrar la llamada para el dedupe anti-repetición (Fase 2).
+        recentToolCalls.push({
+          key: _toolCallKey(action.tool, action.params),
+          ok: result.ok,
+          error: result.ok ? null : String(result.error || ''),
+        });
+        if (recentToolCalls.length > RECENT_TOOL_CALLS_MAX) recentToolCalls.shift();
         toolResults.push(result);
         lastToolResult = result;
         if (process.env.DEBUG)
@@ -866,7 +895,13 @@ class AgentLoop {
               '\n\n' + this._formatDiagnostics(lspFeedback.filePath, lspFeedback.diagnostics);
           }
         } else {
-          resultSummary = `[ERROR en ${action.tool}]: ${result.error || 'desconocido'}`;
+          // Fase 2: hint barato por patrón de error para guiar la próxima jugada
+          // (p. ej. EISDIR → "pasaste un directorio"). Nunca sustituye el error
+          // original, solo lo aclara.
+          const hint = _hintForToolError(result.error);
+          resultSummary = `[ERROR en ${action.tool}]: ${result.error || 'desconocido'}${
+            hint ? ` — ${hint}` : ''
+          }`;
         }
 
         logger.info(

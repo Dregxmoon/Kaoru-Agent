@@ -1466,6 +1466,95 @@ function testPluginToolsAreHighImpact() {
   assert(!AP.isHighImpact('read', { path: 'src/index.js' }), 'read normal dentro del proyecto NO');
 }
 
+// ── Fase 2: anti-repetición de llamadas idénticas fallidas ──────────────────
+// Caso real de producción: el mismo Write contra un directorio (EISDIR) se
+// repitió 3 veces seguidas quemando iteraciones. El loop registra las llamadas
+// del run y SALTA cualquier copia exacta (tool + params) que ya haya fallado,
+// inyectándole al LLM una nota para que cambie de estrategia.
+
+async function testAntiRepetition() {
+  console.log(C.bold('\n── Test 16: llamada fallida idéntica se salta (anti-repetición) ───'));
+
+  const { AgentLoop } = require('../core/planner/AgentLoop.js');
+  const AP = require('../core/planner/ActionParser.js');
+  const LLMProvider = require('../core/llm/LLMProvider.js');
+
+  const projectCwd = teardown() || setup();
+  AP.setProjectCWD(projectCwd);
+
+  const originalCompleteWithTools = LLMProvider.completeWithTools;
+  let calls = 0;
+  let sawSkipNote = false;
+  const missing = path.join(projectCwd, 'no-existe.txt');
+
+  LLMProvider.completeWithTools = async (messages, ..._rest) => {
+    calls++;
+    if (calls === 1) {
+      return { content: null, toolCalls: [{ tool: 'read', params: { path: missing } }] };
+    }
+    if (calls === 2) {
+      // El LLM (errado) repite EXACTAMENTE la misma llamada que acaba de fallar.
+      return { content: null, toolCalls: [{ tool: 'read', params: { path: missing } }] };
+    }
+    // Turno de cierre: aquí ya debería haber visto la nota de "ya la intentaste".
+    sawSkipNote = /Ya intentaste exactamente/.test(JSON.stringify(messages));
+    return { content: 'No pude leer el archivo; cambié de estrategia.', toolCalls: null };
+  };
+
+  try {
+    const bridge = createMockBridge(projectCwd);
+    let readExecutions = 0;
+    const wrappedBridge = {
+      ...bridge,
+      execute: async (tool, params) => {
+        if (tool === 'read') readExecutions++;
+        return bridge.execute(tool, params);
+      },
+    };
+
+    const loop = new AgentLoop({
+      maxIterations: 6,
+      llm: createMockLLM(['no se usa']),
+      bridge: wrappedBridge,
+    });
+
+    const result = await loop.run('leé un archivo que no existe', 'Eres un asistente.', [], {
+      tools: [
+        {
+          name: 'read',
+          description: 'lee un archivo',
+          inputSchema: { type: 'object', properties: {} },
+        },
+      ],
+    });
+
+    assert(
+      readExecutions === 1,
+      'read se ejecutó UNA vez (la 2ª idéntica se salteó)',
+      `ejecuciones: ${readExecutions}`
+    );
+    assert(
+      result.toolResults.length === 1,
+      'Solo 1 tool result (la repetida no entró al loop)',
+      `tools: ${result.toolResults.length}`
+    );
+    assert(
+      String(result.toolResults[0].error).includes('File not found'),
+      'La única llamada falló como se esperaba',
+      String(result.toolResults[0].error)
+    );
+    assert(
+      sawSkipNote,
+      'El LLM recibió la nota "Ya intentaste exactamente" antes de la 2ª llamada'
+    );
+    assert(calls === 3, 'El LLM cerró con texto en el 3er turno', `llamadas LLM: ${calls}`);
+  } finally {
+    LLMProvider.completeWithTools = originalCompleteWithTools;
+  }
+
+  teardown();
+}
+
 // ── Main ──────────────────────────────────────────────────────────────────────
 
 async function main() {
@@ -1493,6 +1582,7 @@ async function main() {
   await testSelfCritique();
   await testSelfCritiqueCompleteNoExtraRounds();
   testPluginToolsAreHighImpact();
+  await testAntiRepetition();
 
   console.log(C.bold('\n════════════════════════════════════════════════════════'));
   const total = passed + failed;

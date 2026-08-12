@@ -18,12 +18,22 @@ const TOOL_SCHEMAS = [
         description:
           'Entrada estándar para programas interactivos (readline/prompt-sync). Si el comando pide input del teclado, pásalo aquí en vez de dejar el proceso colgado; si es un programa batch, omítelo.',
       },
+      {
+        name: 'shell',
+        type: 'boolean',
+        description:
+          'true SOLO si el comando necesita un shell real: cd, &&, ||, ;, pipes |, redirección >, $(...) o backticks. Se ejecuta vía `sh -c` dentro del sandbox. false (default) = el comando corre SIN shell y esos operadores se pasan literales (más seguro).',
+      },
     ],
     examples: [
       { cmd: 'git status', desc: 'Ver estado del repo' },
       { cmd: 'ls -la', desc: 'Listar archivos' },
       { cmd: 'node script.js', desc: 'Ejecutar script' },
-      { cmd: 'cd src && npm i', desc: 'Cambiar de dir y ejecutar en cadena' },
+      {
+        cmd: 'cd src && npm i',
+        desc: 'Cambiar de dir y ejecutar en cadena (usa shell: true)',
+        shell: true,
+      },
       {
         cmd: 'node prompt.js',
         desc: 'Programa interactivo: pasarle el valor en stdin',

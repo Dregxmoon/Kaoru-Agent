@@ -142,15 +142,20 @@ async function testExecSandbox() {
   // 1b — shell real: encadenado con cd (builtin) + node.
   const r2 = await srv.HANDLERS.exec({
     command: 'cd / && node -e "console.log(\'chain-ok\')"',
+    shell: true,
     timeout: 15,
   });
-  ok(r2, 'cd / && node → exit 0 (shell real vía sh -c)');
+  ok(r2, 'cd / && node → exit 0 (shell real vía sh -c, shell: true)');
   if (r2 && r2.result && r2.result.exitCode === 0) {
     assert(r2.result.stdout.includes('chain-ok'), 'la salida del comando encadenado llega');
   }
 
-  // 1b — pipe con sh -c.
-  const r3 = await srv.HANDLERS.exec({ command: 'printf "a\\nb\\n" | wc -l', timeout: 15 });
+  // 1b — pipe con sh -c (opt-in).
+  const r3 = await srv.HANDLERS.exec({
+    command: 'printf "a\\nb\\n" | wc -l',
+    shell: true,
+    timeout: 15,
+  });
   ok(r3, 'printf | wc -l → exit 0 (pipe)');
   if (r3 && r3.result && r3.result.exitCode === 0) {
     assert(r3.result.stdout.trim() === '2', 'wc -l cuenta las 2 líneas');

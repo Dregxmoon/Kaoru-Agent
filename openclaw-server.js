@@ -382,8 +382,9 @@ function _buildCommandArgs(fullCommand) {
 
 // Shell builtins / operadores que `spawn` no puede ejecutar sin un shell real
 // (`cd`, `&&`, `||`, `;`, pipes `|`/`>>`, redirección, `$(...)`/backticks).
-// Si se detectan, exec corre el comando con `sh -c` dentro del sandbox en vez
-// de partir args a mano (antes eso rompía `cd x && npm i` con "execvp cd").
+// El servidor NO los activa automáticamente: exec corre `sh -c` solo cuando el
+// llamador manda `shell: true`. La detección queda exportada para que el agente
+// (o los tests) decidan cuándo pedir shell explícito.
 const _SHELL_SYNTAX_RE = /(^|\s)cd(\s|$)|(\|\||&&|;|\||>>|>|<|\$\()|`/;
 
 /**
@@ -636,12 +637,15 @@ const HANDLERS = {
     if (_isBlockedCommand(command)) return { error: 'command blocked by server security policy' };
     if (_isOutsideAllowed(cwd)) return { error: `cwd outside allowed path: ${cwd}` };
 
-    // Shell real cuando el comando usa sintaxis que un spawn directo no puede
-    // resolver (builtins `cd`, `&&`, `;`, pipes, redirección). Se corre `sh -c`
-    // DENTRO del sandbox — sh existe bajo `--ro-bind / /`.
-    let args = _needsShellCommand(command)
-      ? ['sh', '-c', command]
-      : _rewriteToolchainCommand(_buildCommandArgs(command));
+    // Shell real SOLO si el llamador lo pide explícitamente (`shell: true`):
+    // el agente lo setea cuando el comando usa `cd`/`&&`/pipes/redirección.
+    // Sin el flag, los operadores de shell se pasan LITERALES — garantía de
+    // seguridad: un request directo a la API no puede escalar a shell sin
+    // opt-in explícito.
+    let args =
+      input.shell === true
+        ? ['sh', '-c', command]
+        : _rewriteToolchainCommand(_buildCommandArgs(command));
     if (!args || args.length === 0) return { error: 'empty command after parsing' };
 
     // Programas interactivos (readline/prompt-sync): si el llamador manda el
