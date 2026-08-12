@@ -21,6 +21,130 @@ const MAX_SYSTEM_CHARS = 14_000; // ~3.5k tokens — conservador pero amplio
 const TRUNCATION_SUFFIX = '\n\n[contexto truncado por longitud]';
 const MCP_CATALOG_LIMIT = 40;
 
+// ── Fase 3: stack del workspace activo ────────────────────────────────────────
+// Sección compacta del proyecto sobre el que el asistente trabaja (lenguaje,
+// scripts, dependencias, estructura raíz y rama git). Se lee SOLO con fs
+// (sin subprocesos) y se inyecta antes del early-return del modo agent para
+// llegar a todos los modos y entrar en el presupuesto de truncado.
+
+const WORKSPACE_STACK_MAX_ENTRIES = 14;
+
+/** Devuelve la sección del workspace activo o '' si no hay cwd usable. */
+function buildWorkspaceStackSection(cwd) {
+  if (!cwd || typeof cwd !== 'string') return '';
+  const fs = require('fs');
+  const path = require('path');
+  try {
+    if (!fs.existsSync(cwd) || !fs.statSync(cwd).isDirectory()) return '';
+    const lines = ['# WORKSPACE ACTIVO (PROYECTO)'];
+
+    let lang = 'desconocido';
+    let pkg = null;
+    const pkgPath = path.join(cwd, 'package.json');
+    if (fs.existsSync(pkgPath)) {
+      try {
+        pkg = JSON.parse(fs.readFileSync(pkgPath, 'utf-8'));
+      } catch (_) {}
+    }
+    // TypeScript solo si hay fuentes .ts de verdad (un tsconfig puede ser solo
+    // para typecheck con JSDoc, como en este mismo repo — no es motivo para
+    // escribir .ts).
+    const hasTs = fs.existsSync(path.join(cwd, 'tsconfig.json'));
+    let tsSources = false;
+    if (hasTs) {
+      try {
+        const scanDirs = ['src', 'lib', 'app'];
+        tsSources =
+          fs.readdirSync(cwd).some((e) => e.endsWith('.ts')) ||
+          scanDirs.some((d) => {
+            try {
+              return fs.readdirSync(path.join(cwd, d)).some((f) => f.endsWith('.ts'));
+            } catch (_) {
+              return false;
+            }
+          });
+      } catch (_) {}
+    }
+    if (pkg) {
+      lang =
+        hasTs && tsSources
+          ? 'TypeScript'
+          : pkg.type === 'module'
+            ? 'JavaScript (ESM)'
+            : 'JavaScript (CommonJS)';
+    } else if (fs.existsSync(path.join(cwd, 'pyproject.toml'))) {
+      lang = 'Python (Poetry)';
+    } else if (fs.existsSync(path.join(cwd, 'requirements.txt'))) {
+      lang = 'Python';
+    } else if (fs.existsSync(path.join(cwd, 'go.mod'))) {
+      lang = 'Go';
+    } else if (fs.existsSync(path.join(cwd, 'Cargo.toml'))) {
+      lang = 'Rust';
+    } else if (fs.existsSync(path.join(cwd, 'Gemfile'))) {
+      lang = 'Ruby';
+    }
+
+    lines.push(`- Proyecto: ${pkg?.name || path.basename(cwd)}`);
+    lines.push(`- Ruta: ${cwd}`);
+    lines.push(`- Lenguaje/stack: ${lang}`);
+
+    if (pkg) {
+      const scripts = pkg.scripts ? Object.keys(pkg.scripts) : [];
+      if (scripts.length > 0) {
+        lines.push(`- Scripts: ${scripts.slice(0, 8).join(', ')}`);
+      }
+      const deps = Object.keys(pkg.dependencies || {}).length;
+      const devDeps = Object.keys(pkg.devDependencies || {}).length;
+      let manager = 'npm';
+      if (fs.existsSync(path.join(cwd, 'pnpm-lock.yaml'))) manager = 'pnpm';
+      else if (fs.existsSync(path.join(cwd, 'yarn.lock'))) manager = 'yarn';
+      else if (fs.existsSync(path.join(cwd, 'bun.lockb'))) manager = 'bun';
+      lines.push(`- Dependencias: ${deps} deps + ${devDeps} dev (${manager})`);
+    }
+
+    let entries = [];
+    try {
+      entries = fs.readdirSync(cwd);
+    } catch (_) {}
+    const items = entries
+      .filter((e) => !e.startsWith('.') && e !== 'node_modules' && e !== 'dist')
+      .slice(0, WORKSPACE_STACK_MAX_ENTRIES);
+    if (items.length > 0) lines.push(`- Raíz: ${items.join('  ')}`);
+
+    // Rama git: lectura directa de .git/HEAD (sin invocar `git`).
+    try {
+      const head = fs.readFileSync(path.join(cwd, '.git', 'HEAD'), 'utf-8').trim();
+      const m = head.match(/^ref:\s*refs\/heads\/(.+)$/);
+      if (m) lines.push(`- Rama git: ${m[1]}`);
+    } catch (_) {}
+
+    return lines.join('\n');
+  } catch (_) {
+    return '';
+  }
+}
+
+// ── Fase 3: veracidad del código ─────────────────────────────────────────────
+// Reglas contra los fallos reales de una sesión de producción (sesión de
+// TypeScript/fibonacci): código no verificado, salidas inventadas, lenguajes
+// mezclados y ejemplos inconsistentes entre mensajes.
+
+const CODE_VERACITY_RULE = `# VERACIDAD DEL CÓDIGO
+
+- No afirmes que un código "funciona" o "da este resultado" salvo que lo hayas
+  EJECUTADO de verdad (node, tests, etc.). Si no pudiste ejecutarlo, dilo y
+  marca el resultado como sin verificar.
+- No inventes salidas: números exactos, hashes, listas de archivos o mensajes
+  de error que no provienen de una ejecución real.
+- Escribe el código en el MISMO lenguaje/stack del proyecto o del que el
+  usuario está aprendiendo. No mezcles lenguajes sin avisar.
+- Mantén los ejemplos CONSISTENTES entre mensajes: si mostraste una función
+  con 2 parámetros, no la reescribas con 1 en el siguiente mensaje.
+- Antes de mostrar código, confirma con las herramientas (grep/read/tsc) que
+  las APIs, funciones y firmas que citas existen de verdad.
+- Si un comando falla (EISDIR, no such file, permiso), cambia de estrategia
+  en vez de repetirlo o de fingir que funcionó.`;
+
 // ── Context ───────────────────────────────────────────────────────────────────
 
 async function buildContext(sessionHistory, activeProvider, options = {}) {
@@ -109,6 +233,16 @@ async function buildContext(sessionHistory, activeProvider, options = {}) {
   if (rulesSection) {
     result.systemPrompt = result.systemPrompt + '\n\n' + rulesSection;
   }
+
+  // ── Fase 3: stack del workspace + veracidad de código ──────────────────
+  // Se inyectan ANTES del early-return del modo agent (llegan a todos los
+  // modos) y entran en el presupuesto de truncado. El stack se lee con fs
+  // (sin subprocesos); la regla de veracidad es estática y corta.
+  const workspaceStack = buildWorkspaceStackSection(getProjectCWD());
+  if (workspaceStack) {
+    result.systemPrompt = result.systemPrompt + '\n\n' + workspaceStack;
+  }
+  result.systemPrompt = result.systemPrompt + '\n\n' + CODE_VERACITY_RULE;
 
   // ── Tool Resolution (Fase 1): siempre resolver herramientas ─────────────
   // Fase 1: el toolset completo está disponible en TODOS los modos, sin
@@ -407,5 +541,7 @@ function buildMCPCatalogPrompt(mcpTools) {
 module.exports = {
   buildContext,
   buildMCPCatalogPrompt,
+  buildWorkspaceStackSection,
+  CODE_VERACITY_RULE,
   truncateSystemPrompt,
 };
