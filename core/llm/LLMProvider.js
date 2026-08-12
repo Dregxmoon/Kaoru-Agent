@@ -153,6 +153,8 @@ let _config = {
   // curado con modelos nuevos + metadata. Solo datos, no toca keys ni envía
   // nada del usuario. Desactivable con remoteCatalog.enabled=false.
   remoteCatalog: { enabled: true },
+  // Selector modelo-first: modelos favoritos (array de "providerId/modelId").
+  favorites: [],
 };
 
 // Marca de tiempo del último refresh exitoso del catálogo por provider
@@ -169,6 +171,9 @@ function configure(cfg) {
   }
   if (llm.remoteCatalog) {
     _config.remoteCatalog = { ..._config.remoteCatalog, ...llm.remoteCatalog };
+  }
+  if (Array.isArray(llm.favorites)) {
+    _config.favorites = [...llm.favorites];
   }
   if (llm.apiKeys) {
     for (const [id, key] of Object.entries(llm.apiKeys)) {
@@ -402,10 +407,40 @@ const REMOTE_CATALOG_TTL_MS = 24 * 60 * 60 * 1000;
 let _remoteCatalog = null; // { providerId: { modelId: meta } } (en memoria)
 let _remoteRefreshedAt = 0;
 let _catalogCachePath = null; // userData/llm-catalog.json (injectado por init.js)
+// Índice de providers del catálogo remoto (models.dev): info de conexión
+// (api/baseURL, env, npm, doc) + modelos. Es la fuente del selector modelo-
+// first y de connectProvider(). Se construye desde el body raw (red o cache).
+let _remoteProviderIndex = new Map();
 
 /** Inyecta la ruta de cache (app.getPath('userData')). Best-effort. */
 function setCatalogCachePath(path) {
   _catalogCachePath = path;
+}
+
+// Formato del cache a disco. v1: { providerId: { modelId: meta } } (solo
+// metas). v2: { __v: 2, providers: <body raw de models.dev> } (metas + info
+// de conexión). El body raw es datos públicos; se guarda tal cual para poder
+// reconstruir el índice de providers sin re-consultar la red.
+const CATALOG_CACHE_VERSION = 2;
+
+function _buildRemoteProviderIndex(raw) {
+  const data = (raw && raw.providers) || raw;
+  if (!data || typeof data !== 'object') return new Map();
+  const index = new Map();
+  for (const [pid, rawP] of Object.entries(data)) {
+    if (!rawP || typeof rawP !== 'object' || !rawP.models || typeof rawP.models !== 'object') {
+      continue;
+    }
+    index.set(pid, {
+      id: pid,
+      name: (rawP.name && String(rawP.name)) || pid,
+      api: rawP.api && typeof rawP.api === 'string' ? rawP.api : null,
+      env: Array.isArray(rawP.env) ? rawP.env.map(String) : [],
+      npm: rawP.npm && typeof rawP.npm === 'string' ? rawP.npm : null,
+      doc: rawP.doc && typeof rawP.doc === 'string' ? rawP.doc : null,
+    });
+  }
+  return index;
 }
 
 function _mapRemoteModel(id, raw) {
@@ -447,17 +482,28 @@ function _loadCachedCatalog() {
     const fs = require('fs');
     if (!fs.existsSync(_catalogCachePath)) return null;
     const parsed = JSON.parse(fs.readFileSync(_catalogCachePath, 'utf8'));
-    return _mapRemoteCatalog({ providers: parsed }) || null;
+    if (parsed && parsed.__v === CATALOG_CACHE_VERSION) {
+      // v2: body raw → metas + índice de providers.
+      const remote = _mapRemoteCatalog(parsed.providers);
+      const raw = parsed.providers;
+      return remote && raw ? { remote, raw } : null;
+    }
+    // v1 (metas a secas): se migra en memoria; sin info de conexión.
+    const remote = _mapRemoteCatalog({ providers: parsed });
+    return remote ? { remote, raw: null } : null;
   } catch {
     return null;
   }
 }
 
-function _saveCatalogCache(remote) {
+function _saveCatalogCache(remote, raw) {
   if (!_catalogCachePath) return;
   try {
     const fs = require('fs');
-    fs.writeFileSync(_catalogCachePath, JSON.stringify(remote, null, 2));
+    const payload = raw
+      ? { __v: CATALOG_CACHE_VERSION, providers: raw }
+      : { __v: CATALOG_CACHE_VERSION, providers: remote };
+    fs.writeFileSync(_catalogCachePath, JSON.stringify(payload));
   } catch {
     /* best-effort */
   }
@@ -491,10 +537,11 @@ function _mergeRemoteCatalog(remote) {
   }
 }
 
-function _applyRemoteCatalog(remote, now) {
+function _applyRemoteCatalog(remote, now, raw) {
   if (!remote) return;
   _remoteCatalog = remote;
   _remoteRefreshedAt = now;
+  _remoteProviderIndex = _buildRemoteProviderIndex(raw || null);
   _mergeRemoteCatalog(remote);
 }
 
@@ -510,13 +557,15 @@ async function refreshRemoteCatalog(fetcher = get) {
   if (_remoteCatalog && now - _remoteRefreshedAt < REMOTE_CATALOG_TTL_MS) return true;
   try {
     const res = await fetcher(REMOTE_CATALOG_URL, {}, 20_000, null);
-    const mapped = res && res.status === 200 ? _mapRemoteCatalog(res.body) : null;
+    const raw = res && res.status === 200 ? res.body : null;
+    const mapped = raw ? _mapRemoteCatalog(raw) : null;
     if (!mapped) {
-      _applyRemoteCatalog(_loadCachedCatalog(), now);
+      const cached = _loadCachedCatalog();
+      _applyRemoteCatalog(cached ? cached.remote : null, now, cached ? cached.raw : null);
       return false;
     }
-    _applyRemoteCatalog(mapped, now);
-    _saveCatalogCache(mapped);
+    _applyRemoteCatalog(mapped, now, raw);
+    _saveCatalogCache(mapped, raw);
     const count = Object.values(mapped).reduce((n, m) => n + Object.keys(m).length, 0);
     logger.info(
       'LLMProvider',
@@ -524,9 +573,30 @@ async function refreshRemoteCatalog(fetcher = get) {
     );
     return true;
   } catch {
-    _applyRemoteCatalog(_loadCachedCatalog(), now);
+    const cached = _loadCachedCatalog();
+    _applyRemoteCatalog(cached ? cached.remote : null, now, cached ? cached.raw : null);
     return false;
   }
+}
+
+// ── Providers remotos (selector modelo-first) ────────────────────────────────
+// Info de conexión del catálogo remoto, accesible aunque el provider aún no
+// esté en el registry (no conectado). Solo datos públicos; nunca keys.
+
+/** Índice de providers remotos: [{id, name, api, env, npm, doc, modelCount}]. */
+function getRemoteProviders() {
+  const out = [];
+  for (const [id, info] of _remoteProviderIndex) {
+    const models = (_remoteCatalog && _remoteCatalog[id]) || {};
+    out.push({ ...info, modelCount: Object.keys(models).length });
+  }
+  out.sort((a, b) => a.name.localeCompare(b.name));
+  return out;
+}
+
+/** Info de conexión de un provider remoto (o null). */
+function getRemoteProvider(providerId) {
+  return _remoteProviderIndex.get(providerId) || null;
 }
 
 // ── Helper HTTP ───────────────────────────────────────────────────────────────
@@ -1493,6 +1563,7 @@ function getAvailableProviders() {
     builtin: !!p.builtin,
     free: !!p.free,
     custom: !!p.custom,
+    remote: !!p.remote,
     hasKey: !!_getApiKey(p.id),
     baseURL: p.baseURL,
     models: p.models,
@@ -1515,6 +1586,262 @@ function addCustomProvider(def) {
   }
   _rebuildMaps();
   return id;
+}
+
+// ── Selector modelo-first (nivel opencode) ───────────────────────────────────
+// El picker de modelos une provider + credenciales + modelos en un solo flujo:
+// lista todos los modelos del catálogo (curado + remoto de models.dev) y, al
+// elegir uno, conecta el provider si hace falta (registro + key) y asigna el
+// modelo al rol. Estas funciones corren en el main process; el renderer solo
+// ve proyecciones sin secretos (getModelPickerData).
+
+/** Mapea el paquete AI SDK de models.dev al tipo de caller del pipeline. */
+function _mapNpmToType(npm) {
+  if (!npm) return 'other';
+  if (
+    /openai-compatible|@ai-sdk\/openai$|@ai-sdk\/groq|@ai-sdk\/mistral|@ai-sdk\/xai|togetherai|cerebras|deepinfra|perplexity|openrouter|gateway/.test(
+      npm
+    )
+  )
+    return 'openai';
+  if (/anthropic/.test(npm)) return 'anthropic';
+  if (/google|gemini/.test(npm)) return 'gemini';
+  return 'other';
+}
+
+const DEFAULT_BASE_URL = {
+  openai: 'https://api.openai.com/v1',
+  anthropic: 'https://api.anthropic.com/v1',
+  gemini: 'https://generativelanguage.googleapis.com/v1beta',
+};
+
+// Estados de provider para el picker: registry (built-in/custom) + remotos de
+// models.dev aún no conectados. Nunca incluye keys.
+function _providerPickerStates() {
+  const byId = new Map();
+  for (const p of getProviders()) {
+    byId.set(p.id, {
+      id: p.id,
+      name: p.name,
+      type: p.type,
+      free: !!p.free,
+      builtin: !!p.builtin,
+      custom: !!p.custom,
+      remote: false,
+      hasKey: !!_getApiKey(p.id),
+      connectable: true,
+    });
+  }
+  for (const info of getRemoteProviders()) {
+    const type = _mapNpmToType(info.npm);
+    // Conectable solo si el pipeline tiene un caller para ese tipo
+    // (openai/anthropic/gemini). Un SDK nicho con endpoint (cohere, bedrock…)
+    // no tiene caller → requiere /provider add, aunque models.dev dé api.
+    const connectable = type !== 'other';
+    if (byId.has(info.id)) {
+      const s = byId.get(info.id);
+      s.remote = true;
+      s.hasKey = !!_getApiKey(info.id);
+    } else {
+      byId.set(info.id, {
+        id: info.id,
+        name: info.name,
+        type,
+        free: false,
+        builtin: false,
+        custom: false,
+        remote: true,
+        hasKey: !!_getApiKey(info.id),
+        connectable,
+        api: info.api || null,
+        doc: info.doc || null,
+        env: info.env || [],
+        npm: info.npm || null,
+        modelCount: info.modelCount,
+      });
+    }
+  }
+  return [...byId.values()];
+}
+
+function _pushPickerModel(models, seen, providerId, modelId, meta, remote) {
+  const key = `${providerId}\u0000${modelId}`;
+  if (seen.has(key)) return;
+  seen.add(key);
+  const m = meta || {};
+  models.push({
+    providerId,
+    modelId,
+    label: (m.label && String(m.label)) || modelId,
+    context: typeof m.context === 'number' ? m.context : 0,
+    maxOutput: typeof m.maxOutput === 'number' ? m.maxOutput : 0,
+    tools: !!m.tools,
+    vision: !!m.vision,
+    reasoning: !!m.reasoning,
+    free: !!m.free,
+    costIn: m.cost && typeof m.cost.in === 'number' ? m.cost.in : 0,
+    costOut: m.cost && typeof m.cost.out === 'number' ? m.cost.out : 0,
+    remote: !!remote,
+  });
+}
+
+/**
+ * Datos completos del selector de modelos (sin secretos). Une el catálogo
+ * curado (registry) con el remoto (models.dev), marca conectados y favoritos.
+ * @returns {object}
+ */
+function getModelPickerData() {
+  const providers = _providerPickerStates();
+  const registry = new Map(getProviders().map((p) => [p.id, p]));
+  const models = [];
+  const seen = new Set();
+  for (const ps of providers) {
+    const def = registry.get(ps.id);
+    if (def) {
+      const metas = def.modelMeta || {};
+      const ids = Object.keys(metas).length > 0 ? Object.keys(metas) : def.catalog || [];
+      for (const mid of ids) {
+        _pushPickerModel(
+          models,
+          seen,
+          ps.id,
+          mid,
+          metas[mid] || null,
+          !!(metas[mid] && metas[mid].remote)
+        );
+      }
+    } else if (_remoteCatalog && _remoteCatalog[ps.id]) {
+      for (const [mid, meta] of Object.entries(_remoteCatalog[ps.id])) {
+        _pushPickerModel(models, seen, ps.id, mid, meta, true);
+      }
+    }
+  }
+  return {
+    roles: ROLE_LABELS,
+    active: {
+      provider: getActiveProvider(),
+      fast: getActiveModel('fast'),
+      smart: getActiveModel('smart'),
+    },
+    favorites: Array.isArray(_config.favorites) ? [..._config.favorites] : [],
+    providers,
+    models,
+  };
+}
+
+/**
+ * Conecta un provider y (opcionalmente) asigna un modelo a un rol. Si el
+ * provider no está en el registry, lo registra como custom usando la info de
+ * conexión de models.dev (mapeo npm→tipo + baseURL). Guarda la key en el
+ * llavero si está disponible; si no, en _config.providers[id].apiKey (el IPC
+ * handler persiste en config.json y recarga).
+ * @param {{providerId: string, apiKey?: string, modelId?: string, mode?: 'fast'|'smart'}} opts
+ * @returns {{ok: boolean, error?: string, provider?: object}}
+ */
+function connectProvider({ providerId, apiKey, modelId, mode } = {}) {
+  if (!providerId) return { ok: false, error: 'provider requerido' };
+  let def = _registry.get(providerId);
+  const remote = getRemoteProvider(providerId);
+
+  if (!def) {
+    if (!remote) return { ok: false, error: `provider desconocido: ${providerId}` };
+    const type = _mapNpmToType(remote.npm);
+    if (type === 'other') {
+      return {
+        ok: false,
+        error: `${remote.name} no es conectable automáticamente (SDK ${remote.npm || 'desconocido'}). Usá /provider add.`,
+      };
+    }
+    const baseURL = remote.api || DEFAULT_BASE_URL[type] || null;
+    if (!baseURL) {
+      return { ok: false, error: `${remote.name} no expone un endpoint. Usá /provider add.` };
+    }
+    const metas = (_remoteCatalog && _remoteCatalog[providerId]) || {};
+    const catalog = Object.keys(metas);
+    const defaults = catalog[0] ? { fast: catalog[0], smart: catalog[0] } : null;
+    def = {
+      id: providerId,
+      name: remote.name,
+      type,
+      baseURL,
+      models: defaults || { fast: null, smart: null },
+      catalog,
+      modelMeta: metas,
+      custom: true,
+      remote: true,
+      free: false,
+    };
+    registerProvider(def);
+    _config.customProviders = _config.customProviders || [];
+    if (!_config.customProviders.find((c) => c.id === providerId)) {
+      _config.customProviders.push({
+        id: providerId,
+        name: remote.name,
+        type,
+        baseURL,
+        models: def.models,
+        catalog,
+      });
+    }
+    _rebuildMaps();
+  }
+
+  if (apiKey && typeof apiKey === 'string' && apiKey.trim()) {
+    const stored = storeProviderApiKey(providerId, apiKey.trim());
+    // Disponible de inmediato para _getApiKey: en el llavero (config guarda
+    // apiKey:'' y el overlay la recupera al recargar) o como fallback en
+    // config/providers cuando el llavero no está.
+    _config.providers[providerId] = {
+      ...(_config.providers[providerId] || {}),
+      apiKey: apiKey.trim(),
+    };
+    if (stored) {
+      // El llavero manda; config solo recuerda que existe (no la key).
+      _config.providers[providerId].apiKey = '';
+      _applyKeychainOverlay();
+    }
+  }
+
+  const model = modelId || def.models?.smart || def.models?.fast || null;
+  if (model) {
+    const prev = {
+      ...((_config.providers[providerId] && _config.providers[providerId].model) || {}),
+    };
+    if (mode === 'fast' || mode === 'smart') prev[mode] = model;
+    else {
+      prev.fast = model;
+      prev.smart = model;
+    }
+    _config.providers[providerId] = { ...(_config.providers[providerId] || {}), model: prev };
+  }
+
+  if (_getApiKey(providerId)) _config.primary = providerId;
+
+  return {
+    ok: true,
+    provider: {
+      id: providerId,
+      name: def.name,
+      type: def.type,
+      hasKey: !!_getApiKey(providerId),
+      fast: _resolveModel(providerId, 'fast'),
+      smart: _resolveModel(providerId, 'smart'),
+    },
+  };
+}
+
+/** Favorito: key "providerId/modelId". Devuelve true si cambió el estado. */
+function setFavoriteModel(modelKey, on) {
+  if (typeof modelKey !== 'string' || !modelKey) return false;
+  _config.favorites = Array.isArray(_config.favorites)
+    ? _config.favorites.filter((f) => f !== modelKey)
+    : [];
+  if (on) _config.favorites.push(modelKey);
+  return true;
+}
+
+function getFavorites() {
+  return Array.isArray(_config.favorites) ? [..._config.favorites] : [];
 }
 
 function removeCustomProvider(id) {
@@ -1584,6 +1911,12 @@ module.exports = {
   getModelMeta,
   getProviderMeta,
   resolveModelId,
+  getModelPickerData,
+  connectProvider,
+  setFavoriteModel,
+  getFavorites,
+  getRemoteProviders,
+  getRemoteProvider,
   ROLE_LABELS,
   resolveRole,
   storeProviderApiKey,

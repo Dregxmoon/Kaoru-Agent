@@ -94,6 +94,8 @@ module.exports = function registerCommands(register) {
           '',
           'Elegí un proveedor: `/model <proveedor>` (lista sus modelos).',
           'O asigná un modelo directo: `/model <proveedor> <modelo> [charla|agente]` (default charla).',
+          '',
+          '¿Buscás entre todos los modelos (400+ providers)? Abrí el **selector de modelos** tocando el nombre del modelo en la barra superior (o el botón "Elegir modelo").',
         ].join('\n');
       }
 

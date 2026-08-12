@@ -69,7 +69,7 @@
 
         <div id="keys-banner">
           <span>Sin API keys — el asistente no puede responder. Configura un proveedor:</span>
-          <button id="open-settings-btn">Abrir configuración</button>
+          <button id="open-settings-btn">Elegir modelo</button>
           <span style="font-size: 9px; opacity: 0.7">o escribe <code>/provider</code></span>
         </div>
 
@@ -130,66 +130,35 @@
       </section>
     </div>
 
-    <!-- Modal settings -->
+    <!-- Modal Select model (modelo-first, nivel opencode) -->
     <div id="settings-modal">
-      <div id="settings-box">
-        <div class="settings-title">Proveedores LLM</div>
-        <div class="settings-sub">CADA PROVEEDOR CON SU PROPIA KEY</div>
-        <div
-          id="settings-guide"
-          class="settings-guide"
-          style="
-            padding: 8px 12px;
-            background: var(--bg-input);
-            border-radius: 2px;
-            margin-bottom: 12px;
-            font-size: 11px;
-            line-height: 1.6;
-            border: 1px solid var(--border);
-            display: none;
-          "
-        >
-          <strong>Primeros pasos:</strong><br />
-          1. Elige un proveedor gratis (Groq) y pega tu API key<br />
-          2. Guarda — el asistente se conectará automáticamente<br />
-          3. Si tienes clave de OpenAI/Anthropic/xAI, configura las que quieras<br />
-          4. Usa <code>/model</code> para cambiar entre ellos<br /><br />
-          <strong>No tienes keys?</strong><br />
-          Groq: <code>console.groq.com/keys</code> (gratis, sin tarjeta)<br />
-          Gemini: <code>aistudio.google.com</code> (tier gratis)<br />
-          NVIDIA: <code>build.nvidia.com</code> (gratis, recopila logs)<br />
-          Hugging Face: <code>huggingface.co/settings/tokens</code> (gratis)<br />
-          DeepSeek: <code>platform.deepseek.com</code> (free tier)<br />
-          OpenAI: <code>platform.openai.com/api-keys</code><br />
-          Anthropic: <code>console.anthropic.com</code><br />
-          xAI: <code>console.x.ai</code>
+      <div id="settings-box" class="picker-box">
+        <div class="settings-title-row">
+          <span class="settings-title">Select model</span>
+          <button class="modal-x" id="picker-close" title="Cerrar">[x]</button>
         </div>
-        <div class="settings-source" id="settings-source"></div>
-        <div id="settings-providers-list"></div>
-        <div class="settings-model-hint" id="settings-model-hint" style="display: none">
-          Para cambiar el modelo de un proveedor: <code>/model &lt;id&gt;</code> muestra sus modelos
-          y <code>/model &lt;id&gt; &lt;modelo&gt;</code> lo activa.
-        </div>
-        <div
-          class="settings-row"
-          style="margin-top: 12px; font-size: 12px; color: var(--text-secondary)"
-        >
-          <span
-            >Para agregar un provider personalizado (Ollama, LM Studio, OpenRouter...):
-            <code>/provider add</code></span
+        <div class="settings-sub">TODOS LOS MODELOS DE IA · CONECTA EL PROVIDER AL ELEGIR</div>
+        <input
+          id="picker-search"
+          class="picker-search"
+          type="text"
+          placeholder="Buscar modelo... (ej: llama, gpt-5, claude, deepseek)"
+          autocomplete="off"
+          spellcheck="false"
+        />
+        <div id="picker-status" class="picker-status"></div>
+        <div id="picker-list" class="picker-list"></div>
+        <div class="picker-foot">
+          <span class="picker-hints"
+            >↑↓ navegar · Enter usar · <kbd>Ctrl+A</kbd> conectar provider ·
+            <kbd>Ctrl+F</kbd> favorito</span
           >
-        </div>
-        <div class="settings-keychain-row" id="settings-keychain-row" style="display: none">
-          <label class="settings-checkbox">
+          <label class="settings-checkbox picker-keychain">
             <input type="checkbox" id="use-keychain" checked />
-            <span>Guardar también en el llavero del sistema</span>
+            <span>Guardar keys en el llavero</span>
           </label>
         </div>
         <div class="settings-status" id="settings-status"></div>
-        <div class="settings-actions">
-          <button class="btn-cancel" id="cancel-settings">Cancelar</button>
-          <button class="btn-save" id="save-settings">Guardar y conectar</button>
-        </div>
       </div>
     </div>
 

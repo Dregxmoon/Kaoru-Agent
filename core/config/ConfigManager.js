@@ -64,6 +64,8 @@ const SCHEMA = {
         default: { enabled: true, concurrency: 1, maxWaitMs: 30000, priority: 0 },
       },
       remoteCatalog: { type: 'object', default: { enabled: true } },
+      // Selector modelo-first: favoritos ("providerId/modelId").
+      favorites: { type: 'array', default: [], itemType: 'string' },
     },
   },
   sensors: {

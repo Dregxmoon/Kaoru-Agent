@@ -214,148 +214,389 @@ ipcRenderer.on('resumed-session', (e, { history }) => {
   refreshFooterSession();
 });
 
-// Settings modal
-const settingsModal = document.getElementById('settings-modal');
-const settingsStatus = document.getElementById('settings-status');
+// ── Select model: picker modelo-first (nivel opencode) ───────────────────────
+// Reemplaza el modal de providers: lista TODOS los modelos de IA (curado +
+// models.dev), busca, marca favoritos y conecta el provider al elegir (si no
+// tiene key, la pide inline). Atajos solo con el modal enfocado:
+// ↑/↓ + Enter navegan/usan, Ctrl+A conecta provider, Ctrl+F favorito.
+const pickerModal = document.getElementById('settings-modal');
+const pickerStatus = document.getElementById('settings-status');
+const pickerSearch = document.getElementById('picker-search');
+const pickerList = document.getElementById('picker-list');
+const pickerCloseBtn = document.getElementById('picker-close');
 
-function openSettings() {
-  const providers = LLMProvider.getAvailableProviders();
-  const listEl = document.getElementById('settings-providers-list');
-  const hasAnyKey = providers.some((p) => p.hasKey);
-  const guideEl = document.getElementById('settings-guide');
-  guideEl.style.display = hasAnyKey ? 'none' : 'block';
+const _picker = {
+  data: null, // payload de get-model-picker
+  view: [], // filas visibles en orden de render (favoritos primero)
+  selected: -1,
+  mode: 'models', // 'models' | 'providers'
+  expanded: null, // { providerId, modelId } | { providerId } expandido
+};
 
-  // Fase catálogo: recomendación por rol (usa metadata del catálogo).
-  const recChatList =
-    (typeof LLMProvider.recommend === 'function' ? LLMProvider.recommend('chat') : []) || [];
-  const recAgentList =
-    (typeof LLMProvider.recommend === 'function' ? LLMProvider.recommend('agent') : []) || [];
+function _fmtCtx(n) {
+  if (!n) return '';
+  if (n >= 1000000) return `${(n / 1000000).toFixed(1).replace(/\.0$/, '')}M ctx`;
+  if (n >= 1000) return `${Math.round(n / 1000)}k ctx`;
+  return `${n} ctx`;
+}
 
-  listEl.innerHTML = providers
-    .map((p) => {
-      const isActive = LLMProvider.getActiveProvider() === p.id;
-      const badges = [];
-      if (isActive) badges.push('<span class="pill primary">ACTIVO</span>');
-      if (p.free) badges.push('<span class="pill free">GRATIS</span>');
-      if (p.builtin) badges.push('<span class="pill builtin">BUILT-IN</span>');
-      if (p.custom) badges.push('<span class="pill custom">CUSTOM</span>');
+function _fmtCost(cIn, cOut) {
+  if (!cIn && !cOut) return '';
+  return `$${cIn}/${cOut} por M`;
+}
 
-      // Selector de modelo: el catálogo del proveedor (estático o refrescado)
-      // con el modelo activo por rol preseleccionado. Las opciones muestran el
-      // label amigable + chips de metadata (tools/gratis); el valor del
-      // <option> sigue siendo el id real del modelo.
-      const modelMeta = p.modelMeta || {};
-      const catalog = (p.catalog && p.catalog.length ? p.catalog : [])
-        .concat(Object.values(p.activeModel || {}))
-        .filter((m, i, arr) => m && arr.indexOf(m) === i);
-      const fastSel = p.activeModel?.fast || p.models?.fast || '';
-      const smartSel = p.activeModel?.smart || p.models?.smart || '';
-      const recChat = recChatList.find((r) => r.provider === p.id) || null;
-      const recAgent = recAgentList.find((r) => r.provider === p.id) || null;
-      const smartMeta = modelMeta[smartSel] || {};
-      const option = (m, activeId) => {
-        const mm = modelMeta[m] || {};
-        const label = mm.label && mm.label !== m ? `${mm.label} (${m})` : m;
-        const chips = [];
-        if (mm.tools) chips.push('tools');
-        if (mm.free) chips.push('gratis');
-        const chip = chips.length ? ` · ${chips.join(' · ')}` : '';
-        return `<option value="${escapeHtml(m)}"${m === activeId ? ' selected' : ''}>${escapeHtml(label)}${escapeHtml(chip)}</option>`;
-      };
-      const recHint = [];
-      if (recChat && recChat.model !== fastSel)
-        recHint.push(`Charla → ${recChat.label || recChat.model}`);
-      if (recAgent && recAgent.model !== smartSel)
-        recHint.push(`Agente → ${recAgent.label || recAgent.model}`);
-      const warnTools =
-        smartMeta.tools === false
-          ? `<div class="settings-warn">⚠ ${escapeHtml(smartMeta.label || smartSel)} no soporta tools — no sirve para tareas de agente.</div>`
-          : '';
-      const modelSelects = catalog.length
-        ? `<div class="settings-model-row">
-             <label class="settings-model-label">Charla</label>
-             <select class="settings-input settings-model provider-model-fast" data-provider="${escapeHtml(p.id)}">${catalog
-               .map((m) => option(m, fastSel))
-               .join('')}</select>
-             <label class="settings-model-label">Agente</label>
-             <select class="settings-input settings-model provider-model-smart" data-provider="${escapeHtml(p.id)}">${catalog
-               .map((m) => option(m, smartSel))
-               .join('')}</select>
-           </div>
-           ${recHint.length ? `<div class="settings-reco">Recomendado → ${recHint.join(' · ')}</div>` : ''}
-           ${warnTools}`
-        : '';
-      return `<div class="settings-field">
-      <div class="settings-label">${escapeHtml(p.name)} ${badges.join(' ')}</div>
-      <input class="settings-input provider-key" data-provider="${escapeHtml(p.id)}" type="password" value="${p.hasKey ? '***' : ''}" placeholder="${p.free ? 'API key (tier gratis — créala en el sitio del proveedor)' : 'API key...'}" title="${p.hasKey ? 'Guardada (oculta). Deja en blanco para borrarla o escribe una nueva.' : ''}">
-      ${modelSelects}
+function _modelKey(m) {
+  return `${m.providerId}/${m.modelId}`;
+}
+
+function _providerMap() {
+  return new Map(((_picker.data && _picker.data.providers) || []).map((p) => [p.id, p]));
+}
+
+function _expandedPanel() {
+  if (!_picker.expanded) return '';
+  const { mode } = _picker;
+  const p = _providerMap().get(_picker.expanded.providerId) || {};
+  if (mode === 'providers') {
+    if (p.hasKey) return '';
+    return `<div class="picker-expanded">
+      ${p.doc ? `<a class="picker-doc" href="${escapeHtml(p.doc)}" target="_blank" rel="noreferrer">Docs del provider ↗</a>` : ''}
+      ${
+        p.connectable === false
+          ? `<div class="picker-warn">No conectable automáticamente. Usá /provider add.</div>`
+          : `<input class="picker-key-input" type="password" placeholder="${escapeHtml(p.name)} API key" autocomplete="off" />
+           <div class="picker-exp-actions"><button class="picker-btn" data-act="connect-provider">Conectar provider</button></div>`
+      }
     </div>`;
-    })
-    .join('');
-
-  ipcRenderer.invoke('get-key-source').then((info) => {
-    const el = document.getElementById('settings-source');
-    const keychainRow = document.getElementById('settings-keychain-row');
-    const useKeychainChk = document.getElementById('use-keychain');
-    if (info.keychainAvailable) {
-      keychainRow.style.display = '';
-      useKeychainChk.checked = info.source === 'llavero del sistema';
-    } else {
-      keychainRow.style.display = 'none';
-    }
-    let label = 'config.json';
-    if (info.source === 'llavero del sistema') label = 'llavero del sistema';
-    else if (info.source === '.env / variable de entorno') label = '.env';
-    el.textContent = 'Fuente activa: ' + label;
-  });
-
-  settingsModal.classList.add('visible');
-}
-function closeSettings() {
-  settingsModal.classList.remove('visible');
-}
-
-document.getElementById('open-settings-btn').addEventListener('click', openSettings);
-document.getElementById('cancel-settings').addEventListener('click', closeSettings);
-settingsModal.addEventListener('click', (e) => {
-  if (e.target === settingsModal) closeSettings();
-});
-
-document.getElementById('save-settings').addEventListener('click', async () => {
-  const keyInputs = document.querySelectorAll('.provider-key');
-  const providers = {};
-  let hasAny = false;
-  for (const inp of keyInputs) {
-    const val = inp.value.trim();
-    providers[inp.dataset.provider] = val;
-    if (val) hasAny = true;
   }
-  if (!hasAny) {
-    settingsStatus.textContent = 'Necesitas al menos una key.';
-    settingsStatus.style.color = '#f59e0b';
+  const m = _picker.view.find((x) => _modelKey(x) === _modelKey(_picker.expanded));
+  if (!m) return '';
+  const isFav = (_picker.data.favorites || []).includes(_modelKey(m));
+  if (p.hasKey) {
+    return `<div class="picker-expanded">
+      <div class="picker-exp-actions">
+        <button class="picker-btn" data-act="use" data-mode="fast">Usar en Charla</button>
+        <button class="picker-btn" data-act="use" data-mode="smart">Usar en Agente</button>
+        <button class="picker-btn ghost" data-act="fav">${isFav ? '★ Quitar favorito' : '☆ Favorito'}</button>
+      </div>
+    </div>`;
+  }
+  const env = (p.env && p.env[0]) || 'API key';
+  return `<div class="picker-expanded">
+    ${p.doc ? `<a class="picker-doc" href="${escapeHtml(p.doc)}" target="_blank" rel="noreferrer">Docs del provider ↗</a>` : ''}
+    ${
+      p.connectable === false
+        ? `<div class="picker-warn">No conectable automáticamente. Usá /provider add.</div>`
+        : `<input class="picker-key-input" type="password" placeholder="${escapeHtml(p.name)} ${escapeHtml(env)}" autocomplete="off" />
+         <div class="picker-exp-actions">
+           <button class="picker-btn" data-act="connect" data-mode="fast">Conectar y usar en Charla</button>
+           <button class="picker-btn" data-act="connect" data-mode="smart">Conectar y usar en Agente</button>
+         </div>`
+    }
+  </div>`;
+}
+
+function _renderPickerList() {
+  if (!_picker.data) return;
+  const favs = new Set(_picker.data.favorites || []);
+  const rows = [];
+  if (_picker.mode === 'models') {
+    const favRows = _picker.view.filter((m) => favs.has(_modelKey(m)));
+    const rest = _picker.view.filter((m) => !favs.has(_modelKey(m)));
+    const order = [...favRows, ...rest].slice(0, 80);
+    _picker.view = order;
+    if (favRows.length) rows.push('<div class="picker-group">FAVORITOS</div>');
+    order.forEach((m, i) => {
+      const p = _providerMap().get(m.providerId) || {};
+      const key = _modelKey(m);
+      const fav = favs.has(key) ? '★' : '☆';
+      const chips = [];
+      if (m.tools) chips.push('tools');
+      if (m.vision) chips.push('visión');
+      const ctx = _fmtCtx(m.context);
+      if (ctx) chips.push(ctx);
+      const cost = _fmtCost(m.costIn, m.costOut);
+      if (cost) chips.push(cost);
+      const active = _picker.selected === i ? ' active' : '';
+      const dot = p.hasKey
+        ? '<span class="picker-dot on" title="conectado"></span>'
+        : '<span class="picker-dot" title="sin conectar"></span>';
+      const expanded =
+        _picker.expanded && _modelKey(_picker.expanded) === key ? _expandedPanel() : '';
+      rows.push(`<div class="picker-row${active}" data-i="${i}">
+        <span class="picker-fav">${fav}</span>
+        <span class="picker-model">${escapeHtml(m.label)}</span>
+        <span class="picker-badge">${escapeHtml(p.name || m.providerId)}${dot}</span>
+        ${chips.length ? `<span class="picker-chips">${chips.map((c) => `<span class="picker-chip">${escapeHtml(c)}</span>`).join('')}</span>` : ''}
+      </div>${expanded}`);
+    });
+    if (!order.length)
+      rows.push('<div class="picker-empty">Sin resultados — probá otro término.</div>');
+  } else {
+    const order = _picker.view.slice(0, 60);
+    order.forEach((p, i) => {
+      const active = _picker.selected === i ? ' active' : '';
+      const dot = p.hasKey
+        ? '<span class="picker-dot on" title="conectado"></span>'
+        : '<span class="picker-dot" title="sin conectar"></span>';
+      const note =
+        p.connectable === false ? ' <span class="picker-chip warn">no conectable</span>' : '';
+      const expanded =
+        _picker.expanded && _picker.expanded.providerId === p.id ? _expandedPanel() : '';
+      rows.push(`<div class="picker-row picker-provider${active}" data-i="${i}">
+        <span class="picker-fav">${p.hasKey ? '✓' : ''}</span>
+        <span class="picker-model">${escapeHtml(p.name)}</span>
+        <span class="picker-badge">${escapeHtml(p.type)}${dot}</span>${note}
+      </div>${expanded}`);
+    });
+    if (!order.length)
+      rows.push('<div class="picker-empty">Sin providers — probá otro término.</div>');
+  }
+  pickerList.innerHTML = rows.join('');
+}
+
+function _applyFilter() {
+  if (!_picker.data) return;
+  const q = (pickerSearch.value || '').trim().toLowerCase();
+  if (_picker.mode === 'models') {
+    _picker.view = q
+      ? _picker.data.models.filter((m) => {
+          const p = _providerMap().get(m.providerId) || {};
+          return (
+            m.label.toLowerCase().includes(q) ||
+            m.modelId.toLowerCase().includes(q) ||
+            (p.name || '').toLowerCase().includes(q)
+          );
+        })
+      : _picker.data.models;
+  } else {
+    _picker.view = q
+      ? _picker.data.providers.filter((p) => p.name.toLowerCase().includes(q))
+      : _picker.data.providers;
+  }
+  _picker.selected = -1;
+  _picker.expanded = null;
+  _renderPickerList();
+}
+
+function _move(delta) {
+  if (!_picker.view.length) return;
+  _picker.selected = (_picker.selected + delta + _picker.view.length) % _picker.view.length;
+  _renderPickerList();
+  const el = pickerList.querySelector('.picker-row.active');
+  if (el) el.scrollIntoView({ block: 'nearest' });
+}
+
+function _enter() {
+  const row = _picker.view[_picker.selected];
+  if (!row) return;
+  if (_picker.mode === 'models') {
+    _toggleExpandModel(row);
+  } else {
+    _toggleExpandProvider(row);
+  }
+}
+
+function _toggleExpandModel(m) {
+  const key = _modelKey(m);
+  _picker.expanded = _picker.expanded && _modelKey(_picker.expanded) === key ? null : m;
+  _renderPickerList();
+}
+
+function _toggleExpandProvider(p) {
+  if (p.hasKey) {
+    // Ya conectado: pasá a buscar modelos de este provider.
+    _picker.mode = 'models';
+    _picker.expanded = null;
+    pickerSearch.value = p.name;
+    _applyFilter();
+    pickerSearch.focus();
     return;
   }
-  settingsStatus.textContent = 'Guardando...';
-  settingsStatus.style.color = 'var(--text-secondary)';
-  try {
-    // Fase Q: recoger el modelo elegido por proveedor (fast/smart).
-    const models = {};
-    for (const sel of document.querySelectorAll('.provider-model-fast')) {
-      models[sel.dataset.provider] = {
-        fast: sel.value,
-        smart:
-          document.querySelector(`.provider-model-smart[data-provider="${sel.dataset.provider}"]`)
-            ?.value || sel.value,
-      };
+  _picker.expanded = _picker.expanded && _picker.expanded.providerId === p.id ? null : p;
+  _renderPickerList();
+}
+
+async function _useModel(m, mode) {
+  const p = _providerMap().get(m.providerId) || {};
+  const role = (_picker.data.roles && _picker.data.roles[mode]) || mode;
+  if (p.hasKey) {
+    await ipcRenderer.invoke('set-llm-model', { provider: m.providerId, mode, model: m.modelId });
+    if (_picker.data.active.provider !== m.providerId) {
+      ipcRenderer.send('set-provider', { primary: m.providerId });
     }
-    const useKeychain = document.getElementById('use-keychain').checked;
-    await ipcRenderer.invoke('save-llm-keys', { providers, useKeychain, models });
     await loadLLMConfig();
-    settingsStatus.textContent = 'Keys guardadas. El asistente está listo.';
-    settingsStatus.style.color = '#10b981';
-    setTimeout(closeSettings, 1200);
-  } catch (e) {
-    settingsStatus.textContent = 'Error: ' + e.message;
-    settingsStatus.style.color = '#ef4444';
+    pickerStatus.textContent = `✓ ${m.label} activo en ${role}`;
+    pickerStatus.style.color = '#10b981';
+    setTimeout(closePicker, 700);
+    return;
   }
+  const input = pickerList.querySelector('.picker-key-input');
+  const apiKey = input ? input.value.trim() : '';
+  if (!apiKey) {
+    pickerStatus.textContent = 'Pegá la API key para conectar.';
+    pickerStatus.style.color = '#f59e0b';
+    return;
+  }
+  pickerStatus.textContent = 'Conectando...';
+  pickerStatus.style.color = 'var(--text-secondary)';
+  const res = await ipcRenderer.invoke('connect-llm-provider', {
+    providerId: m.providerId,
+    apiKey,
+    modelId: m.modelId,
+    mode,
+    useKeychain: document.getElementById('use-keychain').checked,
+  });
+  if (!res.ok) {
+    pickerStatus.textContent = 'Error: ' + (res.error || 'no se pudo conectar');
+    pickerStatus.style.color = '#ef4444';
+    return;
+  }
+  await loadLLMConfig();
+  pickerStatus.textContent = `✓ ${m.label} conectado y activo en ${role}`;
+  pickerStatus.style.color = '#10b981';
+  setTimeout(closePicker, 700);
+}
+
+async function _connectProvider(p) {
+  const input = pickerList.querySelector('.picker-key-input');
+  const apiKey = input ? input.value.trim() : '';
+  if (!apiKey) {
+    pickerStatus.textContent = 'Pegá la API key para conectar.';
+    pickerStatus.style.color = '#f59e0b';
+    return;
+  }
+  pickerStatus.textContent = 'Conectando...';
+  pickerStatus.style.color = 'var(--text-secondary)';
+  const res = await ipcRenderer.invoke('connect-llm-provider', {
+    providerId: p.id,
+    apiKey,
+    useKeychain: document.getElementById('use-keychain').checked,
+  });
+  if (!res.ok) {
+    pickerStatus.textContent = 'Error: ' + (res.error || 'no se pudo conectar');
+    pickerStatus.style.color = '#ef4444';
+    return;
+  }
+  await loadLLMConfig();
+  _picker.data = await ipcRenderer.invoke('get-model-picker');
+  _picker.mode = 'models';
+  _picker.expanded = null;
+  pickerSearch.value = p.name;
+  _applyFilter();
+  pickerSearch.focus();
+  pickerStatus.textContent = `✓ ${p.name} conectado. Elegí un modelo.`;
+  pickerStatus.style.color = '#10b981';
+}
+
+async function _toggleFav(m) {
+  const key = _modelKey(m);
+  const on = !(_picker.data.favorites || []).includes(key);
+  const ok = await ipcRenderer.invoke('favorite-model', { modelKey: key, on });
+  if (ok) {
+    if (on) _picker.data.favorites.push(key);
+    else _picker.data.favorites = (_picker.data.favorites || []).filter((f) => f !== key);
+    _renderPickerList();
+  }
+}
+
+function _openProvidersMode() {
+  _picker.mode = 'providers';
+  _picker.expanded = null;
+  _picker.selected = -1;
+  pickerSearch.value = '';
+  _applyFilter();
+  pickerStatus.textContent = 'Elegí un provider para conectarlo (Ctrl+A cierra este panel).';
+  pickerStatus.style.color = 'var(--text-secondary)';
+}
+
+function openPicker() {
+  _picker.mode = 'models';
+  _picker.expanded = null;
+  _picker.selected = -1;
+  pickerStatus.textContent = '';
+  ipcRenderer
+    .invoke('get-model-picker')
+    .then((data) => {
+      _picker.data = data;
+      pickerModal.classList.add('visible');
+      _applyFilter();
+      pickerSearch.focus();
+    })
+    .catch((e) => {
+      pickerStatus.textContent = 'Error cargando modelos: ' + ((e && e.message) || e);
+      pickerStatus.style.color = '#ef4444';
+    });
+}
+
+function openSettings() {
+  openPicker();
+}
+
+function closePicker() {
+  pickerModal.classList.remove('visible');
+  pickerStatus.textContent = '';
+}
+
+pickerCloseBtn.addEventListener('click', closePicker);
+document.getElementById('open-settings-btn').addEventListener('click', openSettings);
+const headerModelEl = document.getElementById('header-model');
+if (headerModelEl) {
+  headerModelEl.addEventListener('click', openPicker);
+  headerModelEl.style.cursor = 'pointer';
+}
+pickerModal.addEventListener('click', (e) => {
+  if (e.target === pickerModal) closePicker();
+});
+
+pickerSearch.addEventListener('input', _applyFilter);
+pickerSearch.addEventListener('keydown', (e) => {
+  if (e.key === 'ArrowDown') {
+    e.preventDefault();
+    _move(1);
+  } else if (e.key === 'ArrowUp') {
+    e.preventDefault();
+    _move(-1);
+  } else if (e.key === 'Enter') {
+    e.preventDefault();
+    _enter();
+  } else if (e.key === 'Escape') {
+    e.preventDefault();
+    closePicker();
+  }
+});
+
+// Atajos capturados SOLO con el picker abierto (ctrl+a/ctrl+f no deben
+// interferir con el input del chat).
+pickerModal.addEventListener('keydown', (e) => {
+  if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'a') {
+    if (_picker.mode === 'models') {
+      e.preventDefault();
+      _openProvidersMode();
+    }
+  } else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'f') {
+    e.preventDefault();
+    const m = _picker.view[_picker.selected];
+    if (m && _picker.mode === 'models') _toggleFav(m);
+  }
+});
+
+pickerList.addEventListener('click', async (e) => {
+  const btn = e.target.closest('.picker-btn');
+  if (btn) {
+    const { act, mode } = btn.dataset;
+    const row = _picker.view[_picker.selected];
+    if (act === 'use' && row && _picker.mode === 'models') await _useModel(row, mode);
+    else if (act === 'connect' && row && _picker.mode === 'models') await _useModel(row, mode);
+    else if (act === 'fav' && row && _picker.mode === 'models') await _toggleFav(row);
+    else if (act === 'connect-provider') await _connectProvider(_picker.expanded);
+    return;
+  }
+  const row = e.target.closest('.picker-row');
+  if (!row) return;
+  const i = Number(row.dataset.i);
+  if (Number.isNaN(i) || !_picker.view[i]) return;
+  _picker.selected = i;
+  if (_picker.mode === 'models') _toggleExpandModel(_picker.view[i]);
+  else _toggleExpandProvider(_picker.view[i]);
 });

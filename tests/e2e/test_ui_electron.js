@@ -226,21 +226,23 @@ console.log(C.bold(C.cyan('═════════════════�
       `toggle de tema cambia data-theme (${themeBefore || '?'} → ${themeAfter})`
     );
 
-    // ── Modal de settings ─────────────────────────────────────────────────
+    // ── Modal de settings (ahora el picker de modelos) ───────────────────
     // El botón vive dentro de #keys-banner (oculto cuando hay proveedor por
     // defecto), así que se dispara programáticamente — el handler corre igual.
     await chat.evaluate(() => document.getElementById('open-settings-btn').click());
-    await sleep(200);
+    await sleep(300);
     const settingsOpen = await chat.evaluate(() =>
       document.getElementById('settings-modal').classList.contains('visible')
     );
-    assert(settingsOpen, 'modal de settings se abre con "Abrir configuración"');
-    await chat.evaluate(() => document.getElementById('cancel-settings').click());
+    assert(settingsOpen, 'picker de modelos se abre con "Elegir modelo"');
+    const hasSearch = await chat.evaluate(() => Boolean(document.getElementById('picker-search')));
+    assert(hasSearch, 'picker tiene campo de búsqueda');
+    await chat.evaluate(() => document.getElementById('picker-close').click());
     await sleep(150);
     const settingsClosed = await chat.evaluate(
       () => !document.getElementById('settings-modal').classList.contains('visible')
     );
-    assert(settingsClosed, 'modal de settings se cierra con Cancelar');
+    assert(settingsClosed, 'picker de modelos se cierra con ×');
 
     // ── Input funcional ───────────────────────────────────────────────────
     await chat.fill('#msg-input', 'hola kaoru, prueba e2e');

@@ -42,6 +42,11 @@ function _boundedLLM() {
     listModels: (providerId) => LLMProvider.listModels(providerId),
     refreshProviderModels: (providerId) => LLMProvider.refreshProviderModels(providerId),
     getModelMeta: (providerId, modelId) => LLMProvider.getModelMeta(providerId, modelId),
+    resolveModelId: (providerId, modelId) => LLMProvider.resolveModelId(providerId, modelId),
+    resolveRole: (token) => LLMProvider.resolveRole(token),
+    ROLE_LABELS: LLMProvider.ROLE_LABELS,
+    addCustomProvider: (def) => LLMProvider.addCustomProvider(def),
+    removeCustomProvider: (id) => LLMProvider.removeCustomProvider(id),
     recommend: (task) => {
       const { recommend } = require('../../core/llm/recommend.js');
       return recommend(task);

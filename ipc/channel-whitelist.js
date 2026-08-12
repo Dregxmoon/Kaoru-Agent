@@ -21,6 +21,10 @@ const INVOKE_ALLOWLIST = new Set([
   'get-key-source',
   'save-llm-keys',
   'set-llm-model',
+  // Selector modelo-first (nivel opencode)
+  'get-model-picker',
+  'connect-llm-provider',
+  'favorite-model',
   // Workspace
   'get-workspace',
   'pick-workspace-folder',
