@@ -56,7 +56,11 @@ const { StateGraph } = require('../core/state-graph/StateGraph.js');
 const { SessionManager } = require('../core/state-graph/SessionManager.js');
 const LLMProvider = require('../core/llm/LLMProvider.js');
 const { getEventBus } = require('../infrastructure/event-bus/EventBus.js');
-const { _detectMediaTitle, _matchMediaTaste } = require('../core/behavior/proactive/helpers.js');
+const {
+  _detectMediaTitle,
+  _matchMediaTaste,
+  _extractFinalMessage,
+} = require('../core/behavior/proactive/helpers.js');
 const { getMemoryGaps, isRealIdentityNode } = require('../core/core/misc.js');
 const { candidateFromTrigger } = require('../core/decision/SignalNormalizer.js');
 const state = require('../core/core/state.js');
@@ -1039,6 +1043,46 @@ function testTasteMatch() {
   );
 }
 
+// ── Test 20: _extractFinalMessage quita el chain-of-thought del LLM ──────────
+// Los modelos de razonamiento vuelcan su razonamiento (con datos internos del
+// sistema: score del gate, umbrales, contexto crudo) en el content antes del
+// mensaje final. El usuario solo debe ver el mensaje de proactividad.
+
+function testExtractFinalMessage() {
+  console.log(C.bold('\nTest 20: _extractFinalMessage descarta el razonamiento interno'));
+  const leaked = `Here's a thinking process:
+Analyze User Input:
+Trigger/Reason: High app switching (6 times in 10 min). Gate already approved (score 0.465). I MUST write a message.
+Constraints: 1-3 sentences max. THRASH_MIN_SWITCHES = 6.
+Draft - Mental Refinement:
+Saltar entre apps va a hacer que la cabeza explote.
+Better. Check constraints.
+Let's verify against constraints:
+'Nunca usas frases como' -> Checked.
+
+Veo que has saltado entre la terminal, WhatsApp y el repo del asistente. Si estás cruzando datos, dime qué archivo tienes abierto en OpenCode y lo revisamos línea por línea.`;
+  const got = _extractFinalMessage(leaked);
+  assert(
+    got.includes('Veo que has saltado entre la terminal'),
+    'conserva el mensaje final de Kaoru'
+  );
+  assert(
+    !got.includes('Gate already approved') &&
+      !got.includes('score 0.465') &&
+      !got.includes('THRASH_MIN_SWITCHES') &&
+      !got.includes('thinking process') &&
+      !got.includes('Draft') &&
+      !got.includes('Constraints'),
+    'descarta todo el razonamiento interno (score, umbrales, cabeceras)'
+  );
+  assert(
+    _extractFinalMessage('Hola, esto es un mensaje normal') === 'Hola, esto es un mensaje normal',
+    'mensaje directo sin razonamiento pasa tal cual'
+  );
+  assert(_extractFinalMessage('') === '', 'entrada vacía → vacío');
+  assert(_extractFinalMessage(null) === '', 'entrada nula → vacío');
+}
+
 async function testMediaTriggerCarriesTaste() {
   console.log(C.bold('\nTest 19b: el trigger media_watching lleva mediaTasteMatch + tasteMatches'));
   const restore = stubLLM({ complete: async () => 'NO' });
@@ -1947,6 +1991,7 @@ async function testCuriosityOutcomeLoop() {
   await testCodeContext();
   await testAntiRepeatHistory();
   testTasteMatch();
+  testExtractFinalMessage();
   await testMediaTriggerCarriesTaste();
   await testMediaNeutralContext();
   await testConvoActiveWindow();

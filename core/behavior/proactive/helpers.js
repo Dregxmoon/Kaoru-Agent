@@ -17,6 +17,97 @@ function _isLowValueMessage(msg) {
   return false;
 }
 
+/**
+ * Extrae SOLO el mensaje final de una respuesta del LLM, descartando cualquier
+ * bloque de razonamiento/chain-of-thought que el modelo haya vuelto en el
+ * content (modelos de razonamiento tipo qwen: "Here's a thinking process...",
+ * "Analyze User Input:...", secciones "Draft", "Constraints", etc.).
+ *
+ * Esos bloques pueden filtrar datos internos del sistema (score del gate,
+ * umbrales, contexto crudo del trigger) que el usuario jamás debe ver: aquí se
+ * eliminan y se conserva únicamente el texto que Kaoru le diría a la persona.
+ *
+ * @param {*} text  respuesta cruda del LLM
+ * @returns {string} mensaje final limpio (o '' si no hay nada aprovechable)
+ */
+function _extractFinalMessage(text) {
+  if (!text || typeof text !== 'string') return '';
+  let out = text.trim();
+  if (!out) return '';
+
+  // Respuesta directa sin razonamiento → devolver tal cual (caso común).
+  if (
+    !/thinking process|analy(z|s)e|draft|constraints|I (must|need to|should|'ll)/i.test(
+      out.slice(0, 600)
+    )
+  ) {
+    return out;
+  }
+
+  // Bloques de razonamiento conocidos a recortar por marcador de cabecera.
+  const CUT_MARKERS = [
+    /^Here('| i)?s a thinking process/i,
+    /^Let me think/i,
+    /^I need to think/i,
+    /^Thought:\s*$/m,
+    /^Thought process:/i,
+    /^Analy(se|ze) the/i,
+    /^Analyze user input/i,
+    /^Current Context:/i,
+    /^Open Apps:/i,
+    /^Trigger\/Reason:/i,
+    /^Constraints:/i,
+    /^Memory\/Projects:/i,
+    /^Identify Key Contextual Hooks:/i,
+    /^Draft[ -]/i,
+    /^Check constraints:/i,
+    /^Let's verify/i,
+    /^Let’s verify/i,
+  ];
+
+  for (const marker of CUT_MARKERS) {
+    const m = out.match(marker);
+    if (m) {
+      out = out.slice(0, m.index).trim() + '\n' + out.slice(m.index).replace(marker, ' ').trim();
+      // sigue el mismo barrido para encadenar recortes
+      out = out.trim();
+    }
+  }
+
+  // Separar párrafos y quedarse con el último que parezca un mensaje real
+  // (decisión/cadena de razonamiento breve excluida).
+  const paras = out
+    .split(/\n\s*\n/)
+    .map((p) => p.trim())
+    .filter(Boolean);
+
+  // Al final del razonamiento suele venir el mensaje como último párrafo.
+  let last = paras.length ? paras[paras.length - 1] : '';
+  if (last && last.length < 8) {
+    // párrafo de cierre demasiado corto (p.ej. "Better.") → probar el anterior
+    if (paras.length > 1) last = paras[paras.length - 2];
+  }
+  if (last && /^(Better|Yes|No|Wait|Hmm|Ok|OK|Check|Let's|Let’s)/i.test(last)) {
+    last = paras.length > 2 ? paras[paras.length - 3] : last;
+  }
+
+  if (last && last.length >= 8) {
+    // quitar restos de razonamiento inline dentro del párrafo elegido
+    last = last
+      .split('\n')
+      .filter(
+        (line) =>
+          !/^(Here('| i)?s a thinking process|Let me think|Analy(se|ze)|Draft|Constraint|Check:|Let's verify|Let’s verify|I must|I need to|I should|I'll|Wait|Hmm|Better|Yes|No\.?$|Ok\.?$)/i.test(
+            line.trim()
+          )
+      )
+      .join('\n')
+      .trim();
+  }
+
+  return last && last.length >= 8 ? last : out.split('\n').pop() || out;
+}
+
 function _monthName(monthIndex) {
   const months = [
     'enero',
@@ -235,6 +326,7 @@ function _patchLanguageRule(fileType) {
 
 module.exports = {
   _isLowValueMessage,
+  _extractFinalMessage,
   _monthName,
   _triggerDescription,
   _safeGetIdentity,

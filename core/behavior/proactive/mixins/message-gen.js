@@ -4,7 +4,12 @@ const logger = require('../../../observability/Logger.js');
 // identidad + memoria, anti-repetición y filtro de relleno (G.1).
 
 const LLMProvider = require('../../../llm/LLMProvider.js');
-const { _safeGetIdentity, _triggerDescription, _isLowValueMessage } = require('../helpers.js');
+const {
+  _safeGetIdentity,
+  _triggerDescription,
+  _isLowValueMessage,
+  _extractFinalMessage,
+} = require('../helpers.js');
 const { getMemoryGaps, isRealIdentityNode } = require('../../../core/misc.js');
 const {
   WORK_CATEGORIES,
@@ -136,8 +141,10 @@ ${memory}`;
 
     // Fase F: cuando el gate admitió (ACT/ESCALATE), el LLM PRODUCE el mensaje;
     // no decide si intervenir. El criterio ya lo puso el gate determinista.
+    // NUNCA se le pasa el score ni el motivo del gate: son datos internos del
+    // sistema que no deben filtrarse al usuario en la respuesta.
     const productionMode = trigger._gate
-      ? `El gate de contexto ya evaluó esta señal como relevante (score ${trigger._gate.score?.toFixed(3) ?? '?'}, motivo: ${trigger._gate.reason}). Tu trabajo NO es decidir si hablar: ES hablarlo. Escribe el mensaje.`
+      ? `La señal ya fue evaluada como relevante por el sistema. Tu trabajo NO es decidir si hablar: ES hablarlo. Escribe el mensaje.`
       : '';
 
     // Registro adaptativo: el LLM recibe un "frame de situación" determinista
@@ -167,11 +174,11 @@ ${productionMode}
 INSTRUCCIÓN CRÍTICA:
 ${
   productionMode
-    ? 'Escribe UN mensaje corto (1-3 oraciones máximo) en tu voz natural como asistente personal. No expliques por qué escribes. No anuncies que eres proactiva. Solo di lo que dirías.'
+    ? 'Escribe UN mensaje corto (1-3 oraciones máximo) en tu voz natural como asistente personal. No expliques por qué escribes. No anuncies que eres proactiva. NO muestres tu razonamiento ni proceso de pensamiento: responde SOLO el mensaje final, en una sola línea de texto plano, sin "Here\'s a thinking process", sin análisis previo ni notas. Solo di lo que dirías.'
     : `Decide si hay algo genuino y relevante que decirle al usuario AHORA.
 Si no hay nada genuino que decir, responde exactamente: NO
 Si sí hay algo, escribe UN mensaje corto (1-3 oraciones máximo) en tu voz natural como asistente personal.
-No expliques por qué escribes. No anuncies que eres proactiva. Solo di lo que dirías.`
+No expliques por qué escribes. No anuncies que eres proactiva. NO muestres tu razonamiento ni proceso de pensamiento: responde SOLO el mensaje final, en una sola línea de texto plano, sin "Here's a thinking process", sin análisis previo ni notas. Solo di lo que dirías.`
 }`;
 
     try {
@@ -180,7 +187,11 @@ No expliques por qué escribes. No anuncies que eres proactiva. Solo di lo que d
         systemPrompt
       );
 
-      const trimmed = response?.trim();
+      // El modelo a veces vuelca su chain-of-thought en el content antes del
+      // mensaje final (modelos de razonamiento). Esos bloques llevan datos
+      // internos del sistema (scores, umbrales, contexto crudo) que el usuario
+      // jamás debe ver: se descartan y solo se conserva el mensaje final.
+      const trimmed = _extractFinalMessage(response);
       if (!trimmed || trimmed.toUpperCase() === 'NO' || trimmed.length < 5) {
         return null;
       }
