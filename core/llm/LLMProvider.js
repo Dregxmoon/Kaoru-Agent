@@ -1446,7 +1446,7 @@ async function _callWithFallback(messages, systemPrompt, mode = 'fast', opts = {
   }
   throw new Error(
     `Sin API key para: ${missingKeys.join(', ') || '(ninguno)'}. ` +
-      'Todos los proveedores (incluso los "gratis") necesitan su propia API key — configúrala con /credenciales.'
+      'Todos los proveedores (incluso los "gratis") necesitan su propia API key — configúrala en el selector de modelos (tocá el modelo en la barra superior o escribí /model).'
   );
 }
 
@@ -1749,12 +1749,12 @@ function connectProvider({ providerId, apiKey, modelId, mode } = {}) {
     if (type === 'other') {
       return {
         ok: false,
-        error: `${remote.name} no es conectable automáticamente (SDK ${remote.npm || 'desconocido'}). Usá /provider add.`,
+        error: `${remote.name} no es conectable automáticamente (SDK ${remote.npm || 'desconocido'}). Elegí un modelo de un provider conectable.`,
       };
     }
     const baseURL = remote.api || DEFAULT_BASE_URL[type] || null;
     if (!baseURL) {
-      return { ok: false, error: `${remote.name} no expone un endpoint. Usá /provider add.` };
+      return { ok: false, error: `${remote.name} no expone un endpoint conectable.` };
     }
     const metas = (_remoteCatalog && _remoteCatalog[providerId]) || {};
     const catalog = Object.keys(metas);

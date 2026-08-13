@@ -305,8 +305,8 @@ function testConnectProvider() {
   const bedrock = LLMProvider.connectProvider({ providerId: 'amazon-bedrock', apiKey: 'x' });
   assert(bedrock.ok === false, 'amazon-bedrock rechazado', JSON.stringify(bedrock.error));
   assert(
-    bedrock.error && /no es conectable|provider add/.test(bedrock.error),
-    'error explica la vía /provider add',
+    bedrock.error && /no es conectable/.test(bedrock.error),
+    'error explica que no es conectable',
     bedrock.error
   );
   assert(

@@ -34,11 +34,9 @@ const CATEGORIES = {
   dir: 'General',
   uso: 'IA / LLM',
   model: 'IA / LLM',
-  provider: 'IA / LLM',
   agent: 'IA / LLM',
   code: 'IA / LLM',
   skill: 'IA / LLM',
-  credenciales: 'Config',
   github: 'Cuentas',
   init: 'Desarrollo',
   review: 'Desarrollo',
@@ -93,7 +91,7 @@ async function execute(text, ctx = {}) {
       if (ctx.sendIPC) ctx.sendIPC('set-provider', { primary: provider.id });
       const warn = provider.hasKey
         ? ''
-        : `\n\n**${provider.name}** no tiene API key configurada. Todos los proveedores (incluso los "gratis") necesitan su propia key — agrega la de ${provider.name} con \`/credenciales\` antes de usarlo.`;
+        : `\n\n**${provider.name}** no tiene API key configurada. Conectala desde el selector de modelos (tocá el modelo en la barra superior o escribí \`/model\`).`;
       return { result: `Proveedor cambiado a: **${provider.name}**${warn}` };
     }
     const similar = getNames()
@@ -115,7 +113,6 @@ async function execute(text, ctx = {}) {
 
 require('./general')(register);
 require('./llm')(register);
-require('./config')(register);
 require('./dev')(register);
 require('./model')(register);
 require('./github')(register);

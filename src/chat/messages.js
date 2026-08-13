@@ -263,7 +263,7 @@ function _expandedPanel() {
       ${p.doc ? `<a class="picker-doc" href="${escapeHtml(p.doc)}" target="_blank" rel="noreferrer">Docs del provider ↗</a>` : ''}
       ${
         p.connectable === false
-          ? `<div class="picker-warn">No conectable automáticamente. Usá /provider add.</div>`
+          ? `<div class="picker-warn">No conectable automáticamente.</div>`
           : `<input class="picker-key-input" type="password" placeholder="${escapeHtml(p.name)} API key" autocomplete="off" />
            <div class="picker-exp-actions"><button class="picker-btn" data-act="connect-provider">Conectar provider</button></div>`
       }

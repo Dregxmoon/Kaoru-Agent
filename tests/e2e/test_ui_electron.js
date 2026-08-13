@@ -4,7 +4,7 @@
 
 // Los callbacks de page.evaluate() corren en la página (browser), aunque el
 // test en sí viva en Node — por eso window/document se declaran como globals.
-/* global window, document */
+/* global window, document, KeyboardEvent */
 
 /**
  * E2E UI real — lanza la app Electron completa con Playwright (_electron)
@@ -243,6 +243,37 @@ console.log(C.bold(C.cyan('═════════════════�
       () => !document.getElementById('settings-modal').classList.contains('visible')
     );
     assert(settingsClosed, 'picker de modelos se cierra con ×');
+
+    // ── Browser de modelos inline (/model) ────────────────────────────────
+    await chat.fill('#msg-input', '/model');
+    await chat.evaluate(() => {
+      document.getElementById('msg-input').dispatchEvent(new Event('input'));
+    });
+    await sleep(300);
+    const mbrVisible = await chat.evaluate(
+      () => document.getElementById('model-browser').style.display !== 'none'
+    );
+    assert(mbrVisible, '/model expande el browser de modelos inline');
+    const mbrRows = await chat.evaluate(
+      () => document.querySelectorAll('#model-browser-list .model-browser-row').length
+    );
+    assert(mbrRows > 0, `browser lista modelos (${mbrRows} filas)`);
+    const mbrHasProvider = await chat.evaluate(() => {
+      const first = document.querySelector('#model-browser-list .model-browser-row');
+      return first ? first.querySelector('.mbr-provider') !== null : false;
+    });
+    assert(mbrHasProvider, 'cada modelo muestra su empresa debajo');
+    await chat.evaluate(() => {
+      document
+        .getElementById('msg-input')
+        .dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+    });
+    await sleep(150);
+    const mbrClosed = await chat.evaluate(
+      () => document.getElementById('model-browser').style.display === 'none'
+    );
+    assert(mbrClosed, 'Esc cierra el browser de modelos');
+    await chat.fill('#msg-input', '');
 
     // ── Input funcional ───────────────────────────────────────────────────
     await chat.fill('#msg-input', 'hola kaoru, prueba e2e');

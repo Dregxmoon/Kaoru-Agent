@@ -70,7 +70,7 @@
         <div id="keys-banner">
           <span>Sin API keys — el asistente no puede responder. Configura un proveedor:</span>
           <button id="open-settings-btn">Elegir modelo</button>
-          <span style="font-size: 9px; opacity: 0.7">o escribe <code>/provider</code></span>
+          <span style="font-size: 9px; opacity: 0.7">o escribe <code>/model</code></span>
         </div>
 
         <!-- Banner de auto-update: lo controla el listener 'update-status' en ipc.js -->
@@ -97,6 +97,15 @@
         <div id="attachments-bar"></div>
 
         <div id="input-area">
+          <div id="model-browser" class="model-browser" style="display: none">
+            <div id="model-browser-head">
+              <span>MODELOS</span>
+              <span id="model-browser-count" class="model-browser-count"></span>
+              <span class="model-browser-hint">↑↓ navegar · Enter usar · Esc cerrar</span>
+            </div>
+            <div id="model-browser-list"></div>
+            <div id="model-browser-status"></div>
+          </div>
           <div id="at-suggestions" class="at-suggestions" style="display: none"></div>
           <div id="input-row">
             <input type="file" id="file-input" multiple />

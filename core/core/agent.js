@@ -265,7 +265,7 @@ async function runAgent(userMessage, opts = {}) {
       degradedReason: 'providers_down',
       response:
         'No pude conectar con ningún proveedor de IA (todos en rate-limit o sin API key). ' +
-        'Revisá tus credenciales con /credenciales o esperá unos minutos y reintentá.',
+        'Revisá tus credenciales o esperá unos minutos y reintentá.',
     };
   }
 

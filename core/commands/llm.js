@@ -124,7 +124,7 @@ module.exports = function registerCommands(register) {
           .join('\n');
         const hint = valid.hasKey
           ? ''
-          : `\n\n**${valid.name}** no tiene API key configurada. Todos los proveedores (incluso los "gratis") necesitan su propia key — agrega la de ${valid.name} con \`/credenciales\` antes de usarlo.`;
+          : `\n\n**${valid.name}** no tiene API key configurada. Todos los proveedores (incluso los "gratis") necesitan su propia key — conectala desde el selector de modelos (tocá el modelo en la barra superior o escribí \`/model\`).`;
         return `Proveedor activo: **${valid.name}**\n\n**Modelos disponibles (${catalog.length}):**\n${modelLines || '  *(sin modelos)*'}\n\nElige uno: \`/model ${valid.id} <modelo> [charla|agente]\` (default charla)${hint}`;
       }
 
@@ -175,118 +175,6 @@ module.exports = function registerCommands(register) {
       }
       const roleLabel = providerRoleLabels(LLMProvider)[mode] || mode;
       return `**${meta.label || modelName}** activado como *${roleLabel}* en **${valid.name}**.${warn}`;
-    },
-  });
-
-  register({
-    name: 'provider',
-    description: 'Gestiona proveedores LLM: listar, cambiar, agregar custom',
-    usage: '/provider [set|add|remove]',
-    handler: async (args, ctx) => {
-      const LLMProvider = ctx.LLMProvider;
-      if (!LLMProvider) return 'LLMProvider no disponible.';
-      const sub = (args[0] || '').toLowerCase();
-      const SUBCOMMANDS = ['set', 'add', 'remove'];
-
-      // CAMBIO 3: /provider <nombre-de-provider> (sin subcomando) == set.
-      // Si el provider no tiene key, no cambia a un provider inservible.
-      if (args[0] && !SUBCOMMANDS.includes(sub)) {
-        const available = LLMProvider.getAvailableProviders();
-        const direct = available.find((p) => p.id === sub || p.name.toLowerCase() === sub);
-        if (direct) {
-          if (!direct.hasKey) {
-            return `${direct.name} no tiene API key. Usá: /credenciales ${direct.id} <tu-key>`;
-          }
-          LLMProvider.configure({ llm: { primary: direct.id } });
-          if (ctx.sendIPC) ctx.sendIPC('set-provider', { primary: direct.id });
-          return `Proveedor cambiado a: **${direct.name}**`;
-        }
-      }
-
-      if (sub === 'add') {
-        if (args.length < 3) {
-          return 'Uso: `/provider add <nombre> <url> <fastModel> [smartModel]`\nFaltan argumentos requeridos: `<nombre>` y `<url>`.';
-        }
-        const name = args[1];
-        const baseURL = args[2].replace(/\/+$/, '');
-        const fastModel = args[3] || 'gpt-4o-mini';
-        const smartModel = args[4] || fastModel;
-        try {
-          const id = LLMProvider.addCustomProvider({
-            name,
-            baseURL,
-            type: 'openai',
-            models: { fast: fastModel, smart: smartModel },
-          });
-          return `Provider custom agregado: **${name}** (\`${id}\`)\nEndpoint: \`${baseURL}\`\nModelos: fast=\`${fastModel}\`, smart=\`${smartModel}\`\n\nConfigura la API key con \`/credenciales\` y activalo con \`/model ${id}\``;
-        } catch (e) {
-          return `Error: ${e.message}`;
-        }
-      }
-
-      if (sub === 'remove') {
-        if (!args[1]) return 'Uso: `/provider remove <id>`';
-        try {
-          LLMProvider.removeCustomProvider(args[1]);
-          return `Provider \`${args[1]}\` eliminado.`;
-        } catch (e) {
-          return `Error: ${e.message}`;
-        }
-      }
-
-      if (sub === 'set') {
-        if (!args[1]) return 'Uso: `/provider set <id>`';
-        const available = LLMProvider.getAvailableProviders();
-        const target = available.find((p) => p.id === args[1].toLowerCase());
-        if (!target) {
-          const names = available
-            .filter((p) => p.hasKey)
-            .map((p) => `\`${p.id}\``)
-            .join(', ');
-          return `No encontrado. Proveedores con key: ${names || 'ninguno'}`;
-        }
-        if (!target.hasKey) {
-          return `**${target.name}** no tiene API key configurada.\n\nAgregala con \`/credenciales\` y vuelve a intentar.`;
-        }
-        LLMProvider.configure({ llm: { primary: target.id } });
-        if (ctx.sendIPC) ctx.sendIPC('set-provider', { primary: target.id });
-        return `Proveedor cambiado a: **${target.name}**`;
-      }
-
-      const all = LLMProvider.getAvailableProviders();
-      const active = LLMProvider.getActiveProvider();
-      const activeDef = all.find((p) => p.id === active);
-
-      const lines = ['**Proveedores LLM disponibles:**\n'];
-      for (const p of all) {
-        const isActive = p.id === active;
-        const status = isActive ? 'ACTIVO' : p.hasKey ? 'key lista' : 'sin key';
-        const badges = [];
-        if (p.free) badges.push('gratis');
-        if (p.builtin) badges.push('built-in');
-        if (p.custom) badges.push('custom');
-        const badgeStr = badges.length ? ` (${badges.join(', ')})` : '';
-        const marker = isActive ? '>' : ' ';
-        lines.push(`${marker} **${p.name}**${badgeStr} — ${status}`);
-      }
-
-      lines.push('', '**Comandos:**');
-      lines.push('  `/provider set <id>` — Cambiar a ese proveedor');
-      lines.push('  `/provider add <nombre> <url> <fastModel> [smartModel]` — Agregar custom');
-      lines.push('  `/provider remove <id>` — Eliminar custom');
-      lines.push('', '**Para configurar keys:** `/credenciales`');
-
-      if (activeDef) {
-        const roles = LLMProvider.ROLE_LABELS || { fast: 'charla', smart: 'agente' };
-        const modelFast = activeDef.models?.fast || '?';
-        const modelSmart = activeDef.models?.smart || '?';
-        lines.push(
-          '',
-          `**Activo:** ${activeDef.name} — ${roles.fast}: \`${modelFast}\`, ${roles.smart}: \`${modelSmart}\``
-        );
-      }
-
-      return lines.join('\n');
     },
   });
 

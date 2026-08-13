@@ -62,13 +62,7 @@ async function processMessage(text, files = []) {
 
   // Comandos / (no usan LLM ni context building)
   if (trimmed.startsWith('/')) {
-    // CAMBIO 5: /credenciales <provider> <key> no debe mostrar ni persistir la
-    // key en claro — el DOM muestra un placeholder (el handler nunca la
-    // devuelve en su respuesta y los comandos no entran a sessionHistory/
-    // memoria como turno de usuario).
-    const credMatch = trimmed.match(/^\/credenciales\s+(\S+)\s+(\S+)/);
-    const userDisplay = credMatch ? `[/credenciales ejecutado para ${credMatch[1]}]` : trimmed;
-    addMessage('user', userDisplay);
+    addMessage('user', trimmed);
 
     const cmdCtx = {
       sessionHistory,
