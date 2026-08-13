@@ -18,10 +18,80 @@ function _isLowValueMessage(msg) {
 }
 
 /**
+ * Indica si una respuesta del LLM trae rastros de razonamiento (chain-of-thought)
+ * en lugar de ser el mensaje directo. Cubre tanto el formato con cabeceras
+ * (DeepSeek/R1: "Here's a thinking process:", "Draft:", "Constraints:") como la
+ * prosa libre de razonamiento que emiten modelos tipo Qwen3 ("Looks solid. I'll
+ * output Option 3...", "-> Exactly 3 sentences. Fits all rules. Ready.").
+ *
+ * @param {string} text
+ * @returns {boolean}
+ */
+function _hasReasoningHints(text) {
+  const window = text.slice(0, 1500);
+  return /thinking process|let me think|i need to think|analy(se|ze)|draft|constraints|i (must|need to|should|'ll|will)|\blooks (solid|good|great)|i'?ll (output|stick|go with)|fits all rules|exactly \d+ sentence|one minor tweak|minor tweak|stick to|naturalness|option \d|output matches|checks?:|changed "|->/i.test(
+    window
+  );
+}
+
+/**
+ * Comprueba si una cadena parece el mensaje final real (no meta-análisis ni
+ * una palabra suelta citada por el razonamiento del modelo).
+ *
+ * @param {string} s
+ * @returns {boolean}
+ */
+function _looksLikeFinalMessage(s) {
+  const t = (s || '').trim();
+  if (t.length < 8) return false;
+  if (!/\s/.test(t)) return false; // una sola palabra (p.ej. "Kaoru", "proyecto")
+  // El mensaje final es una frase completa: empieza en mayúscula y cierra
+  // con puntuación de oración. Esto descarta los fragmentos de meta-análisis
+  // que el razonamiento deja entre comillas ("... but", " without breaking...").
+  if (!/^[A-ZÁÉÍÓÚÜÑ0-9¿¡«“]/.test(t)) return false;
+  if (!/[.?!…»”]$/.test(t)) return false;
+  if (
+    /->|Fits all rules|Exactly \d|Option \d|stick to|tweak|Changed|Draft|Checks?:|Ready|Output matches|Look[s]? solid/i.test(
+      t
+    )
+  ) {
+    return false;
+  }
+  if (/^(Here('s| is)?|Let me|I need to|I must|I should|I'?ll|Analy(se|ze)|Constraint)/i.test(t)) {
+    return false;
+  }
+  return true;
+}
+
+/**
+ * En la prosa libre de razonamiento (p. ej. Qwen3) el mensaje final suele venir
+ * delimitado entre comillas dobles; devuelve la última cita sustancial.
+ *
+ * @param {string} text
+ * @returns {string}
+ */
+function _extractQuotedFinalMessage(text) {
+  const candidates = [];
+  // Emparejar comillas consecutivas (apertura-cierre). Un regex greedy cruza
+  // las citas cortas del razonamiento ("Kaoru", "proyecto") y captura
+  // fragmentos del meta-análisis; el barrido secuencial no.
+  const quotes = [];
+  for (let i = 0; i < text.length; i++) {
+    if (text[i] === '"') quotes.push(i);
+  }
+  for (let k = 0; k + 1 < quotes.length; k += 2) {
+    const content = text.slice(quotes[k] + 1, quotes[k + 1]);
+    if (_looksLikeFinalMessage(content)) candidates.push(content.trim());
+  }
+  return candidates.length ? candidates[candidates.length - 1] : '';
+}
+
+/**
  * Extrae SOLO el mensaje final de una respuesta del LLM, descartando cualquier
  * bloque de razonamiento/chain-of-thought que el modelo haya vuelto en el
  * content (modelos de razonamiento tipo qwen: "Here's a thinking process...",
- * "Analyze User Input:...", secciones "Draft", "Constraints", etc.).
+ * "Analyze User Input:...", secciones "Draft", "Constraints", y también la
+ * prosa libre de razonamiento tipo Qwen3 con el mensaje entre comillas).
  *
  * Esos bloques pueden filtrar datos internos del sistema (score del gate,
  * umbrales, contexto crudo del trigger) que el usuario jamás debe ver: aquí se
@@ -36,13 +106,13 @@ function _extractFinalMessage(text) {
   if (!out) return '';
 
   // Respuesta directa sin razonamiento → devolver tal cual (caso común).
-  if (
-    !/thinking process|analy(z|s)e|draft|constraints|I (must|need to|should|'ll)/i.test(
-      out.slice(0, 600)
-    )
-  ) {
+  if (!_hasReasoningHints(out)) {
     return out;
   }
+
+  // Prosa libre de razonamiento: el mensaje real suele ir entre comillas dobles.
+  const quoted = _extractQuotedFinalMessage(out);
+  if (quoted) return quoted;
 
   // Bloques de razonamiento conocidos a recortar por marcador de cabecera.
   const CUT_MARKERS = [

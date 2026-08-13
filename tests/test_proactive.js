@@ -1081,6 +1081,25 @@ Veo que has saltado entre la terminal, WhatsApp y el repo del asistente. Si est�
   );
   assert(_extractFinalMessage('') === '', 'entrada vacía → vacío');
   assert(_extractFinalMessage(null) === '', 'entrada nula → vacío');
+
+  // Formato de prosa libre que emite Qwen3: sin cabeceras "Here's a thinking
+  // process", el razonamiento es prosa ("Looks solid. I'll output Option 3...")
+  // con el mensaje final citado entre comillas dobles y meta-análisis tras él.
+  const qwen3Leak = `Looks solid. I'll output Option 3 adjusted slightly for maximum naturalness and alignment with the prompt's tone.
+"Veo que la terminal, WhatsApp y el navegador se rotan rápido. ¿Te trabaste en algún detalle del proyecto o solo estás depurando entre mensajes? Si me pasas el error o el archivo, lo reviso contigo." -> Exactly 3 sentences. Fits all rules. Ready.✅
+One minor tweak to make it slightly more "Kaoru" without breaking rules: "Veo que la terminal, WhatsApp y el navegador se rotan rápido. ¿Te trabaste en algún detalle del asistente o solo estás depurando entre mensajes? Si me pasas el error o el archivo, lo reviso contigo." (Changed "proyecto" to "asistente" to tie to known project name naturally, but "proyecto" is fine too. I'll stick to`;
+  const gotQwen3 = _extractFinalMessage(qwen3Leak);
+  assert(
+    gotQwen3 ===
+      'Veo que la terminal, WhatsApp y el navegador se rotan rápido. ¿Te trabaste en algún detalle del asistente o solo estás depurando entre mensajes? Si me pasas el error o el archivo, lo reviso contigo.',
+    'Qwen3 en prosa libre: conserva SOLO el mensaje final (la última cita sustancial)'
+  );
+  assert(
+    !/Looks solid|Option 3|Exactly 3 sentences|Fits all rules|Ready|minor tweak|Changed|I'll stick/i.test(
+      gotQwen3
+    ),
+    'Qwen3 en prosa libre: descarta todo el meta-análisis del razonamiento'
+  );
 }
 
 async function testMediaTriggerCarriesTaste() {
