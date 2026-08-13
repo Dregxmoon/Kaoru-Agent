@@ -1009,6 +1009,79 @@ async function callAnthropic(providerId, messages, systemPrompt, mode = 'fast') 
     .trim();
 }
 
+// ── Anthropic tool-calling ────────────────────────────────────────────────────
+// Formato de la API Messages: `tools` con `{ name, description, input_schema }`
+// y la respuesta en `content` como lista de bloques `{ type: 'tool_use', id,
+// name, input }` / `{ type: 'text', text }`. Se normaliza a { content,
+// toolCalls: [{ tool, params, id }] } como el resto del pipeline.
+function _buildAnthropicTools(tools) {
+  return tools.map((t) => ({
+    name: t.name,
+    description: (t.description || '').slice(0, 1024),
+    input_schema: t.inputSchema || { type: 'object', properties: {} },
+  }));
+}
+
+function _normalizeAnthropicResponse(body) {
+  const blocks = body.content;
+  if (!Array.isArray(blocks)) return { content: null, toolCalls: null };
+  let content = null;
+  const toolCalls = [];
+  for (const block of blocks) {
+    if (block.type === 'text' && block.text) content = (content || '') + block.text;
+    else if (block.type === 'tool_use' && block.name)
+      toolCalls.push({ tool: block.name, params: block.input || {}, id: block.id });
+  }
+  return {
+    content: (content || '').trim() || null,
+    toolCalls: toolCalls.length > 0 ? toolCalls : null,
+  };
+}
+
+async function callAnthropicWithTools(providerId, messages, systemPrompt, mode, tools, opts = {}) {
+  const def = _registry.get(providerId);
+  if (!def) throw new Error(`Provider desconocido: ${providerId}`);
+  const key = _getApiKey(providerId);
+  if (!key) throw new Error(`No API key para ${def.name}`);
+
+  const safeMode = _resolveMode(mode);
+  const model = _resolveModel(providerId, safeMode);
+  const maxTokens = MAX_OUTPUT[safeMode];
+  const timeoutMs = def.timeoutMs?.[safeMode] ?? TIMEOUT_MS[safeMode] ?? TIMEOUT_MS.fast;
+  const history = _trimHistoryForMode(messages, safeMode);
+
+  const msgs = history.map((m) => ({
+    role: m.role === 'assistant' ? 'assistant' : 'user',
+    content: m.content,
+  }));
+  const startedAt = Date.now();
+
+  const body = {
+    model,
+    messages: msgs,
+    system: systemPrompt,
+    max_tokens: maxTokens,
+    temperature: 0.85,
+    tools: _buildAnthropicTools(tools),
+  };
+
+  logger.info(
+    'LLMProvider',
+    `[llm] ${providerId} tool-calling model: ${model} (${mode}, ${tools.length} tools)`
+  );
+
+  const res = await post(
+    `${def.baseURL}/messages`,
+    { 'x-api-key': key, 'anthropic-version': '2023-06-01' },
+    body,
+    timeoutMs,
+    opts.signal
+  );
+  if (res.status !== 200) throw new Error(`${def.name} ${res.status}: ${JSON.stringify(res.body)}`);
+  _recordUsage(providerId, def, model, safeMode, res.body, opts, startedAt);
+  return _normalizeAnthropicResponse(res.body);
+}
+
 // ── Dispatcher ────────────────────────────────────────────────────────────────
 function _getCaller(providerId) {
   const def = _registry.get(providerId);
@@ -1226,6 +1299,8 @@ function _getToolCaller(providerId) {
       return callOpenAIWithTools;
     case 'gemini':
       return callGeminiWithTools;
+    case 'anthropic':
+      return callAnthropicWithTools;
     default:
       return null;
   }
@@ -1926,8 +2001,12 @@ module.exports = {
   _debug_enqueueProviderCall: _enqueueProviderCall,
   _debug_normalizeOpenAI: _normalizeOpenAIResponse,
   _debug_normalizeGemini: _normalizeGeminiResponse,
+  _debug_normalizeAnthropic: _normalizeAnthropicResponse,
   _debug_buildOpenAITools: _buildOpenAITools,
   _debug_buildGeminiTools: _buildGeminiTools,
+  _debug_buildAnthropicTools: _buildAnthropicTools,
+  _debug_getToolCaller: _getToolCaller,
+  _debug_callAnthropicWithTools: callAnthropicWithTools,
   _debug_postStream: postStream,
   _debug_post: post,
   _debug_get: get,

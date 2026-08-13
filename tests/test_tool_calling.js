@@ -146,6 +146,14 @@ function testCrossProviderNormalization() {
     ],
   };
 
+  // Fixture: respuesta simulada de Anthropic (formato Messages real)
+  const anthropicResponse = {
+    content: [
+      { type: 'text', text: 'Voy a leer el archivo.' },
+      { type: 'tool_use', id: 'toolu_1', name: 'read', input: { path: 'config.json' } },
+    ],
+  };
+
   // Fixture: OpenAI con texto + tool call (caso edge)
   const openAIMixedResponse = {
     choices: [
@@ -193,6 +201,18 @@ function testCrossProviderNormalization() {
     'Gemini: params.path="config.json"'
   );
 
+  // Normalizar Anthropic
+  const normAnthropic = LLMProvider._debug_normalizeAnthropic(anthropicResponse);
+  assert(normAnthropic.content === 'Voy a leer el archivo.', 'Anthropic: content preservado');
+  assert(normAnthropic.toolCalls !== null, 'Anthropic: toolCalls no es null');
+  assert(normAnthropic.toolCalls.length === 1, 'Anthropic: 1 tool call');
+  assert(normAnthropic.toolCalls[0].tool === 'read', `Anthropic: tool="read"`);
+  assert(
+    normAnthropic.toolCalls[0].params.path === 'config.json',
+    'Anthropic: params.path="config.json"'
+  );
+  assert(normAnthropic.toolCalls[0].id === 'toolu_1', 'Anthropic: id del tool_use preservado');
+
   // Normalizar OpenAI mixto (text + tool call)
   const normMixed = LLMProvider._debug_normalizeOpenAI(openAIMixedResponse);
   assert(normMixed.content === 'Voy a leer el archivo.', 'OpenAI mixto: content preservado');
@@ -204,6 +224,13 @@ function testCrossProviderNormalization() {
     normOpenAI.toolCalls[0].tool === normGemini.toolCalls[0].tool &&
       normOpenAI.toolCalls[0].params.path === normGemini.toolCalls[0].params.path,
     'Normalización produce tool+params idénticos entre proveedores'
+  );
+
+  // Anthropic produce la misma tool+params que los demás proveedores
+  assert(
+    normAnthropic.toolCalls[0].tool === normOpenAI.toolCalls[0].tool &&
+      normAnthropic.toolCalls[0].params.path === normOpenAI.toolCalls[0].params.path,
+    'Normalización produce tool+params idénticos entre proveedores (Anthropic incluido)'
   );
 
   // Edge case: respuesta sin tool calls
@@ -254,11 +281,56 @@ function testProviderToolFormat() {
     'Gemini: required incluye "path"'
   );
 
-  // Ambos formatos producen estructura usable
+  // Formato Anthropic
+  const anthropicTools = LLMProvider._debug_buildAnthropicTools([readTool]);
+  assert(anthropicTools.length === 1, 'Anthropic: 1 tool');
+  assert(anthropicTools[0].name === 'read', `Anthropic: name="read"`);
+  assert(anthropicTools[0].input_schema.type === 'object', 'Anthropic: input_schema.type="object"');
   assert(
-    openAITools[0].function.name === geminiTools[0].function_declarations[0].name,
-    'Mismo nombre entre formatos'
+    anthropicTools[0].input_schema.required.includes('path'),
+    'Anthropic: input_schema.required incluye "path"'
   );
+
+  // Todos los formatos producen el mismo nombre de tool
+  assert(
+    openAITools[0].function.name === geminiTools[0].function_declarations[0].name &&
+      openAITools[0].function.name === anthropicTools[0].name,
+    'Mismo nombre entre formatos (OpenAI/Gemini/Anthropic)'
+  );
+}
+
+// ── Test 3b: el dispatcher registra caller de tools para Anthropic ──────────
+
+function testAnthropicToolCallerRegistered() {
+  console.log(C.bold('\n── Test 3b: Anthropic tiene caller de tools en el dispatcher ────'));
+
+  const LLMProvider = require('../core/llm/LLMProvider.js');
+
+  // Registrar un provider Anthropic de prueba y verificar que _getToolCaller
+  // le asigna callAnthropicWithTools (no null como antes).
+  const id = 'test-anthropic-tools';
+  LLMProvider.registerProvider({
+    id,
+    name: 'Test Anthropic',
+    type: 'anthropic',
+    baseURL: 'https://api.anthropic.com/v1',
+  });
+  const caller = LLMProvider._debug_getToolCaller(id);
+  assert(
+    caller === LLMProvider._debug_callAnthropicWithTools,
+    'dispatcher asigna el caller de tools de Anthropic'
+  );
+
+  // Registrar un provider "other" → sin caller de tools.
+  const otherId = 'test-other-tools';
+  LLMProvider.registerProvider({
+    id: otherId,
+    name: 'Test Other',
+    type: 'other',
+    baseURL: 'https://example.com/v1',
+  });
+  const none = LLMProvider._debug_getToolCaller(otherId);
+  assert(none === null, 'tipo "other" sin caller de tools');
 }
 
 // ── Test 4: Respuesta vacía/incompleta no rompe ─────────────────────────────
@@ -275,6 +347,12 @@ function testEdgeCases() {
   // Sin candidates
   const empty2 = LLMProvider._debug_normalizeGemini({});
   assert(empty2.content === null && empty2.toolCalls === null, 'Gemini: body vacío');
+
+  // Anthropic sin content (array)
+  const empty3 = LLMProvider._debug_normalizeAnthropic({});
+  assert(empty3.content === null && empty3.toolCalls === null, 'Anthropic: body vacío');
+  const empty4 = LLMProvider._debug_normalizeAnthropic({ content: [] });
+  assert(empty4.content === null && empty4.toolCalls === null, 'Anthropic: content vacío');
 
   // tool_calls con JSON inválido en arguments
   const badJSON = {
@@ -364,6 +442,7 @@ async function main() {
   testSchemaValidation();
   testCrossProviderNormalization();
   testProviderToolFormat();
+  testAnthropicToolCallerRegistered();
   testEdgeCases();
   testSchemaConsistency();
 
