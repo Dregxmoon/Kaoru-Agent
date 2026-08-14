@@ -127,56 +127,38 @@ async function processMessage(text, files = []) {
   if (trimmed.startsWith('/')) {
     addMessage('user', trimmed);
 
-    const cmdCtx = {
+    // Con sandbox:true el ctx del CommandRegistry se construye en MAIN
+    // (ipc/chat-handlers.js) con fs/path reales. La página envía SOLO datos
+    // serializables (pageData) y un ctx donde las funciones de página son
+    // stubs que el main resuelve por roundtrip (chat-ui-call). El main muta
+    // su copia de sessionHistory (los comandos hacen push/splice) y la
+    // devuelve al final para que la página sincronice su array.
+    const pageData = {
       sessionHistory,
-      pushToSession,
-      LLMProvider,
-      ipcRenderer,
-      sendIPC: (ch, d) => ipcRenderer.send(ch, d),
-      addMessage,
-      processMessage,
-      openSettings,
-      openSessions,
-      openNodes,
-      hideNodes,
-      openMcp: openMcpModal,
-      openPerms: openPermsModal,
-      pickWorkspace: () => ipcRenderer.invoke('pick-workspace-folder'),
-      fs,
-      path,
-      process: { cwd: () => _workspacePath || assistant.cwd() },
-      // NOTA (sandbox): NO se pasa chatGestureEngine por el bridge. El engine
-      // corre en la página y guarda el objeto Live2D real; pasarlo a
-      // CommandRegistry (que vive en el mundo aislado) dispara una copia
-      // profunda síncrona del modelo por contextBridge → la ventana se
-      // congela. Se expone solo un wrapper de función (los callbacks sí se
-      // proxean barato). /gesto lo usa como ctx.gestureEngine.play(mood).
-      gestureEngine: chatGestureEngine
-        ? { play: (mood, opts) => chatGestureEngine.play(mood, opts || { priority: 'force' }) }
-        : null,
-      gestureConfig: chatGestureConfig,
-      setTtsMuted,
-      isTtsMuted,
+      gestureConfig: chatGestureConfig || null,
+      gestureAvailable: !!chatGestureEngine,
+      ttsMuted: isTtsMuted(),
+      workspacePath: _workspacePath,
     };
-
-    // Also pass ipcRenderer for commands that use IPC (like /undo)
-    cmdCtx.ipcRenderer = ipcRenderer;
-    // runCommand ejecuta en el mundo aislado (preload) donde fs/path son los
-    // reales de Node — los shims de la página solo tienen join/existsSync y
-    // /init, /open, /export fallarían con "readdirSync is not a function".
-    const cmdResult = await assistant.runCommand(trimmed, cmdCtx);
-    const asstMsg = cmdResult.error
-      ? `Error: ${cmdResult.error}`
-      : cmdResult.result || '(sin respuesta)';
+    const cmdResult = await assistant.runCommand(trimmed, pageData);
+    if (cmdResult && Array.isArray(cmdResult.sessionHistory)) {
+      sessionHistory.splice(0, sessionHistory.length, ...cmdResult.sessionHistory);
+    }
+    const asstMsg = cmdResult && cmdResult.result
+      ? cmdResult.result.error
+        ? `Error: ${cmdResult.result.error}`
+        : cmdResult.result.result || '(sin respuesta)'
+      : '(sin respuesta)';
     addMessage('assistant', asstMsg);
     pushToSession('assistant', `[comando] ${asstMsg}`);
     if (chatGestureEngine)
-      chatGestureEngine.onEvent(cmdResult.error ? 'command_error' : 'command_ok');
+      chatGestureEngine.onEvent(cmdResult && cmdResult.result && cmdResult.result.error ? 'command_error' : 'command_ok');
     return;
   }
 
   // @ file references
-  const fileResult = FileResolver.buildFileContext(trimmed, _workspacePath || assistant.cwd());
+  const projectCwd = _workspacePath || (await assistant.cwd().catch(() => null));
+  const fileResult = await FileResolver.buildFileContext(trimmed, projectCwd);
 
   addMessage('user', trimmed || '(archivo adjunto)', files);
   if (chatGestureEngine) chatGestureEngine.onChat('user', trimmed, chatDetectEmotion);
@@ -200,8 +182,9 @@ async function processMessage(text, files = []) {
 
   // Botón de cancelación: visible durante la generación. Aborta el agent-run
   // openclaw (agent-cancel → AbortController del main) Y el flujo simple
-  // (cancelSimple → AbortController del preload). El AbortSignal del renderer
-  // no puede cruzar el contextBridge, por eso el controller vive en el preload.
+  // (chat-llm-cancel → AbortController del main, en ipc/chat-handlers.js). El
+  // AbortSignal del renderer no puede cruzar el contextBridge, por eso el
+  // controller del flujo simple vive en main.
   const cancelBtn = document.getElementById('cancel-btn');
   let cancelArmed = true;
   if (cancelBtn) cancelBtn.style.display = 'inline-flex';
@@ -367,24 +350,25 @@ async function processMessage(text, files = []) {
         throw new Error('context inválido');
       }
 
-      const agentPrompt = AgentManager.getSystemPrompt();
+      const agentPrompt = await AgentManager.getSystemPrompt();
       if (agentPrompt) {
         ctx.systemPrompt = `${agentPrompt}\n\n---\n\n${ctx.systemPrompt}`;
       }
 
-      // Cancelable: el preload inyecta el signal interno (cancelSimple) —
-      // AbortError se propaga como e.code === 'ABORTED' para el flujo sin
-      // openclaw.
-      response = await LLMProvider.complete(ctx.messages, ctx.systemPrompt);
-    } catch (err) {
-      disarmCancel();
-      if (err?.code === 'ABORTED' || err?.name === 'AbortError') {
-        // El usuario canceló la generación simple — mostrar lo que haya y
-        // salir sin tratar como error.
+      // Cancelable: el AbortController vive en MAIN (chat-llm-complete/
+      // chat-llm-cancel en ipc/chat-handlers.js); el abort se devuelve como
+      // { aborted: true } porque AbortError no serializa code/name por IPC.
+      const llm = await LLMProvider.complete(ctx.messages, ctx.systemPrompt);
+      if (llm && llm.aborted) {
+        disarmCancel();
         removeThinking();
         setAgentState('done', 'Cancelado');
         return;
       }
+      if (llm && llm.error) throw new Error(llm.error);
+      response = llm && llm.response ? llm.response : null;
+    } catch (err) {
+      disarmCancel();
       console.error('error LLM:', err.message);
       response = LLMProvider.getActiveProvider()
         ? 'Algo falló al conectar. Revisa tu conexión o la key.'

@@ -84,6 +84,24 @@ const INVOKE_ALLOWLIST = new Set([
   'proactive:get-stats',
   'proactive:set-autonomy',
   'proactive:set-shadow-mode',
+  // Chat sandbox:true — lógica del chat movida a main (ipc/chat-handlers.js)
+  'chat-run-command',
+  'chat-core-sources',
+  'chat-fs-exists',
+  'chat-fs-stat-dir',
+  'chat-cwd',
+  'chat-path-join',
+  'chat-augment-model',
+  'chat-list-gestures',
+  'chat-tts-stream',
+  'chat-llm-state',
+  'chat-llm-configure',
+  'chat-llm-complete',
+  'chat-commands-names',
+  'chat-commands-index',
+  'chat-files-list',
+  'chat-files-context',
+  'chat-agents-prompt',
 ]);
 
 /** Canales permitidos para ipcRenderer.send(). */
@@ -100,6 +118,9 @@ const SEND_ALLOWLIST = new Set([
   'model-hover',
   'set-provider',
   'view-changed',
+  // Chat sandbox:true (roundtrip main→página + cancel del flujo simple)
+  'chat-llm-cancel',
+  'chat-ui-call-result',
 ]);
 
 /** Canales permitidos para ipcRenderer.on() (solo escucha, de main→renderer). */
@@ -121,6 +142,8 @@ const ON_ALLOWLIST = new Set([
   'update-status',
   'views-changed',
   'workspace-changed',
+  // Chat sandbox:true (main envía funciones de página vía roundtrip)
+  'chat-ui-call',
 ]);
 
 /**

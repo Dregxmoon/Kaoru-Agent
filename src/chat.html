@@ -294,6 +294,11 @@
     <script src="../vendor/live2dcubismcore.min.js"></script>
     <script src="../node_modules/pixi.js/dist/browser/pixi.min.js"></script>
     <script src="../node_modules/pixi-live2d-display/dist/cubism4.min.js"></script>
+    <!-- Markdown: sandbox:true impide require('marked'/'dompurify') en el
+         preload, así que se sirven locales (sin CDN) como UMD — expuestos como
+         window.marked / window.DOMPurify. core.js implementa renderMarkdown. -->
+    <script src="../node_modules/marked/marked.min.js"></script>
+    <script src="../node_modules/dompurify/dist/purify.min.js"></script>
 
     <script src="chat/core.js"></script>
     <script src="chat/activityBlock.js"></script>

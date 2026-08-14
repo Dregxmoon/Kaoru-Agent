@@ -211,6 +211,14 @@ async function runAgent(userMessage, opts = {}) {
     loopOpts.selfCritique = true;
   }
 
+  // Reflexión intermedia: en modo tarea (smart), cuando las herramientas
+  // empiezan a fallar en cadena el loop se detiene a evaluar el plan
+  // ("¿esto funcionó, debo cambiar de plan?") antes de seguir reintentando a
+  // ciegas. Igual que selfCritique, no aplica en conversación rápida.
+  if (opts.reflection === undefined && mode === 'smart') {
+    loopOpts.reflection = true;
+  }
+
   // evalMode: benchmark headless — toda tool de alto impacto se auto-aprueba,
   // sin callback de aprobación (el loop ya la ejecuta si no hay handler).
   if (opts.evalMode) {

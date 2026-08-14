@@ -182,6 +182,18 @@ const RESULT_TRUNCATE_LIMIT = 800;
 // bucle infinito.
 const SELF_CRITIQUE_MAX_ROUNDS = 2;
 
+// Reflexión intermedia (opcional, opts.reflection): cuando en una iteración
+// una herramienta falla y ya se acumularon varias fallas en el run, el loop se
+// DETIENE a evaluar si el plan sigue siendo válido ("¿esto funcionó, debo
+// cambiar de plan?") con una llamada LLM dedicada y estructurada — en vez de
+// seguir martillando el error dentro del mismo bucle de tool-calling. El
+// veredicto puede pedir replanear (el feedback vuelve al LLM) o abandonar.
+// Determinista en el disparo y acotado para no abrir un bucle infinito.
+const REFLECTION_MAX_ROUNDS = 2;
+// Fallas de herramientas acumuladas en el run que disparan la primera
+// reflexión (falta de "ajustar pronto" sin gastar llamadas en cada fallo).
+const REFLECTION_MIN_FAILURES = 2;
+
 // Bloques que AgentLoop añade al prompt DESPUÉS del ensamblado base. El
 // truncado final (truncateSystemPrompt) los elimina desde el inicio de su
 // encabezado hasta el final, de menor a mayor importancia, para respetar el
@@ -500,6 +512,11 @@ class AgentLoop {
     // Self-critique (opts.selfCritique): cuántas pasadas de crítica se
     // agotaron en este run — acota el bucle de corrección (no infinito).
     let critiqueRounds = 0;
+    // Reflexión intermedia (opts.reflection): fallas de herramientas
+    // acumuladas en este run y rondas de reflexión agotadas.
+    let toolFailures = 0;
+    let reflectionRounds = 0;
+    let failuresAtLastReflection = 0;
 
     for (let i = 0; i < this.maxIterations; i++) {
       // Cancelación por el usuario (AbortController): se revisa en cada
@@ -855,6 +872,14 @@ class AgentLoop {
         }
 
         result._action = action;
+        // Reflexión intermedia: acumular fallas reales de herramientas (los
+        // saltos por permiso/plugin/aprobación/anti-repetición no cuentan).
+        if (
+          !result.ok &&
+          !/^(bloqueada|repetida|cancelada|sin_handler)/.test(String(result.error || ''))
+        ) {
+          toolFailures++;
+        }
         // Registrar la llamada para el dedupe anti-repetición (Fase 2).
         recentToolCalls.push({
           key: _toolCallKey(action.tool, action.params),
@@ -921,6 +946,51 @@ class AgentLoop {
 
       if (resultSummaries.length > 0) {
         iterationHistory.push({ role: 'user', content: resultSummaries.join('\n\n') });
+      }
+
+      // ── Reflexión intermedia (opcional, opts.reflection) ────────────────
+      // Tras una iteración con herramientas, si se acumularon fallas reales el
+      // loop se DETIENE a evaluar el plan con una llamada LLM estructurada
+      // (veredicto + razón) en vez de seguir reintentando a ciegas. Solo se
+      // dispara cuando HAY fallas nuevas desde la última reflexión y quedan
+      // rondas. El veredicto vuelve al historial para que el siguiente turno
+      // replanifique o aborte.
+      if (
+        opts.reflection &&
+        toolFailures >= REFLECTION_MIN_FAILURES &&
+        toolFailures > failuresAtLastReflection &&
+        reflectionRounds < REFLECTION_MAX_ROUNDS &&
+        !(signal && signal.aborted)
+      ) {
+        const reflection = await this._reflect({
+          userMessage,
+          toolResults,
+          llm,
+          llmOpts,
+          signal,
+        });
+        if (reflection && reflection.verdict === 'CAMBIAR_PLAN' && !(signal && signal.aborted)) {
+          reflectionRounds++;
+          failuresAtLastReflection = toolFailures;
+          iterationHistory.push({ role: 'user', content: reflection.message });
+          logger.info(
+            'AgentLoop',
+            `[agent-loop] reflexión ronda ${reflectionRounds}/${REFLECTION_MAX_ROUNDS}: CAMBIAR_PLAN`
+          );
+        } else if (
+          reflection &&
+          reflection.verdict === 'ABANDONAR' &&
+          !(signal && signal.aborted)
+        ) {
+          reflectionRounds++;
+          failuresAtLastReflection = toolFailures;
+          iterationHistory.push({ role: 'user', content: reflection.message });
+          logger.info('AgentLoop', `[agent-loop] reflexión ABANDONAR: ${reflection.reason}`);
+        } else {
+          // Veredicto CONTINUAR (o fallo de la llamada): no gastar rondas,
+          // solo marcar para no re-disparar con las mismas fallas.
+          failuresAtLastReflection = toolFailures;
+        }
       }
     }
 
@@ -1489,6 +1559,117 @@ class AgentLoop {
       old_text: resolved.old_text,
       new_text: resolved.new_text,
     });
+  }
+
+  /**
+   * Reflexión intermedia (opcional, opts.reflection): paso determinista que se
+   * dispara cuando una iteración acumuló fallas de herramientas. Pide al LLM
+   * evaluar el plan actual contra la intención original y devolver un veredicto
+   * estructurado:
+   *
+   *   - CONTINUAR      → el plan sigue siendo viable; no hacer nada.
+   *   - CAMBIAR_PLAN   → devuelve { verdict, message } con la razón; el loop
+   *                      vuelve a poner ese mensaje en el historial para que el
+   *                      siguiente turno replanifique.
+   *   - ABANDONAR      → devuelve { verdict, message, reason }; el mensaje
+   *                      instruye al LLM a responder al usuario con un resumen
+   *                      honesto y terminar.
+   *
+   * Es un momento explícito de autocorrección: el loop se detiene a evaluar
+   * "¿esto funcionó, debo cambiar de plan?" en lugar de seguir reintentando a
+   * ciegas dentro del bucle de tool-calling. Nunca rompe ni bloquea el run (si
+   * la llamada falla, devuelve null y el loop sigue con CONTINUAR).
+   *
+   * @param {object} p
+   * @param {string} p.userMessage - intención original del usuario
+   * @param {Array} p.toolResults - acciones ejecutadas hasta ahora
+   * @param {Function} p.llm - función LLM resuelta del run
+   * @param {object} p.llmOpts - { signal } ya preparado
+   * @param {AbortSignal|null} p.signal
+   * @returns {Promise<{verdict: string, message?: string, reason?: string} | null>}
+   */
+  async _reflect({ userMessage, toolResults, llm, llmOpts, signal }) {
+    const actionsSummary =
+      (toolResults || [])
+        .map((t) => {
+          const brief = t._action?.params || {};
+          const params = Object.entries(brief)
+            .map(
+              ([k, v]) =>
+                `${k}=${typeof v === 'string' ? v.slice(0, 60) : JSON.stringify(v)?.slice(0, 60)}`
+            )
+            .join(' ');
+          return `  - ${t.tool}${params ? ' · ' + params : ''} → ${t.ok ? 'OK' : `FALLÓ: ${t.error || ''}`}`;
+        })
+        .join('\n') || '  (ninguna acción ejecutada)';
+
+    const reflectPrompt = [
+      `# REFLEXIÓN — evaluación del plan en curso`,
+      ``,
+      `Intención original del usuario:`,
+      String(userMessage).slice(0, 600),
+      ``,
+      `Acciones ejecutadas hasta ahora:`,
+      actionsSummary,
+      ``,
+      `Varias herramientas fallaron. Antes de seguir, evalúa si el plan actual`,
+      `sigue siendo válido o hay que cambiarlo. Responde EXACTAMENTE una de:`,
+      `VEREDICTO: CONTINUAR`,
+      `VEREDICTO: CAMBIAR_PLAN`,
+      `VEREDICTO: ABANDONAR`,
+      ``,
+      `Si es CAMBIAR_PLAN, añade una línea "RAZÓN: <qué salió mal y qué estrategia`,
+      `alternativa propones>".`,
+      `Si es ABANDONAR, añade una línea "RAZÓN: <por qué no se puede completar>".`,
+      `Sé honesto: no marques CONTINUAR si el plan claramente no funciona.`,
+    ].join('\n');
+
+    const reflectSystem = [
+      'Eres el paso de reflexión de un agente. Tu trabajo es evaluar si el plan',
+      'de ejecución en curso sigue siendo viable o debe cambiar.',
+      'CONSERVADOR: solo marca CAMBIAR_PLAN o ABANDONAR si hay evidencia clara de',
+      'que la estrategia actual no lleva a la intención original del usuario.',
+      'CAMBIAR_PLAN: hay una estrategia alternativa concreta y mejor.',
+      'ABANDONAR: la tarea no se puede completar con las herramientas disponibles,',
+      'o el objetivo cambió y no tiene sentido seguir.',
+      'CONTINUAR: aún hay margen razonable para intentar otra cosa con el plan actual.',
+    ].join('\n');
+
+    try {
+      // La reflexión NO streamiea al chat: es un paso interno de control.
+      const reflectSignal = signal || llmOpts?.signal || null;
+      const raw = await llm(
+        [{ role: 'user', content: reflectPrompt }],
+        reflectSystem,
+        reflectSignal ? { signal: reflectSignal } : {}
+      );
+      const text = typeof raw === 'string' ? raw : raw?.content || '';
+      if (/VEREDICTO:\s*CAMBIAR_PLAN/i.test(text)) {
+        const reasonMatch = text.match(/RAZÓN:\s*([^\n]+)/i);
+        const reason = reasonMatch
+          ? reasonMatch[1].trim()
+          : 'La estrategia actual no está funcionando.';
+        return {
+          verdict: 'CAMBIAR_PLAN',
+          message: `[Reflexión del agente] El plan actual no está funcionando: ${reason}.\nCambia de estrategia y replanifica.`,
+        };
+      }
+      if (/VEREDICTO:\s*ABANDONAR/i.test(text)) {
+        const reasonMatch = text.match(/RAZÓN:\s*([^\n]+)/i);
+        const reason = reasonMatch
+          ? reasonMatch[1].trim()
+          : 'La tarea no se puede completar con las herramientas disponibles.';
+        return {
+          verdict: 'ABANDONAR',
+          reason,
+          message: `[Reflexión del agente] La tarea no se puede completar: ${reason}.\nResponde al usuario con un resumen honesto de lo logrado, qué faltó y por qué, y termina.`,
+        };
+      }
+    } catch (e) {
+      if (e?.code === 'ABORTED' || e?.name === 'AbortError') throw e;
+      logger.warn('AgentLoop', `[agent-loop] reflexión intermedia falló: ${e.message}`);
+    }
+    return null;
   }
 
   /**

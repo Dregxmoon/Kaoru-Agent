@@ -94,6 +94,7 @@ function _workspaceName(fullPath) {
 function _applyWorkspaceUI(fullPath) {
   _workspacePath = fullPath;
   _atProjectFiles = null;
+  _atProjectFilesPromise = null;
   const btn = document.getElementById('workspace-btn');
   if (btn) {
     const name = _workspaceName(fullPath);
@@ -117,7 +118,10 @@ async function loadLLMConfig() {
   try {
     const cfg = await ipcRenderer.invoke('get-config');
     if (cfg && cfg.llm) {
-      LLMProvider.configure(cfg);
+      // configure refresca los caches de estado LLM + índice de comandos del
+      // preload fino, así que getActiveProvider/getAvailableProviders (SÍNCRONOS)
+      // leen datos reales a partir de aquí.
+      await LLMProvider.configure(cfg);
       updateKeysBanner(LLMProvider.getActiveProvider());
       _providerNames = LLMProvider.getAvailableProviders()
         .filter((p) => p.hasKey)
@@ -126,6 +130,7 @@ async function loadLLMConfig() {
       updateHeaderModel();
       refreshFooterSession();
     } else {
+      await assistant.refreshCapabilities();
       updateKeysBanner(null);
     }
     // NOTA: el workspace de la UI se aplica en la línea 92 vía 'get-workspace'

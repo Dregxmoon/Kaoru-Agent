@@ -122,12 +122,14 @@ console.log(C.bold(C.cyan('═════════════════�
     process.exit(0);
   }
 
-  if (await portBusy(3131)) {
+  if ((await portBusy(3131)) || (await portBusy(18789))) {
     skipped++;
-    console.log(C.yellow('\n  (puerto 3131 ocupado — la app real está corriendo)'));
+    console.log(C.yellow('\n  (puerto 3131/18789 ocupado — la app real está corriendo)'));
     console.log('  Cierra la instancia activa y reintenta.');
     console.log(C.bold('\n════════════════════════════════════════════════════════'));
-    console.log(`  Resultado: ${C.yellow(`${skipped} skipped`)}  (puerto 3131 ocupado)`);
+    console.log(
+      C.bold(`  Resultado: ${C.yellow(`${skipped} skipped`)}  (puerto 3131/18789 ocupado)`)
+    );
     console.log(C.bold('════════════════════════════════════════════════════════'));
     process.exit(0);
   }
@@ -212,11 +214,15 @@ console.log(C.bold(C.cyan('═════════════════�
     // toggle antes de que ese evento llegue, el tema vuelve al valor por
     // defecto ('dark') justo después del click y la aserción falla por un
     // race (no por un fallo del toggle). Esperar al load event lo elimina.
+    // Nota: el click se dispara programáticamente (no `page.click`): con la
+    // ventana de chat en `sandbox: true`, los clicks reales de Playwright no
+    // completan la actionability (rAF del renderer sandboxed muy throttled en
+    // entornos sin WM), pero el handler del toggle corre igual.
     await chat.waitForLoadState('load');
     const themeBefore = await chat.evaluate(() =>
       document.documentElement.getAttribute('data-theme')
     );
-    await chat.click('#theme-toggle');
+    await chat.evaluate(() => document.getElementById('theme-toggle').click());
     await sleep(150);
     const themeAfter = await chat.evaluate(() =>
       document.documentElement.getAttribute('data-theme')

@@ -1,20 +1,11 @@
 // @ts-nocheck
 // Sandbox: la página no tiene require() ni Node. Todo llega acotado desde el
-// preload vía window.assistant (contextBridge). ipcRenderer es el wrapper con
-// la misma firma (invoke/send/on) que el original; marked/DOMPurify ya se
-// ejecutan en el preload y devuelven HTML saneado. Usamos `var` (no const)
+// preload fino vía window.assistant (contextBridge). Usamos `var` (no const)
 // porque contextBridge define window.assistant como propiedad no-configurable
 // y una `const assistant` en ámbito global lanza "Identifier 'assistant' has
 // already been declared" (HasRestrictedGlobalProperty).
 var assistant = window.assistant;
 const ipcRenderer = assistant;
-const path = { join: (...p) => assistant.pathJoin(...p) };
-const fs = { existsSync: (p) => assistant.existsSync(p) };
-const cp = {
-  spawn: () => {
-    throw new Error('child_process no disponible en el renderer sandbox');
-  },
-};
 
 // Se queda SOLO con las líneas que son un trigger reconocido, sin importar
 // dónde caiga la prosa alucinada del modelo — la versión anterior solo
@@ -30,22 +21,12 @@ function _sanitizePlanAnnouncement(response) {
   return triggerLines.join('\n');
 }
 
-// P0: antes 'marked' se cargaba desde un CDN externo (cdn.jsdelivr.net) vía
-// <script src>, lo que además de depender de internet para algo tan básico
-// como formatear texto, en un renderer con nodeIntegration:true es un riesgo
-// de cadena de suministro (si el CDN o la conexión se comprometen, el script
-// inyectado corre con Node completo disponible). Ahora se cargan como
-// dependencias npm normales vía require() — más robusto además porque evita
-// la detección de entorno UMD (typeof exports/module), que en un renderer
-// con nodeIntegration puede hacer que la librería no llegue a exponerse como
-// variable global aunque el <script> cargue bien.
-// Markdown/DOMPurify se ejecutan en el preload (renderMarkdown devuelve HTML
-// saneado). Estos shims mantienen la interfaz que usa el resto del chat.
-const marked = {
-  parse: (m, opts) => assistant.renderMarkdown(m, opts),
-  setOptions: () => {},
-};
-const DOMPurify = { sanitize: (h) => h };
+// P0: 'marked'/'dompurify' se cargan como <script> locales (UMD en
+// node_modules, sin CDN) porque con sandbox:true el preload ya no puede
+// require() de Node. Exponen window.marked / window.DOMPurify en la página y
+// aquí se implementa renderMarkdown completo (incl. el frame de preview de
+// HTML crudo) — antes vivía en el preload (src/chat/preload.js).
+marked.setOptions({ breaks: true, gfm: true });
 
 window.PIXI = PIXI;
 
@@ -149,17 +130,34 @@ const ModelAugmenter = assistant.ModelAugmenter;
 // Loader mínimo de módulos core propios en la página. Las clases como
 // GestureEngine DEBEN ejecutarse aquí: reciben el objeto Live2D real (creado
 // por PIXI en la página) que no puede cruzar el contextBridge, y `new` no
-// funciona sobre los proxies del bridge. El preload entrega SOLO el fuente
-// de los módulos whitelisteados (getCoreModuleSource); ModelAugmenter se
-// resuelve al proxy expuesto (llamadas a métodos, no constructor). Esto no
-// le da a la página —ni a los scripts remotos de los CDN— acceso a Node.
+// funciona sobre los proxies del bridge. Con sandbox:true los fuentes llegan
+// en un LOTE vía IPC (chat-core-sources) y el loader los resuelve en
+// síncrono — necesario porque GestureEngine.js hace `require()` en top-level
+// al ejecutarse. ModelAugmenter se resuelve al proxy IPC expuesto por el
+// preload (llamadas a métodos, no constructor). Esto no le da a la página —ni
+// a los scripts remotos de los CDN— acceso a Node.
+let __coreSources = null;
+let __coreSourcesReady = null;
+function initCoreSources() {
+  if (!__coreSourcesReady) {
+    __coreSourcesReady = assistant
+      .coreSources()
+      .then((s) => {
+        __coreSources = s || {};
+      })
+      .catch(() => {
+        __coreSources = {};
+      });
+  }
+  return __coreSourcesReady;
+}
 const __coreLoader = (() => {
   const cache = {};
   const load = (name) => {
     const key = String(name).replace(/^\.\//, '').replace(/\.js$/, '');
     if (cache[key]) return cache[key].exports;
     if (key === 'ModelAugmenter') return assistant.ModelAugmenter;
-    const source = assistant.getCoreModuleSource(key);
+    const source = __coreSources && __coreSources[key];
     if (source == null) throw new Error('Módulo core no permitido en la página: ' + name);
     const module = { exports: {} };
     cache[key] = module;
@@ -168,8 +166,16 @@ const __coreLoader = (() => {
   };
   return load;
 })();
-const GestureEngine = __coreLoader('./GestureEngine.js');
-const agentStates = __coreLoader('./agentStates.js');
+let GestureEngine = null;
+let agentStates = null;
+// Carga los módulos core en background (se resuelven síncrono después). Tanto
+// initGestureEngine como el listener de agent-progress dependen de ellos.
+async function initCoreModules() {
+  await initCoreSources();
+  if (!GestureEngine) GestureEngine = __coreLoader('./GestureEngine.js');
+  if (!agentStates) agentStates = __coreLoader('./agentStates.js');
+}
+initCoreModules();
 
 // Motor de gestos del mini-avatar del chat: reacciona a los eventos del propio
 // chat (initiative/proposal/plan/agent/commandos) y al tono de los mensajes.
@@ -186,6 +192,7 @@ async function initGestureEngine() {
   if (chatGestureEngine) return chatGestureEngine;
   const cfg = (await getGestureConfig()) || {};
   chatGestureConfig = cfg;
+  await initCoreModules();
   chatGestureEngine = new GestureEngine({ config: cfg });
   return chatGestureEngine;
 }
@@ -271,9 +278,6 @@ function pushToSession(role, content) {
     sessionHistory.splice(0, sessionHistory.length - MAX_SESSION_HISTORY);
 }
 
-// Markdown
-marked.setOptions({ breaks: true, gfm: true });
-
 let mermaidReady = false;
 
 function loadMermaid() {
@@ -313,17 +317,139 @@ async function _renderMermaid(el) {
   } catch {}
 }
 
-function renderMarkdown(text, opts) {
+// Marka de bloque HTML crudo extraído: se sustituye en el markdown ANTES de
+// marked y se reemplaza por el frame de preview DESPUÉS de DOMPurify.
+const HTML_PREVIEW_RE = /@@HTMLPREVIEW(\d+)@@/g;
+
+// Extrae bloques de HTML crudo del texto y los reemplaza por marcadores.
+// Devuelve { text, previews } donde previews[i] es el HTML crudo. Durante el
+// streaming un documento llega INCOMPLETO (falta el cierre): en ese caso el
+// preview pendiente se marca para mostrarse como código en vivo (no página a
+// medias) hasta que el render final vea el </html> y lo convierta en iframe.
+function _extractRawHtml(md, opts) {
+  if (typeof md !== 'string' || !md) return { text: md, previews: [], pending: null };
+
+  // Proteger code fences: el HTML que ya va dentro de ```html ``` NO se toca.
+  const fences = [];
+  const noFences = md.replace(/```[\s\S]*?```/g, (m) => {
+    const idx = fences.length;
+    fences.push(m);
+    return `@@FENCE${idx}@@`;
+  });
+
+  const previews = [];
+  let body = noFences;
+
+  // Documento HTML completo (<!DOCTYPE html> ... </html> o <html>...</html>).
+  const docRe = /(?:<!DOCTYPE\s+html[\s\S]*?<\/html>|<html[^>]*>[\s\S]*?<\/html>)/gi;
+  body = body.replace(docRe, (m) => {
+    previews.push(m);
+    return `@@HTMLPREVIEW${previews.length - 1}@@`;
+  });
+
+  // Fragmento HTML con varios tags de bloque pero SIN <html> envolvente
+  // (p. ej. el modelo emite solo <div>...<style>...<script>...).
+  const fragRe =
+    /((?:<style[^>]*>[\s\S]*?<\/style>|<script[^>]*>[\s\S]*?<\/script>|<[a-z][\s\S]*?<\/[a-z]+>){2,})/gi;
+  body = body.replace(fragRe, (m) => {
+    previews.push(m);
+    return `@@HTMLPREVIEW${previews.length - 1}@@`;
+  });
+
+  // Streaming: apertura de documento sin cierre → marcar como pendiente.
+  let pending = null;
+  if (opts && opts.streaming && !previews.length) {
+    const openRe = /<!DOCTYPE\s+html|<html[^>]*>|<body[^>]*>|<head[^>]*>/i;
+    const closeRe = /<\/html>/i;
+    if (openRe.test(body) && !closeRe.test(body)) {
+      // Buscar el fragmento pendiente: desde la apertura hasta el final o el
+      // primer doble salto de línea que cierre el bloque.
+      const m = openRe.exec(body);
+      if (m) {
+        const rest = body.slice(m.index);
+        const end = rest.search(/\n\s*\n/);
+        pending = end === -1 ? rest : rest.slice(0, end);
+        body =
+          body.slice(0, m.index) + '@@HTMLPREVIEWSTREAM@@' + (end === -1 ? '' : rest.slice(end));
+      }
+    }
+  }
+
+  // Restaurar fences.
+  const restored = body.replace(/@@FENCE(\d+)@@/g, (m, i) => fences[Number(i)] || '');
+  return { text: restored, previews, pending };
+}
+
+function _escapeAttr(text) {
+  return escapeHtml(text).replace(/"/g, '&quot;');
+}
+
+// Formatea HTML de una sola línea para mostrarlo legible en el frame de
+// código: pone un salto de línea antes de cada etiqueta de apertura/cierre y
+// después de los cierres de bloque. NO altera el HTML funcional (el iframe usa
+// el html crudo); solo embellece la vista de "Código".
+function _prettyHtml(html) {
+  if (!html || typeof html !== 'string') return html;
+  return html
+    .replace(/>\s*</g, '>\n<')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
+}
+
+// Frame de preview: recuadro con título + ruta del archivo (si se conoce) +
+// iframe sandboxed con el HTML crudo (srcdoc) y debajo el código fuente en un
+// <details>. El sandbox permite scripts pero sin same-origin, así el HTML
+// generado por el LLM no puede escapar del iframe ni tocar el chat.
+function _htmlPreviewFrame(html, index, filePath) {
+  const esc = escapeHtml(_prettyHtml(html));
+  const pathHtml = filePath
+    ? `<span class="html-preview-path" title="${_escapeAttr(filePath)}">${escapeHtml(filePath)}</span>`
+    : '';
+  return (
+    '<div class="html-preview">' +
+    `<div class="html-preview-head">` +
+    `<span class="html-preview-title">Vista previa</span>` +
+    pathHtml +
+    `<span class="html-preview-count">#${index + 1}</span>` +
+    `</div>` +
+    `<iframe class="html-preview-iframe" sandbox="allow-scripts" srcdoc="${_escapeAttr(html)}"></iframe>` +
+    '<details class="html-preview-code"><summary>Código</summary>' +
+    `<pre class="html-preview-pre"><code>${esc}</code></pre>` +
+    '</details>' +
+    '</div>'
+  );
+}
+
+function renderMarkdown(md, opts) {
   try {
-    let rawHtml = marked.parse(text || '', opts);
+    const { text, previews, pending } = _extractRawHtml(md, opts);
+    let rawHtml = marked.parse(text || '');
+
+    // HTML crudo incompleto en streaming: se muestra como código en vivo.
+    if (pending) {
+      const esc = escapeHtml(pending);
+      rawHtml = rawHtml.replace(
+        '@@HTMLPREVIEWSTREAM@@',
+        `<pre class="html-preview-pre html-preview-stream"><code class="language-html">${esc}</code></pre>`
+      );
+    }
+
     rawHtml = rawHtml.replace(
       /<pre><code class="language-mermaid">([\s\S]*?)<\/code><\/pre>/g,
       '<div class="mermaid">$1</div>'
     );
-    return DOMPurify.sanitize(rawHtml);
+    rawHtml = DOMPurify.sanitize(rawHtml);
+    if (previews.length) {
+      const filePath = opts && opts.path ? String(opts.path) : '';
+      rawHtml = rawHtml.replace(HTML_PREVIEW_RE, (m, i) => {
+        const html = previews[Number(i)];
+        return html == null ? '' : _htmlPreviewFrame(html, i, filePath);
+      });
+    }
+    return rawHtml;
   } catch (e) {
     console.warn('error renderizando markdown, cae a texto plano:', e.message);
-    return escapeHtml(text);
+    return escapeHtml(md);
   }
 }
 

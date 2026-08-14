@@ -1,30 +1,170 @@
 // @ts-nocheck
 'use strict';
 
-// Preload del chat (src/chat.html).
-//
-// Sandbox: contextIsolation:true + nodeIntegration:false. Todo el acceso a
-// Node y a los módulos core (LLMProvider, CommandRegistry, FileResolver,
-// AgentManager, GestureEngine, ModelAugmenter) vive en este mundo aislado y
-// se expone vía contextBridge como window.assistant. La página solo recibe
-// funciones acotadas; los scripts remotos (pixi.js, live2dcubismcore) cargan
-// sin privilegios de Node.
-
 const { contextBridge, ipcRenderer } = require('electron');
-const path = require('path');
-const fs = require('fs');
-const cp = require('child_process');
 
-const { assertAllowed } = require('../../ipc/channel-whitelist.js');
+// Preload thin del chat (src/chat.html) con sandbox:true.
+//
+// Con el sandbox de Chromium habilitado, el preload corre en un contexto
+// aislado donde SOLO puede require('electron') (contextBridge/ipcRenderer) —
+// nada de fs/path/child_process, ni módulos core, ni módulos de la app. Toda
+// la lógica Node del chat vive ahora en el proceso main
+// (ipc/chat-handlers.js) y este preload solo expone:
+//   - la firma invoke/send/on con una allowlist local por ventana
+//   - wrappers de los métodos que la página consume (LLMProvider,
+//     CommandRegistry, FileResolver, AgentManager, ModelAugmenter, ttsStream)
+//   - el puente de roundtrip onUiCall/uiCallResult (chat-ui-call ↔
+//     chat-ui-call-result) que el main usa para pedirle funciones a la página
+//   - caches de estado LLM e índice de comandos, porque getActiveProvider/
+//     getAvailableProviders/getNames se leen SÍNCRONO en la página y un IPC
+//     no puede ser síncrono.
+//
+// La lista de canales de abajo es el subconjunto del chat de
+// ipc/channel-whitelist.js (que sigue siendo la fuente documentada): si la
+// página (o un script comprometido) intenta llamar un canal que no está aquí,
+// el preload lo rechaza antes de tocar ipcRenderer.
+const INVOKE_ALLOWLIST = new Set([
+  // Config / keys / modelo-first
+  'get-config',
+  'get-key-source',
+  'save-llm-keys',
+  'set-llm-model',
+  'get-model-picker',
+  'connect-llm-provider',
+  'favorite-model',
+  // Workspace / contexto / agente
+  'get-workspace',
+  'pick-workspace-folder',
+  'grounding-build-context',
+  'agent-run',
+  // Modelo 3D / vistas
+  'get-model-info',
+  'models-list',
+  'model-import',
+  'model-set',
+  'views-get',
+  'views-set',
+  'gesture-config',
+  // Python / skills
+  'get-python-bin',
+  'list-skills',
+  // MCP / permisos
+  'mcp-add-server',
+  'mcp-list-servers',
+  'mcp-remove-server',
+  'mcp-search-registry',
+  'mcp-toggle-server',
+  'permissions-list',
+  'permissions-remove',
+  'permissions-set',
+  // Sesiones / memoria / intenciones
+  'sessions-list',
+  'session-load',
+  'session-stats',
+  'nodes-list',
+  'nodes-graph',
+  'memory-gaps',
+  'memory-forget',
+  'store-fact',
+  'intentions-list',
+  'intention-complete',
+  'intention-drop',
+  // OpenClaw / GitHub / stats / proactive
+  'openclaw-available',
+  'exec-command',
+  'github-client-id',
+  'get-bridge-stats',
+  'telemetry-report',
+  'proactive:get-stats',
+  'proactive:set-autonomy',
+  'proactive:set-shadow-mode',
+  // Capacidades del chat movidas a main (sandbox:true)
+  'chat-run-command',
+  'chat-core-sources',
+  'chat-fs-exists',
+  'chat-fs-stat-dir',
+  'chat-cwd',
+  'chat-path-join',
+  'chat-augment-model',
+  'chat-list-gestures',
+  'chat-tts-stream',
+  'chat-llm-state',
+  'chat-llm-configure',
+  'chat-llm-complete',
+  'chat-commands-names',
+  'chat-commands-index',
+  'chat-files-list',
+  'chat-files-context',
+  'chat-agents-prompt',
+]);
 
-const marked = require('marked');
-const createDOMPurify = require('dompurify');
+const SEND_ALLOWLIST = new Set([
+  'agent-approval-response',
+  'agent-cancel',
+  'chat-close',
+  'chat-theme-changed',
+  'initiative-decision',
+  'memory-add-turn',
+  'set-provider',
+  'chat-llm-cancel',
+  'chat-ui-call-result',
+]);
 
-const LLMProvider = require('../../core/llm/LLMProvider.js');
-const CommandRegistry = require('../../core/commands/CommandRegistry.js');
-const FileResolver = require('../../core/commands/FileResolver.js');
-const AgentManager = require('../../core/agents/AgentManager.js');
-const ModelAugmenter = require('../../core/behavior/ModelAugmenter.js');
+const ON_ALLOWLIST = new Set([
+  'agent-approval-needed',
+  'agent-progress',
+  'agent-token',
+  'chat-message',
+  'init-theme',
+  'initiative',
+  'memory-status',
+  'model-changed',
+  'openclaw-status',
+  'proposal-result',
+  'resumed-session',
+  'update-status',
+  'views-changed',
+  'workspace-changed',
+  'chat-ui-call',
+]);
+
+function assertAllowed(kind, channel) {
+  const list =
+    kind === 'invoke' ? INVOKE_ALLOWLIST : kind === 'send' ? SEND_ALLOWLIST : ON_ALLOWLIST;
+  if (typeof channel !== 'string' || !list.has(channel)) {
+    throw new Error(`[ipc-whitelist] canal '${String(channel)}' no permitido para ${kind}()`);
+  }
+}
+
+// ── Caches del estado LLM e índice de comandos ─────────────────────────────
+// getActiveProvider/getAvailableProviders (LLMProvider) y getNames/getCommand
+// (CommandRegistry) se leen SÍNCRONO en la página (messages.js, input.js). Un
+// IPC no puede ser síncrono, así que estos caches se cargan con `invoke` en
+// background y `refreshCapabilities` los actualiza de forma explícita cuando
+// la página configura el LLM (loadLLMConfig).
+let _llmCache = { active: null, providers: [] };
+let _cmdIndex = []; // { name, usage, description, completions }
+
+async function _refreshLlmCache() {
+  try {
+    _llmCache = await ipcRenderer.invoke('chat-llm-state');
+  } catch {
+    // mantener el último estado conocido
+  }
+}
+
+async function _refreshCmdIndex() {
+  try {
+    _cmdIndex = await ipcRenderer.invoke('chat-commands-index');
+  } catch {
+    // mantener el último índice conocido
+  }
+}
+
+async function refreshCapabilities() {
+  await Promise.all([_refreshLlmCache(), _refreshCmdIndex()]);
+}
+refreshCapabilities();
 
 // Bridge acotado: la página SOLO recibe las funciones concretas que usa el
 // chat, nunca el módulo completo. LLMProvider entero expone _getApiKey/
@@ -33,274 +173,13 @@ const ModelAugmenter = require('../../core/behavior/ModelAugmenter.js');
 // explícita y únicamente los que el renderer consume (comprobado contra
 // src/chat/*.js). Si el renderer necesita algo nuevo, se añade aquí — no se
 // desbloquea el módulo completo.
-// AbortController del flujo simple (chat sin openclaw). El renderer NO puede
-// pasar su propio AbortSignal por el contextBridge (se clona a un objeto plano
-// sin addEventListener → "signal.addEventListener is not a function"), así que
-// el controller vive aquí y el renderer cancela vía LLMProvider.cancelSimple().
-let _simpleAbort = null;
 
-function _boundedLLM() {
-  return {
-    complete: (messages, systemPrompt, opts) => {
-      const controller = new AbortController();
-      _simpleAbort = controller;
-      return LLMProvider.complete(messages, systemPrompt, {
-        ...(opts || {}),
-        signal: controller.signal,
-      });
-    },
-    cancelSimple: () => {
-      if (_simpleAbort) {
-        _simpleAbort.abort();
-        _simpleAbort = null;
-      }
-    },
-    configure: (cfg) => LLMProvider.configure(cfg),
-    getActiveProvider: () => LLMProvider.getActiveProvider(),
-    getAvailableProviders: () => LLMProvider.getAvailableProviders(),
-    listModels: (providerId) => LLMProvider.listModels(providerId),
-    refreshProviderModels: (providerId) => LLMProvider.refreshProviderModels(providerId),
-    getModelMeta: (providerId, modelId) => LLMProvider.getModelMeta(providerId, modelId),
-    resolveModelId: (providerId, modelId) => LLMProvider.resolveModelId(providerId, modelId),
-    resolveRole: (token) => LLMProvider.resolveRole(token),
-    ROLE_LABELS: LLMProvider.ROLE_LABELS,
-    addCustomProvider: (def) => LLMProvider.addCustomProvider(def),
-    removeCustomProvider: (id) => LLMProvider.removeCustomProvider(id),
-    recommend: (task) => {
-      const { recommend } = require('../../core/llm/recommend.js');
-      return recommend(task);
-    },
-    getUsageTracker: () => LLMProvider.getUsageTracker(),
-  };
-}
-function _boundedCommands() {
-  return {
-    getNames: () => CommandRegistry.getNames(),
-    getCommand: (name) => CommandRegistry.getCommand(name),
-  };
-}
-function _boundedFiles() {
-  return {
-    listProjectFiles: (cwd, pattern) => FileResolver.listProjectFiles(cwd, pattern),
-    buildFileContext: (text, cwd) => FileResolver.buildFileContext(text, cwd),
-  };
-}
-function _boundedAgents() {
-  return {
-    getSystemPrompt: (name) => AgentManager.getSystemPrompt(name),
-  };
-}
-// ModelAugmenter se usa como objeto de métodos (augmentModel devuelve objetos
-// planos serializables) y la página necesita listGestures para el mini-avatar.
-function _boundedModelAugmenter() {
-  return {
-    augmentModel: (model3Path) => ModelAugmenter.augmentModel(model3Path),
-    listGestures: (model3Path) => ModelAugmenter.listGestures(model3Path),
-  };
-}
-
-// Fuente de los módulos core que la página necesita EJECUTAR en su propio
-// mundo (GestureEngine): recibe el objeto Live2D real creado por PIXI en la
-// página, que no puede cruzar el contextBridge (copia profunda inviable) y
-// que tampoco admite `new` sobre proxies del bridge. La página los carga con
-// un loader mínimo que SOLO puede resolver estos nombres — nada de esto
-// expone Node/fs/child_process a la página ni a los CDN.
-const coreBehaviorDir = path.join(__dirname, '..', '..', 'core', 'behavior');
-const coreSources = {
-  GestureLexicon: fs.readFileSync(path.join(coreBehaviorDir, 'GestureLexicon.js'), 'utf8'),
-  GestureHeuristic: fs.readFileSync(path.join(coreBehaviorDir, 'GestureHeuristic.js'), 'utf8'),
-  GestureEngine: fs.readFileSync(path.join(coreBehaviorDir, 'GestureEngine.js'), 'utf8'),
-  agentStates: fs.readFileSync(path.join(coreBehaviorDir, 'agentStates.js'), 'utf8'),
-};
-
-// El preload comparte el DOM con la página (contextIsolation aísla los
-// globals de JS, no el DOM), así que DOMPurify puede sanear el markdown aquí
-// y entregar HTML ya limpio a la página.
-marked.setOptions({ breaks: true, gfm: true });
-const DOMPurify = createDOMPurify(window);
-
-function _escapeHtml(text) {
-  return (text || '')
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;');
-}
-
-// Marca de bloque HTML crudo extraído: se sustituye en el markdown ANTES de
-// marked y se reemplaza por el frame de preview DESPUÉS de DOMPurify.
-const HTML_PREVIEW_RE = /@@HTMLPREVIEW(\d+)@@/g;
-
-// Bloque HTML crudo (documento o fragmento con tags de bloque). El modelo a
-// veces emite la página completa SIN code fence; marcado la pasaría tal cual
-// y DOMPurify la renderizaría como página real dentro del chat — ahora se
-// extrae a un frame de preview dedicado (iframe sandboxed) + su código.
-
-// Extrae bloques de HTML crudo del texto y los reemplaza por marcadores.
-// Devuelve { text, previews } donde previews[i] es el HTML crudo. Durante el
-// streaming un documento llega INCOMPLETO (falta el cierre): en ese caso el
-// preview pendiente se marca para mostrarse como código en vivo (no página a
-// medias) hasta que el render final vea el </html> y lo convierta en iframe.
-function _extractRawHtml(md, opts) {
-  if (typeof md !== 'string' || !md) return { text: md, previews: [], pending: null };
-
-  // Proteger code fences: el HTML que ya va dentro de ```html ``` NO se toca.
-  const fences = [];
-  const noFences = md.replace(/```[\s\S]*?```/g, (m) => {
-    const idx = fences.length;
-    fences.push(m);
-    return `@@FENCE${idx}@@`;
-  });
-
-  const previews = [];
-  let body = noFences;
-
-  // Documento HTML completo (<!DOCTYPE html> ... </html> o <html>...</html>).
-  const docRe = /(?:<!DOCTYPE\s+html[\s\S]*?<\/html>|<html[^>]*>[\s\S]*?<\/html>)/gi;
-  body = body.replace(docRe, (m) => {
-    previews.push(m);
-    return `@@HTMLPREVIEW${previews.length - 1}@@`;
-  });
-
-  // Fragmento HTML con varios tags de bloque pero SIN <html> envolvente
-  // (p. ej. el modelo emite solo <div>...<style>...<script>...).
-  const fragRe =
-    /((?:<style[^>]*>[\s\S]*?<\/style>|<script[^>]*>[\s\S]*?<\/script>|<[a-z][\s\S]*?<\/[a-z]+>){2,})/gi;
-  body = body.replace(fragRe, (m) => {
-    previews.push(m);
-    return `@@HTMLPREVIEW${previews.length - 1}@@`;
-  });
-
-  // Streaming: apertura de documento sin cierre → marcar como pendiente.
-  let pending = null;
-  if (opts && opts.streaming && !previews.length) {
-    const openRe = /<!DOCTYPE\s+html|<html[^>]*>|<body[^>]*>|<head[^>]*>/i;
-    const closeRe = /<\/html>/i;
-    if (openRe.test(body) && !closeRe.test(body)) {
-      // Buscar el fragmento pendiente: desde la apertura hasta el final o el
-      // primer doble salto de línea que cierre el bloque.
-      const m = openRe.exec(body);
-      if (m) {
-        const rest = body.slice(m.index);
-        const end = rest.search(/\n\s*\n/);
-        pending = end === -1 ? rest : rest.slice(0, end);
-        body =
-          body.slice(0, m.index) + '@@HTMLPREVIEWSTREAM@@' + (end === -1 ? '' : rest.slice(end));
-      }
-    }
-  }
-
-  // Restaurar fences.
-  const restored = body.replace(/@@FENCE(\d+)@@/g, (m, i) => fences[Number(i)] || '');
-  return { text: restored, previews, pending };
-}
-
-function _escapeAttr(text) {
-  return _escapeHtml(text).replace(/"/g, '&quot;');
-}
-
-// Formatea HTML de una sola línea para mostrarlo legible en el frame de
-// código: pone un salto de línea antes de cada etiqueta de apertura/cierre y
-// después de los cierres de bloque. NO altera el HTML funcional (el iframe usa
-// el html crudo); solo embellece la vista de "Código".
-function _prettyHtml(html) {
-  if (!html || typeof html !== 'string') return html;
-  return html
-    .replace(/>\s*</g, '>\n<')
-    .replace(/\n{3,}/g, '\n\n')
-    .trim();
-}
-
-// Frame de preview: recuadro con título + ruta del archivo (si se conoce) +
-// iframe sandboxed con el HTML crudo (srcdoc) y debajo el código fuente en un
-// <details>. El sandbox permite scripts pero sin same-origin, así el HTML
-// generado por el LLM no puede escapar del iframe ni tocar el chat.
-function _htmlPreviewFrame(html, index, filePath) {
-  const esc = _escapeHtml(_prettyHtml(html));
-  const pathHtml = filePath
-    ? `<span class="html-preview-path" title="${_escapeAttr(filePath)}">${_escapeHtml(filePath)}</span>`
-    : '';
-  return (
-    '<div class="html-preview">' +
-    `<div class="html-preview-head">` +
-    `<span class="html-preview-title">Vista previa</span>` +
-    pathHtml +
-    `<span class="html-preview-count">#${index + 1}</span>` +
-    `</div>` +
-    `<iframe class="html-preview-iframe" sandbox="allow-scripts" srcdoc="${_escapeAttr(html)}"></iframe>` +
-    '<details class="html-preview-code"><summary>Código</summary>' +
-    `<pre class="html-preview-pre"><code>${esc}</code></pre>` +
-    '</details>' +
-    '</div>'
-  );
-}
-
-function renderMarkdown(md, opts) {
-  try {
-    const { text, previews, pending } = _extractRawHtml(md, opts);
-    let rawHtml = marked.parse(text || '');
-
-    // HTML crudo incompleto en streaming: se muestra como código en vivo.
-    if (pending) {
-      const esc = _escapeHtml(pending);
-      rawHtml = rawHtml.replace(
-        '@@HTMLPREVIEWSTREAM@@',
-        `<pre class="html-preview-pre html-preview-stream"><code class="language-html">${esc}</code></pre>`
-      );
-    }
-
-    rawHtml = rawHtml.replace(
-      /<pre><code class="language-mermaid">([\s\S]*?)<\/code><\/pre>/g,
-      '<div class="mermaid">$1</div>'
-    );
-    rawHtml = DOMPurify.sanitize(rawHtml);
-    if (previews.length) {
-      const filePath = opts && opts.path ? String(opts.path) : '';
-      rawHtml = rawHtml.replace(HTML_PREVIEW_RE, (m, i) => {
-        const html = previews[Number(i)];
-        return html == null ? '' : _htmlPreviewFrame(html, i, filePath);
-      });
-    }
-    return rawHtml;
-  } catch (e) {
-    return _escapeHtml(md);
-  }
-}
-
-// TTS: misma mecánica que el overlay pero con los parámetros fijos del chat.
-function ttsStream(args = {}) {
-  return new Promise((resolve, reject) => {
-    if (!args.pythonBin) {
-      reject(new Error('pythonBin requerido'));
-      return;
-    }
-    const chunks = [];
-    const proc = cp.spawn(args.pythonBin, [
-      path.join(__dirname, '..', '..', 'tts_stream.py'),
-      '--voice',
-      args.voice || 'ja-JP-NanamiNeural',
-      '--rate',
-      args.rate || '+10%',
-      '--pitch',
-      args.pitch || '+20Hz',
-      '--text',
-      args.text || '',
-    ]);
-    proc.stdout.on('data', (c) => chunks.push(c));
-    proc.on('close', (code) => {
-      if (code !== 0 || chunks.length === 0) {
-        reject(new Error('TTS failed'));
-        return;
-      }
-      resolve(new Uint8Array(Buffer.concat(chunks)));
-    });
-    proc.on('error', reject);
-  });
-}
+// TTS: lanza tts_stream.py en main y devuelve el audio (Buffer → Uint8Array).
+const ttsStream = (args = {}) => ipcRenderer.invoke('chat-tts-stream', args);
 
 contextBridge.exposeInMainWorld('assistant', {
   // IPC con whitelist de canales: el renderer (o un script comprometido) no
-  // puede invocar canales internos fuera de ipc/channel-whitelist.js.
+  // puede invocar canales internos fuera de la allowlist local.
   invoke: (channel, ...args) => {
     assertAllowed('invoke', channel);
     return ipcRenderer.invoke(channel, ...args);
@@ -316,42 +195,81 @@ contextBridge.exposeInMainWorld('assistant', {
     return () => ipcRenderer.removeListener(channel, wrapped);
   },
 
-  pathJoin: (...parts) => path.join(...parts),
-  existsSync: (p) => fs.existsSync(p),
-  statIsDir: (p) => {
-    try {
-      return fs.statSync(p).isDirectory();
-    } catch {
-      return false;
-    }
+  // Comandos /: el handler corre en main (chat-run-command) con fs/path reales
+  // y un ctx donde las funciones de página son stubs de roundtrip (chat-ui-call
+  // → chat-ui-call-result). La página solo envía datos serializables (pageData)
+  // y sincroniza el sessionHistory devuelto.
+  runCommand: (text, pageData = {}) =>
+    ipcRenderer.invoke('chat-run-command', { text, pageData }),
+
+  // Roundtrip main → página (ver ipc/chat-handlers.js).
+  onUiCall: (handler) => {
+    ipcRenderer.on('chat-ui-call', (_e, payload) => {
+      handler(payload);
+    });
   },
-  cwd: () => process.cwd(),
-  renderMarkdown,
+  uiCallResult: (id, result) => {
+    ipcRenderer.send('chat-ui-call-result', { id, result });
+  },
+
+  // FS / path: antes eran llamadas síncronas del preload; ahora son IPC.
+  pathJoin: (...parts) => ipcRenderer.invoke('chat-path-join', parts),
+  existsSync: (p) => ipcRenderer.invoke('chat-fs-exists', p),
+  statIsDir: (p) => ipcRenderer.invoke('chat-fs-stat-dir', p),
+  cwd: () => ipcRenderer.invoke('chat-cwd'),
+
+  // Markdown (marked + DOMPurify) se renderiza AHORA EN LA PÁGINA: con
+  // sandbox:true el preload no puede require('marked')/('dompurify'), así que
+  // chat.html los carga como <script> locales (UMD expone window.marked /
+  // window.DOMPurify) y core.js implementa renderMarkdown (incl. el frame de
+  // preview de HTML crudo). Este preload ya no lo expone.
   ttsStream,
 
-  // Comandos /: el handler corre en este mundo aislado (CommandRegistry),
-  // pero la página arma cmdCtx con shims fs/path mínimos (solo join/
-  // existsSync) y /init, /open, /export usan readdirSync, statSync,
-  // readFileSync, writeFileSync, mkdirSync y path.relative/resolve/extname/
-  // sep. Solución: ejecutar aquí con los módulos reales de Node y conservar
-  // solo los callbacks de la página (funciones, se cruzan baratas por el
-  // bridge). La página NUNCA recibe fs/path crudos — se mantiene el sandbox.
-  runCommand: async (text, pageCtx = {}) => {
-    const ctx = { ...pageCtx, fs, path };
-    return CommandRegistry.execute(text, ctx);
+  // Módulos core SOLO como bridge acotado (funciones concretas por dominio),
+  // nunca los módulos completos. Los métodos que la página usa en SÍNCRONO
+  // (getActiveProvider/getAvailableProviders/getNames/getCommand) leen de los
+  // caches de arriba; refreshCapabilities los actualiza tras configurar el LLM.
+  LLMProvider: {
+    complete: (messages, systemPrompt, opts) =>
+      ipcRenderer.invoke('chat-llm-complete', { messages, systemPrompt, opts }),
+    cancelSimple: () => ipcRenderer.send('chat-llm-cancel'),
+    configure: async (cfg) => {
+      try {
+        await ipcRenderer.invoke('chat-llm-configure', cfg);
+      } catch {
+        // config inválida: se deja el estado anterior
+      }
+      await refreshCapabilities();
+    },
+    getActiveProvider: () => _llmCache.active,
+    getAvailableProviders: () => _llmCache.providers,
+  },
+  CommandRegistry: {
+    getNames: () => _cmdIndex.map((c) => c.name),
+    getCommand: (name) => _cmdIndex.find((c) => c.name === name) || null,
+  },
+  FileResolver: {
+    listProjectFiles: (cwd, pattern) =>
+      ipcRenderer.invoke('chat-files-list', { cwd, pattern }),
+    buildFileContext: (text, cwd) => ipcRenderer.invoke('chat-files-context', { text, cwd }),
+  },
+  AgentManager: {
+    getSystemPrompt: (name) => ipcRenderer.invoke('chat-agents-prompt', { name }),
+  },
+  // ModelAugmenter se usa como objeto de métodos (augmentModel devuelve
+  // objetos planos serializables) y la página necesita listGestures para el
+  // mini-avatar.
+  ModelAugmenter: {
+    augmentModel: (model3Path) => ipcRenderer.invoke('chat-augment-model', model3Path),
+    listGestures: (model3Path) => ipcRenderer.invoke('chat-list-gestures', model3Path),
   },
 
-  // Módulos core SOLO como bridge acotado (funciones concretas por dominio),
-  // nunca los módulos completos — ver _bounded* arriba.
-  LLMProvider: _boundedLLM(),
-  CommandRegistry: _boundedCommands(),
-  FileResolver: _boundedFiles(),
-  AgentManager: _boundedAgents(),
-  // GestureEngine NO se expone aquí: es una clase ES que la página instancia
-  // con `new` y recibe el objeto Live2D real (creado por PIXI en la página),
-  // nada de lo cual funciona a través del contextBridge (los proxies no son
-  // constructables y el modelo no puede copiarse). La página lo carga vía
-  // getCoreModuleSource con un loader mínimo que solo resuelve estos nombres.
-  getCoreModuleSource: (name) => coreSources[name] || null,
-  ModelAugmenter: _boundedModelAugmenter(),
+  // Fuente de los módulos core que la página necesita EJECUTAR en su propio
+  // mundo (GestureEngine, agentStates): llegan en un lote vía chat-core-sources
+  // y la página los carga con su loader mínimo (mismo patrón que el overlay).
+  coreSources: () => ipcRenderer.invoke('chat-core-sources'),
+
+  // Refresca los caches de estado LLM + índice de comandos (llamado por la
+  // página tras configurar el LLM).
+  refreshCapabilities,
 });

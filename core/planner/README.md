@@ -54,6 +54,14 @@ sequenceDiagram
   accionable ("me quedé sin cuota…") en vez de fallar en silencio.
 - **Propagación de `meta`:** los resultados de las tools propagan `meta` (p. ej. `addedLines`/
   `removedLines` del diff) para que el contexto distinga lo nuevo de lo actualizado.
+- **Reflexión intermedia** (`opts.reflection`, on en modo smart): cuando se acumulan fallas reales
+  de herramientas (≥`REFLECTION_MIN_FAILURES`), el loop se DETIENE a evaluar el plan con una
+  llamada LLM estructurada (`_reflect`) que devuelve `CONTINUAR` / `CAMBIAR_PLAN` / `ABANDONAR`.
+  El veredicto vuelve al historial para replanificar o abortar — autocorrección explícita en vez de
+  reintentar a ciegas. Acotado a `REFLECTION_MAX_ROUNDS` y nunca rompe el run si la llamada falla.
+- **Self-critique final** (`opts.selfCritique`, on en modo smart): al terminar con una respuesta de
+  texto, un paso extra compara el resultado contra la intención ORIGINAL del usuario; si es
+  `INCOMPLETA`, el feedback vuelve al loop para cerrar la brecha (acotado a `SELF_CRITIQUE_MAX_ROUNDS`).
 
 ## `StructuredActionParser.js`
 
@@ -98,5 +106,6 @@ navegación, lectura de páginas, capturas de pantalla y búsqueda web sin API k
 ## Verificación
 
 `test_agent_loop` (38) y `test_agent_loop_mode` (14): loop, adaptación a resultados reales, límite de
-iteraciones, aprobaciones, _fail-closed_ y tool-calling nativo. `test_tools_e2e`, `test_openclaw_*` y
+iteraciones, aprobaciones, _fail-closed_, tool-calling nativo, **reflexión intermedia** (replanifica
+tras fallas; no se dispara sin `opts.reflection`) y self-critique. `test_tools_e2e`, `test_openclaw_*` y
 `test_server_security`: puentes y seguridad. Ver `tests/README.md`.

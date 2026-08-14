@@ -55,6 +55,16 @@ input.addEventListener('keyup', _updateCursor);
 document.addEventListener('selectionchange', _updateCursor);
 
 function updateLlmHint() {
+  // Con sandbox:true el índice de comandos y los providers llegan por caché
+  // (el preload fino los refresca tras configurar el LLM), así que los nombres
+  // de autocompletado se reconstruyen aquí para no quedarse con una lista vacía
+  // del arranque.
+  _cmdNames = [
+    ...CommandRegistry.getNames(),
+    // Atajos de proveedor (/groq, /gemini, /nvidia, ...) — se resuelven en
+    // CommandRegistry.execute() como fallback, así que deben autocompletarse.
+    ...LLMProvider.getAvailableProviders().map((p) => p.id),
+  ];
   const active = LLMProvider.getActiveProvider();
   const all = LLMProvider.getAvailableProviders();
   const p = all.find((x) => x.id === active);
@@ -72,12 +82,7 @@ let _atSelectedIdx = -1;
 let _atQuery = '';
 let _cmdSuggested = false;
 
-const _cmdNames = [
-  ...CommandRegistry.getNames(),
-  // Atajos de proveedor (/groq, /gemini, /nvidia, ...) — se resuelven en
-  // CommandRegistry.execute() como fallback, así que deben autocompletarse.
-  ...LLMProvider.getAvailableProviders().map((p) => p.id),
-];
+let _cmdNames = [];
 let _skillNames = [];
 ipcRenderer
   .invoke('list-skills')
@@ -86,30 +91,43 @@ ipcRenderer
   })
   .catch(() => {});
 
-function _getProjectFiles() {
-  if (_atProjectFiles) return _atProjectFiles;
-  try {
-    _atProjectFiles = FileResolver.listProjectFiles(_workspacePath || assistant.cwd());
-  } catch {
-    _atProjectFiles = [];
+// `_atProjectFiles` (cache de @files) se declara en core.js; aquí solo el
+// cache de la promesa de listado (sandbox:true → listProjectFiles es async).
+let _atProjectFilesPromise = null;
+
+function _getProjectFiles(cwd) {
+  if (!_atProjectFilesPromise) {
+    _atProjectFilesPromise = FileResolver.listProjectFiles(cwd)
+      .then((files) => {
+        _atProjectFiles = files || [];
+        return _atProjectFiles;
+      })
+      .catch(() => {
+        _atProjectFiles = [];
+        return _atProjectFiles;
+      });
   }
-  return _atProjectFiles;
+  return _atProjectFilesPromise;
 }
 
-function _showAtSuggestions(query) {
+async function _showAtSuggestions(query) {
   _atQuery = query;
   const el = document.getElementById('at-suggestions');
 
-  const files = _getProjectFiles()
+  const projectCwd = _workspacePath || (await assistant.cwd().catch(() => null));
+  const files = await _getProjectFiles(projectCwd);
+  if (_atQuery !== query) return; // llegó un keystroke más nuevo mientras tanto
+
+  const filtered = files
     .filter((f) => f.path.toLowerCase().includes(query.toLowerCase()))
     .slice(0, 20);
 
-  if (files.length === 0) {
+  if (filtered.length === 0) {
     el.style.display = 'none';
     return;
   }
 
-  el.innerHTML = files
+  el.innerHTML = filtered
     .map(
       (f, i) =>
         `<div class="at-suggestion-item" data-index="${i}" data-path="${escapeHtml(f.path)}">
@@ -675,20 +693,22 @@ chatPanel.addEventListener('dragleave', () => {
   }
 });
 chatPanel.addEventListener('dragover', (e) => e.preventDefault());
-chatPanel.addEventListener('drop', (e) => {
+chatPanel.addEventListener('drop', async (e) => {
   e.preventDefault();
   dragCounter = 0;
   dropOverlay.classList.remove('visible');
   const files = Array.from(e.dataTransfer.files);
   if (!files.length) return;
-  const folder = files.find((f) => {
-    if (!f.path) return false;
-    let isDir = false;
+  let folder = null;
+  for (const f of files) {
+    if (!f.path) continue;
     try {
-      isDir = assistant.statIsDir(f.path);
+      if (await assistant.statIsDir(f.path)) {
+        folder = f;
+        break;
+      }
     } catch {}
-    return isDir;
-  });
+  }
   if (folder) {
     importModelFromFolder(folder.path);
     return;

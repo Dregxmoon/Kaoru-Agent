@@ -108,12 +108,13 @@ if (_modeBadge) _modeBadge.addEventListener('click', () => toggleAgentMode());
 // Agent Loop IPC (Fase 2 → Cambio 1/2 del rediseño: ActivityBlocks + estados)
 // renderActivityBlock/resetActivityBlocks vienen de chat/activityBlock.js
 // (script hermano, cargado antes que este archivo — ver chat.html).
-// agentStates viene de core/behavior/agentStates.js vía __coreLoader,
-// expuesto como global en chat/core.js (mismo patrón que GestureEngine).
+// agentStates viene de core/behavior/agentStates.js vía el loader async de
+// core.js (initCoreModules). Los events de agent-progress solo llegan durante
+// un agent-run (muy después de cargar la página), así que el guard es seguro.
 let _activityContainerEl = null;
 
 ipcRenderer.on('agent-progress', (e, progress) => {
-  const state = agentStates.stateFromProgress(progress);
+  const state = agentStates ? agentStates.stateFromProgress(progress) : null;
   if (chatGestureEngine)
     chatGestureEngine.onEvent('agent-progress', { state, status: progress.status });
   // Recordar el último archivo escrito para que el frame de preview HTML
@@ -277,6 +278,51 @@ ipcRenderer.on('proposal-result', (e, { proposalId, ok, skipped, detail }) => {
 // Init
 window.addEventListener('DOMContentLoaded', loadModel);
 setActivityContainer(document.getElementById('messages'));
+
+// ── Roundtrip main → página (sandbox:true) ─────────────────────────────────
+// El main construye el ctx de CommandRegistry con stubs de funciones de página
+// (ver ipc/chat-handlers.js). Cada stub envía un chat-ui-call; aquí se ejecuta
+// la función real del renderer y se responde con chat-ui-call-result. Las
+// funciones NO viajan por el bridge: solo nombres, y los argumentos son datos
+// serializables.
+assistant.onUiCall(({ id, fn, args }) => {
+  Promise.resolve()
+    .then(() => {
+      switch (fn) {
+        case 'addMessage':
+          return addMessage(...(args || []));
+        case 'processMessage':
+          return processMessage(...(args || []));
+        case 'openSettings':
+          return openSettings();
+        case 'openSessions':
+          return openSessions();
+        case 'openNodes':
+          return openNodes();
+        case 'hideNodes':
+          return hideNodes();
+        case 'openMcp':
+          return openMcpModal();
+        case 'openPerms':
+          return openPermsModal();
+        case 'pickWorkspace':
+          return ipcRenderer.invoke('pick-workspace-folder');
+        case 'gesture-play':
+          if (!chatGestureEngine) return { ok: false, reason: 'sin motor de gestos' };
+          return chatGestureEngine.play(args[0], args[1] || {});
+        case 'setTtsMuted':
+          return setTtsMuted(args[0]);
+        case 'ipc-invoke':
+          return ipcRenderer.invoke(...(args || []));
+        case 'ipc-send':
+          return ipcRenderer.send(...(args || []));
+        default:
+          throw new Error('ui-call desconocido: ' + fn);
+      }
+    })
+    .then((result) => assistant.uiCallResult(id, result === undefined ? null : result))
+    .catch((err) => assistant.uiCallResult(id, { __error: (err && err.message) || String(err) }));
+});
 
 // ── Auto-update (banner) ─────────────────────────────────────────────────────
 const _updateBanner = document.getElementById('update-banner');

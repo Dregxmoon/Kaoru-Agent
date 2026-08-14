@@ -1555,6 +1555,166 @@ async function testAntiRepetition() {
   teardown();
 }
 
+// ── Reflexión intermedia: evalúa el plan cuando fallan herramientas ─────────
+// Diferencia con la self-critique (que actúa al final, sobre el texto): la
+// reflexión se dispara DURANTE el run, cuando se acumulan fallas reales de
+// herramientas, y le pide al LLM un veredicto estructurado antes de seguir
+// reintentando a ciegas.
+
+async function testMidLoopReflectionReplans() {
+  console.log(C.bold('\n── Test 17: reflexión intermedia replanifica tras fallas ─────'));
+
+  const { AgentLoop } = require('../core/planner/AgentLoop.js');
+  const AP = require('../core/planner/ActionParser.js');
+  const LLMProvider = require('../core/llm/LLMProvider.js');
+
+  const projectCwd = teardown() || setup();
+  AP.setProjectCWD(projectCwd);
+
+  const originalCompleteWithTools = LLMProvider.completeWithTools;
+  let calls = 0;
+  let sawReflectionInHistory = false;
+  const missing = path.join(projectCwd, 'no-existe.txt');
+  const missing2 = path.join(projectCwd, 'tampoco-existe.txt');
+
+  LLMProvider.completeWithTools = async (messages) => {
+    calls++;
+    if (calls === 1) {
+      return { content: null, toolCalls: [{ tool: 'read', params: { path: missing } }] };
+    }
+    if (calls === 2) {
+      // Path DIFERENTE: la anti-repetición no lo salta y la 2ª falla entra.
+      return { content: null, toolCalls: [{ tool: 'read', params: { path: missing2 } }] };
+    }
+    if (calls === 3) {
+      // Con 2 fallas, la reflexión CAMBIAR_PLAN ya debió inyectarse al historial.
+      sawReflectionInHistory = /Reflexión del agente/.test(JSON.stringify(messages));
+      return {
+        content: null,
+        toolCalls: [
+          {
+            tool: 'write',
+            params: { path: path.join(projectCwd, 'resultado.txt'), content: 'ok' },
+          },
+        ],
+      };
+    }
+    return { content: 'Listo, cambié de estrategia y guardé el resultado.', toolCalls: null };
+  };
+
+  try {
+    // El mock LLM solo se usa para la reflexión (el tool-calling va por
+    // completeWithTools): su primera llamada devuelve el veredicto.
+    const mockLLM = createMockLLM([
+      'VEREDICTO: CAMBIAR_PLAN\nRAZÓN: read falla porque el archivo no existe; probá con write.',
+    ]);
+
+    const loop = new AgentLoop({
+      maxIterations: 8,
+      llm: mockLLM,
+      bridge: createMockBridge(projectCwd),
+    });
+
+    const result = await loop.run('crea resultado.txt en el proyecto', 'Eres un asistente.', [], {
+      tools: [
+        {
+          name: 'read',
+          description: 'lee un archivo',
+          inputSchema: { type: 'object', properties: {} },
+        },
+        {
+          name: 'write',
+          description: 'escribe un archivo',
+          inputSchema: { type: 'object', properties: {} },
+        },
+      ],
+      reflection: true,
+    });
+
+    assert(
+      sawReflectionInHistory,
+      'El mensaje de reflexión llegó al historial antes del 3er turno'
+    );
+    assert(
+      mockLLM.callCount() === 1,
+      'La reflexión se disparó UNA vez (veredicto CAMBIAR_PLAN)',
+      `llamadas reflexión: ${mockLLM.callCount()}`
+    );
+    assert(
+      fs.existsSync(path.join(projectCwd, 'resultado.txt')),
+      'El plan cambió y la tarea se completó con write'
+    );
+    assert(!result.error, 'Sin error');
+  } finally {
+    LLMProvider.completeWithTools = originalCompleteWithTools;
+  }
+
+  teardown();
+}
+
+async function testMidLoopReflectionOffByDefaultInFast() {
+  console.log(C.bold('\n── Test 18: sin opts.reflection NO hay llamada de reflexión ─────'));
+
+  const { AgentLoop } = require('../core/planner/AgentLoop.js');
+  const AP = require('../core/planner/ActionParser.js');
+  const LLMProvider = require('../core/llm/LLMProvider.js');
+
+  const projectCwd = teardown() || setup();
+  AP.setProjectCWD(projectCwd);
+
+  const originalCompleteWithTools = LLMProvider.completeWithTools;
+  let calls = 0;
+  const missing = path.join(projectCwd, 'no-existe.txt');
+  const missing2 = path.join(projectCwd, 'tampoco-existe.txt');
+
+  LLMProvider.completeWithTools = async () => {
+    calls++;
+    if (calls === 1) {
+      return { content: null, toolCalls: [{ tool: 'read', params: { path: missing } }] };
+    }
+    if (calls === 2) {
+      return { content: null, toolCalls: [{ tool: 'read', params: { path: missing2 } }] };
+    }
+    return { content: 'No pude leer el archivo; no sigo.', toolCalls: null };
+  };
+
+  try {
+    const mockLLM = createMockLLM(['nunca se usa']);
+
+    const loop = new AgentLoop({
+      maxIterations: 8,
+      llm: mockLLM,
+      bridge: createMockBridge(projectCwd),
+    });
+
+    const result = await loop.run('leé un archivo', 'Eres un asistente.', [], {
+      tools: [
+        {
+          name: 'read',
+          description: 'lee un archivo',
+          inputSchema: { type: 'object', properties: {} },
+        },
+      ],
+      // Sin reflection: el loop NO se detiene a evaluar (y el mock no se llama).
+    });
+
+    assert(
+      mockLLM.callCount() === 0,
+      'La reflexión NO se disparó (opts.reflection ausente)',
+      `llamadas reflexión: ${mockLLM.callCount()}`
+    );
+    assert(
+      result.toolResults.length === 2,
+      'Ambas fallas entraron como tool results normales',
+      `tools: ${result.toolResults.length}`
+    );
+  } finally {
+    LLMProvider.completeWithTools = originalCompleteWithTools;
+  }
+
+  teardown();
+}
+
 // ── Main ──────────────────────────────────────────────────────────────────────
 
 async function main() {
@@ -1583,6 +1743,8 @@ async function main() {
   await testSelfCritiqueCompleteNoExtraRounds();
   testPluginToolsAreHighImpact();
   await testAntiRepetition();
+  await testMidLoopReflectionReplans();
+  await testMidLoopReflectionOffByDefaultInFast();
 
   console.log(C.bold('\n════════════════════════════════════════════════════════'));
   const total = passed + failed;

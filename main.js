@@ -583,7 +583,8 @@ function createChatWindow() {
       nodeIntegration: false,
       contextIsolation: true, // sandbox: la página (y los CDN) no ven Node
       webSecurity: true,
-      sandbox: false, // el preload necesita Node para los módulos core
+      sandbox: true, // preload fino (solo contextBridge+ipcRenderer); la lógica
+      // Node del chat vive en ipc/chat-handlers.js
       webviewTag: false,
       allowRunningInsecureContent: false,
     },
@@ -742,6 +743,7 @@ require('./ipc/github-handlers.js').register(ctx);
 require('./ipc/security-handlers.js').register(ctx);
 require('./ipc/proactive-handlers.js').register(ctx);
 require('./ipc/overlay-handlers.js').register(ctx);
+require('./ipc/chat-handlers.js').register(ctx);
 require('./ipc/intentions-handlers.js').register();
 
 // Servidor HTTP local

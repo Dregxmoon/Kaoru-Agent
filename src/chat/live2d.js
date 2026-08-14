@@ -13,7 +13,7 @@ async function loadModel() {
     _showModelError('No hay modelo Live2D disponible. Configúralo con /cambio-modelo.');
     return;
   }
-  if (!fs.existsSync(_modelInfo.model3Path)) {
+  if (!(await assistant.existsSync(_modelInfo.model3Path))) {
     console.error('Modelo no encontrado:', _modelInfo.model3Path);
     _showModelError('Modelo no encontrado: ' + _modelInfo.model3Path);
     return;
@@ -42,7 +42,7 @@ async function loadModel() {
   try {
     // Se inyectan expresiones/motions no referenciadas en el model3.json (ver
     // core/behavior/ModelAugmenter.js) para que el mini-avatar pueda animar.
-    const augmented = ModelAugmenter.augmentModel(_modelInfo.model3Path);
+    const augmented = await ModelAugmenter.augmentModel(_modelInfo.model3Path);
     model = await PIXI.live2d.Live2DModel.from(augmented.settings || fileUrl);
     modelNativeW = model.width;
     modelNativeH = model.height;
