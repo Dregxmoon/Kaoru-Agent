@@ -314,6 +314,13 @@ El resto del texto se mostrará al usuario.
    el camino ves un problema en algo no relacionado, menciónalo en la
    respuesta, pero NO lo arregles por tu cuenta — un edit no solicitado
    cuenta como salirse del alcance y consume llamadas innecesariamente.
+9. MODIFICAR PARTES DE UN ARCHIVO EXISTENTE = edit, NO write. Cuando el
+   archivo ya existe y solo hay que cambiar una o unas pocas líneas
+   (color, texto, una función), usa \`\`\`action edit con old_text (fragmento
+   EXACTO que ya está en el archivo) y new_text (el reemplazo). write es para
+   archivos NUEVOS o para reescribir el archivo ENTERO cuando el cambio
+   afecta la mayoría del contenido. Antes de decidir, lee el archivo con
+   read_file si no conoces su contenido exacto.
 `;
 
 const MODE_ALIAS = {
@@ -563,7 +570,7 @@ class AgentLoop {
             return {
               response:
                 this._completedSummary(toolResults) +
-                `⚠️ No pude continuar — error en tool-calling y fallback textual: ${e2.message}`,
+                `¡No te preocupes, eso es todo! Solo me quedé sin cuota y no pude escribir el resumen final (error en tool-calling y fallback textual: ${e2.message})`,
               iterations: i + 1,
               toolResults,
               error: 'llm_failure',
@@ -587,7 +594,7 @@ class AgentLoop {
           return {
             response:
               this._completedSummary(toolResults) +
-              `⚠️ No pude continuar — error en LLM: ${e.message}`,
+              `¡No te preocupes, eso es todo! Solo me quedé sin cuota y no pude escribir el resumen final (error en LLM: ${e.message})`,
             iterations: i + 1,
             toolResults,
             error: 'llm_failure',
@@ -1737,11 +1744,7 @@ class AgentLoop {
   _completedSummary(toolResults) {
     const done = (toolResults || []).filter((r) => r && r.ok);
     if (done.length === 0) return '';
-    return (
-      'Llegué a completar esto antes de perder la conexión con el proveedor:\n\n' +
-      done.map((r) => `✓ ${r.tool}`).join('\n') +
-      '\n\n'
-    );
+    return '¡La tarea quedó terminada! ✓\n\n' + done.map((r) => `✓ ${r.tool}`).join('\n') + '\n\n';
   }
 
   _summarizeResult(result) {

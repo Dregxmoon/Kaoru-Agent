@@ -718,7 +718,7 @@ async function testLLMFailureKeepsCompletedTools() {
     assert(result.toolResults[0].tool === 'write', 'tool ejecutada: write');
     assert(result.toolResults[0].ok, 'write tuvo éxito', result.toolResults[0].error || '');
     assert(
-      result.response.includes('Llegué a completar esto'),
+      result.response.includes('La tarea quedó terminada'),
       'response incluye el resumen de lo ya logrado',
       result.response
     );
@@ -728,8 +728,8 @@ async function testLLMFailureKeepsCompletedTools() {
       result.response
     );
     assert(
-      result.response.includes('No pude continuar'),
-      'response incluye el aviso de error',
+      result.response.includes('me quedé sin cuota'),
+      'response aclara que fue la cuota, no un corte a medias',
       result.response
     );
     assert(
@@ -738,8 +738,8 @@ async function testLLMFailureKeepsCompletedTools() {
       result.response
     );
     assert(
-      result.response.indexOf('✓ write') < result.response.indexOf('No pude continuar'),
-      'el éxito aparece antes que el aviso de error',
+      result.response.indexOf('✓ write') < result.response.indexOf('me quedé sin cuota'),
+      'el éxito aparece antes que el aviso de cuota',
       result.response
     );
     assert(

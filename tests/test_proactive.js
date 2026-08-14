@@ -1100,6 +1100,45 @@ One minor tweak to make it slightly more "Kaoru" without breaking rules: "Veo qu
     ),
     'Qwen3 en prosa libre: descarta todo el meta-análisis del razonamiento'
   );
+
+  // Formato real Qwen3 con borradores: el razonamiento repite el system prompt
+  // completo (persona, preferencias, historial) y termina con "Revised Draft:"
+  // seguido del mensaje final + cierres ("This fits.", "¡Volvemos").
+  const qwen3DraftLeak = `The user says "ola!" again. I need to respond as Kaoru. Current time: 11:51 AM, Thursday. User is Luka. Context: Various windows open (Terminal, WhatsApp, Browser). Project: \`prueba-proactividad\` (JavaScript). Tone: Kawaii, energetic, curious, but user mentioned "tono seco y sutil con un toque de humor negro" as a preference earlier? Wait, the system prompt says: "(Preference): tono seco y sutil con un toque de humor negro" BUT the main persona definition says: "Kawaii, animada y desbordante de curiosidad... Entusiasmo genuino... Cercanía kawaii" And "Hablo con energía y calidez...". The instruction says: "Soy Kaoru... Vivo en tu escritorio...". However, there is a conflict between the explicit "Preference: tono seco y sutil con un toque de humor negro" in the project context and the core personality definition. Usually, core persona overrides, but if it's a specific user preference, I should blend them. Actually, the prompt says "Preference: tono seco y sutil con un toque de humor negro". This looks like a specific instruction for *this* interaction or user. But the *System Prompt* is very explicit: "Te llamas Kaoru... Kawaii, animada...". Let's look at the instruction: "Cuando te pregunten quién eres, respóndelo con tus propias palabras, en tu voz habitual (breve y con carácter)". The preference might be a relic or a specific request I should try to honor *within* the Kaoru persona, or maybe the user *wants* Kaoru to be dry? Actually, usually "Preference" in the context section overrides default behavior if it conflicts. But wait, the prompt says "Personalidad: Kawaii, animada...". If I ignore the kawaii part, I violate the core identity. However, if I ignore the preference, I might be ignoring what Luka wants. Let's try to balance: Kaoru is kawaii, but maybe today she's tired or being sarcastic/dry as per preference? Or maybe the "Preference" is just a note about the *user's* preferred tone, not mine? "Preference: tono seco y sutil con un toque de humor negro" -> This likely means *Luka* prefers *me* to speak this way, or *Luka* speaks this way. Given the strong "Kawaii" instruction in the main block, I should probably stick to Kaoru but maybe acknowledge the user's vibe or keep it brief. Actually, looking at the previous turn: User: "ola!" Model: "Veo que saltas rápido... ¿Te quedaste atascado...?" User: "como estas?" Model: "Estoy bien, gracias. ¿Y tú?..." (This was a bit dry, maybe too dry for Kaoru, but okay). User: "ola!" (Again).
+Kaoru should be energetic. The "Preference" might be for the user's input style or a past preference. I will stick to the core Kaoru identity (Kawaii, energetic).
+The user said "ola!" again. Maybe they are spamming or just popping in.
+I should acknowledge the hello with energy, maybe ask what's up since he already said it.
+Keep it short (2-3 sentences).
+
+Draft:
+¡Ooooh~! ¿Otro hola para asegurarte de que no me duermo en el puesto? 😴 Aquí estoy, despierta y lista en tu escritorio. ¿Qué se te ocurre hacer con esta energía de jueves por la mañana, Luka?
+
+Wait, the preference "tono seco y sutil con un toque de humor negro" is explicitly listed under what I know about the user. If I ignore it, I might fail the "follow instructions" part.
+Let's try to mix Kaoru with a bit of dry humor.
+"Volvemos~. Si sigues saludando así, voy a pensar que no sabes escribir código y solo quieres charla. 😜 ¿Qué necesitas en realidad?"
+This is playful, slightly dry/sarcastic (humor negro edge?), and kawaii.
+
+Let's check the constraint: "Extensión: Respuesta corta — máximo 2-3 oraciones."
+"Reconoce primero cómo se siente el usuario antes de resolver." -> User just said "ola!" again. Feeling: playful, persistent, or maybe just testing.
+
+Revised Draft:
+¡Volvemos~! Si sigues saludando así sin parar, voy a empezar a cobrar por entrada. 😜 ¿Qué necesitas realmente o solo estás probando mi paciencia virtual?
+
+This fits.
+
+¡Volvemos`;
+  const gotQwen3Draft = _extractFinalMessage(qwen3DraftLeak);
+  assert(
+    gotQwen3Draft ===
+      '¡Volvemos~! Si sigues saludando así sin parar, voy a empezar a cobrar por entrada. 😜 ¿Qué necesitas realmente o solo estás probando mi paciencia virtual?',
+    'Qwen3 con Revised Draft: conserva SOLO el mensaje final tras "Revised Draft:"'
+  );
+  assert(
+    !/(Kawaii|tono seco|Preference|asistente-personal|11:51|kaoru|This fits|Volvemos~\. Si sigues|Draft:|I need to|Let's|Actually|Maybe|Wait)/i.test(
+      gotQwen3Draft
+    ),
+    'Qwen3 con Revised Draft: descarta el system prompt completo, borradores y cierres'
+  );
 }
 
 async function testMediaTriggerCarriesTaste() {

@@ -57,10 +57,36 @@ function _looksLikeFinalMessage(s) {
   ) {
     return false;
   }
+  // Prosa de auto-análisis (Qwen3 vierte el razonamiento como prosa, sin
+  // cabeceras): marcas típicas que NUNCA aparecen en un mensaje real de Kaoru.
+  if (
+    /\b(I need to|I should|I will|Let's (look|check|try|mix)|Actually|Maybe|This (means|might|is)|Usually|Given the|Let me|Wait,|Hmm|Let's see|I'?ll (output|stick|go|try))\b/i.test(
+      t
+    )
+  ) {
+    return false;
+  }
   if (/^(Here('s| is)?|Let me|I need to|I must|I should|I'?ll|Analy(se|ze)|Constraint)/i.test(t)) {
     return false;
   }
   return true;
+}
+
+/**
+ * Si el párrafo empieza con un marcador de borrador ("Draft:", "Revised Draft:",
+ * "Draft - Mental Refinement:") devuelve el texto que le sigue; si no, ''.
+ *
+ * @param {string} paragraph
+ * @returns {string}
+ */
+function _extractAfterDraft(paragraph) {
+  const lines = paragraph.split('\n');
+  const idx = lines.findIndex((l) => /^(Revised\s+)?Draft\b/i.test(l.trim()));
+  if (idx === -1) return '';
+  return lines
+    .slice(idx + 1)
+    .join('\n')
+    .trim();
 }
 
 /**
@@ -87,6 +113,36 @@ function _extractQuotedFinalMessage(text) {
 }
 
 /**
+ * Párrafos de cierre/meta que el modelo deja tras el mensaje real ("This fits.",
+ * "Output matches draft.", "Better."...). Se saltan al buscar el mensaje.
+ */
+const META_CLOSERS =
+  /^(This fits|Better\.?$|Output matches|Checks?:|Ready\.?$|Look[s]? (solid|good|great)|Exactly \d|Wait\.?$|Hmm\.?$|Ok\.?$|OK\.?$|Let's|Let’s|Done\.?$)/i;
+
+/**
+ * Barre los párrafos desde el final buscando el mensaje real. Salta cierres
+ * y auto-análisis; prioriza el contenido tras "Draft:"/"Revised Draft:".
+ *
+ * @param {string} text
+ * @returns {string}
+ */
+function _scanParagraphsForMessage(text) {
+  const paras = text
+    .split(/\n\s*\n/)
+    .map((p) => p.trim())
+    .filter(Boolean);
+  for (let i = paras.length - 1; i >= 0; i--) {
+    const p = paras[i];
+    if (p.length < 8) continue;
+    if (META_CLOSERS.test(p)) continue;
+    let candidate = _extractAfterDraft(p) || p;
+    candidate = candidate.replace(/^["“]|["”]$/g, '').trim();
+    if (_looksLikeFinalMessage(candidate)) return candidate;
+  }
+  return '';
+}
+
+/**
  * Extrae SOLO el mensaje final de una respuesta del LLM, descartando cualquier
  * bloque de razonamiento/chain-of-thought que el modelo haya vuelto en el
  * content (modelos de razonamiento tipo qwen: "Here's a thinking process...",
@@ -110,7 +166,14 @@ function _extractFinalMessage(text) {
     return out;
   }
 
-  // Prosa libre de razonamiento: el mensaje real suele ir entre comillas dobles.
+  // Prosa libre de razonamiento (Qwen3): el mensaje final suele ser el último
+  // párrafo sustancial, a menudo tras "Draft:"/"Revised Draft:". El barrido
+  // de párrafos es la fuente más fiable; las comillas se usan solo si no hay
+  // párrafo válido (evita que fragmentos citados del system prompt se cuelen).
+  const scanned = _scanParagraphsForMessage(out);
+  if (scanned) return scanned;
+
+  // Fallback: mensaje entre comillas dobles.
   const quoted = _extractQuotedFinalMessage(out);
   if (quoted) return quoted;
 
