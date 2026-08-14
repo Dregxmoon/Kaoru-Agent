@@ -432,6 +432,75 @@ function testSchemaConsistency() {
   }
 }
 
+// ── Test 6: Reintento 413 (TPM groq) con modelo smart ───────────────────────
+
+async function testGroq413Retry() {
+  console.log(C.bold('\n── Test 6: tool-calling 413 "Request too large" → reintento smart ──'));
+
+  const LLMProvider = require('../core/llm/LLMProvider.js');
+  const id = 'test-groq-413';
+
+  LLMProvider.registerProvider({
+    id,
+    name: 'Test Groq 413',
+    type: 'openai',
+    baseURL: 'http://127.0.0.1:9', // puerto cerrado: no debe llegar a red
+    free: true,
+    models: { fast: 'fast-model', smart: 'smart-model' },
+  });
+  LLMProvider.configure({ llm: { primary: id, fallback: [], apiKeys: { [id]: 'FAKE' } } });
+  LLMProvider._setKeychainResolver(false);
+
+  const calls = { fast: 0, smart: 0 };
+  LLMProvider._debug_setToolCaller(id, async (_m, _s, mode, _tools, _opts) => {
+    calls[mode] = (calls[mode] || 0) + 1;
+    if (mode === 'fast') {
+      const err = new Error(
+        'groq 413: {"error":{"message":"Request too large for model `fast-model` on tokens per minute (TPM): Limit 6000, Requested 8761"}}'
+      );
+      throw err;
+    }
+    return { content: '', toolCalls: [{ tool: 'read', params: { path: 'a.txt' }, id: 'x' }] };
+  });
+
+  const tools = [{ name: 'read', description: 'lee un archivo', parameters: { type: 'object', properties: { path: { type: 'string' } } } }];
+
+  try {
+    const result = await LLMProvider.completeWithTools(
+      [{ role: 'user', content: 'hola' }],
+      'sys',
+      tools,
+      'fast'
+    );
+    assert(calls.fast === 1, 'el modelo fast se probó exactamente 1 vez', `fast=${calls.fast}`);
+    assert(calls.smart === 1, 'el modelo smart se reintentó 1 vez', `smart=${calls.smart}`);
+    assert(Array.isArray(result.toolCalls) && result.toolCalls.length === 1, 'tool-calling resolvió en smart');
+    assert(result.toolCalls[0].tool === 'read', 'tool call correcto desde el reintento');
+  } catch (e) {
+    assert(false, 'reintento 413→smart no lanzó error', e.message);
+  }
+
+  // Caso control: error no-413 NO debe disparar el reintento smart.
+  const calls2 = { fast: 0, smart: 0 };
+  LLMProvider._debug_setToolCaller(id, async (_m, _s, mode, _tools, _opts) => {
+    calls2[mode] = (calls2[mode] || 0) + 1;
+    throw new Error('gemini 404: modelo no disponible');
+  });
+  LLMProvider._debug_setCaller(id, async (_m, _s, _mode, _opts) => 'fallback texto');
+
+  const fallback = await LLMProvider.completeWithTools(
+    [{ role: 'user', content: 'hola' }],
+    'sys',
+    tools,
+    'fast'
+  );
+  assert(calls2.smart === 0, 'un 404 NO reintenta con smart', `smart=${calls2.smart}`);
+  assert(
+    fallback.content === 'fallback texto' && fallback.toolCalls === null,
+    'un 404 cae a fallback de texto sin toolCalls'
+  );
+}
+
 // ── Main ──────────────────────────────────────────────────────────────────────
 
 async function main() {
@@ -445,6 +514,7 @@ async function main() {
   testAnthropicToolCallerRegistered();
   testEdgeCases();
   testSchemaConsistency();
+  await testGroq413Retry();
 
   console.log(C.bold('\n════════════════════════════════════════════════════════'));
   const total = passed + failed;

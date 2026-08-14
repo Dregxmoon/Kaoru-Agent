@@ -1161,12 +1161,18 @@ function _getCaller(providerId) {
 
 const PROVIDERS = {};
 const PROVIDERS_WITH_TOOLS = {};
+// Callers inyectados por tests (_debug_setCaller / _debug_setToolCaller).
+// _rebuildMaps los respeta por encima de los callers derivados del tipo.
+const _injectedCallers = new Map();
+const _injectedToolCallers = new Map();
 
 function _rebuildMaps() {
   for (const [id] of _registry) {
-    const fn = _getCaller(id);
+    const fn = _injectedCallers.has(id) ? _injectedCallers.get(id) : _getCaller(id);
     if (fn) PROVIDERS[id] = (m, s, mode, opts) => fn(id, m, s, mode, opts);
-    const fnTools = _getToolCaller(id);
+    const fnTools = _injectedToolCallers.has(id)
+      ? _injectedToolCallers.get(id)
+      : _getToolCaller(id);
     if (fnTools)
       PROVIDERS_WITH_TOOLS[id] = (m, s, mode, tools, opts) => fnTools(id, m, s, mode, tools, opts);
   }
@@ -1674,6 +1680,7 @@ async function _callWithFallbackTools(messages, systemPrompt, mode = 'smart', to
     }
 
     let lastErr = null;
+    let callMode = mode;
     for (let attempt = 0; attempt <= MAX_RETRIES_PER_PROVIDER; attempt++) {
       try {
         if (attempt > 0) {
@@ -1687,7 +1694,7 @@ async function _callWithFallbackTools(messages, systemPrompt, mode = 'smart', to
         }
         const result = await _enqueueProviderCall(
           providerName,
-          () => fn(messages, systemPrompt, mode, tools, opts),
+          () => fn(messages, systemPrompt, callMode, tools, opts),
           opts
         );
         return result;
@@ -1705,6 +1712,22 @@ async function _callWithFallbackTools(messages, systemPrompt, mode = 'smart', to
           if (waitMs >= DEGRADED_TRIGGER_MS) {
             _markProviderDegraded(providerName, 'rate-limit (tool-calling)', waitMs);
           }
+        }
+        // Fix Groq free tier: el modelo fast (llama-3.1-8b-instant, TPM 6K) no
+        // admite tool-calling con el prompt+27 tools (~8,7K tokens) → HTTP 413
+        // "Request too large". Se reintenta el MISMO provider con el modelo
+        // smart (llama-3.3-70b-versatile, TPM 12K) antes de saltar al fallback.
+        if (
+          !retryable &&
+          callMode !== 'smart' &&
+          /(request too large|HTTP 413|tokens per minute \(TPM\))/i.test(e.message)
+        ) {
+          callMode = 'smart';
+          logger.warn(
+            'LLMProvider',
+            `[llm] ${providerName} tool-calling excede el TPM del modelo fast, reintentando con modelo smart`
+          );
+          continue;
         }
         if (!retryable || attempt === MAX_RETRIES_PER_PROVIDER) {
           tried.push(providerName);
@@ -2153,4 +2176,21 @@ module.exports = {
   _debug_markProviderDegraded: _markProviderDegraded,
   _debug_isProviderDegraded: _isProviderDegraded,
   _debug_degradedProviders: _degradedProviders,
+  _debug_callWithFallbackTools: _callWithFallbackTools,
+  _debug_setToolCaller(providerId, fn) {
+    if (typeof fn !== 'function') {
+      _injectedToolCallers.delete(providerId);
+      return;
+    }
+    _injectedToolCallers.set(providerId, (_id, m, s, mode, tools, opts) =>
+      fn(m, s, mode, tools, opts)
+    );
+  },
+  _debug_setCaller(providerId, fn) {
+    if (typeof fn !== 'function') {
+      _injectedCallers.delete(providerId);
+      return;
+    }
+    _injectedCallers.set(providerId, (_id, m, s, mode, opts) => fn(m, s, mode, opts));
+  },
 };
