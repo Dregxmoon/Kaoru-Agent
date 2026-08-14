@@ -704,3 +704,57 @@ async function importModelFromFolder(folderPath) {
   }
   addMessage('assistant', `Modelo importado y activado: **${res.info.name}**`);
 }
+
+// ── Copiar al seleccionar ───────────────────────────────────────────────────
+// Seleccionar texto en el chat lo copia automáticamente al portapapeles y
+// muestra un toast "Copiado" en la parte superior. Se escucha la selección en
+// el área de mensajes (no en inputs, donde el usuario edita).
+let _copyToastTimer = 0;
+let _lastCopyText = '';
+
+function _showCopyToast() {
+  const toast = document.getElementById('copy-toast');
+  if (!toast) return;
+  toast.classList.add('visible');
+  clearTimeout(_copyToastTimer);
+  _copyToastTimer = setTimeout(() => toast.classList.remove('visible'), 1500);
+}
+
+function _copySelection() {
+  const sel = window.getSelection();
+  const text = sel ? sel.toString() : '';
+  if (!text || !text.trim()) return;
+  if (text === _lastCopyText) return; // no repetir el mismo clic
+  _lastCopyText = text;
+  const onDone = () => {
+    _showCopyToast();
+    // El texto copiado cambia cuando el usuario selecciona otra cosa.
+    setTimeout(() => {
+      _lastCopyText = '';
+    }, 600);
+  };
+  const doCopy = () =>
+    navigator.clipboard
+      .writeText(text)
+      .then(onDone)
+      .catch(() => {});
+  if (navigator.clipboard) {
+    doCopy();
+  } else {
+    // Fallback sin API clipboard: selección + execCommand.
+    document.execCommand('copy');
+    onDone();
+  }
+}
+
+document.addEventListener('mouseup', (e) => {
+  // Solo copiar cuando la selección nace del área de mensajes, no de inputs.
+  if (e.target && e.target.closest && e.target.closest('#messages')) {
+    _copySelection();
+  }
+});
+// Ctrl/Cmd+C también muestra el toast (el navegador ya copia).
+document.addEventListener('copy', (e) => {
+  const sel = window.getSelection();
+  if (sel && sel.toString() && sel.toString().trim()) _showCopyToast();
+});

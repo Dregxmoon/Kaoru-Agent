@@ -251,6 +251,29 @@ body {
 #update-progress {
   color: var(--text-secondary);
 }
+
+/* Toast "Copiado" — aparece en la parte superior al copiar texto del chat */
+#copy-toast {
+  position: fixed;
+  top: 44px;
+  left: 50%;
+  transform: translate(-50%, -12px);
+  padding: 5px 14px;
+  background: var(--accent);
+  color: #fff;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  opacity: 0;
+  pointer-events: none;
+  transition:
+    opacity 0.18s ease,
+    transform 0.18s ease;
+  z-index: 60;
+}
+#copy-toast.visible {
+  opacity: 1;
+  transform: translate(-50%, 0);
+}
 #open-settings-btn {
   margin-left: auto;
   padding: 2px 8px;
