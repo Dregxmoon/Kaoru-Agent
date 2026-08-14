@@ -86,8 +86,9 @@ async function testStreamTokensAndToolCalls() {
     models: { smart: 'mock-smart', fast: 'mock-fast' },
     free: true,
   });
-  LLMProvider.storeProviderApiKey('mock-stream', 'fake-key');
-  LLMProvider.configure({ llm: { primary: 'mock-stream' } });
+  LLMProvider.configure({
+    llm: { primary: 'mock-stream', apiKeys: { 'mock-stream': 'fake-key' } },
+  });
 
   const tokens = [];
   const res = await LLMProvider.completeWithTools(
@@ -133,8 +134,9 @@ async function testCancelMidStream() {
     models: { smart: 'mock-smart', fast: 'mock-fast' },
     free: true,
   });
-  LLMProvider.storeProviderApiKey('mock-cancel', 'fake-key');
-  LLMProvider.configure({ llm: { primary: 'mock-cancel' } });
+  LLMProvider.configure({
+    llm: { primary: 'mock-cancel', apiKeys: { 'mock-cancel': 'fake-key' } },
+  });
 
   const abort = new AbortController();
   const tokens = [];

@@ -463,7 +463,13 @@ async function testGroq413Retry() {
     return { content: '', toolCalls: [{ tool: 'read', params: { path: 'a.txt' }, id: 'x' }] };
   });
 
-  const tools = [{ name: 'read', description: 'lee un archivo', parameters: { type: 'object', properties: { path: { type: 'string' } } } }];
+  const tools = [
+    {
+      name: 'read',
+      description: 'lee un archivo',
+      parameters: { type: 'object', properties: { path: { type: 'string' } } },
+    },
+  ];
 
   try {
     const result = await LLMProvider.completeWithTools(
@@ -474,7 +480,10 @@ async function testGroq413Retry() {
     );
     assert(calls.fast === 1, 'el modelo fast se probó exactamente 1 vez', `fast=${calls.fast}`);
     assert(calls.smart === 1, 'el modelo smart se reintentó 1 vez', `smart=${calls.smart}`);
-    assert(Array.isArray(result.toolCalls) && result.toolCalls.length === 1, 'tool-calling resolvió en smart');
+    assert(
+      Array.isArray(result.toolCalls) && result.toolCalls.length === 1,
+      'tool-calling resolvió en smart'
+    );
     assert(result.toolCalls[0].tool === 'read', 'tool call correcto desde el reintento');
   } catch (e) {
     assert(false, 'reintento 413→smart no lanzó error', e.message);

@@ -856,6 +856,14 @@ function postStream(url, headers, body, onToken, timeoutMs = 20_000, signal = nu
       });
       res.on('end', () => {
         cleanupAbort?.();
+        // Vaciar el buffer del filtro CoT: el último trozo retenido (por si un
+        // marker </thinking> se cortaba entre chunks) debe emitirse al cerrar.
+        if (cotState.pending && !cotState.inThinking) {
+          try {
+            onToken && onToken(cotState.pending);
+          } catch (_) {}
+          cotState.pending = '';
+        }
         const toolCallsOut = toolCalls
           .filter((tc) => tc && tc.name && tc.arguments)
           .map((tc) => ({ id: tc.id, function: { name: tc.name, arguments: tc.arguments } }));
