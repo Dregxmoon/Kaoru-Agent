@@ -103,7 +103,7 @@ Persiste aceptaciones/descartes **por tipo de señal** (JSON en userData):
 ## Módulo de gestos — animar el modelo Live2D
 
 El overlay y el mini-avatar del chat muestran el modelo, pero muchos `model3.json` no referencian
-las expresiones (`*.exp3.json`) y animaciones (`*.motion3.json`) que traen en disco. Cuatro módulos
+las expresiones (`*.exp3.json`) y animaciones (`*.motion3.json`) que traen en disco. Cinco módulos
 resuelven eso **sin escribir en disco** y conectándolo al flujo del asistente:
 
 ### `ModelAugmenter.js` — descubrir e inyectar
@@ -129,6 +129,16 @@ resuelven eso **sin escribir en disco** y conectándolo al flujo del asistente:
   dance/sing/photo/wink/sleep/cry/laugh/blush/panic).
 - `ALIASES[mood]` → sinónimos en ES/EN/中文/日本語 (+romaji).
 - `NOISE` (tokens estructurales: idle/animation/exp/…) e `isActionMood` (desempate hacia motion).
+
+### `GestureVocabulary.js` — vocabulario dinámico del modelo
+
+- Genera el vocabulario de gestos que se inyecta en el system prompt del LLM (a partir de
+  `GestureLexicon` + los gestos reales del modelo de `ModelAugmenter`).
+- Es la base del modo **gestos LLM-driven**: el modelo responde con marcadores inline
+  `(gesto: wave)` / `(gesto: happy)` que `src/chat/process.js` parsea y dispara en vivo en el
+  mini-avatar (y el overlay), tanto en chat como en modo agente.
+- `gestures.llmDriven` activa/desactiva el pipeline (config, `ConfigManager`); con `enabled:false`
+  vuelve al pipeline clásico de `GestureHeuristic`.
 
 ### `GestureHeuristic.js` — de mood a gesto
 
@@ -160,9 +170,11 @@ resuelven eso **sin escribir en disco** y conectándolo al flujo del asistente:
   `gesture-config` para el bloque de configuración.
 - `src/index.html` (overlay): `speak()` → `setEmotion(emotion)`; listener `gesture`; ambient idle.
 - `src/chat.html` (mini-avatar): hooks locales (initiative/proposal/plan/agent-progress/comandos),
-  emoción del mensaje del usuario y del TTS; expone el motor al `/gestos` vía `cmdCtx.gestureEngine`.
+  emoción del mensaje del usuario y del TTS; **gestos LLM-driven**: `process.js` parsea los
+  marcadores `(gesto: x)` de la respuesta en vivo y dispara el gesto; expone el motor al `/gestos`
+  vía `cmdCtx.gestureEngine`.
 - `triggerMotion()` (overlay y chat) ahora solo reproduce del grupo `Idle`; así las motions de gesto
-  (tipo `zhaoxiang`) solo aparecen vía test o emoción y no al azar en cada click/intervalo.
+  (tipo `zhaoxiang`) solo aparecen vía test, emoción o marcador LLM y no al azar en cada click/intervalo.
 - `core/commands/CommandRegistry.js`: comando `/gestos` (categoría `Modelo`).
 
 ---

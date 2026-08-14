@@ -96,7 +96,7 @@ npm test     # = bash tests/run-all.sh
 | `test_agent_loop_lsp`            | Bucle agente con herramientas LSP (feedback post-edit)                                                                                 |
 | `test_agent_loop_git`            | Bucle agente con herramientas Git nativas                                                                                              |
 | `test_agent_manager`             | Definiciones de agentes y system prompts                                                                                               |
-| `test_tool_calling`              | Schemas nativos y normalización de respuestas de tool-calling                                                                          |
+| `test_tool_calling`              | Schemas nativos, normalización de respuestas y **reintento de tool-calling 413→smart** (Groq fast excede TPM)                          |
 | `test_tool_precedence`           | Resolución de toolset: Skill > MCP > OpenClaw, exclusiones por dominio                                                                 |
 | `test_tool_visibility`           | Visibilidad de herramientas según toolIntent                                                                                           |
 | `test_tools_e2e`                 | Puentes de herramientas y aprobación de alto impacto                                                                                   |
@@ -118,13 +118,13 @@ npm test     # = bash tests/run-all.sh
 
 ### Memoria y estado
 
-| Suite                       | Cobertura                                                                                                                          |
-| --------------------------- | ---------------------------------------------------------------------------------------------------------------------------------- |
-| `test_state_graph`          | Schema, CRUD de nodos, reconciliación, decay, sesiones con resume tras crash, recall semántico, modo memoria/fallback              |
-| `test_fact_reasoner`        | Vigencia de hechos fijos (F3.1): staleness por umbral, `CASCADE_STALENESS`, refresh de `verified_at`, fallback a `created_at`      |
-| `test_session_segmentation` | Segmentación temática (F3.2): `_segmentByTopic` separa temas, un `Episode` por segmento, regresión sesión corta → 1 solo `Episode` |
+| Suite                       | Cobertura                                                                                                                                                                                                           |
+| --------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `test_state_graph`          | Schema, CRUD de nodos, reconciliación, decay, sesiones con resume tras crash, recall semántico, modo memoria/fallback                                                                                               |
+| `test_fact_reasoner`        | Vigencia de hechos fijos (F3.1): staleness por umbral, `CASCADE_STALENESS`, refresh de `verified_at`, fallback a `created_at`                                                                                       |
+| `test_session_segmentation` | Segmentación temática (F3.2): `_segmentByTopic` separa temas, un `Episode` por segmento, regresión sesión corta → 1 solo `Episode`                                                                                  |
 | `test_user_model_builder`   | Modelo del usuario inferido (F3.3): nodo con `EVIDENCIA_DE` y decay alto, validación anti-fabricación (confidence, labels, episodios, comandos), fusión por similitud, `confirmInferred`, piggyback en `applyDecay` |
-| `test_persistent`           | Presupuesto diario, `StateGraph.forget` (/olvida), `pendingRecap`                                                                  |
+| `test_persistent`           | Presupuesto diario, `StateGraph.forget` (/olvida), `pendingRecap`                                                                                                                                                   |
 
 ### Contexto y lenguaje
 
@@ -168,9 +168,11 @@ npm test     # = bash tests/run-all.sh
 
 ### E2E
 
-| Suite                                  | Cobertura                                    |
-| -------------------------------------- | -------------------------------------------- |
-| `tests/e2e/test_chat_to_agent_loop.js` | Chat → bucle agente con piezas de producción |
+| Suite                                  | Cobertura                                                                                                                              |
+| -------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------- |
+| `tests/e2e/test_chat_to_agent_loop.js` | Chat → bucle agente con piezas de producción                                                                                           |
+| `tests/e2e/test_stream_ipc_e2e.js`     | Streaming de tokens por IPC + modo agente/chat (mock `mock-stream`; claves vía `configure(apiKeys)`, sin depender del keychain del SO) |
+| `tests/e2e/test_ui_electron.js`        | UI del chat con Electron + Playwright (job `e2e-ui` del CI)                                                                            |
 
 ---
 

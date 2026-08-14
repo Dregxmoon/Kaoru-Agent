@@ -9,7 +9,7 @@ Dos ventanas Electron que renderizan el avatar Live2D y la interfaz de chat — 
 Ventana overlay que renderiza el modelo Cubism usando **Pixi.js + live2d-display**.
 
 - Canvas Live2D con animaciones y físicas.
-- Siempre al frente (`alwaysOnTop`), fondo transparente con *click-through*.
+- Siempre al frente (`alwaysOnTop`), fondo transparente con _click-through_.
 - Indicadores de estado: despierto / escuchando / procesando.
 - Burbuja de texto temporal para comandos de voz.
 - Comunicación con el main process vía IPC (TTS, STT, estado).
@@ -27,38 +27,39 @@ Interfaz completa de conversación con el asistente.
 
 **Componentes:**
 
-| Sección | Propósito |
-|---|---|
-| Header | Indicador de estado, selector de modo, badge OpenClaw/MCP, tema |
-| Messages | Burbujas con markdown (sanitizado con DOMPurify), typewriter, divisores de sesión |
-| Input area | Texto con autocompletado de `/comando` y de `@archivo` (filtra mientras escribes), adjuntar, STT, enviar |
-| Model panel | Canvas Live2D integrado (vistas full / half / head) |
-| Settings modal | Configuración de API keys (Groq, Gemini, OpenAI) |
-| MCP modal | Administración de servidores MCP (biblioteca + JSON manual) |
-| Propuestas proactivas | Burbujas de iniciativa con botones aceptar / descartar + resultado de ejecución |
+| Sección               | Propósito                                                                                                                                                    |
+| --------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Header                | Indicador de estado, selector de modo, **badge AGENTE con % de contexto**, badge OpenClaw/MCP, tema, botón de cancelar flujo                                 |
+| Messages              | Burbujas con **streaming markdown incremental**, preview HTML en frame `sandbox`, chips de archivos, divisores de sesión, toast de **copiar al seleccionar** |
+| Input area            | Texto con autocompletado de `/comando` y de `@archivo` (filtra mientras escribes), adjuntar, STT, enviar                                                     |
+| Model panel           | Canvas Live2D integrado (vistas full / half / head) con **gestos LLM-driven** (`(gesto: x)`)                                                                 |
+| Settings modal        | Configuración de API keys (Groq, Gemini, OpenAI)                                                                                                             |
+| MCP modal             | Administración de servidores MCP (biblioteca + JSON manual)                                                                                                  |
+| Propuestas proactivas | Burbujas de iniciativa con botones aceptar / descartar + resultado de ejecución                                                                              |
 
 **Eventos IPC principales:**
 
-| Evento | Propósito |
-|---|---|
-| `init-theme` | Tema inicial (dark/sakura) |
-| `chat-message` | Mensaje entrante desde el main process |
-| `memory-status` | Estado del banner de memoria |
-| `openclaw-status` | Disponibilidad de OpenClaw |
-| `initiative` | Mensaje iniciado proactivamente por el asistente |
-| `initiative-decision` | Respuesta del usuario a una propuesta |
-| `agent-approval-needed` / `agent-progress` | Aprobaciones y progreso del bucle agente |
-| `plan-*` | Eventos del plan de ejecución |
-| `stt-*` | Eventos de reconocimiento de voz |
-| `telemetry-report` | Reporte `/telemetria` |
-| `model-changed` | Cambio de modelo Live2D (recarga del canvas) |
-| `views-changed` | Cambio del modo de vista del modelo (`full`/`half`/`head`/`random`, del comando `/modelo-vistas`) |
-| `resumed-session` | Sesión anterior retomada en silencio (repuebla el historial sin mensaje de sistema) |
-| `workspace-changed` | Cambio del workspace activo (actualiza UI y resetea la caché de archivos) |
+| Evento                                     | Propósito                                                                                         |
+| ------------------------------------------ | ------------------------------------------------------------------------------------------------- |
+| `init-theme`                               | Tema inicial (dark/sakura)                                                                        |
+| `chat-message`                             | Mensaje entrante desde el main process                                                            |
+| `memory-status`                            | Estado del banner de memoria                                                                      |
+| `openclaw-status`                          | Disponibilidad de OpenClaw                                                                        |
+| `initiative`                               | Mensaje iniciado proactivamente por el asistente                                                  |
+| `initiative-decision`                      | Respuesta del usuario a una propuesta                                                             |
+| `agent-approval-needed` / `agent-progress` | Aprobaciones y progreso del bucle agente                                                          |
+| `plan-*`                                   | Eventos del plan de ejecución                                                                     |
+| `stt-*`                                    | Eventos de reconocimiento de voz                                                                  |
+| `telemetry-report`                         | Reporte `/telemetria`                                                                             |
+| `model-changed`                            | Cambio de modelo Live2D (recarga del canvas)                                                      |
+| `views-changed`                            | Cambio del modo de vista del modelo (`full`/`half`/`head`/`random`, del comando `/modelo-vistas`) |
+| `resumed-session`                          | Sesión anterior retomada en silencio (repuebla el historial sin mensaje de sistema)               |
+| `workspace-changed`                        | Cambio del workspace activo (actualiza UI y resetea la caché de archivos)                         |
 
 **Tecnologías:** HTML + CSS (variables, temas, animaciones) + Vanilla JS con `require()` de Electron
 (`marked`, `DOMPurify`, Pixi.js, Live2D). TTS por streaming: spawn de `tts_stream.py` (edge-tts) y
-reproducción con Web Audio API sin archivos temporales.
+reproducción con Web Audio API sin archivos temporales; `cleanForTTS` limpia el texto hablado
+(Markdown/emoji/código/comandos).
 
 ---
 

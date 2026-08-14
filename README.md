@@ -158,7 +158,7 @@ Al compactar la historia, `AgentLoop` persiste el resumen como episodio en el gr
 
 ### Streaming de respuesta
 
-El LLM responde con `stream: true`; cada fragmento viaja por IPC (`agent-token`) hasta la ventana de chat y se pinta **en vivo** en la burbuja del asistente (patrón opencode), con render de Markdown al terminar. Cubre tool-calling nativo y fallback textual, en OpenAI-compatible y Gemini.
+El LLM responde con `stream: true`; cada fragmento viaja por IPC (`agent-token`) hasta la ventana de chat y se pinta **en vivo** en la burbuja del asistente con **render de Markdown incremental** (patrón opencode), y el HTML crudo se aísla en un frame `sandbox`. Cubre tool-calling nativo y fallback textual, en OpenAI-compatible y Gemini.
 
 ### Ejecución no bloqueante
 
@@ -174,7 +174,11 @@ Conversación persistente por sesión (hasta 40 turnos) con reanudación tras cr
 
 ### CI y releases
 
-CI de GitHub Actions con jobs de **calidad** (ESLint + typecheck + Prettier), **tests** con Electron y **build Windows portable**; un tag `v*` dispara la **release automática** (`.exe` + notas). Localmente: `bash scripts/release.sh [patch|minor|major]`.
+CI de GitHub Actions con jobs de **calidad** (ESLint + typecheck + Prettier), **tests** con Electron,
+**E2E de la UI** (Electron + Playwright) y **build multiplataforma** (Windows/macOS/Linux portable,
+con `continue-on-error`); un tag `v*` dispara la **release automática** (`.exe`/`.dmg`/`.AppImage` +
+notas). El postinstall `fix-electron.js` reconstruye los módulos nativos invocando el binario local
+de `@electron/rebuild` (sin depender de `npx` en el PATH). Localmente: `bash scripts/release.sh [patch|minor|major]`.
 
 ### Telemetría local
 
@@ -184,18 +188,18 @@ CI de GitHub Actions con jobs de **calidad** (ESLint + typecheck + Prettier), **
 
 ## 4. Stack tecnológico
 
-| Capa                        | Tecnología                                                |
-| --------------------------- | --------------------------------------------------------- |
-| Runtime de escritorio       | Electron 28                                               |
-| Modelo de personaje         | Live2D Cubism 5 (Pixi.js + live2d-display)                |
-| Persistencia                | SQLite (`better-sqlite3`) + `sqlite-vec`                  |
-| Embeddings locales          | `@xenova/transformers` (ONNX Runtime, `all-MiniLM-L6-v2`) |
-| Reconocimiento de voz       | Vosk (offline)                                            |
-| Síntesis de voz             | Edge TTS (streaming vía Python)                           |
-| Automatización de navegador | Playwright                                                |
-| Modelos de lenguaje         | Groq (Llama 3.3 70B) · Google Gemini · OpenAI             |
-| Protocolo de herramientas   | Model Context Protocol (`@modelcontextprotocol/sdk`)      |
-| Renderizado de chat         | `marked` + `DOMPurify`                                    |
+| Capa                        | Tecnología                                                         |
+| --------------------------- | ------------------------------------------------------------------ |
+| Runtime de escritorio       | Electron 28                                                        |
+| Modelo de personaje         | Live2D Cubism 5 (Pixi.js + live2d-display)                         |
+| Persistencia                | SQLite (`better-sqlite3`) + `sqlite-vec`                           |
+| Embeddings locales          | `@xenova/transformers` (ONNX Runtime, `all-MiniLM-L6-v2`)          |
+| Reconocimiento de voz       | Vosk (offline)                                                     |
+| Síntesis de voz             | Edge TTS (streaming vía Python)                                    |
+| Automatización de navegador | Playwright                                                         |
+| Modelos de lenguaje         | Groq (Llama 3.3 70B / 3.1 8B) · Google Gemini (2.5 Flash) · OpenAI |
+| Protocolo de herramientas   | Model Context Protocol (`@modelcontextprotocol/sdk`)               |
+| Renderizado de chat         | `marked` + `DOMPurify`                                             |
 
 ---
 
@@ -317,9 +321,14 @@ Los modelos que el usuario importa se guardan en `models/`, quedan excluidos del
 
 Muchos modelos traen carpetas con `*.exp3.json` / `*.motion3.json` que su `model3.json` **no referencia**, así que el SDK jamás las carga y el modelo se queda quieto. El asistente los **descubre y los inyecta en memoria** al cargar (`core/behavior/ModelAugmenter.js`) — sin tocar los archivos del modelo — y les asocia estados de ánimo mediante un léxico multilingüe (`core/behavior/GestureLexicon.js` + `GestureHeuristic.js`).
 
-- **Automático:** el overlay y el mini-avatar del chat reaccionan al tono de voz (`speak`), a los mensajes del usuario y a los eventos del flujo (iniciativa, propuestas, planes, agentes, comandos). Cooldowns y revertido automático los controla `core/behavior/GestureEngine.js`.
+- **Automático (LLM-driven):** `core/behavior/GestureVocabulary.js` genera el vocabulario de gestos
+  del modelo y lo inyecta en el system prompt; el LLM responde con marcadores inline `(gesto: x)`
+  que el chat parsea y dispara **en vivo** en el mini-avatar y el overlay, tanto en modo chat como
+  agente (`gestures.llmDriven` en config). El overlay y el mini-avatar también reaccionan al tono de
+  voz (`speak`), a los mensajes del usuario y a los eventos del flujo (iniciativa, propuestas,
+  planes, agentes, comandos). Cooldowns y revertido automático los controla `core/behavior/GestureEngine.js`.
 - **Manual:** el comando `/gestos` lista los gestos reales del modelo activo y cuáles están mapeados a emociones; `/gestos test <gesto|emoción>` los previsualiza en el mini-avatar (p. ej. `/gestos test angry`, `/gestos test 哭`, `/gestos test zhaiyan`).
-- **Configuración:** el bloque `gestures` de `config.json` ajusta `enabled`, `cooldownMs`, `minIntervalMs`, `durationMs`, `ambient` (gestos aleatorios de fondo) y `mappings` (mood → gesto explícito por modelo).
+- **Configuración:** el bloque `gestures` de `config.json` ajusta `enabled`, `cooldownMs`, `minIntervalMs`, `durationMs`, `ambient` (gestos aleatorios de fondo), `mappings` (mood → gesto explícito por modelo) y `llmDriven` (pipeline de marcadores del LLM).
 
 ### Workspace del proyecto
 
@@ -360,6 +369,9 @@ ELECTRON_RUN_AS_NODE=1 ./node_modules/electron/dist/electron tests/test_skills.j
 | Componente                                  | Estado       |
 | ------------------------------------------- | ------------ |
 | Overlay Live2D + chat                       | ✅ Operativo |
+| Modo agente/chat con badge y % de contexto  | ✅ Operativo |
+| Gestos LLM-driven (marcadores `(gesto: x)`) | ✅ Operativo |
+| Streaming de respuesta con Markdown en vivo | ✅ Operativo |
 | Memoria semántica persistente               | ✅ Operativo |
 | Sensor de SO (Windows/Linux)                | ✅ Operativo |
 | Ejecución de acciones con consentimiento    | ✅ Operativo |
@@ -393,7 +405,7 @@ El proyecto se desarrolla por fases — ver [`ROADMAP.md`](./ROADMAP.md) para la
 
 ## 9. Pruebas y capturas
 
-La suite de pruebas es **ejecutable e independiente por archivo** (`tests/`), con cobertura de comandos, motor de proactividad, detección de intenciones, skills, integraciones LSP, Git/GitHub y seguridad de la Control API. La regresión completa se ejecuta con `npm test` (usando el Node de Electron): **1441 pruebas en verde** (incluyen regresiones del fix LSP G.1, del parser de CONTENIDO multilínea, de la compactación de contexto, del edit determinista, de las tools grep/glob/subagent, de la compactación con memoria y del motor proactivo v2 con mixins + gate). Antes de correrla, cierra el asistente para que las suites de seguridad puedan levantar su propio servidor en `:18789` (si la app está corriendo, `test_server_security` y `test_integration_stress` fallan por conflicto de puerto).
+La suite de pruebas es **ejecutable e independiente por archivo** (`tests/`), con cobertura de comandos, motor de proactividad, detección de intenciones, skills, integraciones LSP, Git/GitHub y seguridad de la Control API. La regresión completa se ejecuta con `npm test` (usando el Node de Electron): **más de 2200 pruebas en verde** (incluyen regresiones del fix LSP G.1, del parser de CONTENIDO multilínea, de la compactación de contexto, del edit determinista, de las tools grep/glob/subagent, de la compactación con memoria, del motor proactivo v2 con mixins + gate, del streaming IPC y del **reintento 413→smart** de tool-calling en `test_tool_calling`). Antes de correrla, cierra el asistente para que las suites de seguridad puedan levantar su propio servidor en `:18789` (si la app está corriendo, `test_server_security` y `test_integration_stress` fallan por conflicto de puerto).
 
 Calidad de código:
 
