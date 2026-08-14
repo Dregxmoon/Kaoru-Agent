@@ -170,7 +170,16 @@ async function refreshFooterSession() {
   if (!el) return;
   const chars = sessionHistory.reduce((acc, m) => acc + String(m.content || '').length, 0);
   const tokens = Math.round(chars / 4);
-  const ctx = tokens >= 1000 ? `${(tokens / 1000).toFixed(1)}k` : String(tokens);
+
+  // Contexto máximo del modelo activo para mostrar el porcentaje usado.
+  let maxCtx = 0;
+  try {
+    const active = LLMProvider.getActiveProvider();
+    const p = LLMProvider.getAvailableProviders().find((x) => x.id === active);
+    const modelId = p?.activeModel?.smart || p?.activeModel?.fast;
+    maxCtx = p?.modelMeta?.[modelId]?.context || 0;
+  } catch (_) {}
+
   if (_sessionId === null) {
     try {
       const stats = await ipcRenderer.invoke('session-stats');
@@ -180,7 +189,20 @@ async function refreshFooterSession() {
     }
   }
   const ses = _sessionId ? _sessionId.slice(0, 24) : '—';
-  el.textContent = `ctx ${ctx} · sesión ${ses}`;
+
+  let ctxLabel;
+  if (maxCtx > 0) {
+    const pct = Math.min(100, Math.round((tokens / maxCtx) * 100));
+    const used = tokens >= 1000 ? `${(tokens / 1000).toFixed(1)}k` : String(tokens);
+    const cap =
+      maxCtx >= 1000000
+        ? `${(maxCtx / 1000000).toFixed(1).replace(/\.0$/, '')}M`
+        : `${Math.round(maxCtx / 1000)}k`;
+    ctxLabel = `ctx ${pct}% (${used}/${cap})`;
+  } else {
+    ctxLabel = `ctx ${tokens >= 1000 ? `${(tokens / 1000).toFixed(1)}k` : tokens}`;
+  }
+  el.textContent = `${ctxLabel} · sesión ${ses}`;
 }
 
 // FIX QW-1 (UI): muestra/oculta el banner de memoria no persistente.

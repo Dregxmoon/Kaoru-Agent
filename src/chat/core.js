@@ -233,6 +233,35 @@ ipcRenderer
 // Fase 3
 let openclawAvailable = false;
 
+// Modo de agente: 'agent' (tools + AgentLoop) o 'chat' (solo LLM). El modo
+// 'agent' requiere que openclaw esté disponible. Tab en el input alterna el
+// modo; el badge del header muestra el actual.
+let _agentMode = 'agent';
+const _agentModeListeners = new Set();
+
+function setAgentMode(mode) {
+  if (mode !== 'agent' && mode !== 'chat') mode = 'agent';
+  const next = mode === 'agent' && !openclawAvailable ? 'chat' : mode;
+  if (next === _agentMode) return;
+  _agentMode = next;
+  _agentModeListeners.forEach((fn) => fn(next));
+  return next;
+}
+
+function getAgentMode() {
+  return _agentMode;
+}
+
+function toggleAgentMode() {
+  return setAgentMode(_agentMode === 'agent' ? 'chat' : 'agent');
+}
+
+function onAgentMode(fn) {
+  _agentModeListeners.add(fn);
+  fn(_agentMode);
+  return () => _agentModeListeners.delete(fn);
+}
+
 const sessionHistory = [];
 const MAX_SESSION_HISTORY = 20;
 

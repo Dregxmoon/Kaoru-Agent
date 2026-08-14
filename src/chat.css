@@ -125,6 +125,24 @@ body {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+.agent-mode-badge {
+  font-family: var(--font-mono);
+  font-size: 9px;
+  letter-spacing: 0.08em;
+  color: var(--accent);
+  padding: 0;
+  margin-right: 10px;
+  cursor: pointer;
+  user-select: none;
+  opacity: 0.85;
+  flex-shrink: 0;
+  text-transform: uppercase;
+  font-weight: 600;
+}
+.agent-mode-badge.chat {
+  color: var(--term-text-ghost);
+  opacity: 0.6;
+}
 .header-tag {
   display: none;
 }

@@ -81,7 +81,29 @@ function _refreshViewButtons() {
 }
 
 // Fase 3
-ipcRenderer.on('openclaw-status', (e, { available }) => (openclawAvailable = available));
+ipcRenderer.on('openclaw-status', (e, { available }) => {
+  openclawAvailable = available;
+  if (!available) setAgentMode('chat');
+});
+
+// Badge de modo agente (Tab alterna). Se refleja también en el body dataset
+// para que el CSS pueda diferenciar el estado.
+onAgentMode((mode) => {
+  const badge = document.getElementById('agent-mode-badge');
+  if (badge) {
+    badge.textContent = mode === 'agent' ? 'AGENTE' : 'CHAT';
+    badge.classList.toggle('chat', mode !== 'agent');
+    badge.title =
+      mode === 'agent'
+        ? 'Modo agente: usa herramientas (escribir, editar, bash). Tab para cambiar a chat.'
+        : 'Modo chat: solo conversación, sin herramientas. Tab para cambiar a agente.';
+  }
+  document.body.dataset.agentMode = mode;
+});
+
+// El badge también alterna el modo al hacer clic (además de Tab).
+const _modeBadge = document.getElementById('agent-mode-badge');
+if (_modeBadge) _modeBadge.addEventListener('click', () => toggleAgentMode());
 
 // Agent Loop IPC (Fase 2 → Cambio 1/2 del rediseño: ActivityBlocks + estados)
 // renderActivityBlock/resetActivityBlocks vienen de chat/activityBlock.js

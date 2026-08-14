@@ -554,7 +554,14 @@ input.addEventListener('keydown', (e) => {
   }
   if (e.key === 'Tab' || e.key === 'ArrowDown' || e.key === 'ArrowUp') {
     const atEl = document.getElementById('at-suggestions');
-    if (atEl.style.display !== 'block') return;
+    if (atEl.style.display !== 'block') {
+      // Tab sin sugerencias abiertas: alternar el modo de agente (agent/chat).
+      if (e.key === 'Tab') {
+        e.preventDefault();
+        toggleAgentMode();
+      }
+      return;
+    }
     e.preventDefault();
     const items = atEl.querySelectorAll('.at-suggestion-item');
     if (items.length === 0) return;

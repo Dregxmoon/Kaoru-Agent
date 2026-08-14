@@ -227,13 +227,17 @@ async function processMessage(text, files = []) {
   let response;
   let error = null;
 
-  if (openclawAvailable) {
+  if (openclawAvailable && getAgentMode() === 'agent') {
     // NUEVO FLUJO: AgentLoop (Fase 2)
     // processMessage llama a runAgent() vía IPC agent-run. AgentLoop ejecuta
     // el loop LLM→tool→result→LLM→...→texto_final. La respuesta final se
     // genera DESPUÉS de que el LLM vio todos los resultados reales.
     try {
       const { bubble } = addMessage('assistant', '');
+      // La clase markdown se añade desde el inicio para que el streaming en
+      // vivo (renderMarkdown incremental) use los mismos estilos que la
+      // respuesta final.
+      bubble.classList.add('markdown');
       // Los bloques de actividad se insertan antes de este bubble (ancla).
       setActivityAnchor(bubble.parentElement.parentElement);
 
