@@ -138,6 +138,7 @@ jobs:
         run: npm ci
 
       - name: Empaquetar y publicar (tags) / solo empaquetar (branch)
+        shell: bash
         run: |
           if [[ "${{ github.ref }}" == refs/tags/* ]]; then
             npm run publish:${{ matrix.target }}
