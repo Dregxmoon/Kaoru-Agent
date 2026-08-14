@@ -142,11 +142,21 @@ function rebuildNativeModules() {
   log('info', 'Reconstruyendo módulos nativos para Electron...');
 
   try {
-    // Usar @electron/rebuild via npx
-    const result = spawnSync('npx', ['@electron/rebuild', '-f', '-w', 'better-sqlite3'], {
+    // Invocar el binario local de @electron/rebuild directamente (el shim
+    // multiplataforma de node_modules/.bin). Evita `spawnSync('npx', ...)`,
+    // que en Windows falla con ENOENT porque npx no está en el PATH del
+    // postinstall (hay que usar npx.cmd). El .bin/cmd de Windows funciona.
+    const rebuildBin = path.join(
+      __dirname,
+      'node_modules',
+      '.bin',
+      process.platform === 'win32' ? 'electron-rebuild.cmd' : 'electron-rebuild'
+    );
+    const result = spawnSync(rebuildBin, ['-f', '-w', 'better-sqlite3'], {
       cwd: __dirname,
       stdio: 'inherit',
       timeout: 180000,
+      shell: process.platform === 'win32',
     });
 
     if (result.status === 0) {
