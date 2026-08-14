@@ -199,17 +199,17 @@ async function processMessage(text, files = []) {
   resetActivities();
 
   // Botón de cancelación: visible durante la generación. Aborta el agent-run
-  // openclaw (agent-cancel → AbortController del main) Y el AbortController
-  // local del flujo simple (LLMProvider.complete vía opts.signal).
+  // openclaw (agent-cancel → AbortController del main) Y el flujo simple
+  // (cancelSimple → AbortController del preload). El AbortSignal del renderer
+  // no puede cruzar el contextBridge, por eso el controller vive en el preload.
   const cancelBtn = document.getElementById('cancel-btn');
-  const simpleAbort = new AbortController();
   let cancelArmed = true;
   if (cancelBtn) cancelBtn.style.display = 'inline-flex';
   const cancelOnce = () => {
     if (!cancelArmed) return;
     cancelArmed = false;
     ipcRenderer.send('agent-cancel');
-    simpleAbort.abort();
+    LLMProvider.cancelSimple();
     if (cancelBtn) {
       cancelBtn.style.display = 'none';
       cancelBtn.removeEventListener('click', cancelOnce);
@@ -372,11 +372,10 @@ async function processMessage(text, files = []) {
         ctx.systemPrompt = `${agentPrompt}\n\n---\n\n${ctx.systemPrompt}`;
       }
 
-      // Cancelable: LLMProvider.complete acepta opts.signal (AbortError se
-      // propaga como e.code === 'ABORTED') para el flujo sin openclaw.
-      response = await LLMProvider.complete(ctx.messages, ctx.systemPrompt, {
-        signal: simpleAbort.signal,
-      });
+      // Cancelable: el preload inyecta el signal interno (cancelSimple) —
+      // AbortError se propaga como e.code === 'ABORTED' para el flujo sin
+      // openclaw.
+      response = await LLMProvider.complete(ctx.messages, ctx.systemPrompt);
     } catch (err) {
       disarmCancel();
       if (err?.code === 'ABORTED' || err?.name === 'AbortError') {

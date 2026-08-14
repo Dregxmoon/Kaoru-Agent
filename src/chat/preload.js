@@ -33,9 +33,28 @@ const ModelAugmenter = require('../../core/behavior/ModelAugmenter.js');
 // explícita y únicamente los que el renderer consume (comprobado contra
 // src/chat/*.js). Si el renderer necesita algo nuevo, se añade aquí — no se
 // desbloquea el módulo completo.
+// AbortController del flujo simple (chat sin openclaw). El renderer NO puede
+// pasar su propio AbortSignal por el contextBridge (se clona a un objeto plano
+// sin addEventListener → "signal.addEventListener is not a function"), así que
+// el controller vive aquí y el renderer cancela vía LLMProvider.cancelSimple().
+let _simpleAbort = null;
+
 function _boundedLLM() {
   return {
-    complete: (messages, systemPrompt, opts) => LLMProvider.complete(messages, systemPrompt, opts),
+    complete: (messages, systemPrompt, opts) => {
+      const controller = new AbortController();
+      _simpleAbort = controller;
+      return LLMProvider.complete(messages, systemPrompt, {
+        ...(opts || {}),
+        signal: controller.signal,
+      });
+    },
+    cancelSimple: () => {
+      if (_simpleAbort) {
+        _simpleAbort.abort();
+        _simpleAbort = null;
+      }
+    },
     configure: (cfg) => LLMProvider.configure(cfg),
     getActiveProvider: () => LLMProvider.getActiveProvider(),
     getAvailableProviders: () => LLMProvider.getAvailableProviders(),
