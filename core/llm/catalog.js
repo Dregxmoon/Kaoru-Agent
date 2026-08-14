@@ -235,7 +235,7 @@ const BUILTIN_PROVIDERS = [
     type: 'gemini',
     baseURL: 'https://generativelanguage.googleapis.com/v1beta',
     free: true,
-    defaults: { fast: 'gemini-2.0-flash', smart: 'gemini-2.0-flash' },
+    defaults: { fast: 'gemini-2.5-flash', smart: 'gemini-2.5-flash' },
     models: {
       'gemini-2.0-flash': {
         label: 'Gemini 2.0 Flash',

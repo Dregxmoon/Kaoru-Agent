@@ -184,7 +184,8 @@ No expliques por qué escribes. No anuncies que eres proactiva. NO muestres tu r
     try {
       const response = await LLMProvider.complete(
         [{ role: 'user', content: userPrompt }],
-        systemPrompt
+        systemPrompt,
+        { disableThinking: true }
       );
 
       // El modelo a veces vuelca su chain-of-thought en el content antes del

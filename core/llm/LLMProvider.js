@@ -125,6 +125,24 @@ const RETRY_BASE_MS = 2000;
 // final le avisa al usuario cuánto esperar o que cambie de proveedor.
 const MAX_RETRY_WAIT_MS = 30_000;
 
+// Providers que aceptan el campo `chat_template_kwargs` (OpenAI-compatible) en
+// el body para desactivar el thinking de Qwen3/DeepSeek. Groq NO lo acepta y
+// responde HTTP 400; otros lo ignoran o lo rechazan. Si el provider no está en
+// esta lista, el CoT se elimina del content con _stripCot (red de seguridad).
+const CHAT_TEMPLATE_KWARGS_PROVIDERS = new Set([
+  'nvidia',
+  'deepseek',
+  'openrouter',
+  'siliconflow',
+  'moonshot',
+  'xai',
+  'zhipu',
+  'xinference',
+  'fireworks',
+  'together',
+  'mistral',
+]);
+
 // TTL del catálogo validado contra el endpoint del provider: evitar pegarle a
 // la API en cada invocación de /model <provider> o del selector de modelos.
 // Pasado el TTL, refreshProviderModels() re-valida contra GET /models.
@@ -772,12 +790,39 @@ function postStream(url, headers, body, onToken, timeoutMs = 20_000, signal = nu
       let buffer = '';
       let content = '';
       const toolCalls = []; // acumulados por índice (deltas incrementales)
+      // Filtro de CoT en vivo: los bloques <thinking> pueden llegar partidos
+      // entre chunks SSE; se retienen los últimos bytes por si un marker se
+      // corta, y no se emite nada mientras el estado esté dentro de un bloque.
+      const cotState = { pending: '', inThinking: false };
+      const emitToken = (text) => {
+        const keep = Math.min(12, text.length);
+        const combined = (cotState.pending || '') + text;
+        cotState.pending = combined.slice(-keep);
+        const head = combined.slice(0, -keep);
+        let out = '';
+        const re = /<thinking>|<\/thinking>/gi;
+        let last = 0;
+        let m;
+        while ((m = re.exec(head))) {
+          if (!cotState.inThinking && /<thinking>/i.test(m[0])) {
+            out += head.slice(last, m.index);
+            cotState.inThinking = true;
+          } else if (cotState.inThinking && /<\/thinking>/i.test(m[0])) {
+            cotState.inThinking = false;
+          }
+          last = re.lastIndex;
+        }
+        out += cotState.inThinking ? '' : head.slice(last);
+        if (out) {
+          try {
+            onToken && onToken(out);
+          } catch (_) {}
+        }
+      };
       const parseDelta = (delta) => {
         if (delta && typeof delta.content === 'string' && delta.content.length > 0) {
           content += delta.content;
-          try {
-            onToken && onToken(delta.content);
-          } catch (_) {}
+          emitToken(delta.content);
         }
         if (delta && Array.isArray(delta.tool_calls)) {
           for (const piece of delta.tool_calls) {
@@ -816,7 +861,10 @@ function postStream(url, headers, body, onToken, timeoutMs = 20_000, signal = nu
           .map((tc) => ({ id: tc.id, function: { name: tc.name, arguments: tc.arguments } }));
         resolve({
           status: res.statusCode,
-          body: { content, tool_calls: toolCallsOut.length > 0 ? toolCallsOut : null },
+          body: {
+            content: _stripCot(content),
+            tool_calls: toolCallsOut.length > 0 ? toolCallsOut : null,
+          },
         });
       });
     });
@@ -863,6 +911,19 @@ async function callOpenAI(providerId, messages, systemPrompt, mode = 'fast', opt
   const headers = key ? { Authorization: `Bearer ${key}` } : {};
   const body = { model, messages: msgs, max_tokens: maxTokens, temperature: 0.85 };
   if (opts.onToken) body.stream = true;
+  // Modelos de razonamiento (Qwen3/DeepSeek) vuelcan su chain-of-thought en el
+  // content y ese CoT se filtra al usuario por el chat. Se desactiva el modo
+  // "thinking" por defecto; quien realmente quiera razonamiento lo pide con
+  // opts.enableThinking. El campo NO lo aceptan todos los providers (Groq lo
+  // rechaza con HTTP 400), así que solo se envía a los que lo soportan; el
+  // resto se cubre con _stripCot sobre el content de la respuesta.
+  if (
+    CHAT_TEMPLATE_KWARGS_PROVIDERS.has(providerId) &&
+    /qwen3|deepseek/i.test(model) &&
+    !opts.enableThinking
+  ) {
+    body.chat_template_kwargs = { enable_thinking: false };
+  }
 
   const res = opts.onToken
     ? await postStream(
@@ -878,8 +939,8 @@ async function callOpenAI(providerId, messages, systemPrompt, mode = 'fast', opt
   _recordUsage(providerId, def, model, safeMode, res.body, opts, startedAt);
   // En streaming, postStream normaliza a { content, tool_calls } (sin el
   // campo choices de OpenAI crudo) — no acceder a choices[0] en ese caso.
-  if (opts.onToken) return (res.body.content || '').trim();
-  const content = res.body.choices?.[0]?.message?.content || '';
+  if (opts.onToken) return _stripCot(res.body.content || '').trim();
+  const content = _stripCot(res.body.choices?.[0]?.message?.content || '');
   if (!content) throw new Error(`${def.name}: respuesta sin choices válidos`);
   return content.trim();
 }
@@ -1144,7 +1205,7 @@ function _normalizeOpenAIResponse(body) {
   if (!msg) return { content: null, toolCalls: null };
   const content = msg.content || null;
   const rawCalls = msg.tool_calls;
-  if (!rawCalls || rawCalls.length === 0) return { content, toolCalls: null };
+  if (!rawCalls || rawCalls.length === 0) return { content: _stripCot(content), toolCalls: null };
   const toolCalls = rawCalls
     .filter((tc) => tc.type === 'function')
     .map((tc) => {
@@ -1156,7 +1217,7 @@ function _normalizeOpenAIResponse(body) {
       }
     })
     .filter(Boolean);
-  return { content, toolCalls: toolCalls.length > 0 ? toolCalls : null };
+  return { content: _stripCot(content), toolCalls: toolCalls.length > 0 ? toolCalls : null };
 }
 
 function _normalizeGeminiResponse(body) {
@@ -1175,6 +1236,62 @@ function _normalizeGeminiResponse(body) {
     content: (content || '').trim() || null,
     toolCalls: toolCalls.length > 0 ? toolCalls : null,
   };
+}
+
+// Elimina el chain-of-thought que modelos de razonamiento (Qwen3/DeepSeek)
+// vuelcan dentro del `content` cuando el thinking quedó activo (el campo
+// chat_template_kwargs no lo aceptan todos los providers). Maneja dos formatos:
+//   1. Bloques explícitos `<thinking>...</thinking>` (o con sangría/espacios).
+//   2. Prosa libre de razonamiento tipo Qwen3 ("Here's a thinking process:",
+//      "Let me think", párrafos de auto-análisis) que se recorta conservando
+//      solo la parte que parece la respuesta final.
+// Es conservador: si no hay rastros claros de razonamiento devuelve el texto
+// tal cual (respuestas legítimas no se tocan).
+const COT_THINKING_BLOCK = /<thinking>[\s\S]*?<\/thinking>/gi;
+const COT_MARKERS = [
+  /^Here('| i)?s a thinking process[:.]?\s*/i,
+  /^Let me think\b/i,
+  /^Let's think\b/i,
+  /^Let’s think\b/i,
+  /^I need to think\b/i,
+  /^Thought:\s*$/m,
+  /^Thought process:/i,
+  /^Analy(se|ze) the (user input|task|request|prompt)/i,
+  /^Current Context:/i,
+  /^Open Apps:/i,
+  /^Trigger\/Reason:/i,
+  /^Constraints:/i,
+  /^Memory\/Projects:/i,
+  /^Identify Key Contextual Hooks:/i,
+  /^Draft[ :]/i,
+  /^Check constraints:/i,
+  /^Let's verify/i,
+  /^Let’s verify/i,
+];
+
+function _stripCot(content) {
+  if (!content || typeof content !== 'string') return content;
+  let out = content.replace(COT_THINKING_BLOCK, '').trim();
+  if (!out) return out;
+
+  // Prosa libre: solo si el arranque del texto es claramente razonamiento
+  // (cabecera tipo "Here's a thinking process"), recortamos hasta el primer
+  // párrafo que no parezca auto-análisis.
+  const header = COT_MARKERS.find((m) => m.test(out));
+  if (header) {
+    const lines = out.split('\n');
+    const start = lines.findIndex(
+      (l, i) =>
+        i > 0 &&
+        !/^(constraint|memory|open app|trigger|analy|draft|check|current context)/i.test(
+          l.trim()
+        ) &&
+        l.trim().length > 0
+    );
+    const keep = start > 0 ? lines.slice(start).join('\n') : out;
+    if (keep.trim()) out = keep.trim();
+  }
+  return out;
 }
 
 async function callOpenAIWithTools(providerId, messages, systemPrompt, mode, tools, opts = {}) {
@@ -1200,6 +1317,19 @@ async function callOpenAIWithTools(providerId, messages, systemPrompt, mode, too
     tool_choice: 'auto',
   };
   if (opts.onToken) body.stream = true;
+  // Modelos de razonamiento (Qwen3/DeepSeek) vuelcan su chain-of-thought en el
+  // content y ese CoT se filtra al usuario por el chat (también en el modo
+  // tool-calling). Se desactiva el modo "thinking" por defecto; quien quiera
+  // razonamiento lo pide con opts.enableThinking. El campo NO lo aceptan todos
+  // los providers (Groq lo rechaza con HTTP 400) → solo a los que lo soportan;
+  // el resto se cubre con _stripCot sobre el content.
+  if (
+    CHAT_TEMPLATE_KWARGS_PROVIDERS.has(providerId) &&
+    /qwen3|deepseek/i.test(model) &&
+    !opts.enableThinking
+  ) {
+    body.chat_template_kwargs = { enable_thinking: false };
+  }
 
   logger.info(
     'LLMProvider',
@@ -1234,7 +1364,7 @@ async function callOpenAIWithTools(providerId, messages, systemPrompt, mode, too
       })
       .filter(Boolean);
     _recordUsage(providerId, def, model, safeMode, {}, opts, startedAt);
-    return { content: body.content || null, toolCalls: toolCalls.length > 0 ? toolCalls : null };
+    return { content: _stripCot(body.content), toolCalls: toolCalls.length > 0 ? toolCalls : null };
   }
   _recordUsage(providerId, def, model, safeMode, res.body, opts, startedAt);
   return _normalizeOpenAIResponse(res.body);
@@ -1565,6 +1695,10 @@ async function _callWithFallbackTools(messages, systemPrompt, mode = 'smart', to
         lastErr = e;
         if (e?.code === 'ABORTED' || e?.name === 'AbortError') throw e;
         const retryable = _isRetryableError(e);
+        logger.info(
+          'LLMProvider',
+          `[llm] ${providerName} tool-calling falló${retryable ? ' (transitorio)' : ' (no reintentable)'}: ${e.message}`
+        );
         // Fase 4: espera larga en tool-calling → marcar degradado también aquí.
         if (retryable && /(\b429\b|rate limit|quota|too many requests)/i.test(e.message)) {
           const waitMs = _parseRetryAfter(e);
@@ -2000,6 +2134,7 @@ module.exports = {
   _setKeychainResolver,
   _debug_enqueueProviderCall: _enqueueProviderCall,
   _debug_normalizeOpenAI: _normalizeOpenAIResponse,
+  _debug_stripCot: _stripCot,
   _debug_normalizeGemini: _normalizeGeminiResponse,
   _debug_normalizeAnthropic: _normalizeAnthropicResponse,
   _debug_buildOpenAITools: _buildOpenAITools,
