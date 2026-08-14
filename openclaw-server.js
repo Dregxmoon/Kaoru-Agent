@@ -422,6 +422,31 @@ function _isImmutablePath(filePath) {
   return IMMUTABLE_PATH_PATTERNS.some((re) => re.test(filePath));
 }
 
+// Calcula qué líneas cambiaron entre oldContent y newContent para el split
+// visual viejo/actualizado de la UI (edit/apply_patch). Devuelve arrays de
+// números de línea (1-based) que se añadieron o se quitaron.
+function _diffLineMarkers(oldContent, newContent) {
+  const added = [];
+  const removed = [];
+  let oldLine = 1;
+  let newLine = 1;
+  for (const change of Diff.diffLines(oldContent || '', newContent || '')) {
+    const lines = change.value.split('\n');
+    if (lines.length > 0 && lines[lines.length - 1] === '') lines.pop();
+    if (change.removed) {
+      for (let i = 0; i < lines.length; i++) removed.push(oldLine + i);
+      oldLine += lines.length;
+    } else if (change.added) {
+      for (let i = 0; i < lines.length; i++) added.push(newLine + i);
+      newLine += lines.length;
+    } else {
+      oldLine += lines.length;
+      newLine += lines.length;
+    }
+  }
+  return { addedLines: added, removedLines: removed };
+}
+
 // Realpath del ancestro existente más cercano a `p` (para rutas de archivos
 // que aún no existen, p.ej. al escribir uno nuevo), manteniendo el resto
 // del path como sufijo literal. Cierra la vía de escape por symlink: si un
@@ -781,7 +806,12 @@ const HANDLERS = {
     const newContent =
       content.slice(0, firstIndex) + newText + content.slice(firstIndex + oldText.length);
     fs.writeFileSync(filePath, newContent, 'utf-8');
-    return { result: `Edited ${filePath} (1 reemplazo exacto)` };
+    return {
+      result: `Edited ${filePath} (1 reemplazo exacto)`,
+      oldContent: content,
+      newContent,
+      ..._diffLineMarkers(content, newContent),
+    };
   },
 
   apply_patch(input) {
@@ -807,7 +837,12 @@ const HANDLERS = {
     }
 
     fs.writeFileSync(filePath, patched, 'utf-8');
-    return { result: `Patch applied to ${filePath}` };
+    return {
+      result: `Patch applied to ${filePath}`,
+      oldContent: content,
+      newContent: patched,
+      ..._diffLineMarkers(content, patched),
+    };
   },
 
   grep(input) {

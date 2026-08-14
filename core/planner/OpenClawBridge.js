@@ -338,10 +338,24 @@ class OpenClawBridge {
 
     const result = res.body?.result ?? res.body;
 
+    // Edit/apply_patch: el server adjunta oldContent/newContent y las líneas
+    // cambiadas para el split visual viejo/actualizado. Se propagan como `meta`
+    // para que la UI los pueda pintar sin mezclarlos con lo que ve el LLM
+    // (`result` sigue siendo el string de resumen).
+    const meta =
+      res.body && typeof res.body === 'object' && res.body.oldContent
+        ? {
+            oldContent: res.body.oldContent,
+            newContent: res.body.newContent,
+            addedLines: res.body.addedLines,
+            removedLines: res.body.removedLines,
+          }
+        : null;
+
     this._log({ tool, params, ok: true, result, elapsed });
     logger.info('OpenClawBridge', `[openclaw] ${tool} completado en ${elapsed}ms`);
 
-    return { ok: true, result, error: null, tool, elapsed };
+    return { ok: true, result, meta, error: null, tool, elapsed };
   }
 
   // ── Atajos de herramientas ──────────────────────────────────────────────────

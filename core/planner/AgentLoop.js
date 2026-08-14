@@ -872,6 +872,7 @@ class AgentLoop {
             status: result.ok ? 'ok' : 'error',
             result: result.ok ? result.result : null,
             error: result.ok ? null : result.error,
+            meta: result.meta || null,
           });
         }
 

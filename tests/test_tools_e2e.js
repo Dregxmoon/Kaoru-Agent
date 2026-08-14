@@ -328,6 +328,19 @@ function testDeterministicEdit() {
     'edit único reemplaza exactamente una vez'
   );
 
+  // El resultado adjunta el split viejo/actualizado para la UI: oldContent y
+  // newContent completos + qué líneas cambiaron (removedLines=2, addedLines=2).
+  assert(ok.oldContent === 'line one\nline two\nline one\n', 'edit devuelve oldContent completo');
+  assert(ok.newContent === 'line one\nline TWO\nline one\n', 'edit devuelve newContent completo');
+  assert(
+    Array.isArray(ok.addedLines) && ok.addedLines.length === 1 && ok.addedLines[0] === 2,
+    'edit marca la línea 2 como añadida'
+  );
+  assert(
+    Array.isArray(ok.removedLines) && ok.removedLines.length === 1 && ok.removedLines[0] === 2,
+    'edit marca la línea 2 como removida'
+  );
+
   // old_text inexistente → error claro
   const missing = handlers.edit({ path: tmpFile, old_text: 'nope', new_text: 'X' });
   assert(
