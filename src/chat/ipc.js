@@ -94,6 +94,18 @@ ipcRenderer.on('agent-progress', (e, progress) => {
   const state = agentStates.stateFromProgress(progress);
   if (chatGestureEngine)
     chatGestureEngine.onEvent('agent-progress', { state, status: progress.status });
+  // Recordar el último archivo escrito para que el frame de preview HTML
+  // muestre su ruta (write/apply_patch llevan el path en params).
+  if (
+    progress.phase === 'end' &&
+    progress.status === 'ok' &&
+    progress.tool &&
+    /^(write|apply_patch)$/i.test(progress.tool)
+  ) {
+    const p = progress.params || {};
+    const path = p.path || p.file_path || p.file || '';
+    if (path) window.__lastWritePath = path;
+  }
   renderActivityBlock(_activityContainerEl, progress);
 });
 

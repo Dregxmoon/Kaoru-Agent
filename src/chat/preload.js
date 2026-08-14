@@ -108,14 +108,141 @@ function _escapeHtml(text) {
     .replace(/"/g, '&quot;');
 }
 
-function renderMarkdown(md) {
+// Marca de bloque HTML crudo extraído: se sustituye en el markdown ANTES de
+// marked y se reemplaza por el frame de preview DESPUÉS de DOMPurify.
+const HTML_PREVIEW_RE = /@@HTMLPREVIEW(\d+)@@/g;
+
+// Bloque HTML crudo (documento o fragmento con tags de bloque). El modelo a
+// veces emite la página completa SIN code fence; marcado la pasaría tal cual
+// y DOMPurify la renderizaría como página real dentro del chat — ahora se
+// extrae a un frame de preview dedicado (iframe sandboxed) + su código.
+
+// Extrae bloques de HTML crudo del texto y los reemplaza por marcadores.
+// Devuelve { text, previews } donde previews[i] es el HTML crudo. Durante el
+// streaming un documento llega INCOMPLETO (falta el cierre): en ese caso el
+// preview pendiente se marca para mostrarse como código en vivo (no página a
+// medias) hasta que el render final vea el </html> y lo convierta en iframe.
+function _extractRawHtml(md, opts) {
+  if (typeof md !== 'string' || !md) return { text: md, previews: [], pending: null };
+
+  // Proteger code fences: el HTML que ya va dentro de ```html ``` NO se toca.
+  const fences = [];
+  const noFences = md.replace(/```[\s\S]*?```/g, (m) => {
+    const idx = fences.length;
+    fences.push(m);
+    return `@@FENCE${idx}@@`;
+  });
+
+  const previews = [];
+  let body = noFences;
+
+  // Documento HTML completo (<!DOCTYPE html> ... </html> o <html>...</html>).
+  const docRe = /(?:<!DOCTYPE\s+html[\s\S]*?<\/html>|<html[^>]*>[\s\S]*?<\/html>)/gi;
+  body = body.replace(docRe, (m) => {
+    previews.push(m);
+    return `@@HTMLPREVIEW${previews.length - 1}@@`;
+  });
+
+  // Fragmento HTML con varios tags de bloque pero SIN <html> envolvente
+  // (p. ej. el modelo emite solo <div>...<style>...<script>...).
+  const fragRe =
+    /((?:<style[^>]*>[\s\S]*?<\/style>|<script[^>]*>[\s\S]*?<\/script>|<[a-z][\s\S]*?<\/[a-z]+>){2,})/gi;
+  body = body.replace(fragRe, (m) => {
+    previews.push(m);
+    return `@@HTMLPREVIEW${previews.length - 1}@@`;
+  });
+
+  // Streaming: apertura de documento sin cierre → marcar como pendiente.
+  let pending = null;
+  if (opts && opts.streaming && !previews.length) {
+    const openRe = /<!DOCTYPE\s+html|<html[^>]*>|<body[^>]*>|<head[^>]*>/i;
+    const closeRe = /<\/html>/i;
+    if (openRe.test(body) && !closeRe.test(body)) {
+      // Buscar el fragmento pendiente: desde la apertura hasta el final o el
+      // primer doble salto de línea que cierre el bloque.
+      const m = openRe.exec(body);
+      if (m) {
+        const rest = body.slice(m.index);
+        const end = rest.search(/\n\s*\n/);
+        pending = end === -1 ? rest : rest.slice(0, end);
+        body =
+          body.slice(0, m.index) + '@@HTMLPREVIEWSTREAM@@' + (end === -1 ? '' : rest.slice(end));
+      }
+    }
+  }
+
+  // Restaurar fences.
+  const restored = body.replace(/@@FENCE(\d+)@@/g, (m, i) => fences[Number(i)] || '');
+  return { text: restored, previews, pending };
+}
+
+function _escapeAttr(text) {
+  return _escapeHtml(text).replace(/"/g, '&quot;');
+}
+
+// Formatea HTML de una sola línea para mostrarlo legible en el frame de
+// código: pone un salto de línea antes de cada etiqueta de apertura/cierre y
+// después de los cierres de bloque. NO altera el HTML funcional (el iframe usa
+// el html crudo); solo embellece la vista de "Código".
+function _prettyHtml(html) {
+  if (!html || typeof html !== 'string') return html;
+  return html
+    .replace(/>\s*</g, '>\n<')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
+}
+
+// Frame de preview: recuadro con título + ruta del archivo (si se conoce) +
+// iframe sandboxed con el HTML crudo (srcdoc) y debajo el código fuente en un
+// <details>. El sandbox permite scripts pero sin same-origin, así el HTML
+// generado por el LLM no puede escapar del iframe ni tocar el chat.
+function _htmlPreviewFrame(html, index, filePath) {
+  const esc = _escapeHtml(_prettyHtml(html));
+  const pathHtml = filePath
+    ? `<span class="html-preview-path" title="${_escapeAttr(filePath)}">${_escapeHtml(filePath)}</span>`
+    : '';
+  return (
+    '<div class="html-preview">' +
+    `<div class="html-preview-head">` +
+    `<span class="html-preview-title">Vista previa</span>` +
+    pathHtml +
+    `<span class="html-preview-count">#${index + 1}</span>` +
+    `</div>` +
+    `<iframe class="html-preview-iframe" sandbox="allow-scripts" srcdoc="${_escapeAttr(html)}"></iframe>` +
+    '<details class="html-preview-code"><summary>Código</summary>' +
+    `<pre class="html-preview-pre"><code>${esc}</code></pre>` +
+    '</details>' +
+    '</div>'
+  );
+}
+
+function renderMarkdown(md, opts) {
   try {
-    let rawHtml = marked.parse(md || '');
+    const { text, previews, pending } = _extractRawHtml(md, opts);
+    let rawHtml = marked.parse(text || '');
+
+    // HTML crudo incompleto en streaming: se muestra como código en vivo.
+    if (pending) {
+      const esc = _escapeHtml(pending);
+      rawHtml = rawHtml.replace(
+        '@@HTMLPREVIEWSTREAM@@',
+        `<pre class="html-preview-pre html-preview-stream"><code class="language-html">${esc}</code></pre>`
+      );
+    }
+
     rawHtml = rawHtml.replace(
       /<pre><code class="language-mermaid">([\s\S]*?)<\/code><\/pre>/g,
       '<div class="mermaid">$1</div>'
     );
-    return DOMPurify.sanitize(rawHtml);
+    rawHtml = DOMPurify.sanitize(rawHtml);
+    if (previews.length) {
+      const filePath = opts && opts.path ? String(opts.path) : '';
+      rawHtml = rawHtml.replace(HTML_PREVIEW_RE, (m, i) => {
+        const html = previews[Number(i)];
+        return html == null ? '' : _htmlPreviewFrame(html, i, filePath);
+      });
+    }
+    return rawHtml;
   } catch (e) {
     return _escapeHtml(md);
   }

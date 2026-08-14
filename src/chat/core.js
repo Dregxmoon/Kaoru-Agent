@@ -41,7 +41,10 @@ function _sanitizePlanAnnouncement(response) {
 // variable global aunque el <script> cargue bien.
 // Markdown/DOMPurify se ejecutan en el preload (renderMarkdown devuelve HTML
 // saneado). Estos shims mantienen la interfaz que usa el resto del chat.
-const marked = { parse: (m) => assistant.renderMarkdown(m), setOptions: () => {} };
+const marked = {
+  parse: (m, opts) => assistant.renderMarkdown(m, opts),
+  setOptions: () => {},
+};
 const DOMPurify = { sanitize: (h) => h };
 
 window.PIXI = PIXI;
@@ -281,9 +284,9 @@ async function _renderMermaid(el) {
   } catch {}
 }
 
-function renderMarkdown(text) {
+function renderMarkdown(text, opts) {
   try {
-    let rawHtml = marked.parse(text || '');
+    let rawHtml = marked.parse(text || '', opts);
     rawHtml = rawHtml.replace(
       /<pre><code class="language-mermaid">([\s\S]*?)<\/code><\/pre>/g,
       '<div class="mermaid">$1</div>'

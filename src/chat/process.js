@@ -241,16 +241,26 @@ async function processMessage(text, files = []) {
       // bloques de actividad (activityFromProgress en ui.js) en el feed.
 
       // Streaming: acumular fragmentos del LLM y pintarlos en el bubble en
-      // vivo con cursor parpadeante (patrón opencode). Al final se renderiza
-      // markdown sobre el bubble existente.
+      // vivo. Se renderiza markdown incrementalmente (throttle ~80ms) para
+      // que el texto se vea limpio mientras se escribe, con cursor parpadeante
+      // (patrón opencode). Al final se renderiza markdown sobre el bubble.
       let streamBuf = '';
       let firstToken = false;
+      let mdTimer = 0;
       const streamedSpan = document.createElement('span');
       streamedSpan.className = 'stream-text';
       bubble.appendChild(streamedSpan);
       const cursor = document.createElement('span');
       cursor.className = 'stream-cursor';
       streamedSpan.appendChild(cursor);
+      const paintStream = () => {
+        mdTimer = 0;
+        streamedSpan.innerHTML = renderMarkdown(_maskUnclosedGesture(streamBuf), {
+          streaming: true,
+        });
+        streamedSpan.appendChild(cursor);
+        messagesEl.scrollTop = messagesEl.scrollHeight;
+      };
       const offStream = ipcRenderer.on('agent-token', (_e, token) => {
         if (!firstToken) {
           firstToken = true;
@@ -269,6 +279,10 @@ async function processMessage(text, files = []) {
       });
 
       offStream();
+      if (mdTimer) {
+        clearTimeout(mdTimer);
+        mdTimer = 0;
+      }
       if (cursor.parentNode) cursor.remove();
       disarmCancel();
 

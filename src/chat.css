@@ -2639,6 +2639,212 @@ body {
   font-size: 10px;
 }
 
+/* Cursor del streaming en vivo (markdown progresivo) */
+.stream-cursor {
+  display: inline-block;
+  width: 6px;
+  height: 1em;
+  margin-left: 2px;
+  background: var(--accent);
+  animation: cursorBlink 0.7s step-end infinite;
+  vertical-align: text-bottom;
+}
+
+/* ── Frame de código (Write): header con archivo+ruta y cuerpo colapsable ─── */
+.activity-code-frame {
+  margin-top: 6px;
+  border: 1px solid var(--term-divider);
+  background: var(--term-panel);
+}
+.activity-code-frame-head {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  padding: 4px 8px;
+  border-bottom: 1px solid var(--term-divider);
+  font-size: 11px;
+}
+.activity-code-file {
+  color: var(--term-accent);
+  font-weight: 600;
+}
+.activity-code-path {
+  color: var(--term-text-faint);
+  font-size: 10px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.activity-code-lines {
+  margin-left: auto;
+  color: var(--term-text-faint);
+  font-size: 10px;
+  flex-shrink: 0;
+}
+.activity-code-body {
+  margin: 0;
+  padding: 8px;
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  line-height: 1.5;
+  white-space: pre;
+  overflow-x: auto;
+  color: var(--term-text-ghost);
+}
+.activity-code-body.collapsed {
+  max-height: 440px;
+  overflow-y: auto;
+}
+.activity-code-toggle {
+  padding: 4px 8px;
+  border-top: 1px solid var(--term-divider);
+  color: var(--term-accent);
+  cursor: pointer;
+  font-size: 10px;
+  user-select: none;
+}
+.activity-code-toggle:hover {
+  background: var(--term-panel-2, var(--term-divider));
+}
+
+/* ── Frame de preview HTML (HTML crudo del LLM en un iframe aislado) ──────── */
+.html-preview {
+  margin-top: 6px;
+  border: 1px solid var(--term-divider);
+  background: var(--term-panel);
+}
+.html-preview-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 8px;
+  border-bottom: 1px solid var(--term-divider);
+  font-size: 11px;
+}
+.html-preview-title {
+  color: var(--term-accent);
+  font-weight: 600;
+}
+.html-preview-count {
+  margin-left: auto;
+  color: var(--term-text-faint);
+  font-size: 10px;
+}
+.html-preview-path {
+  color: var(--term-text-faint);
+  font-size: 10px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 45%;
+}
+.html-preview-iframe {
+  display: block;
+  width: 100%;
+  height: 320px;
+  border: none;
+  background: #fff;
+}
+.html-preview-code summary {
+  padding: 4px 8px;
+  border-top: 1px solid var(--term-divider);
+  color: var(--term-accent);
+  cursor: pointer;
+  font-size: 10px;
+  user-select: none;
+}
+.html-preview-code summary:hover {
+  background: var(--term-panel-2, var(--term-divider));
+}
+.html-preview-pre {
+  margin: 0;
+  padding: 8px;
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  line-height: 1.5;
+  white-space: pre;
+  overflow-x: auto;
+  color: var(--term-text-ghost);
+}
+.html-preview-stream {
+  border-top: 1px solid var(--term-divider);
+}
+
+/* ── Split viejo/actualizado (Edit/apply_patch) ──────────────────────────── */
+.activity-split {
+  margin-top: 6px;
+  border: 1px solid var(--term-divider);
+  background: var(--term-panel);
+}
+.activity-split-head {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  padding: 4px 8px;
+  border-bottom: 1px solid var(--term-divider);
+  font-size: 11px;
+}
+.activity-split-label {
+  font-size: 9px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  padding: 0 4px;
+}
+.activity-split-label.old {
+  margin-left: auto;
+  color: var(--term-error);
+}
+.activity-split-label.new {
+  color: var(--term-success);
+}
+.activity-split-cols {
+  display: flex;
+  max-height: 460px;
+  overflow-y: auto;
+}
+.activity-split-col {
+  flex: 1 1 0;
+  min-width: 0;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  line-height: 1.45;
+}
+.activity-split-col.old {
+  border-right: 1px solid var(--term-divider);
+}
+.activity-split-line {
+  display: flex;
+  white-space: pre;
+}
+.activity-split-num {
+  flex-shrink: 0;
+  width: 3em;
+  padding-right: 6px;
+  text-align: right;
+  color: var(--term-text-faint);
+  user-select: none;
+}
+.activity-split-text {
+  white-space: pre-wrap;
+  word-break: break-word;
+  color: var(--term-text-ghost);
+}
+.activity-split-line.changed {
+  background: var(--term-divider);
+}
+.activity-split-col.old .activity-split-line.changed {
+  background: rgba(239, 68, 68, 0.15);
+  color: var(--term-error);
+  text-decoration: underline;
+  text-decoration-color: var(--term-error);
+}
+.activity-split-col.new .activity-split-line.changed {
+  background: rgba(16, 185, 129, 0.15);
+  color: var(--term-success);
+  text-decoration: underline;
+  text-decoration-color: var(--term-success);
+}
+
 /* ── Rediseño — cero decoración: sin bordes redondeados ni sombras ────────── */
 *,
 *::before,
