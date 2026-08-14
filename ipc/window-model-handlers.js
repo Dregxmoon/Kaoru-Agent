@@ -8,6 +8,19 @@ const { app, ipcMain } = require('electron');
 
 function register(ctx) {
   const { S, savedConfig, loadConfig, saveConfig, sendToChat } = ctx;
+  const coreState = require('../core/core/state.js');
+
+  // Sincroniza el model3.json activo al estado del núcleo, para que el
+  // grounding pueda construir el vocabulario de gestos dinámico (nombres
+  // reales del modelo, en cualquier idioma).
+  function syncActiveModel3Path() {
+    try {
+      const info = getActiveModel();
+      coreState.activeModel3Path = info ? info.model3Path : null;
+    } catch {
+      coreState.activeModel3Path = null;
+    }
+  }
 
   // IPC: overlay
   ipcMain.on('drag-start', () => {
@@ -72,12 +85,14 @@ function register(ctx) {
     if (!listModels().find((m) => m.id === id)) return false;
     S.activeModelId = id;
     saveConfig({ activeModel: id });
+    syncActiveModel3Path();
     return true;
   }
 
   function broadcastModelChanged() {
     const info = getActiveModel();
     if (!info) return;
+    syncActiveModel3Path();
     const payload = { ...info, models: listModels() };
     if (S.mainWindow && !S.mainWindow.isDestroyed())
       S.mainWindow.webContents.send('model-changed', payload);
@@ -171,6 +186,8 @@ function register(ctx) {
   ctx.saveModelViewMode = saveModelViewMode;
   ctx.currentViewsState = currentViewsState;
   ctx.broadcastViewsChanged = broadcastViewsChanged;
+
+  syncActiveModel3Path();
 }
 
 module.exports = { register };

@@ -45,6 +45,69 @@ function _compressHistory(history) {
   return result;
 }
 
+// ── Gestos dirigidos por el LLM ─────────────────────────────────────────────
+// El LLM intercala marcadores (gesto: <mood o nombre>) en su respuesta. Aquí se
+// detectan, se ejecutan en el GestureEngine en vivo y se eliminan del texto que
+// se muestra y se habla. El vocabulario lo declara el system prompt (extraído
+// del modelo real); el motor orquesta la reproducción.
+const _gestureMarkerRe = /\(gesto:\s*([a-z_0-9\u3040-\u30ff\u4e00-\u9fff]+)\)/gi;
+
+// Ejecuta un mood/nombre de gesto en el motor del chat, sin romper la
+// generación si el motor aún no está listo o el mood es desconocido (el motor
+// ya cae a su fallback).
+function _playGesture(mood) {
+  try {
+    if (chatGestureEngine && chatGestureEngine.enabled && mood) {
+      chatGestureEngine.setEmotion(String(mood).trim());
+    }
+  } catch (e) {
+    console.warn('[gesto] no se pudo reproducir:', mood, e.message);
+  }
+}
+
+// Extrae todos los marcadores completos de un texto y devuelve el texto limpio
+// + la lista { pos, mood } donde pos es la posición en el texto limpio (para
+// que revealText los dispare cuando el cursor revelado los alcanza).
+function _parseGestureMarkers(text) {
+  const markers = [];
+  let clean = '';
+  let last = 0;
+  let m;
+  const t = String(text || '');
+  _gestureMarkerRe.lastIndex = 0;
+  while ((m = _gestureMarkerRe.exec(t))) {
+    clean += t.slice(last, m.index);
+    markers.push({ pos: clean.length, mood: m[1] });
+    last = m.index + m[0].length;
+  }
+  clean += t.slice(last);
+  return { clean, markers };
+}
+
+// En streaming, un marcador puede llegar cortado entre tokens ("(gesto: ha" →
+// "ppy)"). Esta función dispara los marcadores completos acumulados y los quita
+// del buffer; el fragmento sin cerrar se oculta del render (queda al final).
+function _processStreamingGestures(buf) {
+  let out = String(buf || '');
+  let m;
+  _gestureMarkerRe.lastIndex = 0;
+  while ((m = _gestureMarkerRe.exec(out))) {
+    _playGesture(m[1]);
+  }
+  out = out.replace(_gestureMarkerRe, '');
+  return out;
+}
+
+// Oculta del render un marcador que aún no se ha cerrado (está en curso).
+function _maskUnclosedGesture(text) {
+  const t = String(text || '');
+  const openIdx = t.lastIndexOf('(gesto:');
+  if (openIdx === -1) return t;
+  const rest = t.slice(openIdx);
+  if (rest.indexOf(')') !== -1) return t;
+  return t.slice(0, openIdx);
+}
+
 // processMessage
 async function processMessage(text, files = []) {
   const trimmed = text.trim();
@@ -195,9 +258,10 @@ async function processMessage(text, files = []) {
           setAgentState('streaming', 'Respondiendo');
         }
         streamBuf += token;
-        streamedSpan.textContent = streamBuf;
-        streamedSpan.appendChild(cursor);
-        messagesEl.scrollTop = messagesEl.scrollHeight;
+        // Gestos del LLM en vivo: detectar marcadores (gesto: x) a medida que
+        // llegan los tokens, ejecutarlos y sacarlos del texto visible.
+        streamBuf = _processStreamingGestures(streamBuf);
+        if (!mdTimer) mdTimer = setTimeout(paintStream, 80);
       });
 
       const result = await ipcRenderer.invoke('agent-run', {
@@ -212,11 +276,12 @@ async function processMessage(text, files = []) {
       // parcial como un error — solo mostrar lo que ya se generó.
       if (result.cancelled) {
         removeThinking();
-        const partial = result.response || streamBuf.trim();
+        const partialRaw = result.response || streamBuf.trim();
+        const partial = partialRaw ? _parseGestureMarkers(partialRaw).clean : '';
         if (partial) {
           pushToSession('assistant', partial);
           bubble.classList.add('markdown');
-          bubble.innerHTML = renderMarkdown(partial);
+          bubble.innerHTML = renderMarkdown(partial, { path: window.__lastWritePath || '' });
           messagesEl.scrollTop = messagesEl.scrollHeight;
         }
         setAgentState('done', 'Cancelado');
@@ -243,10 +308,15 @@ async function processMessage(text, files = []) {
       // Escribir respuesta directamente en el bubble existente
       removeThinking();
       if (response) {
+        // Limpiar marcadores (gesto: x) que el texto final pudiera reintroducir
+        // y ejecutarlos; el GestureEngine deduplica por cooldown de mood.
+        const parsed = _parseGestureMarkers(response);
+        response = parsed.clean;
+        parsed.markers.forEach((g) => _playGesture(g.mood));
         pushToSession('assistant', response);
         ipcRenderer.send('memory-add-turn', { role: 'assistant', content: response });
         bubble.classList.add('markdown');
-        bubble.innerHTML = renderMarkdown(response);
+        bubble.innerHTML = renderMarkdown(response, { path: window.__lastWritePath || '' });
         bubble.querySelectorAll('.mermaid').forEach((el) => _renderMermaid(el));
         messagesEl.scrollTop = messagesEl.scrollHeight;
         setAgentState('done', 'Listo');
@@ -311,11 +381,19 @@ async function processMessage(text, files = []) {
   setAgentState('streaming', 'Respondiendo');
 
   // Mostrar respuesta final con revelado progresivo de caracteres y cursor;
-  // al terminar se renderiza markdown sobre el bubble.
+  // renderiza markdown en vivo durante la escritura y queda renderizado al
+  // terminar (los bloques mermaid se resuelven al final).
+  const parsed = _parseGestureMarkers(response);
+  response = parsed.clean;
   pushToSession('assistant', response);
   ipcRenderer.send('memory-add-turn', { role: 'assistant', content: response });
   const { bubble } = addMessage('assistant', '');
-  const reveal = revealText(bubble, response);
+  bubble.classList.add('markdown');
+  const reveal = revealText(bubble, response, {
+    markdown: true,
+    gestures: parsed.markers,
+    onGesture: _playGesture,
+  });
   await reveal.done;
   bubble.classList.add('markdown');
   bubble.innerHTML = renderMarkdown(response);

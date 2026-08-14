@@ -90,6 +90,7 @@ const SCHEMA = {
       ambient: false,
       ambientIntervalMs: 60000,
       forcedMoodFallback: 'default',
+      llmDriven: true,
       mappings: {},
     },
     schema: {
@@ -100,6 +101,7 @@ const SCHEMA = {
       ambient: { type: 'boolean', default: false },
       ambientIntervalMs: { type: 'number', default: 60000 },
       forcedMoodFallback: { type: 'string', default: 'default' },
+      llmDriven: { type: 'boolean', default: true },
       mappings: { type: 'object', default: {} },
     },
   },

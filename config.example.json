@@ -26,6 +26,7 @@
     "ambient": false,
     "ambientIntervalMs": 60000,
     "forcedMoodFallback": "default",
+    "llmDriven": true,
     "mappings": {}
   },
   "mcp": {

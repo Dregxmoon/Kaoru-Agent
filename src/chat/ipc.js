@@ -118,26 +118,20 @@ ipcRenderer.on('initiative', (e, payload) => {
     bubble.appendChild(badge);
     const textSpan = document.createElement('span');
     bubble.appendChild(textSpan);
-    // Escribir el texto en el span
-    bubble.classList.remove('markdown');
-    bubble.classList.add('typewriter-cursor');
-    let buf = '';
-    for (const char of payload.suggestion) {
-      buf += char;
-      textSpan.textContent = buf;
-      messagesEl.scrollTop = messagesEl.scrollHeight;
-      await new Promise((r) => setTimeout(r, 18 + Math.random() * 8));
-    }
-    bubble.classList.remove('typewriter-cursor');
-    bubble.classList.add('markdown');
-    textSpan.outerHTML = `<span class="md-inline"></span>`;
-    const inlineSpan = bubble.querySelector('.md-inline');
-    inlineSpan.innerHTML = renderMarkdown(payload.suggestion);
-    inlineSpan.querySelectorAll('.mermaid').forEach((el) => _renderMermaid(el));
+    // Revelar el texto renderizando markdown en vivo (limpio mientras se
+    // escribe, con cursor parpadeante); al terminar ya queda renderizado.
+    const parsedIni = _parseGestureMarkers(payload.suggestion);
+    const reveal = revealText(textSpan, parsedIni.clean, {
+      markdown: true,
+      gestures: parsedIni.markers,
+      onGesture: _playGesture,
+    });
+    await reveal.done;
+    bubble.querySelectorAll('.mermaid').forEach((el) => _renderMermaid(el));
     messagesEl.scrollTop = messagesEl.scrollHeight;
-    speak(payload.suggestion);
-    pushToSession('assistant', payload.suggestion);
-    ipcRenderer.send('memory-add-turn', { role: 'assistant', content: payload.suggestion });
+    speak(parsedIni.clean);
+    pushToSession('assistant', parsedIni.clean);
+    ipcRenderer.send('memory-add-turn', { role: 'assistant', content: parsedIni.clean });
 
     // Fase A: si la iniciativa trae una propuesta, se muestran botones de
     // consentimiento. El voto es feedback para ajustar la frecuencia futura;

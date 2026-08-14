@@ -35,6 +35,7 @@ const state = {
   symbolIndex: null,
   telemetry: null,
   activeWorkspace: null,
+  activeModel3Path: null, // ruta del model3.json activo (lo sincroniza window-model-handlers)
   onProposalResult: null,
   proposalExecutedUnsub: null,
   lastProposal: null, // { id, type } de la última propuesta emitida (debug/testing)

@@ -1,5 +1,16 @@
 'use strict';
 
+// renderMarkdown (de core.js/preload) es global y carga ANTES que este archivo.
+// La declaración var SIN inicializador de abajo NO pisa la función ya definida
+// en core.js (un var hoisted sin valor no reasigna una global existente); solo
+// le da tipo al LSP. Nunca asignar aquí — la implementación real vive en
+// preload.js/core.js y un stub con el mismo nombre la rompería.
+/**
+ * Renderiza markdown a HTML saneado (implementación real en preload.js/core.js).
+ * @type {(md: string, opts?: { streaming?: boolean }) => string}
+ */
+var renderMarkdown;
+
 /**
  * activityBlock.js — Cambio 2/3 del rediseño "Claude Code + AI Agent + VTuber".
  *
@@ -32,6 +43,8 @@
  * @property {Record<string, *>} [params]
  * @property {*} [result]
  * @property {*} [error]
+ * @property {Record<string, *>|null} [meta] - datos extra de la tool (p. ej.
+ *   oldContent/newContent de edit/apply_patch) para vistas enriquecidas.
  */
 
 // ── Estado del agente ───────────────────────────────────────────────────────
@@ -86,12 +99,20 @@ function startSpinner(el) {
 /**
  * @param {HTMLElement} el - contenedor del texto (debe estar en el DOM)
  * @param {string} text
- * @param {{ step?: number }} [opts] - caracteres por frame (default: ~500/frame)
+ * @param {{ step?: number, markdown?: boolean, gestures?: Array<{ pos: number, mood: string }>, onGesture?: (mood: string) => void }} [opts] - caracteres por frame
+ *   (default: ~500/frame). Con markdown:true el texto se renderiza con
+ *   renderMarkdown de forma progresiva (throttle ~60ms) en lugar de texto
+ *   plano, para que el markdown no se vea en crudo mientras se escribe.
+ *   Con gestures se disparan los marcadores (gesto: x) en vivo cuando el
+ *   cursor revelado los alcanza, llamando a onGesture(mood).
  */
 function revealText(el, text, opts = {}) {
   let i = 0;
   let raf = 0;
   let stopped = false;
+  /** @type {ReturnType<typeof setTimeout> | null} */
+  let mdTimer = null;
+  const isMd = !!opts.markdown;
   const max = String(text || '').length;
   const step = opts.step || Math.max(1, Math.round(max / 500));
   const cursor = document.createElement('span');
@@ -103,15 +124,55 @@ function revealText(el, text, opts = {}) {
   const done = new Promise((r) => {
     doneResolve = r;
   });
+  // Gestos del LLM: markers[{ pos, mood }] se disparan en vivo cuando el cursor
+  // revelado los alcanza, una sola vez cada uno (se van consumiendo).
+  const gestures = (opts.gestures || []).slice().sort((a, b) => a.pos - b.pos);
+  const onGesture = opts.onGesture || null;
+  const fireGesturesUpTo = (/** @type {number} */ idx) => {
+    if (!onGesture || !gestures.length) return;
+    while (gestures.length && gestures[0].pos <= idx) {
+      /** @type {{ pos: number, mood: string }} */
+      const g = /** @type {{ pos: number, mood: string }} */ (gestures.shift());
+      try {
+        onGesture(g.mood);
+      } catch (e) {
+        console.warn('[gesto] onGesture falló:', /** @type {Error} */ (e).message);
+      }
+    }
+  };
+  const paint = () => {
+    fireGesturesUpTo(i);
+    if (isMd) {
+      el.innerHTML = renderMarkdown(String(text).slice(0, i), { streaming: true });
+      el.appendChild(cursor);
+    } else {
+      el.textContent = String(text).slice(0, i);
+      el.appendChild(cursor);
+    }
+    _scrollFeed();
+  };
   const tick = () => {
     if (stopped) return;
     i = Math.min(i + step, max);
-    el.textContent = String(text).slice(0, i);
-    el.appendChild(cursor);
-    _scrollFeed();
+    if (isMd) {
+      if (!mdTimer) {
+        mdTimer = setTimeout(() => {
+          mdTimer = null;
+          paint();
+        }, 60);
+      }
+    } else {
+      paint();
+    }
     if (i < max) {
       raf = requestAnimationFrame(tick);
     } else {
+      if (mdTimer) {
+        clearTimeout(mdTimer);
+        mdTimer = null;
+      }
+      fireGesturesUpTo(max);
+      paint();
       cursor.remove();
       doneResolve();
     }
@@ -123,6 +184,11 @@ function revealText(el, text, opts = {}) {
       if (stopped) return;
       stopped = true;
       if (raf) cancelAnimationFrame(raf);
+      if (mdTimer) {
+        clearTimeout(mdTimer);
+        mdTimer = null;
+      }
+      fireGesturesUpTo(max);
       if (cursor.parentNode) cursor.remove();
       doneResolve();
     },
@@ -277,6 +343,92 @@ function _diffHtml(text) {
     .join('\n');
 }
 
+// ── Frame de código (Write) ─────────────────────────────────────────────────
+// Muestra el código generado en un recuadro con el nombre de archivo y la ruta
+// arriba. Colapsable: por defecto muestra hasta CODE_FRAME_VISIBLE_LINES y un
+// botón "ver todo" que expande el resto.
+const CODE_FRAME_VISIBLE_LINES = 30;
+const CODE_FRAME_MAX_CHARS = 20000;
+
+/**
+ * @param {string} filePath
+ * @returns {string}
+ */
+function _baseName(filePath) {
+  const p = String(filePath || '');
+  return p.split(/[\\/]/).pop() || p;
+}
+
+/**
+ * @param {string} filePath
+ * @param {string} content
+ * @returns {string}
+ */
+function _codeFrameHtml(filePath, content) {
+  const name = _baseName(filePath);
+  const esc = _escapeHtml(content);
+  const totalLines = content.split('\n').length;
+  const needsExpand =
+    totalLines > CODE_FRAME_VISIBLE_LINES || content.length > CODE_FRAME_MAX_CHARS;
+  return (
+    '<div class="activity-code-frame">' +
+    `<div class="activity-code-frame-head">` +
+    `<span class="activity-code-file">${_escapeHtml(name)}</span>` +
+    `<span class="activity-code-path">${_escapeHtml(filePath)}</span>` +
+    `<span class="activity-code-lines">${totalLines} líneas</span>` +
+    `</div>` +
+    `<pre class="activity-code-body${needsExpand ? ' collapsed' : ''}">${esc}</pre>` +
+    (needsExpand ? '<div class="activity-code-toggle" data-collapsed="1">Ver todo ▾</div>' : '') +
+    '</div>'
+  );
+}
+
+// ── Split viejo/actualizado (Edit/apply_patch) ─────────────────────────────
+// Dos paneles: el archivo antes (izquierda) y después (derecha). Las líneas
+// que se añadieron se marcan en verde y las que se quitaron en rojo, con el
+// número de línea alineado para que el cambio sea visual.
+/**
+ * @param {string} filePath
+ * @param {string} oldContent
+ * @param {string} newContent
+ * @param {number[]} addedLines
+ * @param {number[]} removedLines
+ * @returns {string}
+ */
+function _editSplitHtml(filePath, oldContent, newContent, addedLines, removedLines) {
+  const name = _baseName(filePath);
+  const added = new Set(addedLines || []);
+  const removed = new Set(removedLines || []);
+  /** @param {string} lines @param {Set<number>} mark @returns {string} */
+  const col = (lines, mark) =>
+    lines
+      .split('\n')
+      .map((line, idx) => {
+        const n = idx + 1;
+        const cls = mark.has(n) ? ' changed' : '';
+        return (
+          `<div class="activity-split-line${cls}">` +
+          `<span class="activity-split-num">${n}</span>` +
+          `<span class="activity-split-text">${_escapeHtml(line) || ' '}</span>` +
+          '</div>'
+        );
+      })
+      .join('');
+  return (
+    '<div class="activity-split">' +
+    `<div class="activity-split-head">` +
+    `<span class="activity-code-file">${_escapeHtml(name)}</span>` +
+    `<span class="activity-split-label old">ANTES</span>` +
+    `<span class="activity-split-label new">ACTUALIZADO</span>` +
+    `</div>` +
+    `<div class="activity-split-cols">` +
+    `<div class="activity-split-col old">${col(oldContent, removed)}</div>` +
+    `<div class="activity-split-col new">${col(newContent, added)}</div>` +
+    '</div>' +
+    '</div>'
+  );
+}
+
 // Detalle expandible del bloque (texto plano, diff coloreado o stdout/stderr).
 /**
  * @param {AgentProgress} progress
@@ -288,6 +440,38 @@ function _detailHtml(progress) {
   }
   const r = progress.result;
   if (r == null) return '';
+
+  // Write: frame con el código completo generado + archivo/ruta arriba. El
+  // contenido completo llega en params.content (se pintó al escribir).
+  if (
+    /^(write)$/i.test(progress.tool) &&
+    progress.params &&
+    typeof progress.params.content === 'string'
+  ) {
+    return `<div class="activity-block-detail">${_codeFrameHtml(
+      progress.params.path || progress.params.file_path || '',
+      progress.params.content
+    )}</div>`;
+  }
+
+  // Edit/apply_patch con meta (oldContent/newContent + líneas): split visual
+  // viejo/actualizado con las líneas cambiadas resaltadas.
+  if (
+    /^(edit|apply_patch)$/i.test(progress.tool) &&
+    progress.meta &&
+    typeof progress.meta.oldContent === 'string' &&
+    typeof progress.meta.newContent === 'string'
+  ) {
+    return `<div class="activity-block-detail">${_editSplitHtml(
+      progress.params && (progress.params.path || progress.params.file_path)
+        ? progress.params.path || progress.params.file_path
+        : '',
+      progress.meta.oldContent,
+      progress.meta.newContent,
+      progress.meta.addedLines,
+      progress.meta.removedLines
+    )}</div>`;
+  }
 
   // Resultado de exec ({stdout, stderr, exitCode, ...}): mostrar SOLO el stdout
   // limpio formateado, el stderr aparte en color de error y el exit code si no
@@ -386,6 +570,16 @@ function renderActivityBlock(containerEl, progress) {
       const detail = document.createElement('div');
       detail.innerHTML = detailHtml;
       entry.el.appendChild(detail);
+      // Toggle "Ver todo ▾" de los frames de código: expande/colapsa el <pre>.
+      const toggle = detail.querySelector('.activity-code-toggle');
+      if (toggle) {
+        toggle.addEventListener('click', () => {
+          const body = detail.querySelector('.activity-code-body');
+          if (!body) return;
+          const collapsed = body.classList.toggle('collapsed');
+          toggle.textContent = collapsed ? 'Ver todo ▾' : 'Ver menos ▴';
+        });
+      }
     }
     _scrollFeed();
   }

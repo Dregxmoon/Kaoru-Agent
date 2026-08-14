@@ -10,6 +10,8 @@ const { BehaviorModel } = require('../behavior/BehaviorModel.js');
 const { buildRulesSection } = require('../rules/ProjectRules.js');
 const { resolveToolset } = require('../task/ToolResolver.js');
 const { getProjectCWD } = require('../planner/Planner.js');
+const { buildGestureSection } = require('../behavior/GestureVocabulary.js');
+const { readGesturesConfig } = require('./config.js');
 
 const state = require('./state.js');
 
@@ -243,6 +245,26 @@ async function buildContext(sessionHistory, activeProvider, options = {}) {
     result.systemPrompt = result.systemPrompt + '\n\n' + workspaceStack;
   }
   result.systemPrompt = result.systemPrompt + '\n\n' + CODE_VERACITY_RULE;
+
+  // ── Gestos dirigidos por el LLM ──────────────────────────────────────────
+  // Sección dinámica: el vocabulario se extrae del model3.json activo (nombres
+  // reales de expresiones/motions, en cualquier idioma). El LLM solo elige de
+  // la lista; el GestureEngine orquesta la reproducción. Gate por config
+  // gestures.enabled && gestures.llmDriven; si no hay modelo activo o gestos,
+  // la sección es '' y no se inyecta nada.
+  try {
+    const gesturesCfg = readGesturesConfig();
+    if (gesturesCfg && gesturesCfg.enabled !== false && gesturesCfg.llmDriven !== false) {
+      const gestureSection = buildGestureSection(state.activeModel3Path, {
+        mappings: gesturesCfg.mappings || {},
+      });
+      if (gestureSection) {
+        result.systemPrompt = result.systemPrompt + '\n\n' + gestureSection;
+      }
+    }
+  } catch (e) {
+    logger.warn('context', '[core] sección de gestos omitida:', e.message);
+  }
 
   // ── Tool Resolution (Fase 1): siempre resolver herramientas ─────────────
   // Fase 1: el toolset completo está disponible en TODOS los modos, sin

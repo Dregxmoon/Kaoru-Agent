@@ -113,6 +113,8 @@ module.exports = {
         setTtsMuted: 'readonly',
         isTtsMuted: 'readonly',
         _renderPatchPreview: 'readonly',
+        _parseGestureMarkers: 'readonly',
+        _playGesture: 'readonly',
       },
     },
     {

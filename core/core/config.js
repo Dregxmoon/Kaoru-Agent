@@ -79,10 +79,16 @@ function readAutonomyConfig() {
   return (cfg && cfg.autonomy) || 'suggest';
 }
 
+function readGesturesConfig() {
+  const cfg = readJsonFile(state.configPath, null);
+  return (cfg && cfg.gestures) || null;
+}
+
 module.exports = {
   loadLLMConfig,
   reloadLLMConfig,
   loadMCPConfig,
   readSensorsConfig,
   readAutonomyConfig,
+  readGesturesConfig,
 };
