@@ -405,7 +405,11 @@ const IMMUTABLE_PATH_PATTERNS = [
   /\.pfx$/i,
   /\.key$/i,
   /[\\/]\.aws[\\/]/i,
-  /\.env(\.|$)/i,
+  // .env y variantes de entorno con credenciales reales (.env.local,
+  // .env.production, .env.test, ...). Se EXCLUYEN los sufijos de plantilla
+  // (.env.example/.env.sample/.env.template/.env.dist): son archivos legítimos
+  // que el agente debe poder crear/editar sin fricción.
+  /\.env(?:$|\.(?!example$|sample$|template$|dist$))/i,
   /[\\/]credentials/i,
   /[\\/]\.git-credentials/i,
   /[\\/]\.npmrc/i,
@@ -1160,6 +1164,7 @@ module.exports = {
   _wrapSandbox,
   _whichBin,
   sandboxEnabled: () => _sandboxEnabled,
+  sandboxReason: () => _sandboxReason,
   TOOLCHAIN_BINDS: () => [...TOOLCHAIN_BINDS],
   API_KEY: () => API_KEY,
   ALLOWED_PATH: () => ALLOWED_PATH,

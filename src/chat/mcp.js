@@ -1,10 +1,18 @@
 // @ts-nocheck
 // OpenClaw — sin badge en la UI; el flag openclawAvailable solo decide el
 // flujo del agent loop (proceso.js). El estado en vivo llega por el canal
-// 'openclaw-status' (ipc.js).
+// 'openclaw-status' (ipc.js). Aquí se consulta el estado completo al arrancar
+// (disponibilidad + aislamiento de proceso bwrap).
 async function checkOpenClaw() {
   try {
-    openclawAvailable = await ipcRenderer.invoke('openclaw-available');
+    const status = await ipcRenderer.invoke('openclaw-status');
+    if (status) {
+      openclawAvailable = Boolean(status.available);
+      openclawSandbox =
+        status.sandbox === undefined || status.sandbox === null ? null : Boolean(status.sandbox);
+      openclawSandboxReason = status.sandboxReason || null;
+      updateSandboxBanner();
+    }
   } catch {
     openclawAvailable = false;
   }

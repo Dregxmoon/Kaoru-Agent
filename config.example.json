@@ -31,5 +31,10 @@
   },
   "mcp": {
     "servers": []
+  },
+  "agent": {
+    "verify": {
+      "command": ""
+    }
   }
 }

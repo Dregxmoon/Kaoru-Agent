@@ -307,6 +307,26 @@ body {
   display: flex;
 }
 
+/* Banner de sandbox de procesos desactivado (bwrap no disponible). Mismo
+   patrón persistente que #memory-banner, en rojo por la severidad: los execs
+   de alto impacto corren sin aislamiento de proceso. */
+#sandbox-banner {
+  display: none;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 12px;
+  background: rgba(239, 68, 68, 0.1);
+  border-bottom: 1px solid rgba(239, 68, 68, 0.4);
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: #ef4444;
+  flex-shrink: 0;
+  z-index: 2;
+}
+#sandbox-banner.visible {
+  display: flex;
+}
+
 #settings-modal {
   display: none;
   position: fixed;
@@ -2297,6 +2317,16 @@ body {
   padding: 6px 8px;
   color: var(--text-primary);
   font-size: 11px;
+  margin-bottom: 10px;
+  word-break: break-all;
+}
+.approval-sandbox-warn {
+  background: rgba(239, 68, 68, 0.1);
+  border: 1px solid rgba(239, 68, 68, 0.4);
+  color: #ef4444;
+  border-radius: 4px;
+  padding: 6px 8px;
+  font-size: 10px;
   margin-bottom: 10px;
   word-break: break-all;
 }

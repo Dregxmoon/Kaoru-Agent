@@ -39,6 +39,21 @@ async function isOpenClawAvailable() {
   return state.bridge.isAvailable();
 }
 
+// Estado completo de OpenClaw para la UI: disponibilidad + aislamiento de
+// proceso (bwrap). Fuerza un ping fresco para no servir un caché viejo.
+async function getOpenClawStatus() {
+  if (!state.bridge) {
+    return { available: false, sandbox: null, sandboxReason: null };
+  }
+  const available = await state.bridge.isAvailable(true);
+  const sandbox = state.bridge.getSandboxStatus();
+  return {
+    available,
+    sandbox: sandbox ? sandbox.enabled : null,
+    sandboxReason: sandbox ? sandbox.reason : null,
+  };
+}
+
 // ── Fase C: compañero persistente ─────────────────────────────────────────────
 
 /** /olvida X — archiva los nodos de memoria que matcheen el texto. */
@@ -717,6 +732,7 @@ module.exports = {
   setChatOpen,
   handleProposalDecision,
   isOpenClawAvailable,
+  getOpenClawStatus,
   forgetMemory,
   pendingRecap,
   getProactiveStats,

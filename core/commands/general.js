@@ -96,7 +96,7 @@ module.exports = function registerCommands(register) {
         if (!ok) return `Telemetria no disponible: ${error}`;
         if (!report) return 'No hay datos de telemetria aun.';
         const { current, previous, deltas, verdict, acceptance, prevAcceptance } = report;
-        if (!current.activeDays && !current.userMessages)
+        if (!current.activeDays && !current.userMessages && !current.agentRuns)
           return 'No hay actividad registrada este mes todavia.';
         const arrow = (v) => (v == null ? '–' : v > 0 ? `▲ +${v}%` : v < 0 ? `▼ ${v}%` : '＝ 0%');
         const fmtMs = (ms) =>
@@ -114,6 +114,21 @@ module.exports = function registerCommands(register) {
           `│ Silencios: ${current.silenceCount} (${current.silenceHours} h) vs ${previous.silenceCount} (${previous.silenceHours} h)  ${arrow(deltas.silenceCount)}`,
           `│ Dias activos: ${current.activeDays} vs ${previous.activeDays}  ${arrow(deltas.activeDays)}`,
         ];
+        if (current.agentRuns || previous.agentRuns) {
+          const runsArrow =
+            previous.agentRuns == null || previous.agentRuns === 0
+              ? null
+              : current.agentRuns - previous.agentRuns;
+          const toolsPerRun =
+            current.agentRuns > 0
+              ? (current.agentToolCalls / current.agentRuns).toFixed(1)
+              : '–';
+          lines.push(
+            `│ Runs agente: ${current.agentRuns || 0} vs ${previous.agentRuns || 0}  ${arrow(runsArrow)}`,
+            `│ Tools/run: ${toolsPerRun} | Errores: ${current.agentErrors || 0} | Aprobaciones: ${current.agentApprovalsGranted || 0}/${current.agentApprovalRequests || 0}`,
+            `│ Cancelados: ${current.agentCancelled || 0} | Duracion p90: ${fmtMs(current.p90RunDurationMs)} vs ${fmtMs(previous.p90RunDurationMs)}`
+          );
+        }
         if (acceptance.rate != null || prevAcceptance.rate != null) {
           const cur = acceptance.rate == null ? '–' : `${acceptance.rate}%`;
           const prev = prevAcceptance.rate == null ? '–' : `${prevAcceptance.rate}%`;

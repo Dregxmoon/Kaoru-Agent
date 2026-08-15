@@ -144,15 +144,18 @@ async function processMessage(text, files = []) {
     if (cmdResult && Array.isArray(cmdResult.sessionHistory)) {
       sessionHistory.splice(0, sessionHistory.length, ...cmdResult.sessionHistory);
     }
-    const asstMsg = cmdResult && cmdResult.result
-      ? cmdResult.result.error
-        ? `Error: ${cmdResult.result.error}`
-        : cmdResult.result.result || '(sin respuesta)'
-      : '(sin respuesta)';
+    const asstMsg =
+      cmdResult && cmdResult.result
+        ? cmdResult.result.error
+          ? `Error: ${cmdResult.result.error}`
+          : cmdResult.result.result || '(sin respuesta)'
+        : '(sin respuesta)';
     addMessage('assistant', asstMsg);
     pushToSession('assistant', `[comando] ${asstMsg}`);
     if (chatGestureEngine)
-      chatGestureEngine.onEvent(cmdResult && cmdResult.result && cmdResult.result.error ? 'command_error' : 'command_ok');
+      chatGestureEngine.onEvent(
+        cmdResult && cmdResult.result && cmdResult.result.error ? 'command_error' : 'command_ok'
+      );
     return;
   }
 
@@ -444,7 +447,14 @@ function _showApprovalCard({ id, tool, params, description }) {
     command: _escapeHtml(params?.command),
     path: _escapeHtml(params?.path),
   };
-  card.innerHTML = `<div class="approval-title">ACCION DE ALTO IMPACTO — APROBACION REQUERIDA</div><div class="approval-cmd">${safeDescription}</div><div style="font-size:10px;color:var(--text-secondary);margin-bottom:10px">Herramienta: <b>${safeTool}</b>${safeParams.command ? ` · <code>${safeParams.command}</code>` : ''}${safeParams.path ? ` · <code>${safeParams.path}</code>` : ''}</div>${_renderPatchPreview(params?.patch)}<div class="approval-actions"><button class="btn-approve" id="approve-${id}">Ejecutar</button><button class="btn-deny" id="deny-${id}">Cancelar</button></div>`;
+  // Aviso de sandbox desactivado: solo cuando la acción ejecuta comandos y el
+  // server reporta aislamiento de proceso inactivo (openclawSandbox === false).
+  const runsCommand = /^(exec|code_execution)$/i.test(safeTool) || Boolean(safeParams.command);
+  const sandboxWarning =
+    runsCommand && openclawSandbox === false
+      ? `<div class="approval-sandbox-warn">Ejecución de comandos SIN aislamiento de proceso (bwrap no disponible)${openclawSandboxReason ? ` — ${_escapeHtml(openclawSandboxReason)}` : ''}. Esta acción corre con permisos reales del sistema.</div>`
+      : '';
+  card.innerHTML = `<div class="approval-title">ACCION DE ALTO IMPACTO — APROBACION REQUERIDA</div><div class="approval-cmd">${safeDescription}</div><div style="font-size:10px;color:var(--text-secondary);margin-bottom:10px">Herramienta: <b>${safeTool}</b>${safeParams.command ? ` · <code>${safeParams.command}</code>` : ''}${safeParams.path ? ` · <code>${safeParams.path}</code>` : ''}</div>${sandboxWarning}${_renderPatchPreview(params?.patch)}<div class="approval-actions"><button class="btn-approve" id="approve-${id}">Ejecutar</button><button class="btn-deny" id="deny-${id}">Cancelar</button></div>`;
   messagesEl.appendChild(card);
   messagesEl.scrollTop = messagesEl.scrollHeight;
   document.getElementById(`approve-${id}`)?.addEventListener('click', () => {

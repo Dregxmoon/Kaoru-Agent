@@ -81,9 +81,13 @@ function _refreshViewButtons() {
 }
 
 // Fase 3
-ipcRenderer.on('openclaw-status', (e, { available }) => {
-  openclawAvailable = available;
-  if (!available) setAgentMode('chat');
+ipcRenderer.on('openclaw-status', (e, status) => {
+  const { available, sandbox, sandboxReason } = status || {};
+  openclawAvailable = Boolean(available);
+  openclawSandbox = sandbox === undefined || sandbox === null ? null : Boolean(sandbox);
+  openclawSandboxReason = sandboxReason || null;
+  updateSandboxBanner();
+  if (!openclawAvailable) setAgentMode('chat');
 });
 
 // Badge de modo agente (Tab alterna). Se refleja también en el body dataset

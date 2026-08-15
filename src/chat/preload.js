@@ -71,6 +71,7 @@ const INVOKE_ALLOWLIST = new Set([
   'intention-drop',
   // OpenClaw / GitHub / stats / proactive
   'openclaw-available',
+  'openclaw-status',
   'exec-command',
   'github-client-id',
   'get-bridge-stats',
@@ -199,8 +200,7 @@ contextBridge.exposeInMainWorld('assistant', {
   // y un ctx donde las funciones de página son stubs de roundtrip (chat-ui-call
   // → chat-ui-call-result). La página solo envía datos serializables (pageData)
   // y sincroniza el sessionHistory devuelto.
-  runCommand: (text, pageData = {}) =>
-    ipcRenderer.invoke('chat-run-command', { text, pageData }),
+  runCommand: (text, pageData = {}) => ipcRenderer.invoke('chat-run-command', { text, pageData }),
 
   // Roundtrip main → página (ver ipc/chat-handlers.js).
   onUiCall: (handler) => {
@@ -249,8 +249,7 @@ contextBridge.exposeInMainWorld('assistant', {
     getCommand: (name) => _cmdIndex.find((c) => c.name === name) || null,
   },
   FileResolver: {
-    listProjectFiles: (cwd, pattern) =>
-      ipcRenderer.invoke('chat-files-list', { cwd, pattern }),
+    listProjectFiles: (cwd, pattern) => ipcRenderer.invoke('chat-files-list', { cwd, pattern }),
     buildFileContext: (text, cwd) => ipcRenderer.invoke('chat-files-context', { text, cwd }),
   },
   AgentManager: {

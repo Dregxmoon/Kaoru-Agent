@@ -235,6 +235,7 @@ async function testImmutablePaths(apiKey) {
   const tests = [
     { path: '.ssh/id_rsa', desc: '.ssh/id_rsa' },
     { path: '.env', desc: '.env' },
+    { path: '.env.local', desc: '.env.local' },
     { path: 'credentials.json', desc: 'credentials' },
     { path: 'wallet.dat', desc: 'wallet' },
   ];
@@ -246,6 +247,22 @@ async function testImmutablePaths(apiKey) {
       apiKey
     );
     assert(res.status === 400, `read ${t.desc} bloqueado (${res.status})`);
+  }
+
+  // Plantillas .env.example/.env.sample NO son inmutables: el agente debe
+  // poder crearlas/editarlas sin fricción.
+  for (const env of ['.env.example', '.env.sample']) {
+    const target = path.join('tests', env);
+    const res = await postJSON(
+      'http://127.0.0.1:18789/v1/tool',
+      { tool: 'write', input: { path: target, content: '# template de ejemplo\n' } },
+      apiKey
+    );
+    assert(res.status === 200, `write ${env} PERMITIDO (${res.status})`);
+    assert(fs.existsSync(path.resolve(target)), `write ${env} → archivo creado`);
+    try {
+      fs.unlinkSync(path.resolve(target));
+    } catch (_) {}
   }
 }
 

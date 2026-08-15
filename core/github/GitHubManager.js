@@ -19,10 +19,29 @@
 const KeychainManager = require('../../infrastructure/keychain/KeychainManager.js');
 
 const { getRendererFetch } = require('./net.js');
+const { wrapUntrusted, sanitizeUntrusted } = require('../grounding/untrustedContent.js');
 
 const API_BASE = 'https://api.github.com';
 const GITHUB_TOKEN_KEY = 'github_token';
 const MAX_LIST = 30;
+
+// Límite de confianza (P3): todo texto libre que llega de la API de GitHub
+// (bodies de issues/PRs, reviews, descripciones) es contenido de terceros —
+// mismo patrón que BrowserBridge: los títulos cortos se sanitizan (se les
+// neutralizan los patrones de inyección) y los cuerpos largos se envuelven en
+// el marcador de contenido no confiable. Lo que el propio agente creó en esta
+// sesión (issue_create, pr_create, comments, reviews) NO se envuelve.
+const MAX_UNTRUSTED_BODY = 2000;
+
+function _untrustedBody(text) {
+  const s = String(text || '');
+  if (!s) return s;
+  return wrapUntrusted(s.slice(0, MAX_UNTRUSTED_BODY));
+}
+
+function _untrustedShort(text) {
+  return sanitizeUntrusted(String(text || ''));
+}
 
 const SAFE_REPO_RE = /^[A-Za-z0-9_.-]{1,100}\/[A-Za-z0-9_.-]{1,100}$/;
 const SAFE_REVIEW_EVENTS = new Set(['APPROVE', 'REQUEST_CHANGES', 'COMMENT']);
@@ -35,8 +54,9 @@ function _validRepo(repo) {
 }
 
 function _stripMarkdown(text) {
-  // Reduce ruido en el resumen para el LLM: se devuelve el body crudo al LLM,
-  // pero el manager normaliza longitud.
+  // Normaliza lo que el propio agente ENVÍA a GitHub (issue_create, pr_create,
+  // comments, reviews) — contenido auto-escrito, no de terceros: no se envuelve.
+  // Los bodies que VUELVEN de la API (issue_list/pr_list) pasan por _untrustedBody.
   return String(text || '');
 }
 
@@ -145,7 +165,7 @@ class GitHubManager {
       owner: d.owner?.login,
       name: d.name,
       fullName: d.full_name,
-      description: d.description,
+      description: _untrustedBody(d.description),
       htmlUrl: d.html_url,
       defaultBranch: d.default_branch,
       private: d.private,
@@ -171,7 +191,8 @@ class GitHubManager {
     );
     const issues = (Array.isArray(d) ? d : []).map((i) => ({
       number: i.number,
-      title: i.title,
+      title: _untrustedShort(i.title),
+      body: _untrustedBody(i.body),
       state: i.state,
       author: i.user?.login,
       labels: (i.labels || []).map((l) => l.name),
@@ -245,7 +266,8 @@ class GitHubManager {
     );
     const prs = (Array.isArray(d) ? d : []).map((p) => ({
       number: p.number,
-      title: p.title,
+      title: _untrustedShort(p.title),
+      body: _untrustedBody(p.body),
       state: p.state,
       author: p.user?.login,
       head: p.head?.ref,
@@ -320,7 +342,7 @@ class GitHubManager {
     );
     const runs = (d.workflow_runs || []).map((r) => ({
       id: r.id,
-      name: r.name,
+      name: _untrustedShort(r.name),
       headBranch: r.head_branch,
       status: r.status,
       conclusion: r.conclusion,

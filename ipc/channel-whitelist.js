@@ -74,6 +74,7 @@ const INVOKE_ALLOWLIST = new Set([
   'intention-drop',
   // OpenClaw / exec (vía comandos /)
   'openclaw-available',
+  'openclaw-status',
   'exec-command',
   // GitHub (vía comandos /)
   'github-client-id',

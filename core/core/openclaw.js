@@ -77,11 +77,23 @@ function killDescendants(signal) {
 
 // ── OpenClaw Server ────────────────────────────────────────────────────────────
 
+// Payload uniforme del evento 'openclaw:available'. Incluye el estado de
+// aislamiento de proceso (bwrap) que el server reporta en /health, para que
+// el renderer muestre el aviso persistente cuando no hay sandbox.
+function _statusPayload(available) {
+  const sandbox = getOpenClawBridge().getSandboxStatus?.() || null;
+  return {
+    available,
+    sandbox: sandbox ? sandbox.enabled : null,
+    sandboxReason: sandbox ? sandbox.reason : null,
+  };
+}
+
 function startOpenClaw(workspacePath) {
   const serverPath = path.join(__dirname, '..', '..', 'openclaw-server.js');
   if (!fs.existsSync(serverPath)) {
     logger.warn('openclaw', '[core] openclaw-server.js no encontrado — herramientas desactivadas');
-    state.bus.emit('openclaw:available', { available: false });
+    state.bus.emit('openclaw:available', _statusPayload(false));
     return;
   }
 
@@ -136,13 +148,13 @@ function startOpenClaw(workspacePath) {
       state.openclawStarting = false;
       state.openclawProcess = null;
       getOpenClawBridge().resetAvailabilityCache();
-      state.bus.emit('openclaw:available', { available: false });
+      state.bus.emit('openclaw:available', _statusPayload(false));
     });
 
     state.openclawProcess.on('error', (err) => {
       state.openclawStarting = false;
       state.openclawProcess = null;
-      state.bus.emit('openclaw:available', { available: false });
+      state.bus.emit('openclaw:available', _statusPayload(false));
     });
 
     let retries = 0;
@@ -155,7 +167,7 @@ function startOpenClaw(workspacePath) {
         .then((available) => {
           if (available) {
             logger.info('openclaw', '[core] OpenClaw listo — Fase 3 activa');
-            state.bus.emit('openclaw:available', { available: true });
+            state.bus.emit('openclaw:available', _statusPayload(true));
           } else if (retries < OPENCLAW_RETRIES) {
             state.openclawCheckTimer = setTimeout(check, OPENCLAW_RETRY_MS);
           } else {
@@ -166,7 +178,7 @@ function startOpenClaw(workspacePath) {
             state.openclawProcess?.kill();
             state.openclawStarting = false;
             state.openclawProcess = null;
-            state.bus.emit('openclaw:available', { available: false });
+            state.bus.emit('openclaw:available', _statusPayload(false));
           }
         })
         .catch(() => {
@@ -174,7 +186,7 @@ function startOpenClaw(workspacePath) {
             state.openclawCheckTimer = setTimeout(check, OPENCLAW_RETRY_MS);
           else {
             state.openclawStarting = false;
-            state.bus.emit('openclaw:available', { available: false });
+            state.bus.emit('openclaw:available', _statusPayload(false));
           }
         });
     };
@@ -183,7 +195,7 @@ function startOpenClaw(workspacePath) {
   } catch (e) {
     state.openclawStarting = false;
     logger.error('openclaw', '[core] error iniciando OpenClaw:', e.message);
-    state.bus.emit('openclaw:available', { available: false });
+    state.bus.emit('openclaw:available', _statusPayload(false));
   }
 }
 

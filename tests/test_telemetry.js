@@ -366,6 +366,15 @@ function testTelemetriaCommand() {
       silenceCount: 1,
       silenceHours: 1,
       userMessages: 6,
+      agentRuns: 4,
+      agentToolCalls: 12,
+      agentErrors: 1,
+      agentApprovalRequests: 2,
+      agentApprovalsGranted: 2,
+      agentCancelled: 0,
+      avgRunDurationMs: 5000,
+      p50RunDurationMs: 4000,
+      p90RunDurationMs: 9000,
     },
     previous: {
       monthKey: '2026-6',
@@ -376,6 +385,15 @@ function testTelemetriaCommand() {
       silenceCount: 1,
       silenceHours: 2,
       userMessages: 3,
+      agentRuns: 1,
+      agentToolCalls: 2,
+      agentErrors: 0,
+      agentApprovalRequests: 0,
+      agentApprovalsGranted: 0,
+      agentCancelled: 1,
+      avgRunDurationMs: 1000,
+      p50RunDurationMs: 1000,
+      p90RunDurationMs: 1500,
     },
     deltas: {
       messagesPerDay: 0,
@@ -398,6 +416,10 @@ function testTelemetriaCommand() {
       assert(r.result.includes('mejor que el mes pasado'), 'resultado responde "¿mejor?"');
       assert(r.result.includes('2026-6'), 'compara contra el mes anterior');
       assert(r.result.includes('Respuesta p50'), 'incluye tiempo de respuesta');
+      assert(r.result.includes('Runs agente'), 'incluye runs del agente');
+      assert(r.result.includes('Tools/run'), 'incluye tools por run');
+      assert(r.result.includes('Errores: 1'), 'incluye errores de tools');
+      assert(r.result.includes('Duracion p90'), 'incluye duracion p90');
     })
     .then(() => {
       return executeCommand('/telemetria', {

@@ -34,6 +34,7 @@ const SESSION_GAP_MS = 20 * 60 * 1000; // gap que separa dos "sesiones" (reuso)
 const RESPONSE_WINDOW_MS = 10 * 60 * 1000; // máximo para considerar un turno assistant como respuesta a un user
 const MAX_RESPONSE_SAMPLES = 200; // muestras de tiempo de respuesta por día (p50/p90)
 const MAX_SILENCE_SAMPLES = 60; // muestras de silencios por día
+const MAX_RUN_DURATION_SAMPLES = 200; // muestras de duración de runs del agente por día
 const MAX_DAYS = 90; // días de historial retenidos en disco
 
 function _localDayKey(ts = Date.now()) {
@@ -102,6 +103,16 @@ class TelemetryStore {
       silenceTotalMs: 0,
       silences: [],
       sessions: 0,
+      // Runs del agente (AgentLoop): métricas por-run agregadas al día.
+      agentRuns: 0,
+      agentToolCalls: 0,
+      agentErrors: 0,
+      agentApprovalRequests: 0,
+      agentApprovalsGranted: 0,
+      agentApprovalsDenied: 0,
+      agentCancelled: 0,
+      agentRunDurationsMs: [],
+      agentRunDurationSumMs: 0,
     });
   }
 
@@ -173,6 +184,34 @@ class TelemetryStore {
     this._persist();
   }
 
+  /**
+   * Registra las métricas de ejecución de un run del agente (emitidas por
+   * AgentLoop al terminar, pase lo que pase). Se agregan como contadores del
+   * día (mismo mecanismo de persistencia que los turnos). Las duraciones se
+   * guardan como muestras (tope por día) para p50/p90 en el resumen mensual.
+   *
+   * @param {object} m Métricas del run (shape de AgentLoop._emitRunMetrics).
+   */
+  recordAgentRun(m = {}) {
+    const dayKey = _localDayKey(this._now());
+    const day = this._day(dayKey);
+    day.agentRuns += 1;
+    day.agentToolCalls += m.tool_calls_total || 0;
+    day.agentErrors += m.errors_total || 0;
+    day.agentApprovalRequests += m.approval_requests || 0;
+    day.agentApprovalsGranted += m.approvals_granted || 0;
+    day.agentApprovalsDenied += m.approvals_denied || 0;
+    if (m.cancelled) day.agentCancelled += 1;
+    const dur = m.duration_ms || 0;
+    day.agentRunDurationsMs.push(dur);
+    if (day.agentRunDurationsMs.length > MAX_RUN_DURATION_SAMPLES) {
+      day.agentRunDurationsMs.shift();
+    }
+    day.agentRunDurationSumMs += dur;
+    this._prune();
+    this._persist();
+  }
+
   // ── Agregación mensual ───────────────────────────────────────────────────
 
   monthSummary(monthKey = _monthKey(this._now())) {
@@ -186,6 +225,15 @@ class TelemetryStore {
       silenceCount: 0,
       silenceTotalMs: 0,
       sessions: 0,
+      agentRuns: 0,
+      agentToolCalls: 0,
+      agentErrors: 0,
+      agentApprovalRequests: 0,
+      agentApprovalsGranted: 0,
+      agentApprovalsDenied: 0,
+      agentCancelled: 0,
+      agentRunDurationsMs: [],
+      agentRunDurationSumMs: 0,
     };
 
     for (const [dayKey, d] of Object.entries(this._data.days)) {
@@ -201,9 +249,21 @@ class TelemetryStore {
       acc.silenceCount += d.silenceCount;
       acc.silenceTotalMs += d.silenceTotalMs;
       acc.sessions += d.sessions;
+      acc.agentRuns += d.agentRuns || 0;
+      acc.agentToolCalls += d.agentToolCalls || 0;
+      acc.agentErrors += d.agentErrors || 0;
+      acc.agentApprovalRequests += d.agentApprovalRequests || 0;
+      acc.agentApprovalsGranted += d.agentApprovalsGranted || 0;
+      acc.agentApprovalsDenied += d.agentApprovalsDenied || 0;
+      acc.agentCancelled += d.agentCancelled || 0;
+      acc.agentRunDurationsMs = acc.agentRunDurationsMs
+        .concat(d.agentRunDurationsMs || [])
+        .slice(-MAX_RUN_DURATION_SAMPLES * 4);
+      acc.agentRunDurationSumMs += d.agentRunDurationSumMs || 0;
     }
 
     const sorted = [...acc.responseTimes].sort((a, b) => a - b);
+    const runDurations = [...acc.agentRunDurationsMs].sort((a, b) => a - b);
     return {
       monthKey,
       activeDays: acc.activeDays,
@@ -220,6 +280,18 @@ class TelemetryStore {
       silenceHours: Math.round((acc.silenceTotalMs / (1000 * 60 * 60)) * 10) / 10,
       sessions: acc.sessions,
       sessionsPerDay: acc.activeDays ? acc.sessions / acc.activeDays : 0,
+      agentRuns: acc.agentRuns,
+      agentToolCalls: acc.agentToolCalls,
+      agentErrors: acc.agentErrors,
+      agentApprovalRequests: acc.agentApprovalRequests,
+      agentApprovalsGranted: acc.agentApprovalsGranted,
+      agentApprovalsDenied: acc.agentApprovalsDenied,
+      agentCancelled: acc.agentCancelled,
+      avgRunDurationMs: acc.agentRuns
+        ? Math.round(acc.agentRunDurationSumMs / acc.agentRuns)
+        : null,
+      p50RunDurationMs: _percentile(runDurations, 50),
+      p90RunDurationMs: _percentile(runDurations, 90),
     };
   }
 

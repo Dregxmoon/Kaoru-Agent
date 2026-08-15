@@ -447,11 +447,17 @@ class StructuredActionParser {
    * @param {string} llmResponse — respuesta completa del LLM
    * @param {string} userGoal    — mensaje original del usuario (para instrucción de edición)
    * @param {object} toolIntent  — resultado de IntentDetector (opcional, para fallback informado)
+   * @param {object} opts        — opciones de parseo:
+   *   - `skipLegacy: true` → NO aplicar el fallback legacy de prosa (ActionParser).
+   *     Sirve para mensajes que son REPORTES de trabajo ya hecho (p. ej. el
+   *     resumen final de un subagente: "Terminé escribiendo el archivo X...").
+   *     Sin esto, el parser legacy re-detecta una intención de edición sobre ese
+   *     texto y re-ejecuta una acción que el usuario nunca pidió.
    *
    * @returns {Array} — array de acciones (compatible con ActionParser original)
    *                    campo extra `source: 'structured' | 'legacy_regex'`
    */
-  parse(llmResponse, userGoal = '', toolIntent = null) {
+  parse(llmResponse, userGoal = '', toolIntent = null, opts = {}) {
     // ── 1. Intentar parsear bloque estructurado ───────────────────────────────
     const structured = this._parseStructuredBlock(llmResponse, userGoal);
     if (structured.length > 0) {
@@ -460,6 +466,16 @@ class StructuredActionParser {
         `[structured-parser] Bloque estructurado encontrado: ${structured.map((a) => a.tool).join(', ')}`
       );
       return structured;
+    }
+
+    // ── 1b. Modo reporte (subagentes): texto sin bloque de acción = resumen ──
+    // El resumen final de un subagente es un REPORTE de lo que ya hizo, no una
+    // instrucción. Dejarlo pasar por el parser legacy de prosa hace que frases
+    // naturales ("Terminé escribiendo el archivo X", "Hice la modificación de
+    // Y") se reinterpreten como órdenes de edición y se re-ejecute algo no
+    // pedido. En este modo solo se honran bloques estructurados / tool calls.
+    if (opts.skipLegacy) {
+      return [];
     }
 
     // ── 2. Fallback: ActionParser original (regex) ────────────────────────────

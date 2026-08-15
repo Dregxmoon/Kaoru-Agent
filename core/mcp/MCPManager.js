@@ -32,6 +32,7 @@ const logger = require('../observability/Logger.js');
 
 const crypto = require('crypto');
 const { minimalChildEnv } = require('../utils/childEnv.js');
+const { wrapUntrusted } = require('../grounding/untrustedContent.js');
 const { Client } = require('@modelcontextprotocol/sdk/client/index.js');
 const { StdioClientTransport } = require('@modelcontextprotocol/sdk/client/stdio.js');
 
@@ -69,6 +70,38 @@ function _reconnectBackoff(attempt) {
   const base = RECONNECT_BASE_MS * Math.pow(2, attempt); // 1s, 2s, 4s, 8s, 16s...
   const jitter = base * (0.7 + Math.random() * 0.6);
   return Math.round(jitter);
+}
+
+// Límite de confianza (P3): el resultado de una tool de un servidor MCP es
+// contenido de terceros POR DEFINICIÓN (el servidor lo registra el usuario,
+// pero sus respuestas no las escribió el agente). Se envuelve SIEMPRE, sin
+// excepción, antes de que el resultado llegue al pipeline → contexto del LLM.
+function _trustMCPResult(result) {
+  if (!result || typeof result !== 'object') return result;
+  const out = { ...result };
+  if (Array.isArray(out.content)) {
+    let hasText = false;
+    out.content = out.content.map((block) => {
+      if (block && typeof block === 'object' && typeof block.text === 'string') {
+        hasText = true;
+        return { ...block, text: wrapUntrusted(block.text) };
+      }
+      return block;
+    });
+    // Si el servidor devolvió structuredContent pero ningún bloque de texto,
+    // se materializa como texto no confiable para que nunca entre crudo.
+    if (!hasText && out.structuredContent !== undefined && out.structuredContent !== null) {
+      try {
+        out.content = [
+          { type: 'text', text: wrapUntrusted(JSON.stringify(out.structuredContent)) },
+        ];
+      } catch (_) {
+        /* best-effort */
+      }
+    }
+  }
+  if (typeof out.text === 'string') out.text = wrapUntrusted(out.text);
+  return out;
 }
 
 // ── Catálogo estático de respaldo ─────────────────────────────────────────────
@@ -278,7 +311,10 @@ class MCPServerConnection {
     if (this.status !== 'connected' || !this.client) {
       throw new Error(`Servidor MCP "${this.name}" no está conectado (estado: ${this.status})`);
     }
-    return this.client.callTool({ name: toolName, arguments: args || {} });
+    const result = await this.client.callTool({ name: toolName, arguments: args || {} });
+    // Límite de confianza: cualquier resultado de un servidor MCP externo se
+    // envuelve como contenido no confiable antes de llegar al pipeline.
+    return _trustMCPResult(result);
   }
 }
 

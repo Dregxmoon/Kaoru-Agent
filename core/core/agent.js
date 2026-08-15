@@ -5,6 +5,7 @@ const logger = require('../observability/Logger.js');
 // plugins (beforeAgentRun).
 
 const { AgentLoop } = require('../planner/AgentLoop.js');
+const { resolveVerifyPlan } = require('../commands/verify.js');
 const { resolveToolset } = require('../task/ToolResolver.js');
 const { buildContext } = require('./context.js');
 const LLMProvider = require('../llm/LLMProvider.js');
@@ -165,12 +166,18 @@ async function runAgent(userMessage, opts = {}) {
   // ── Modo automático por intención: sin override explícito, TaskDetector
   //    decide entre 'fast' (charla, barato/rápido) y 'smart' (tarea, potente).
   const { mode, maxIterations } = resolveAgentMode(effectiveMessage, opts);
+  const { WorkspaceCheckpoint } = require('../git/WorkspaceCheckpoint.js');
+  const projectCwd =
+    state.activeWorkspace || state.openclawWorkspace || require('../planner/ActionParser.js').PROJECT_CWD;
+  const checkpoint = new WorkspaceCheckpoint({ cwd: projectCwd });
   const loop = new AgentLoop({
     maxIterations,
     bridge: state.bridge,
     mode,
     lsp: state.lspManager,
     graph: state.graph && !state.graph.usingFallback ? state.graph : null,
+    checkpoint,
+    telemetry: state.telemetry || null,
   });
 
   const loopOpts = {
@@ -219,6 +226,17 @@ async function runAgent(userMessage, opts = {}) {
     loopOpts.reflection = true;
   }
 
+  // Verificación forzada: en modo tarea (smart), el loop corre el comando de
+  // verificación del proyecto (agent.verify.command en config.json, o
+  // auto-detect de package.json scripts typecheck→lint→test→build) al cerrar
+  // el run tras una mutación. Nunca bloquea la tarea: si no hay nada
+  // configurado o el comando no existe, el run cierra igual. Igual que
+  // selfCritique/reflection, no aplica en conversación rápida y los
+  // subagentes no la reciben (el loop solo verifica con opts.verify presente).
+  if (opts.verify === undefined && mode === 'smart') {
+    loopOpts.verify = resolveVerifyPlan(state.configPath, projectCwd);
+  }
+
   // evalMode: benchmark headless — toda tool de alto impacto se auto-aprueba,
   // sin callback de aprobación (el loop ya la ejecuta si no hay handler).
   if (opts.evalMode) {
@@ -237,6 +255,22 @@ async function runAgent(userMessage, opts = {}) {
     context.messages || [],
     loopOpts
   );
+
+  // ── Checkpoint de la tarea: si hubo mutaciones, se ofrece deshacer SOLO los
+  //    cambios de este run (ver core/git/WorkspaceCheckpoint.js y el comando
+  //    /revertir-tarea). Se adjunta metadata al resultado y un hint al texto.
+  const cpMeta = checkpoint.metadata();
+  if (cpMeta && cpMeta.canRevert) {
+    result.checkpoint = cpMeta;
+    if (
+      typeof result.response === 'string' &&
+      result.response.trim() &&
+      !result.cancelled
+    ) {
+      const hint = `\n\n[Checkpoint de la tarea creado (${cpMeta.files.length} archivo(s) tocados). Si querés deshacer SOLO los cambios de esta tarea, escribí: \`/revertir-tarea\`]`;
+      result.response += hint;
+    }
+  }
 
   // ── Fase 4: modo degradado (providers caídos / sin herramientas) ─────────
   // Si el loop terminó por fallo de LLM SIN haber ejecutado herramientas útiles,

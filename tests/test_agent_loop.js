@@ -1715,6 +1715,231 @@ async function testMidLoopReflectionOffByDefaultInFast() {
   teardown();
 }
 
+// ── Anti-estancamiento: mismo tool N veces sin progreso ──────────────────────
+// Complementa a la anti-repetición (que compara tool + hash EXACTO de params):
+// si el LLM martilla el MISMO tool con variantes distintas (paths que no
+// existen, formatos que no acepta...) y ningún resultado marca progreso, se le
+// inyecta una nota para que cambie de estrategia — SIN cortar la ejecución.
+
+async function testStuckToolWarning() {
+  console.log(C.bold('\n── Test 18: mismo tool sin progreso → aviso (sin cortar) ──────'));
+
+  const { AgentLoop } = require('../core/planner/AgentLoop.js');
+  const AP = require('../core/planner/ActionParser.js');
+  const LLMProvider = require('../core/llm/LLMProvider.js');
+
+  const projectCwd = teardown() || setup();
+  AP.setProjectCWD(projectCwd);
+
+  const originalCompleteWithTools = LLMProvider.completeWithTools;
+  let calls = 0;
+  let sawStuckNote = false;
+  let sawExactRepeatNote = false;
+  const missing = (n) => path.join(projectCwd, `no-existe-${n}.txt`);
+  const paths = [missing(1), missing(2), missing(3)];
+
+  LLMProvider.completeWithTools = async (messages) => {
+    calls++;
+    if (calls <= 3) {
+      // Tres variantes DISTINTAS de una ruta que no existe (params cambian,
+      // así que el dedupe exacto NO las salta).
+      return { content: null, toolCalls: [{ tool: 'read', params: { path: paths[calls - 1] } }] };
+    }
+    sawStuckNote = /sin avanzar/.test(JSON.stringify(messages));
+    sawExactRepeatNote = /Ya intentaste exactamente/.test(JSON.stringify(messages));
+    return { content: 'No pude leerlo; cambié de estrategia.', toolCalls: null };
+  };
+
+  try {
+    const bridge = createMockBridge(projectCwd);
+    let readExecutions = 0;
+    const wrappedBridge = {
+      ...bridge,
+      execute: async (tool, params) => {
+        if (tool === 'read') readExecutions++;
+        return bridge.execute(tool, params);
+      },
+    };
+
+    const loop = new AgentLoop({
+      maxIterations: 8,
+      llm: createMockLLM(['no se usa']),
+      bridge: wrappedBridge,
+    });
+
+    const result = await loop.run('leé un archivo que no existe', 'Eres un asistente.', [], {
+      tools: [
+        {
+          name: 'read',
+          description: 'lee un archivo',
+          inputSchema: { type: 'object', properties: {} },
+        },
+      ],
+      stuckToolThreshold: 2,
+    });
+
+    assert(
+      readExecutions === 3,
+      'Las 3 variantes se EJECUTARON (el aviso no corta la ejecución)',
+      `ejecuciones: ${readExecutions}`
+    );
+    assert(
+      result.toolResults.length === 3,
+      '3 tool results (ninguna se salteó)',
+      `tools: ${result.toolResults.length}`
+    );
+    assert(
+      sawStuckNote,
+      'El LLM recibió la nota "sin avanzar" tras 2 intentos fallidos del mismo tool'
+    );
+    assert(!sawExactRepeatNote, 'El dedupe exacto NO se disparó (los params eran distintos)');
+    assert(calls === 4, 'El LLM cerró con texto en el 4º turno', `llamadas LLM: ${calls}`);
+  } finally {
+    LLMProvider.completeWithTools = originalCompleteWithTools;
+  }
+
+  teardown();
+}
+
+async function testStuckToolProgressResets() {
+  console.log(C.bold('\n── Test 19: progreso intercalado → NO se dispara el aviso ─────'));
+
+  const { AgentLoop } = require('../core/planner/AgentLoop.js');
+  const AP = require('../core/planner/ActionParser.js');
+  const LLMProvider = require('../core/llm/LLMProvider.js');
+
+  const projectCwd = teardown() || setup();
+  AP.setProjectCWD(projectCwd);
+
+  const originalCompleteWithTools = LLMProvider.completeWithTools;
+  let calls = 0;
+  let sawStuckNote = false;
+  const missing = (n) => path.join(projectCwd, `tampoco-${n}.txt`);
+  const existing = path.join(projectCwd, 'config.json');
+  const paths = [missing(1), existing, missing(2), missing(3)];
+
+  LLMProvider.completeWithTools = async (messages) => {
+    calls++;
+    if (calls <= 4) {
+      // Una lectura EXITOSA (progreso real) interrumpida entre fallas del
+      // mismo tool → la racha de "sin progreso" se reinicia.
+      return { content: null, toolCalls: [{ tool: 'read', params: { path: paths[calls - 1] } }] };
+    }
+    sawStuckNote = /sin avanzar/.test(JSON.stringify(messages));
+    return { content: 'Listo.', toolCalls: null };
+  };
+
+  try {
+    const bridge = createMockBridge(projectCwd);
+    let readExecutions = 0;
+    const wrappedBridge = {
+      ...bridge,
+      execute: async (tool, params) => {
+        if (tool === 'read') readExecutions++;
+        return bridge.execute(tool, params);
+      },
+    };
+
+    const loop = new AgentLoop({
+      maxIterations: 8,
+      llm: createMockLLM(['no se usa']),
+      bridge: wrappedBridge,
+    });
+
+    await loop.run('leé varios archivos', 'Eres un asistente.', [], {
+      tools: [
+        {
+          name: 'read',
+          description: 'lee un archivo',
+          inputSchema: { type: 'object', properties: {} },
+        },
+      ],
+      stuckToolThreshold: 2,
+    });
+
+    assert(
+      !sawStuckNote,
+      'Con una lectura exitosa intercalada NO se dispara el aviso (racha rota)'
+    );
+    assert(readExecutions === 4, 'Las 4 lecturas se ejecutaron', `ejecuciones: ${readExecutions}`);
+    assert(calls === 5, 'El LLM cerró en el 5º turno', `llamadas LLM: ${calls}`);
+  } finally {
+    LLMProvider.completeWithTools = originalCompleteWithTools;
+  }
+
+  teardown();
+}
+
+async function testStuckToolDefaultThreshold() {
+  console.log(C.bold('\n── Test 20: umbral por defecto (N=4) dispara el aviso ─────────'));
+
+  const { AgentLoop } = require('../core/planner/AgentLoop.js');
+  const AP = require('../core/planner/ActionParser.js');
+  const LLMProvider = require('../core/llm/LLMProvider.js');
+
+  const projectCwd = teardown() || setup();
+  AP.setProjectCWD(projectCwd);
+
+  const originalCompleteWithTools = LLMProvider.completeWithTools;
+  let calls = 0;
+  let sawStuckNote = false;
+  const missing = (n) => path.join(projectCwd, `default-${n}.txt`);
+  const paths = [missing(1), missing(2), missing(3), missing(4), missing(5)];
+
+  LLMProvider.completeWithTools = async (messages) => {
+    calls++;
+    if (calls <= 5) {
+      return { content: null, toolCalls: [{ tool: 'read', params: { path: paths[calls - 1] } }] };
+    }
+    sawStuckNote = /sin avanzar/.test(JSON.stringify(messages));
+    return { content: 'Cambio de estrategia.', toolCalls: null };
+  };
+
+  try {
+    const bridge = createMockBridge(projectCwd);
+    let readExecutions = 0;
+    const wrappedBridge = {
+      ...bridge,
+      execute: async (tool, params) => {
+        if (tool === 'read') readExecutions++;
+        return bridge.execute(tool, params);
+      },
+    };
+
+    const loop = new AgentLoop({
+      maxIterations: 10,
+      llm: createMockLLM(['no se usa']),
+      bridge: wrappedBridge,
+    });
+
+    const result = await loop.run('leé un archivo que no existe', 'Eres un asistente.', [], {
+      tools: [
+        {
+          name: 'read',
+          description: 'lee un archivo',
+          inputSchema: { type: 'object', properties: {} },
+        },
+      ],
+    });
+
+    assert(
+      readExecutions === 5,
+      'Las 5 variantes se ejecutaron (default sin cortar)',
+      `ejecuciones: ${readExecutions}`
+    );
+    assert(
+      result.toolResults.length === 5,
+      '5 tool results',
+      `tools: ${result.toolResults.length}`
+    );
+    assert(sawStuckNote, 'Con el umbral por defecto (4) el aviso se dispara en el 5º intento');
+  } finally {
+    LLMProvider.completeWithTools = originalCompleteWithTools;
+  }
+
+  teardown();
+}
+
 // ── Main ──────────────────────────────────────────────────────────────────────
 
 async function main() {
@@ -1743,6 +1968,9 @@ async function main() {
   await testSelfCritiqueCompleteNoExtraRounds();
   testPluginToolsAreHighImpact();
   await testAntiRepetition();
+  await testStuckToolWarning();
+  await testStuckToolProgressResets();
+  await testStuckToolDefaultThreshold();
   await testMidLoopReflectionReplans();
   await testMidLoopReflectionOffByDefaultInFast();
 

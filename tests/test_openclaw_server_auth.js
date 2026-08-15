@@ -115,6 +115,15 @@ function testImmutablePath() {
   assert(srv._isImmutablePath('/home/user/.ssh/config'), 'ruta dentro de .ssh bloqueada');
   assert(srv._isImmutablePath('/project/.env'), '.env bloqueado');
   assert(srv._isImmutablePath('/project/.env.production'), '.env.production bloqueado');
+  assert(srv._isImmutablePath('/project/.env.local'), '.env.local bloqueado');
+  assert(srv._isImmutablePath('/project/.env.development'), '.env.development bloqueado');
+  assert(srv._isImmutablePath('/project/.env.test'), '.env.test bloqueado');
+  assert(srv._isImmutablePath('/project/.env.staging'), '.env.staging bloqueado');
+  assert(srv._isImmutablePath('/project/.env.local.backup'), '.env.local.backup bloqueado');
+  assert(!srv._isImmutablePath('/project/.env.example'), '.env.example PERMITIDO (plantilla)');
+  assert(!srv._isImmutablePath('/project/.env.sample'), '.env.sample PERMITIDO (plantilla)');
+  assert(!srv._isImmutablePath('/project/.env.template'), '.env.template PERMITIDO (plantilla)');
+  assert(!srv._isImmutablePath('/project/.env.dist'), '.env.dist PERMITIDO (plantilla)');
   assert(srv._isImmutablePath('/home/user/credentials.json'), 'credentials bloqueado');
   assert(srv._isImmutablePath('/etc/shadow'), '/etc/shadow bloqueado');
   assert(srv._isImmutablePath('/etc/passwd'), '/etc/passwd bloqueado');

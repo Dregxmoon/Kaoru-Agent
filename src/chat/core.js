@@ -240,6 +240,24 @@ ipcRenderer
 // Fase 3
 let openclawAvailable = false;
 
+// Estado de aislamiento de proceso del server (bwrap), reportado en /health.
+// null = sin información (no avisa); false = sandbox desactivado (aviso).
+let openclawSandbox = null;
+let openclawSandboxReason = null;
+
+// Banner persistente de sandbox desactivado. No es un toast: si los execs de
+// alto impacto corren sin aislamiento de proceso, el usuario lo ve siempre.
+function updateSandboxBanner() {
+  const banner = document.getElementById('sandbox-banner');
+  if (!banner) return;
+  const disabled = openclawSandbox === false;
+  banner.classList.toggle('visible', disabled);
+  if (disabled) {
+    const reason = openclawSandboxReason || 'razón desconocida';
+    banner.textContent = `Ejecución de comandos sin aislamiento de proceso (bwrap no disponible) — ${reason}`;
+  }
+}
+
 // Modo de agente: 'agent' (tools + AgentLoop) o 'chat' (solo LLM). El modo
 // 'agent' requiere que openclaw esté disponible. Tab en el input alterna el
 // modo; el badge del header muestra el actual.

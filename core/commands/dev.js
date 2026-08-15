@@ -199,6 +199,47 @@ module.exports = function registerCommands(register) {
   });
 
   register({
+    name: 'revertir-tarea',
+    description: 'Deshace SOLO los cambios que hizo la ultima tarea del agente (no toca tu working tree previo)',
+    usage: '/revertir-tarea [id]',
+    handler: async (args) => {
+      const {
+        getCheckpoint,
+        listCheckpoints,
+        revertCheckpoint,
+      } = require('../git/WorkspaceCheckpoint.js');
+      const id = (args[0] || '').trim();
+      if (id === 'list' || args[0] === 'list') {
+        const cps = listCheckpoints();
+        if (cps.length === 0) return 'No hay checkpoints de tareas registrados.';
+        return (
+          'Checkpoints de tareas (mas reciente primero):\n' +
+          cps
+            .map(
+              (c) =>
+                `- \`${c.id}\` — ${c.canRevert ? `${c.files.length} archivo(s) tocado(s)` : `NO reversible (${c.reason || 'sin baseline'})`}`
+            )
+            .join('\n')
+        );
+      }
+      const cp = id ? getCheckpoint(id) : null;
+      if (id && !cp) return `No existe un checkpoint \`${id}\`. Usa \`/revertir-tarea list\` para verlos.`;
+      const result = await revertCheckpoint(id || undefined);
+      if (!result.ok) return `No se pudo revertir: ${result.error || 'error desconocido'}`;
+      const lines = [
+        'Tarea revertida. Cambios de la tarea deshechos sin tocar tu working tree previo:',
+      ];
+      for (const r of result.reverted) lines.push(`- ${r}`);
+      for (const s of result.skipped) lines.push(`- (sin cambios) ${s}`);
+      if (result.warnings.length > 0) {
+        lines.push('Advertencias:');
+        for (const w of result.warnings) lines.push(`- ${w}`);
+      }
+      return lines.join('\n');
+    },
+  });
+
+  register({
     name: 'undo',
     description: 'Revierte el ultimo commit (git)',
     usage: '/undo',

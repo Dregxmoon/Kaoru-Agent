@@ -44,6 +44,7 @@ const CATEGORIES = {
   fix: 'Desarrollo',
   undo: 'Desarrollo',
   retry: 'Desarrollo',
+  'revertir-tarea': 'Desarrollo',
   'cambio-modelo': 'Modelo',
   'modelo-vistas': 'Modelo',
   gestos: 'Modelo',

@@ -12,6 +12,12 @@ function register(ctx) {
     return Core.isOpenClawAvailable();
   });
 
+  // Estado completo (disponibilidad + aislamiento de proceso bwrap). El
+  // renderer lo consulta al arrancar; luego vive con el evento 'openclaw-status'.
+  ipcMain.handle('openclaw-status', async () => {
+    return Core.getOpenClawStatus();
+  });
+
   // Cancelación del agent-run en curso: el renderer envía 'agent-cancel' y el
   // AbortController rompe el stream HTTP del LLM y el loop del agente.
   let activeAbort = null;

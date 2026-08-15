@@ -16,6 +16,7 @@ const logger = require('../observability/Logger.js');
 const { execFile } = require('child_process');
 const path = require('path');
 const fs = require('fs');
+const os = require('os');
 const { dirRegexes } = require('../utils/ignoreDirs.js');
 
 const DEFAULT_TIMEOUT = 30000;
@@ -264,6 +265,76 @@ class GitManager {
       });
     const current = branches.find((b) => b.current)?.name || null;
     return { isRepo: true, current, total: branches.length, branches };
+  }
+
+  // ── WorkspaceCheckpoint (revertir tarea) ────────────────────────────────────
+  // Snapshot del working tree como commit stash efímero (solo cambios trackeados;
+  // los archivos untracked los gestiona WorkspaceCheckpoint con su propia lógica).
+  async stashCreate(cwd, message) {
+    _assertDir(cwd);
+    const args = ['stash', 'create'];
+    if (message) args.push('-m', String(message));
+    const r = await this._exec(cwd, args, { maxBuffer: 4 * 1024 * 1024 });
+    if (r.code !== 0) throw _toError(r, 'git stash create falló');
+    const hash = (r.stdout || '').trim();
+    return hash || null;
+  }
+
+  async revParse(cwd, ref) {
+    _assertDir(cwd);
+    const r = await this._exec(cwd, ['rev-parse', '--verify', String(ref)], {
+      maxBuffer: 1024 * 1024,
+    });
+    if (r.code !== 0) return null;
+    const hash = (r.stdout || '').trim();
+    return hash || null;
+  }
+
+  async diffTree(cwd, fromRef, toRef) {
+    _assertDir(cwd);
+    const r = await this._exec(
+      cwd,
+      ['diff', '--binary', '--no-color', String(fromRef), String(toRef)],
+      { maxBuffer: 64 * 1024 * 1024 }
+    );
+    if (r.code !== 0) throw _toError(r, 'git diff falló');
+    return r.stdout || '';
+  }
+
+  async applyPatch(cwd, patch, opts = {}) {
+    _assertDir(cwd);
+    const body = typeof patch === 'string' ? patch : '';
+    if (!body.trim()) return { applied: false, reason: 'patch vacío' };
+    const tmp = path.join(
+      os.tmpdir(),
+      `openclaw-checkpoint-${process.pid}-${Date.now()}-${Math.random().toString(36).slice(2)}.patch`
+    );
+    fs.writeFileSync(tmp, body, 'utf-8');
+    try {
+      const args = ['apply', '--whitespace=nowarn'];
+      if (opts.reverse) args.push('--reverse');
+      if (opts.checkOnly) args.push('--check');
+      args.push('--', tmp);
+      const r = await this._exec(cwd, args, { maxBuffer: 8 * 1024 * 1024 });
+      if (r.code !== 0) {
+        return {
+          applied: false,
+          error: (r.stderr || r.stdout || '').trim().split('\n').slice(0, 8).join(' | '),
+        };
+      }
+      return { applied: true };
+    } finally {
+      try {
+        fs.unlinkSync(tmp);
+      } catch (_) {
+        /* temp file ya limpiado */
+      }
+    }
+  }
+
+  async untracked(cwd) {
+    const s = await this.status(cwd);
+    return s.untracked || [];
   }
 
   // ── git_add (helper, no expuesto como tool) ──────────────────────────────────

@@ -221,6 +221,7 @@ class OpenClawBridge {
     this._pingInterval = 60_000;
     this._actionLog = [];
     this._maxLog = 200;
+    this._sandbox = null;
   }
 
   // ── Disponibilidad ──────────────────────────────────────────────────────────
@@ -235,8 +236,16 @@ class OpenClawBridge {
     try {
       const res = await getJSON(`${_openclawBase()}/health`, 3000);
       this._available = res.status === 200;
+      if (res.status === 200) {
+        const sandbox = res.body?.sandbox;
+        this._sandbox =
+          sandbox === 'bwrap' || sandbox === 'disabled'
+            ? { enabled: sandbox === 'bwrap', reason: res.body?.sandboxReason || null }
+            : null;
+      }
     } catch {
       this._available = false;
+      this._sandbox = null;
     }
 
     this._lastPing = now;
@@ -253,6 +262,14 @@ class OpenClawBridge {
   resetAvailabilityCache() {
     this._available = null;
     this._lastPing = 0;
+    this._sandbox = null;
+  }
+
+  // Estado de aislamiento de proceso del server (bwrap), capturado del /health.
+  // Devuelve null cuando no hay información (server fuera de línea o health sin
+  // el campo sandbox) — los consumidores deben tratar null como "sin aviso".
+  getSandboxStatus() {
+    return this._sandbox ? { ...this._sandbox } : null;
   }
 
   // ── Ejecución principal ─────────────────────────────────────────────────────
