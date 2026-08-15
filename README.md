@@ -1,8 +1,25 @@
 ## ASISTENTE PERSONAL
 
+[![CI](https://github.com/Dregxmoon/Asistente-Vtuber/actions/workflows/ci.yml/badge.svg?branch=produccion)](https://github.com/Dregxmoon/Asistente-Vtuber/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](./LICENSE)
+[![Node.js](https://img.shields.io/badge/node-%E2%89%A518-339933?logo=node.js&logoColor=white)](https://nodejs.org)
+
 **Un compañero de escritorio con IA que observa el sistema operativo, recuerda con contexto, y actúa solo cuando tiene permiso — con un motor de decisión determinista y auditable.**
 
 Una plataforma de asistencia personal que vive en el escritorio del usuario. Combina un avatar Live2D, un modelo de lenguaje conversacional, memoria semántica persistente con decaimiento temporal, percepción en tiempo real del sistema operativo, y un motor de proactividad que decide _cuándo_ hablar, _cuándo_ callar y _cómo_ entregar su ayuda — sin depender de un chatbot reactivo ni de temporizadores ciegos.
+
+### Índice
+
+1. [Propuesta de valor](#1-propuesta-de-valor)
+2. [Arquitectura del sistema](#2-arquitectura-del-sistema)
+3. [Capacidades técnicas](#3-capacidades-técnicas)
+4. [Stack tecnológico](#4-stack-tecnológico)
+5. [Estructura del proyecto](#5-estructura-del-proyecto)
+6. [Inicio rápido](#6-inicio-rápido)
+7. [Estado del proyecto](#7-estado-del-proyecto)
+8. [Documentación](#8-documentación)
+9. [Pruebas y capturas](#9-pruebas-y-capturas)
+10. [Licencia y atribuciones](#10-licencia-y-atribuciones)
 
 ---
 
@@ -112,11 +129,17 @@ Todo mensaje proactivo es una **propuesta** con botones de aceptar/descartar; la
 
 ## 3. Capacidades técnicas
 
-### Memoria semántica con decaimiento temporal
+Cada bloque está colapsado por default — hacé clic en el título para expandirlo.
+
+<details>
+<summary><strong>Memoria semántica con decaimiento temporal</strong></summary>
 
 Grafo de conocimiento en SQLite + `sqlite-vec`, embeddings locales (`all-MiniLM-L6-v2` vía ONNX), búsqueda por similitud coseno ponderada por recencia, decaimiento automático de nodos viejos y resolución de contradicciones (sobrescribir / acumular / archivar).
 
-### Proactividad responsable
+</details>
+
+<details>
+<summary><strong>Proactividad responsable</strong></summary>
 
 Motor de iniciativa en dos niveles: pre-filtros baratos (cooldowns, gap global, chat reciente, AFK) +
 **núcleo determinista de decisión** (`core/decision/`: score, gate de contexto, presupuesto dinámico,
@@ -124,57 +147,103 @@ cola de diferidos, señal crítica _ESCALATE_) y **el LLM como generador de cont
 (aceptar/descartar/ignorar) realimenta la receptividad, el presupuesto y — vía `core/learning` —
 los pesos de scoring del gate: el asistente aprende cuándo y cuánto proponer.
 
-### Agente de código profundo
+</details>
+
+<details>
+<summary><strong>Agente de código profundo</strong></summary>
 
 Detección de errores del editor vía **LSP real** (typescript-language-server): sensor de errores, índice de símbolos, propuestas de parche con diff, verificación post-ejecución con el LSP y `node --check`, y rollback automático si el parche rompe el archivo.
 
-### Ejecución de acciones gobernada
+</details>
 
-Ninguna acción de alto impacto se ejecuta sin aprobación explícita. Combina: whitelist de herramientas, confinamiento de rutas al proyecto, bloqueo de rutas sensibles (credenciales, `.env`, cookies), idempotencia por `proposalId` y verificación real post-acción.
+<details open>
+<summary><strong>Ejecución de acciones gobernada</strong> — sandbox de proceso, verificación forzada, checkpoint/revert, anti-prompt-injection</summary>
 
-### Multi-proveedor de LLM
+Ninguna acción de alto impacto se ejecuta sin aprobación explícita. Combina: permisos granulares `allow`/`ask`/`deny` por herramienta y ruta, confinamiento de rutas al workspace activo (resuelto por `realpath`, no por comparación de strings — resistente a symlinks y `../`), bloqueo de rutas sensibles (`.ssh`, `.env`, credenciales, `.aws`, `.npmrc`) e idempotencia por `proposalId`.
+
+| Mecanismo | Qué hace | Dónde se ve |
+| --- | --- | --- |
+| **Sandbox de proceso** (`bwrap`) | En Linux con `bubblewrap`, cada comando aprobado corre en namespaces propios de mount/pid/ipc/uts: filesystem read-only salvo workspace activo + `/tmp`, `.ssh`/`$HOME` fuera de alcance. Sin `bwrap`, degrada de forma transparente (nunca rompe el server). | `GET /health` y el canal IPC `openclaw-status` reportan si está activo y, si no, por qué. |
+| **Verificación forzada post-mutación** | Tras editar archivos: `typecheck → lint → test → build` (autodetectado de `package.json` o configurable), por el **mismo camino** que cualquier `exec` — hereda sandbox y entorno saneado. Sin comando configurado pero con JS tocado: `node --check` como piso mínimo. | Resultado (`passed`/`failed`/`skipped`) siempre visible en la respuesta — nunca un cierre silencioso. |
+| **Checkpoint y revert** | `WorkspaceCheckpoint` captura una línea base antes de la primera mutación de una tarea (diff+estado con git; snapshot de archivos sin git). | `/revertir-tarea [id]` deshace solo lo que hizo el agente, preserva cambios previos sin commitear del usuario. |
+| **Límite de confianza (anti-prompt-injection)** | Contenido de terceros (`webfetch`/`websearch`, páginas navegadas, issues/PRs/comentarios de GitHub, resultados de servidores MCP) se delimita y se le neutralizan patrones clásicos de inyección antes de entrar al prompt. | Aplica a web, GitHub y MCP por igual. |
+
+</details>
+
+<details>
+<summary><strong>Multi-proveedor de LLM</strong></summary>
 
 Groq · Google Gemini · OpenAI con cadena de fallback, reintento exponencial con jitter, límite de fallas consecutivas por proveedor y modo de "rate-limit" con mensajes accionables.
 
-### Model Context Protocol (MCP)
+</details>
+
+<details>
+<summary><strong>Model Context Protocol (MCP)</strong></summary>
 
 Cliente MCP propio (stdio), reconexión automática con backoff, namespacing de herramientas por servidor y catálogo dinámico inyectado al prompt del LLM.
 
-### Automatización de navegador
+</details>
+
+<details>
+<summary><strong>Automatización de navegador</strong></summary>
 
 `BrowserBridge` con Playwright headless: navegación, lectura de páginas, capturas y búsqueda web — separado del navegador personal del usuario.
 
-### Masa de herramientas
+</details>
+
+<details>
+<summary><strong>Masa de herramientas</strong></summary>
 
 `grep` (búsqueda regex por contenido), `glob` (patrones de archivos) y `subagent` (sub-agente anidado) se suman a la whitelist de `AgentLoop`: el asistente explora el proyecto sin volcar todo al contexto, con límites de resultados y profundidad.
 
-### Sandbox de renderers
+</details>
+
+<details>
+<summary><strong>Sandbox de renderers</strong> (Electron)</summary>
 
 Ambas ventanas (overlay Live2D y chat) corren con `nodeIntegration:false` + `contextIsolation:true` + `webSecurity:true` y `sandbox:true` de Electron (renderer de Chromium sin Node). La página del chat carga scripts locales (marked/DOMPurify desde `node_modules`) y solo ve el puente `window.assistant` del preload. **La lógica Node vive en el proceso main**: el preload del chat (`src/chat/preload.js`) es fino (solo `contextBridge` + `ipcRenderer` con allowlists locales y cachés) y los handlers reales viven en `ipc/chat-handlers.js` (comandos, LLM con abort, core-sources, fs, TTS, `FileResolver`, `AgentManager`). La página nunca recibe `fs`/`path`/`child_process` crudos; el render de Markdown (`marked`) y la sanitización (`DOMPurify`) corren **en el renderer**. `GestureEngine` (clase ES que recibe el objeto Live2D real) se ejecuta en la página vía un loader mínimo que solo resuelve fuentes whitelisteadas.
 
 > **Nota:** este hardening es sobre el **sandbox del renderer de Electron** (`webPreferences.sandbox`), no sobre `contextIsolation` (que sigue siendo `true` en ambas ventanas). Son mecanismos distintos: `contextIsolation` separa el mundo del preload del mundo de la página; `sandbox` desactiva Node en el renderer. El overlay Live2D conserva `webSecurity:false` como tradeoff documentado por sus CDNs; el chat corre con `webSecurity:true`.
 
-### Contexto largo con memoria
+</details>
+
+<details>
+<summary><strong>Contexto largo con memoria</strong></summary>
 
 Al compactar la historia, `AgentLoop` persiste el resumen como episodio en el grafo semántico y al inicio de cada run inyecta el recall de episodios relevantes al objetivo actual — reconstruye contexto en tareas largas o retomadas.
 
-### Streaming de respuesta
+</details>
+
+<details>
+<summary><strong>Streaming de respuesta</strong></summary>
 
 El LLM responde con `stream: true`; cada fragmento viaja por IPC (`agent-token`) hasta la ventana de chat y se pinta **en vivo** en la burbuja del asistente con **render de Markdown incremental** (patrón opencode), y el HTML crudo se aísla en un frame `sandbox`. Cubre tool-calling nativo y fallback textual, en OpenAI-compatible y Gemini.
 
-### Ejecución no bloqueante
+</details>
+
+<details>
+<summary><strong>Ejecución no bloqueante</strong></summary>
 
 `exec`/`code_execution` usan `spawn` asíncrono (no `spawnSync`): un comando largo ya no congela el proceso main. Mismo contrato de salida `{ stdout, stderr, exitCode, signal, error }`, `maxBuffer` y timeout por `SIGKILL`.
 
-### Sesiones multi-turno
+</details>
+
+<details>
+<summary><strong>Sesiones multi-turno</strong></summary>
 
 Conversación persistente por sesión (hasta 40 turnos) con reanudación tras crash. El contexto inyectado al LLM es **incremental**: presupuesto de 8000 caracteres — turnos recientes completos, el excedente se condensa en un resumen `system` al inicio.
 
-### Tipado con JSDoc estricto
+</details>
+
+<details>
+<summary><strong>Tipado con JSDoc estricto</strong></summary>
 
 `npm run typecheck` valida los módulos marcados con `// @ts-check` (`tsconfig.json`, `strict` + `noImplicitAny` + `strictNullChecks`). El pipeline de contexto/grounding está tipado con 0 errores.
 
-### CI y releases
+</details>
+
+<details>
+<summary><strong>CI y releases</strong></summary>
 
 CI de GitHub Actions con jobs de **calidad** (ESLint + typecheck + Prettier), **tests** con Electron,
 **E2E de la UI** (Electron + Playwright) y **build multiplataforma** (Windows/macOS/Linux portable,
@@ -182,9 +251,14 @@ con `continue-on-error`); un tag `v*` dispara la **release automática** (`.exe`
 notas). El postinstall `fix-electron.js` reconstruye los módulos nativos invocando el binario local
 de `@electron/rebuild` (sin depender de `npx` en el PATH). Localmente: `bash scripts/release.sh [patch|minor|major]`.
 
-### Telemetría local
+</details>
+
+<details>
+<summary><strong>Telemetría local</strong></summary>
 
 `TelemetryStore`: turnos, sesiones, silencios, tiempos de respuesta y reporte mensual con deltas — para responder "¿estamos mejor que el mes pasado?" con datos locales.
+
+</details>
 
 ---
 
@@ -321,6 +395,9 @@ Los modelos que el usuario importa se guardan en `models/`, quedan excluidos del
 
 ### Gestos del modelo (expresiones y animaciones)
 
+<details>
+<summary>Cómo funcionan los gestos automáticos y manuales — hacé clic para expandir</summary>
+
 Muchos modelos traen carpetas con `*.exp3.json` / `*.motion3.json` que su `model3.json` **no referencia**, así que el SDK jamás las carga y el modelo se queda quieto. El asistente los **descubre y los inyecta en memoria** al cargar (`core/behavior/ModelAugmenter.js`) — sin tocar los archivos del modelo — y les asocia estados de ánimo mediante un léxico multilingüe (`core/behavior/GestureLexicon.js` + `GestureHeuristic.js`).
 
 - **Automático (LLM-driven):** `core/behavior/GestureVocabulary.js` genera el vocabulario de gestos
@@ -332,7 +409,12 @@ Muchos modelos traen carpetas con `*.exp3.json` / `*.motion3.json` que su `model
 - **Manual:** el comando `/gestos` lista los gestos reales del modelo activo y cuáles están mapeados a emociones; `/gestos test <gesto|emoción>` los previsualiza en el mini-avatar (p. ej. `/gestos test angry`, `/gestos test 哭`, `/gestos test zhaiyan`).
 - **Configuración:** el bloque `gestures` de `config.json` ajusta `enabled`, `cooldownMs`, `minIntervalMs`, `durationMs`, `ambient` (gestos aleatorios de fondo), `mappings` (mood → gesto explícito por modelo) y `llmDriven` (pipeline de marcadores del LLM).
 
+</details>
+
 ### Workspace del proyecto
+
+<details>
+<summary>Cómo se selecciona y usa el workspace activo — hacé clic para expandir</summary>
 
 El asistente trabaja sobre un **workspace activo** — la carpeta/proyecto real del usuario, distinta de la carpeta donde corre la app:
 
@@ -340,6 +422,8 @@ El asistente trabaja sobre un **workspace activo** — la carpeta/proyecto real 
 - **`/init`**: analiza el proyecto activo (package.json, extensiones, estructura) y lo guarda en memoria persistente.
 - **`@archivo`**: al escribir `@` se listan todos los archivos del proyecto y se van filtrando mientras se escribe (Tab/flechas/Enter para insertar). Los comandos de archivo (`/init`, `/open`, …) y las referencias `@` resuelven contra el **workspace activo**, no contra la carpeta de la app.
 - Al iniciar, la sesión anterior se retoma en silencio (sin mensaje de "mensajes recuperados").
+
+</details>
 
 ### Ejecutar
 
@@ -411,7 +495,9 @@ El proyecto se desarrolla por fases — ver [`ROADMAP.md`](./ROADMAP.md) para la
 
 ## 9. Pruebas y capturas
 
-La suite de pruebas es **ejecutable e independiente por archivo** (`tests/`), con cobertura de comandos, motor de proactividad, detección de intenciones, skills, integraciones LSP, Git/GitHub y seguridad de la Control API. La regresión completa se ejecuta con `npm test` (usando el Node de Electron): **más de 2200 pruebas en verde** (incluyen regresiones del fix LSP G.1, del parser de CONTENIDO multilínea, de la compactación de contexto, del edit determinista, de las tools grep/glob/subagent, de la compactación con memoria, del motor proactivo v2 con mixins + gate, del streaming IPC y del **reintento 413→smart** de tool-calling en `test_tool_calling`). Antes de correrla, cierra el asistente para que las suites de seguridad puedan levantar su propio servidor en `:18789` (si la app está corriendo, `test_server_security` y `test_integration_stress` fallan por conflicto de puerto).
+La suite de pruebas es **ejecutable e independiente por archivo** (`tests/`), con cobertura de comandos, motor de proactividad, detección de intenciones, skills, integraciones LSP, Git/GitHub y seguridad de la Control API. La regresión completa se ejecuta con `npm test` (usando el Node de Electron): **más de 2500 pruebas en verde** (incluyen regresiones del fix LSP G.1, del parser de CONTENIDO multilínea, de la compactación de contexto, del edit determinista, de las tools grep/glob/subagent, de la compactación con memoria, del motor proactivo v2 con mixins + gate, del streaming IPC, del **reintento 413→smart** de tool-calling en `test_tool_calling`, de `WorkspaceCheckpoint` y el hook de verificación forzada del `AgentLoop`).
+
+> El número exacto se desactualiza rápido — es más fiable correr `npm test` localmente o revisar el job de tests en CI que confiar en esta cifra. Antes de correrla, cierra el asistente para que las suites de seguridad puedan levantar su propio servidor en `:18789` (si la app está corriendo, `test_server_security` y `test_integration_stress` fallan por conflicto de puerto).
 
 Calidad de código:
 
