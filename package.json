@@ -12,6 +12,8 @@
     "postinstall": "node fix-electron.js",
     "rebuild": "npx @electron/rebuild -f -w better-sqlite3",
     "test": "bash tests/run-all.sh",
+    "coverage": "bash scripts/coverage.sh",
+    "coverage:check": "bash scripts/coverage.sh --check",
     "lint": "eslint main.js openclaw-server.js core infrastructure ipc tests benchmarks src --ext .js",
     "lint:fix": "eslint --fix main.js openclaw-server.js core infrastructure ipc tests benchmarks src --ext .js",
     "format": "prettier --write \"main.js\" \"openclaw-server.js\" \"{core,infrastructure,ipc,tests,benchmarks,src}/**/*.js\"",
@@ -35,6 +37,7 @@
   "devDependencies": {
     "@electron/rebuild": "^4.2.0",
     "@types/node": "^26.1.2",
+    "c8": "^12.0.0",
     "electron": "^28.0.0",
     "electron-builder": "^26.15.3",
     "eslint": "^8.57.0",

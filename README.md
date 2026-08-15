@@ -357,6 +357,10 @@ npm test
 
 # O una suite individual (también requiere el ABI de Electron)
 ELECTRON_RUN_AS_NODE=1 ./node_modules/electron/dist/electron tests/test_skills.js
+
+# Cobertura del núcleo de agente (core/planner + core/decision) con c8
+npm run coverage          # reporte text + lcov
+npm run coverage:check    # además valida umbrales (guard de regresión)
 ```
 
 > `better-sqlite3` y `sqlite-vec` están compilados para el **ABI de Electron**, no para el Node

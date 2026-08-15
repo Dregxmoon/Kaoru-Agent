@@ -13,6 +13,13 @@ const { getToolRegistry } = require('../task/ToolRegistry.js');
 const { getGitManager } = require('../git/GitManager.js');
 const { WorkspaceCheckpoint, MUTATOR_TOOLS } = require('../git/WorkspaceCheckpoint.js');
 const { getGitHubManager } = require('../github/GitHubManager.js');
+const { RunMetrics } = require('./run-metrics.js');
+const { runVerifyPlan, buildVerifyFailureNotice } = require('./verify-runner.js');
+const {
+  collectEditedFiles,
+  analyzeSubagentReport,
+  formatSubagentDiscrepancy,
+} = require('./subagent-report.js');
 
 const VALID_MODES = new Set(['smart', 'fast', 'task', 'conversational']);
 
@@ -208,20 +215,6 @@ preguntas ni pidas aprobación: tu única salida es el resumen final.`;
 
 // Tools que mutan archivos: tras su ejecución se pide feedback LSP al server.
 const EDIT_TOOLS = new Set(['write', 'edit', 'apply_patch', 'create_file', 'edit_file']);
-
-// ── Verificación forzada (opts.verify) ───────────────────────────────────────
-// Al cerrar el run tras una mutación exitosa (modo smart con plan configurado),
-// el loop corre el comando de verificación del proyecto por el MISMO camino que
-// cualquier tool exec (`this._bridge.execute('exec', { command })`) — hereda el
-// sandbox bwrap, `_safeChildEnv` y el cap MAX_EXEC_TIMEOUT del server. Nunca
-// crea spawn propio ni re-envía al LLM.
-const VERIFY_EXEC_TIMEOUT = 120; // segundos: cap del server (MAX_EXEC_TIMEOUT);
-// el default del bridge (15s) es demasiado corto para un typecheck real.
-const VERIFY_MAX_ATTEMPTS = 1; // 1 intento para fallos deterministas (typecheck/
-// lint/build no cambian sin pasar por el LLM → reintentar solo quema tiempo).
-const VERIFY_RETRY_MAX_ATTEMPTS = VERIFY_MAX_ATTEMPTS + 1; // tope total con retry transitorio
-const VERIFY_RETRY_DELAY_MS = 1500;
-const VERIFY_STDERR_TRUNCATE = 400;
 
 const MAX_ITERATIONS = 25;
 const RESULT_TRUNCATE_LIMIT = 800;
@@ -484,32 +477,7 @@ class AgentLoop {
    * @param {{ result?: object, t0: number }} ctx
    */
   _emitRunMetrics({ result, t0 }) {
-    const m = this._runMetrics || {};
-    const cancelled = Boolean(result && (result.cancelled === true || result.error?.code === 'ABORTED'));
-    const metrics = {
-      iterations: Number(result && result.iterations) || 0,
-      tool_calls_total: m.toolCalls || 0,
-      tool_calls_by_type: m.byType || {},
-      errors_total: m.errors || 0,
-      approval_requests: m.approvals || 0,
-      approvals_granted: m.granted || 0,
-      approvals_denied: m.denied || 0,
-      cancelled,
-      duration_ms: Date.now() - t0,
-      error: result && result.error ? String(result.error && result.error.message || result.error) : null,
-    };
-    this._runMetrics = null;
-    if (result && typeof result === 'object') {
-      result.metrics = metrics;
-    }
-    if (this._telemetry && typeof this._telemetry.recordAgentRun === 'function') {
-      try {
-        this._telemetry.recordAgentRun(metrics);
-      } catch (e) {
-        logger.warn('AgentLoop', `[agent-run-metrics] telemetría falló: ${e.message}`);
-      }
-    }
-    logger.info('AgentLoop', '[agent-run-metrics]', metrics);
+    this._metrics.emit({ result, t0, telemetry: this._telemetry });
   }
 
   async _runInternal(userMessage, systemPrompt, messages, opts = {}) {
@@ -526,7 +494,11 @@ class AgentLoop {
     // Instrumentación por-run: acumuladores que se emiten al terminar (ver
     // _emitRunMetrics en run()). Por-instancia: los subagentes son otro
     // AgentLoop, así sus métricas no contaminan las del run padre.
-    this._runMetrics = { toolCalls: 0, byType: {}, errors: 0, approvals: 0, granted: 0, denied: 0 };
+    this._metrics = new RunMetrics();
+    // Verificación forzada y reflexión intermedia: se capturan para que los
+    // runs anidados (subagentes) hereden la misma política.
+    this._verifyPlan = opts.verify || null;
+    this._reflectionOpt = opts.reflection || null;
     const llmOpts = onToken ? { onToken } : {};
     if (signal) llmOpts.signal = signal;
 
@@ -835,8 +807,11 @@ class AgentLoop {
         // run termina IGUAL — el resultado queda en `verify` y la respuesta
         // lo dice explícitamente (nunca un cierre silencioso).
         const verify = await this._runVerify(opts.verify, toolResults);
-        if (verify && verify.status === 'failed') {
-          responseText += this._buildVerifyFailureNotice(verify);
+        // En reportMode (subagente) el aviso NO se mete en el texto del reporte:
+        // contaminaría el audit de resumen (el comando incluye nombres de
+        // archivo). El estado viaja en `result.verify` y el padre decide.
+        if (verify && verify.status === 'failed' && !opts.reportMode) {
+          responseText += buildVerifyFailureNotice(verify);
         }
         return {
           response: responseText,
@@ -890,11 +865,7 @@ class AgentLoop {
         const requiresApproval = AP.isHighImpact(action.tool, action.params);
         // Instrumentación: cada tool solicitada por el agente cuenta (aunque
         // luego se bloquee/deniegue/cancele — igual fue pedida).
-        {
-          const rm = this._runMetrics;
-          rm.toolCalls++;
-          rm.byType[action.tool] = (rm.byType[action.tool] || 0) + 1;
-        }
+        this._metrics.trackTool(action.tool);
 
         // ── Permisos granulares (allow/ask/deny) ─────────────────────────────
         // Patrón opencode: una regla persistente puede elevar una herramienta
@@ -963,13 +934,8 @@ class AgentLoop {
         }
 
         if (permissionAction === 'ask' && requiresApproval && opts.onApprovalNeeded) {
-          this._runMetrics.approvals++;
           const approved = await opts.onApprovalNeeded(action);
-          if (approved) {
-            this._runMetrics.granted++;
-          } else {
-            this._runMetrics.denied++;
-          }
+          this._metrics.trackApproval(approved);
           if (!approved) {
             iterationHistory.push({
               role: 'user',
@@ -1077,7 +1043,7 @@ class AgentLoop {
         ) {
           toolFailures++;
           // Instrumentación: misma clasificación de falla real de tool.
-          this._runMetrics.errors++;
+          this._metrics.trackError();
         }
         // Registrar la llamada para el dedupe anti-repetición (Fase 2) y para
         // el detector anti-estancamiento (mismo tool sin progreso).
@@ -1233,95 +1199,13 @@ class AgentLoop {
    * @returns {Promise<{status: string, reason?: string, command?: string, attempts?: number, exitCode?: number|null, signal?: string|null, stderr?: string, elapsedMs?: number}>}
    */
   async _runVerify(plan, toolResults) {
-    if (this._mode !== 'smart') return { status: 'skipped', reason: 'not_smart' };
-    if (!plan || !plan.enabled || !plan.command) {
-      return { status: 'skipped', reason: 'no_command' };
-    }
-    if (!toolResults || !toolResults.some((r) => EDIT_TOOLS.has(r.tool) && r.ok)) {
-      return { status: 'skipped', reason: 'no_mutations' };
-    }
-
-    const command = plan.command;
-    const t0 = Date.now();
-    let attempts = 0;
-    let res = null;
-    for (;;) {
-      attempts++;
-      try {
-        res = await this._bridge.execute('exec', {
-          command,
-          timeout: VERIFY_EXEC_TIMEOUT,
-        });
-      } catch (e) {
-        res = { ok: false, result: null, error: e.message, tool: 'exec', elapsed: 0 };
-      }
-      if (this._verifyPassed(res)) break;
-      const transient = this._verifyTransient(res);
-      if (
-        transient &&
-        attempts < VERIFY_RETRY_MAX_ATTEMPTS &&
-        !(this._signal && this._signal.aborted)
-      ) {
-        await new Promise((r) => setTimeout(r, VERIFY_RETRY_DELAY_MS));
-        continue;
-      }
-      break;
-    }
-
-    const elapsedMs = Date.now() - t0;
-    if (this._verifyPassed(res)) {
-      return {
-        status: 'passed',
-        command,
-        attempts,
-        exitCode: 0,
-        signal: null,
-        elapsedMs,
-      };
-    }
-    const body = res && res.result && typeof res.result === 'object' ? res.result : {};
-    const stderr = (typeof body.stderr === 'string' ? body.stderr : '') || body.error || res.error || '';
-    return {
-      status: 'failed',
-      command,
-      attempts,
-      exitCode: typeof body.exitCode === 'number' ? body.exitCode : null,
-      signal: body.signal || null,
-      stderr: stderr.slice(0, VERIFY_STDERR_TRUNCATE),
-      elapsedMs,
-    };
-  }
-
-  /** El exec del bridge NO marca ok:false por exitCode≠0 (HTTP 200 igual) → hay
-   *  que mirar el `result` real. Pasó solo con exitCode 0. */
-  _verifyPassed(res) {
-    if (!res) return false;
-    if (res.ok === false) return false;
-    const r = res.result;
-    return !!(r && typeof r === 'object' && r.exitCode === 0);
-  }
-
-  /** Fallo cuyo resultado PUEDE variar en un segundo intento: timeout del
-   *  server (SIGKILL, señal temporal) o error de red/servidor caído. Un
-   *  exitCode≠0 (lint/test falló) NO es transitorio: reintentar sin cambios
-   *  en el código da exactamente el mismo resultado. */
-  _verifyTransient(res) {
-    if (!res) return false;
-    if (res.ok === false) {
-      return /red|conexi[oó]n|no está corriendo|unavailable|timeout/i.test(res.error || '');
-    }
-    const r = res.result;
-    if (!r || typeof r !== 'object') return false;
-    return r.signal === 'timeout';
-  }
-
-  _buildVerifyFailureNotice(verify) {
-    const exit = verify.exitCode != null ? `exit ${verify.exitCode}` : 'timeout';
-    const detail = verify.stderr ? `: ${verify.stderr.trim()}` : '';
-    return (
-      `\n\n[Verificación] La tarea se completó pero la verificación (${verify.command}) ` +
-      `falló (${exit})${detail}`
-    );
+    return runVerifyPlan(plan, {
+      bridge: this._bridge,
+      isSmart: this._mode === 'smart',
+      toolResults,
+      editTools: EDIT_TOOLS,
+      signal: this._signal,
+    });
   }
 
   /**
@@ -1763,6 +1647,11 @@ class AgentLoop {
         taskIntent: this._currentTaskIntent || null,
         signal: this._signal,
         onProgress: null,
+        // Los subagentes heredan la política de verificación y reflexión del run
+        // padre: una tarea delegada NO puede mutar sin sellado post-acción ni
+        // sin auto-crítica (inconsistencia de política corregida).
+        verify: this._verifyPlan || null,
+        reflection: this._reflectionOpt || null,
         // El resumen final del subagente es un reporte, no una orden: no debe
         // pasar por el parser de prosa (evita que "modifiqué X" re-dispare una
         // edición no pedida). Las ediciones del subagente se expresan con
@@ -1776,19 +1665,28 @@ class AgentLoop {
         truncated: !!out.truncated,
         error: out.error || null,
         toolCalls,
+        // El sellado post-acción del subagente (verify heredado del padre): el
+        // padre lo lee aunque el reporte en texto no lo mencione.
+        verify: out.verify || null,
       };
       // Fiabilidad del resumen: si el subagente editó/creó archivos (según sus
       // toolResults REALES, no su texto), se compara lo que tocó contra lo que
       // menciona en el resumen. Si no coincide, se anexa una nota de discrepancia
       // para que el agente principal decida si confía o verifica — nunca bloquea.
-      const editedFiles = this._collectSubagentEditedFiles(out.toolResults);
+      const editedFiles = collectEditedFiles(out.toolResults, EDIT_TOOLS, AP.PROJECT_CWD);
       if (editedFiles.length > 0) {
-        const report = this._analyzeSubagentReport(out.response, editedFiles);
+        const report = analyzeSubagentReport(out.response, editedFiles);
         if (report) {
           resultPayload.discrepancyNote = report;
           resultPayload.response =
-            String(out.response || '') + '\n\n' + this._formatSubagentDiscrepancy(report);
+            String(out.response || '') + '\n\n' + formatSubagentDiscrepancy(report);
         }
+      }
+      // Si el sellado falló, se anexa el aviso al reporte que ve el padre (tras
+      // el audit, que ya corrió sobre el response limpio).
+      if (out.verify && out.verify.status === 'failed') {
+        resultPayload.response =
+          String(resultPayload.response || '') + '\n\n' + buildVerifyFailureNotice(out.verify);
       }
       return {
         ok: true,
@@ -1805,125 +1703,6 @@ class AgentLoop {
         elapsed: Math.round((Date.now() - t0) / 1000),
       };
     }
-  }
-
-  // Archivos que el subagente tocó REALMENTE: toolResults con tool de edición
-  // (EDIT_TOOLS) y ok:true, extrayendo el path de los params de cada llamada
-  // (nunca del resumen de texto, que es justamente lo que hay que auditar).
-  _collectSubagentEditedFiles(toolResults) {
-    const out = [];
-    const seen = new Set();
-    for (const r of toolResults || []) {
-      if (!r || !r.ok) continue;
-      if (!EDIT_TOOLS.has(r.tool)) continue;
-      const action = r._action || (r.params ? { params: r.params } : null);
-      if (!action) continue;
-      for (const p of this._extractEditedPaths(action)) {
-        const basename = path.basename(p);
-        const key = basename || p;
-        if (seen.has(key)) continue;
-        seen.add(key);
-        out.push({ path: this._displayPath(p), basename });
-      }
-    }
-    return out;
-  }
-
-  // Paths que una action de edición toca: params.path/filePath + los `+++ b/`
-  // de un apply_patch.
-  _extractEditedPaths(action) {
-    const params = action.params || {};
-    const out = [];
-    const p = params.path || params.filePath;
-    if (typeof p === 'string' && p.trim()) out.push(p.trim());
-    const patch = params.patch || params.instructions || '';
-    if (typeof patch === 'string' && patch) {
-      const re = /^\+\+\+ b\/(.+)$/gm;
-      let m;
-      while ((m = re.exec(patch))) {
-        const pp = m[1].trim();
-        if (pp && !pp.startsWith('/dev/null')) out.push(pp);
-      }
-    }
-    return [...new Set(out)];
-  }
-
-  // Presenta un path de forma legible: relativo al proyecto si está adentro.
-  _displayPath(p) {
-    try {
-      if (path.isAbsolute(p)) {
-        const rel = path.relative(AP.PROJECT_CWD, p);
-        if (rel && !rel.startsWith('..')) return rel;
-        return p;
-      }
-      return p;
-    } catch {
-      return p;
-    }
-  }
-
-  // Menciones de archivos en un texto: tokens con extensión (filtra "v1.0" y
-  // similares).
-  _extractMentionedPaths(text) {
-    if (!text) return [];
-    const re = /(?:\/|\.{1,2}\/)?[A-Za-z0-9_@~]+(?:[./-][A-Za-z0-9_@~]+)*\.([A-Za-z0-9]{1,8})/g;
-    const out = [];
-    const seen = new Set();
-    let m;
-    while ((m = re.exec(text))) {
-      if (/^\d+$/.test(m[1])) continue;
-      if (seen.has(m[0])) continue;
-      seen.add(m[0]);
-      out.push(m[0]);
-    }
-    return out;
-  }
-
-  // Compara lo que el subagente tocó vs. lo que menciona en su resumen.
-  // Devuelve null si no hay discrepancia.
-  _analyzeSubagentReport(response, editedFiles) {
-    const resp = String(response || '');
-    const mentionedTokens = this._extractMentionedPaths(resp);
-    const mentionedBasenames = new Set(mentionedTokens.map((t) => path.basename(t)));
-    const touchedBasenames = new Set(editedFiles.map((f) => f.basename));
-
-    const changedNotMentioned = [];
-    for (const f of editedFiles) {
-      if (!mentionedBasenames.has(f.basename) && !resp.includes(f.basename)) {
-        changedNotMentioned.push(f.path);
-      }
-    }
-
-    const mentionedNotChanged = [];
-    const seen = new Set();
-    for (const tok of mentionedTokens) {
-      const b = path.basename(tok);
-      if (touchedBasenames.has(b)) continue;
-      if (seen.has(b)) continue;
-      seen.add(b);
-      mentionedNotChanged.push(tok);
-      if (mentionedNotChanged.length >= 5) break;
-    }
-
-    if (changedNotMentioned.length === 0 && mentionedNotChanged.length === 0) return null;
-    return { changedNotMentioned, mentionedNotChanged };
-  }
-
-  _formatSubagentDiscrepancy(report) {
-    const lines = [
-      '[⚠ Discrepancia entre el resumen del subagente y sus ediciones reales — verificá por tu cuenta antes de confiar en el resumen:]',
-    ];
-    if (report.changedNotMentioned.length > 0) {
-      lines.push(
-        `- Cambió archivo(s) que NO menciona en su resumen: ${report.changedNotMentioned.join(', ')}`
-      );
-    }
-    if (report.mentionedNotChanged.length > 0) {
-      lines.push(
-        `- Menciona archivo(s) que NO figuran en sus ediciones reales (toolResults): ${report.mentionedNotChanged.join(', ')}`
-      );
-    }
-    return lines.join('\n');
   }
 
   // Convierte una instrucción de edición en lenguaje natural a un diff exacto

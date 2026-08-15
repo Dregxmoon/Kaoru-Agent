@@ -284,10 +284,10 @@ async function testVerifyFailsDeterministic() {
   } catch {}
 }
 
-// ── Test 4: sin plan configurado → skip sin bloquear ─────────────────────────
+// ── Test 4: sin comando pero con mutación JS → sellado con node --check ──────
 
-async function testVerifySkipNoCommand() {
-  console.log(C.bold('\n── Verificación: sin comando → skipped, tarea no bloqueada ────────────'));
+async function testVerifyNodeCheckFallback() {
+  console.log(C.bold('\n── Verificación: sin scripts ni config pero con mutación JS → node --check ──'));
 
   const { AgentLoop } = require('../core/planner/AgentLoop.js');
   const AP = require('../core/planner/ActionParser.js');
@@ -310,13 +310,20 @@ async function testVerifySkipNoCommand() {
   });
 
   // Mismo escenario que production cuando resolveVerifyPlan devuelve
-  // { enabled: false } (sin config ni package.json con scripts).
+  // { enabled: false } (sin config ni package.json con scripts): ahora el loop
+  // NO se queda sin sellar — corre `node --check` sobre el archivo JS mutado.
   const result = await loop.run('edita src/demo.js', 'Eres un asistente.', [], {
     verify: { enabled: false },
   });
 
-  assert(result.verify && result.verify.status === 'skipped', 'verify.status === skipped');
-  assert(result.verify && result.verify.reason === 'no_command', 'reason === no_command');
+  assert(result.verify && result.verify.status === 'passed', 'verify.status === passed (sellado con node --check)');
+  assert(
+    result.verify && result.verify.command.startsWith('node --check'),
+    'verify.command usa node --check',
+    `cmd: ${result.verify && result.verify.command}`
+  );
+  assert(result.verify && result.verify.attempts === 1, 'Un solo intento');
+  assert(result.verify && result.verify.exitCode === 0, 'exitCode === 0');
   assert(result.toolResults.length === 1 && result.toolResults[0].ok === true, 'La edición se ejecutó normal');
   assert(fs.readFileSync(f, 'utf-8').includes('const y = 1;'), 'La mutación quedó aplicada');
   assert(result.response.includes('corregí el typo'), 'Respuesta intacta');
@@ -326,7 +333,90 @@ async function testVerifySkipNoCommand() {
   } catch {}
 }
 
-// ── Test 5: fallo transitorio (timeout) → retry → passed ─────────────────────
+async function testVerifyNodeCheckFails() {
+  console.log(C.bold('\n── Verificación: node --check falla (error de sintaxis) → failed + aviso ──'));
+
+  const { AgentLoop } = require('../core/planner/AgentLoop.js');
+  const AP = require('../core/planner/ActionParser.js');
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'verify-nchk-'));
+  AP.setProjectCWD(tmpDir);
+  const f = path.join(tmpDir, 'src', 'demo.js');
+  fs.mkdirSync(path.dirname(f), { recursive: true });
+  fs.writeFileSync(f, 'const x = 1;\n', 'utf-8');
+
+  const mockLLM = createRouterLLM({
+    main: [EDIT_BLOCK(f), 'Listo, corregí el typo.'],
+    resolution: JSON.stringify({ old_text: 'const x = 1;', new_text: 'const y = 1;' }),
+  });
+
+  const loop = new AgentLoop({
+    maxIterations: 5,
+    mode: 'smart',
+    llm: mockLLM,
+    bridge: createBridge(tmpDir, [
+      { ok: true, result: { stdout: '', stderr: 'src/demo.js:2:1: SyntaxError: Unexpected token', exitCode: 1, signal: null, error: null } },
+    ]),
+  });
+
+  const result = await loop.run('edita src/demo.js', 'Eres un asistente.', [], {
+    verify: { enabled: false },
+  });
+
+  assert(result.verify && result.verify.status === 'failed', 'verify.status === failed (node --check detectó el error)');
+  assert(result.verify && result.verify.command.startsWith('node --check'), 'verify.command usa node --check');
+  assert(result.verify && result.verify.exitCode === 1, 'exitCode === 1');
+  assert(
+    result.response.includes('[Verificación] La tarea se completó pero la verificación (node --check'),
+    'La respuesta lo dice explícitamente (nunca cierre silencioso)'
+  );
+
+  try {
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+  } catch {}
+}
+
+async function testSubagentInheritsVerify() {
+  console.log(C.bold('\n── Subagente hereda la verificación del padre (out.verify) ──────────'));
+
+  const { AgentLoop } = require('../core/planner/AgentLoop.js');
+  const AP = require('../core/planner/ActionParser.js');
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'verify-sub-'));
+  AP.setProjectCWD(tmpDir);
+  const f = path.join(tmpDir, 'src', 'demo.js');
+  fs.mkdirSync(path.dirname(f), { recursive: true });
+  fs.writeFileSync(f, 'const x = 1;\n', 'utf-8');
+
+  const subLLM = createRouterLLM({
+    main: [EDIT_BLOCK(f), 'Listo, corregí el typo.'],
+    resolution: JSON.stringify({ old_text: 'const x = 1;', new_text: 'const y = 1;' }),
+  });
+  // El subagente usa la bridge del padre (misma cola de exec para la verificación).
+  const bridge = createBridge(tmpDir, [
+    { ok: true, result: { stdout: '', stderr: '', exitCode: 0, signal: null, error: null } },
+  ]);
+  const parent = new AgentLoop({ maxIterations: 6, mode: 'smart', llm: subLLM, bridge });
+  parent._verifyPlan = { enabled: true, command: 'npm run lint' };
+
+  const out = await parent._executeSubagent({ tool: 'subagent', params: { task: 'edita el archivo' } });
+
+  assert(out.ok, 'subagente ejecutado', out.error || '');
+  assert(
+    out.result && out.result.verify && out.result.verify.status === 'passed',
+    'el subagente heredó verify del padre y pasó',
+    JSON.stringify(out.result && out.result.verify)
+  );
+  assert(
+    out.result && out.result.verify && out.result.verify.command === 'npm run lint',
+    'verify.command es el del padre'
+  );
+  assert(fs.readFileSync(f, 'utf-8').includes('const y = 1;'), 'La mutación quedó aplicada');
+
+  try {
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+  } catch {}
+}
+
+// ── Test 7: fallo transitorio (timeout) → retry → passed ─────────────────────
 
 async function testVerifyRetryOnTransient() {
   console.log(C.bold('\n── Verificación: timeout transitorio → retry y pasa (attempts 2) ──────'));
@@ -373,8 +463,10 @@ async function main() {
   await testVerifySkipNoMutations();
   await testVerifyPasses();
   await testVerifyFailsDeterministic();
-  await testVerifySkipNoCommand();
+  await testVerifyNodeCheckFallback();
+  await testVerifyNodeCheckFails();
   await testVerifyRetryOnTransient();
+  await testSubagentInheritsVerify();
 
   console.log(C.bold('\n════════════════════════════════════════════════════════'));
   const total = passed + failed;
