@@ -38,6 +38,7 @@ const CommandRegistry = require('../core/commands/CommandRegistry.js');
 const FileResolver = require('../core/commands/FileResolver.js');
 const AgentManager = require('../core/agents/AgentManager.js');
 const ModelAugmenter = require('../core/behavior/ModelAugmenter.js');
+const AsrClient = require('../core/voice/AsrClient.js');
 
 /** @param {unknown} e @returns {string} */
 function errMsg(e) {
@@ -101,9 +102,7 @@ function _uiCall(fn, args) {
  * @param {any} _ctx Estado compartido del proceso main.
  */
 function register(_ctx) {
-  _sendToChat = (_ctx && typeof _ctx.sendToChat === 'function')
-    ? _ctx.sendToChat
-    : () => {};
+  _sendToChat = _ctx && typeof _ctx.sendToChat === 'function' ? _ctx.sendToChat : () => {};
 
   const coreBehaviorDir = path.join(__dirname, '..', 'core', 'behavior');
 
@@ -153,7 +152,10 @@ function register(_ctx) {
     /** @type {{text?: string, pageData?: any}} */
     const { text, pageData = {} } = payload;
     const sessionHistory = Array.isArray(pageData.sessionHistory)
-      ? pageData.sessionHistory.map((/** @type {any} */ m) => ({ role: m.role, content: m.content }))
+      ? pageData.sessionHistory.map((/** @type {any} */ m) => ({
+          role: m.role,
+          content: m.content,
+        }))
       : [];
 
     /** @type {ChatPageCtx} */
@@ -311,6 +313,18 @@ function register(_ctx) {
         });
         proc.on('error', reject);
       })
+  );
+
+  // ── ASR: transcribe un WAV (PCM 16k mono) con Vosk vía subproceso Python ──
+  ipcMain.handle('chat-asr-stream', (_e, args = {}) =>
+    AsrClient.transcribeWav({
+      pythonBin: args.pythonBin,
+      wav: args.wav,
+      lang: args.lang,
+    }).catch((e) => {
+      logger.warn('chat-handlers', '[chat] ASR falló:', errMsg(e));
+      throw e;
+    })
   );
 
   // ── LLM: estado + configuración + llamada simple con abort ───────────────

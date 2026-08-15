@@ -45,8 +45,15 @@ SUITES=(
   test_tool_visibility
   test_tools_e2e
   test_web_tools
+  test_untrusted_content
   test_verify_step
   test_run_metrics
+  test_browser_bridge
+  test_openclaw_bridge
+  test_openclaw_bridge_timing
+  test_openclaw_sandbox_visibility
+  test_asr_client
+  test_planner
   test_main_loop_report_parse
   test_subagent_report_audit
   test_subagent_summary_parse
@@ -64,11 +71,10 @@ done
 
 REPORTERS=(--reporter=text --reporter=lcov)
 if [[ "$CHECK" -eq 1 ]]; then
-  # Umbrales = baseline medido (líneas/statements ~71, branch ~72, funcs ~42
-  # arrastradas por Planner/Browser/OpenClawBridge que se ejercitan en otras
-  # suites). El gate es GUARD de regresión, no un target: el reporte text/lcov
-  # es el artefacto accionable.
-  REPORTERS+=(--check-coverage --lines 68 --functions 38 --branches 64 --statements 68)
+  # Umbrales = baseline medido con buffer (~5-8 pts abajo para no fallar por
+  # variación: líneas/statements 80, branch 73, funcs 70). El gate es GUARD de
+  # regresión, no un target: el reporte text/lcov es el artefacto accionable.
+  REPORTERS+=(--check-coverage --lines 74 --functions 62 --branches 66 --statements 74)
 fi
 
 npx c8 report \

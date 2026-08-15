@@ -89,6 +89,7 @@ const INVOKE_ALLOWLIST = new Set([
   'chat-augment-model',
   'chat-list-gestures',
   'chat-tts-stream',
+  'chat-asr-stream',
   'chat-llm-state',
   'chat-llm-configure',
   'chat-llm-complete',
@@ -178,6 +179,9 @@ refreshCapabilities();
 // TTS: lanza tts_stream.py en main y devuelve el audio (Buffer → Uint8Array).
 const ttsStream = (args = {}) => ipcRenderer.invoke('chat-tts-stream', args);
 
+// ASR: transcribe un WAV (PCM 16k mono) en main con Vosk y devuelve el texto.
+const asrStream = (args = {}) => ipcRenderer.invoke('chat-asr-stream', args);
+
 contextBridge.exposeInMainWorld('assistant', {
   // IPC con whitelist de canales: el renderer (o un script comprometido) no
   // puede invocar canales internos fuera de la allowlist local.
@@ -224,6 +228,7 @@ contextBridge.exposeInMainWorld('assistant', {
   // window.DOMPurify) y core.js implementa renderMarkdown (incl. el frame de
   // preview de HTML crudo). Este preload ya no lo expone.
   ttsStream,
+  asrStream,
 
   // Módulos core SOLO como bridge acotado (funciones concretas por dominio),
   // nunca los módulos completos. Los métodos que la página usa en SÍNCRONO

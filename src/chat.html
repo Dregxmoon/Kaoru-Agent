@@ -125,6 +125,20 @@
             <textarea id="msg-input" placeholder="escribe un mensaje" rows="1"></textarea>
             <span id="input-cursor" class="input-cursor" aria-hidden="true"></span>
             <button
+              id="mic-btn"
+              class="input-btn mic-btn"
+              title="Entrada de voz (STT)"
+            >
+              <svg viewBox="0 0 24 24" fill="currentColor" width="12" height="12">
+                <path
+                  d="M12 14a3 3 0 0 0 3-3V5a3 3 0 0 0-6 0v6a3 3 0 0 0 3 3z"
+                />
+                <path
+                  d="M19 11a7 7 0 0 1-14 0H3a9 9 0 0 0 8 8.94V23h2v-3.06A9 9 0 0 0 21 11h-2z"
+                />
+              </svg>
+            </button>
+            <button
               id="cancel-btn"
               class="input-btn"
               title="Detener generación"
@@ -314,6 +328,7 @@
     <script src="chat/process.js"></script>
     <script src="chat/input.js"></script>
     <script src="chat/tts.js"></script>
+    <script src="chat/asr.js"></script>
     <script src="chat/live2d.js"></script>
     <script src="chat/ipc.js"></script>
   </body>

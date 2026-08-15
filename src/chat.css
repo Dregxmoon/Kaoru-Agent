@@ -2101,6 +2101,21 @@ body {
   width: 11px;
   height: 11px;
 }
+/* Micrófono (STT): estado de grabación en rojo con pulso sutil */
+.mic-btn.recording {
+  color: #ff4d4d;
+  border-color: #ff4d4d;
+  animation: mic-pulse 1.2s ease-in-out infinite;
+}
+@keyframes mic-pulse {
+  0%,
+  100% {
+    box-shadow: 0 0 0 0 rgba(255, 77, 77, 0.35);
+  }
+  50% {
+    box-shadow: 0 0 0 5px rgba(255, 77, 77, 0);
+  }
+}
 
 /* Sin botón de enviar: el envío es por Enter */
 #input-info {

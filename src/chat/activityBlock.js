@@ -48,7 +48,16 @@ var renderMarkdown;
  */
 
 // ── Estado del agente ───────────────────────────────────────────────────────
-const AGENT_STATES = ['idle', 'thinking', 'working', 'streaming', 'speaking', 'done', 'error'];
+const AGENT_STATES = [
+  'idle',
+  'listening',
+  'thinking',
+  'working',
+  'streaming',
+  'speaking',
+  'done',
+  'error',
+];
 let _currentAgentState = 'idle';
 const _stateListeners = new Set();
 
