@@ -60,14 +60,24 @@ const TOOL_SCHEMAS = [
     name: 'write',
     domain: ['filesystem', 'code', 'data'],
     source: 'openclaw',
-    description: 'Escribe o sobreescribe contenido en un archivo',
+    description:
+      'Escribe o sobreescribe contenido en un archivo (mode "append" para agregar al final en partes)',
     params: [
       { name: 'path', type: 'string', description: 'Ruta del archivo', required: true },
       { name: 'content', type: 'string', description: 'Contenido a escribir', required: true },
+      {
+        name: 'mode',
+        type: 'string',
+        description:
+          '"write" (default, sobreescribe) | "append" (agrega al final, crea si no existe)',
+        default: 'write',
+        required: false,
+      },
     ],
     examples: [
       { cmd: 'crear index.js con código', desc: 'Crear archivo nuevo' },
       { cmd: 'actualizar config.json', desc: 'Sobreescribir archivo' },
+      { cmd: 'escribir un archivo grande en partes con mode append', desc: 'Agregar al final' },
     ],
     highImpact: true,
   },

@@ -118,7 +118,11 @@ const MAX_OUTPUT = { fast: 1024, smart: 3072 };
 const TIMEOUT_MS = { fast: 15_000, smart: 60_000 };
 const FAST_HISTORY_LIMIT = 8;
 const VALID_MODES = new Set(['fast', 'smart']);
-const MAX_RETRIES_PER_PROVIDER = 1;
+// Reintentos por provider: 2 reintentos (3 intentos en total). Los fallos
+// transitorios (429 con espera corta, timeouts, red) se reintentan con backoff
+// exponencial + jitter; el mensaje de rate-limit "espera > 30s" NO se espera de
+// forma síncrona (ver MAX_RETRY_WAIT_MS) y degrada el provider para el fallback.
+const MAX_RETRIES_PER_PROVIDER = 2;
 const RETRY_BASE_MS = 2000;
 // Si un rate-limit dice "espera > 30s", no lo esperamos de forma síncrona
 // (una request no puede quedar colgada 50 min): fallamos ya y el mensaje

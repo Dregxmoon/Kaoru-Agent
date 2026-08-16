@@ -136,6 +136,12 @@ ipcRenderer.on('agent-progress', (e, progress) => {
   renderActivityBlock(_activityContainerEl, progress);
 });
 
+// HUD del plan explícito (plan-then-act): AgentLoop reenvía por 'agent-plan'
+// los pasos del plan y el conteo completado; se pintan como widget en el feed.
+ipcRenderer.on('agent-plan', (e, plan) => {
+  renderPlanBlock(plan);
+});
+
 function setActivityContainer(el) {
   _activityContainerEl = el;
 }

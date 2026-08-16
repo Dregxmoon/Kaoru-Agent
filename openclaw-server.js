@@ -796,9 +796,22 @@ const HANDLERS = {
     const dir = path.dirname(filePath);
     if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
 
-    fs.writeFileSync(filePath, input.content, input.encoding || 'utf-8');
+    const mode = input.mode === 'append' ? 'append' : 'write';
+    const content = input.content ?? '';
+    const encoding = input.encoding || 'utf-8';
+
+    // Modo append: para escribir archivos MUY grandes en partes (el write
+    // completo se puede truncar a mitad del contenido). Crea el archivo si no
+    // existe y agrega al final; nunca reescribe lo ya escrito.
+    if (mode === 'append' && fs.existsSync(filePath)) {
+      fs.appendFileSync(filePath, content, encoding);
+      return {
+        result: `Appended ${Buffer.byteLength(content, encoding)} bytes to ${filePath}`,
+      };
+    }
+    fs.writeFileSync(filePath, content, encoding);
     return {
-      result: `Written ${Buffer.byteLength(input.content, input.encoding || 'utf-8')} bytes to ${filePath}`,
+      result: `Written ${Buffer.byteLength(content, encoding)} bytes to ${filePath}`,
     };
   },
 

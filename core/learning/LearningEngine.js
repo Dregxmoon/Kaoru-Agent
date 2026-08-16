@@ -206,6 +206,29 @@ class LearningEngine {
   }
 
   /**
+   * Dificultad de una tarea CALIBRADA con los outcomes reales del modo: el
+   * heurístico de difficulty.js es la línea base y el historial lo ajusta de
+   * forma acotada. Si el modo tiene baja tasa de éxito reciente, la tarea
+   * probablemente sea más dura de lo que sugiere la heurística (y viceversa).
+   * Se usa para el gate de planificación, el routing de confianza y la
+   * evaluación de outcomes — así el presupuesto sigue al feedback real.
+   * @param {object} [opts]
+   * @param {string} [opts.message]
+   * @param {object|null} [opts.taskIntent]
+   * @param {number} [opts.messageCount]
+   * @param {string} [opts.mode] modo a calibrar ('smart' | 'fast' | ...)
+   * @returns {number} dificultad en [0, 1]
+   */
+  calibratedDifficulty({ message = '', taskIntent = null, messageCount = 0, mode = 'smart' } = {}) {
+    const { estimateDifficulty } = require('./difficulty.js');
+    const base = estimateDifficulty({ message, taskIntent, messageCount });
+    const rate = this.successRate({ mode, minSamples: 8 });
+    if (rate === null) return base;
+    const adjusted = Math.min(1, Math.max(0, base + (0.5 - rate) * 0.3));
+    return Math.round(adjusted * 100) / 100;
+  }
+
+  /**
    * Sección corta de prompt con lo aprendido. Solo incluye datos con muestras
    * suficientes; si no hay nada significativo devuelve null (no se inyecta).
    * @returns {string|null}

@@ -14,6 +14,26 @@ const { MODE_ADVANTAGE } = require('../trust/TrustModel.js');
 
 const state = require('./state.js');
 
+/**
+ * Dificultad de una tarea usando la calibración del LearningEngine (heurístico
+ * base + ajuste por outcomes reales del modo) si está disponible. Nunca lanza.
+ * @param {{ message: string, taskIntent?: object|null, messageCount?: number }} p
+ * @returns {number}
+ */
+function _estimateDifficultyFor({ message, taskIntent = null, messageCount = 0 }) {
+  try {
+    if (state.learning && typeof state.learning.calibratedDifficulty === 'function') {
+      return state.learning.calibratedDifficulty({
+        message,
+        taskIntent,
+        messageCount,
+        mode: 'smart',
+      });
+    }
+  } catch (_) {}
+  return estimateDifficulty({ message, taskIntent, messageCount });
+}
+
 // ── AgentLoop (loop cerrado con tool-calling, skills y precedencia) ───────────
 
 /**
@@ -60,7 +80,11 @@ function resolveAgentMode(userMessage, opts = {}) {
       try {
         taskIntent = state.taskDetector?.detect(userMessage) || null;
       } catch (_) {}
-      const difficulty = estimateDifficulty({ message: userMessage, taskIntent, messageCount: 0 });
+      const difficulty = _estimateDifficultyFor({
+        message: userMessage,
+        taskIntent,
+        messageCount: 0,
+      });
       const rec = state.trust.recommendMode({ isTask, difficulty, explicitMode: null });
       if (rec && rec.mode !== baseMode) {
         // Confianza del mejor candidato del modo actual (para comparar).
@@ -346,6 +370,36 @@ async function runAgent(userMessage, opts = {}) {
 
   state.bus.emit('agent:completed', { iterations: result.iterations, error: result.error });
 
+  // ── Reanudación por /reanudar-tarea: si el run SÍ completó la tarea que el
+  //    comando marcó como "Objetivo: <goal>", se cierra esa intención activa
+  //    (ya no queda en vuelo). Solo aplica cuando el prompt efectivo menciona
+  //    explícitamente "Objetivo:" — una tarea nueva e independiente no
+  //    dispara esto ni completa intenciones ajenas.
+  const success = !result.error && !result.truncated && !result.cancelled;
+  if (success && loopOpts.activeIntentions && loopOpts.activeIntentions.length) {
+    try {
+      const goalMatch = /(?:^|\n)Objetivo:\s*(.+?)\s*$/m.exec(String(effectiveMessage || ''));
+      if (goalMatch) {
+        const resumeGoal = goalMatch[1].trim();
+        const match = loopOpts.activeIntentions.find(
+          (it) => String(it.goal || '').trim() === resumeGoal
+        );
+        if (match) {
+          const g = state.graph;
+          if (g && !g.usingFallback && typeof g.completeIntention === 'function') {
+            g.completeIntention(match.id);
+            logger.info(
+              'agent',
+              `[core] intención #${match.id} completada tras reanudar con éxito`
+            );
+          }
+        }
+      }
+    } catch (e) {
+      logger.warn('agent', '[core] no se pudo completar la intención reanudada:', e.message);
+    }
+  }
+
   // ── Fase 3 ítem 2/4: la evaluación de la tarea alimenta el aprendizaje
   //    (LearningEngine → prompt) y el modelo de confianza (TrustModel →
   //    routing costo×éxito). Se atribuye a esta corrida el delta de tokens y
@@ -358,7 +412,7 @@ async function runAgent(userMessage, opts = {}) {
     const success = !result.error && !result.truncated;
     const elapsedMs = Date.now() - _t0;
     const taskIntent = state.taskDetector?.detect(effectiveMessage);
-    const difficulty = estimateDifficulty({
+    const difficulty = _estimateDifficultyFor({
       message: effectiveMessage,
       taskIntent,
       messageCount: sessionHistory.length,

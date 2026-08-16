@@ -182,6 +182,7 @@ async function processMessage(text, files = []) {
   showThinking();
   triggerMotion();
   resetActivities();
+  resetPlanBlock();
 
   // Botón de cancelación: visible durante la generación. Aborta el agent-run
   // openclaw (agent-cancel → AbortController del main) Y el flujo simple
@@ -226,6 +227,8 @@ async function processMessage(text, files = []) {
       bubble.classList.add('markdown');
       // Los bloques de actividad se insertan antes de este bubble (ancla).
       setActivityAnchor(bubble.parentElement.parentElement);
+      // El HUD del plan (plan-then-act) usa el mismo ancla.
+      setPlanAnchor(bubble.parentElement.parentElement);
 
       // El progreso de tools llega por 'agent-progress' y se dibuja como
       // bloques de actividad (activityFromProgress en ui.js) en el feed.

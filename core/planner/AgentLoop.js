@@ -135,13 +135,36 @@ const RECENT_TOOL_CALLS_MAX = 30;
 const STUCK_TOOL_THRESHOLD = 4;
 
 /**
- * ¿Un resultado de herramienta marca progreso? Sí si terminó ok:true o si el
- * meta reporta un cambio real en el filesystem/estado (p.ej. write/edit con
- * changed:true). Un ok:false sin cambio real NO cuenta como progreso.
+ * Tools git de SOPORTE que nunca avanzan la tarea por sí solas (información o
+ * guardar/restaurar estado). Un ok:true en ellas NO cuenta como progreso:
+ * - git informativo (status/diff/log/...) lee el estado, no lo produce;
+ * - git_stash guarda/restaura — el falso positivo del backlog 1.5: stash ok
+ *   marcaba progreso y reseteaba el contador anti-estancamiento, permitiendo
+ *   martillar la tool sin aviso.
+ * NOTA: `read` SÍ cuenta como progreso por diseño (una lectura exitosa de un
+ * archivo rompe la racha de fallas del anti-stuck; el agente está avanzando
+ * en el contexto, no repitiendo la misma llamada fallida).
+ */
+const NO_PROGRESS_TOOLS = new Set([
+  'git_status',
+  'git_diff',
+  'git_log',
+  'git_show',
+  'git_branch',
+  'git_remote',
+  'git_tag',
+  'git_blame',
+  'git_stash',
+]);
+
+/**
+ * ¿Un resultado de herramienta marca progreso? Sí si terminó ok:true y la tool
+ * NO es de soporte, o si el meta reporta un cambio real en el filesystem/estado
+ * (p.ej. write/edit con changed:true). Un ok:false sin cambio real NO cuenta.
  */
 function _marksProgress(result) {
   if (!result) return false;
-  if (result.ok) return true;
+  if (result.ok) return !NO_PROGRESS_TOOLS.has(result.tool);
   return Boolean(
     result.meta && (result.meta.changed || result.meta.created || result.meta.written)
   );
@@ -204,6 +227,25 @@ function _hintForToolError(error) {
   return '';
 }
 
+/**
+ * ¿Un comando de `exec` es de SOLO LECTURA y por tanto cacheable dentro del
+ * run? Solo comandos que no mutan el filesystem ni el repo: su resultado no
+ * puede cambiar salvo que otra tool modifique el estado (en ese caso el caché
+ * se invalida). Comandos mutadores/informativos variables se ejecutan fresco.
+ */
+function _isCacheableExecCommand(command) {
+  const cmd = String(command || '').trim();
+  return (
+    /^(?:ls|dir|pwd|which|whoami|uname)\b/.test(cmd) ||
+    /^(?:git)\s+(?:status|log|diff|show|branch|remote|tag|blame)\b/.test(cmd)
+  );
+}
+
+/** Escapa un path para usarlo como argumento de shell en comillas dobles. */
+function _shellQuoteArg(value) {
+  return '"' + String(value).replace(/["\\$`]/g, '\\$&') + '"';
+}
+
 // Máxima profundidad de subagentes anidados (previene recursión infinita).
 const MAX_SUBAGENT_DEPTH = 2;
 
@@ -219,6 +261,9 @@ preguntas ni pidas aprobación: tu única salida es el resumen final.`;
 const EDIT_TOOLS = new Set(['write', 'edit', 'apply_patch', 'create_file', 'edit_file']);
 
 const MAX_ITERATIONS = 25;
+// Iteraciones adaptativas: tope ABSOLUTO tras las extensiones (el presupuesto
+// inicial se extiende de a bloques mientras el run muestra progreso sostenido).
+const MAX_ITERATIONS_ABS = 40;
 const RESULT_TRUNCATE_LIMIT = 800;
 
 // Self-critique (opcional, opts.selfCritique): al terminar el loop con una
@@ -334,6 +379,11 @@ CONTENIDO: # Demo
 Todo el contenido del archivo, en varias líneas si hace falta.
 \`\`\`
 
+Archivos MUY grandes (más de ~300 líneas): escribilos EN PARTES para no cortar
+el contenido a mitad (un write enorme se puede truncar). Primero \`write\` con la
+primera parte y luego \`write\` con el parámetro \`mode: "append"\` para el resto.
+Nunca reescribas entero un archivo grande si solo cambia una parte: usá \`edit\`.
+
 Ejemplos:
 \`\`\`action
 ACCIÓN: read_file | ARCHIVO: src/main.js
@@ -423,6 +473,11 @@ class AgentLoop {
     this._compactionPersisted = false;
     this._checkpoint = opts.checkpoint || null;
     this._telemetry = opts.telemetry || null;
+    // Caché por-run de tools de solo lectura (read + exec read-only). Se
+    // limpia al arrancar cada run y se invalida ante mutaciones (write/edit,
+    // git, exec no-cacheable). Evita re-leer/re-ejecutar lo mismo en un run.
+    this._readCache = new Map();
+    this._execCache = new Map();
     const rawMode = opts.mode || 'smart';
     if (!VALID_MODES.has(rawMode)) {
       logger.warn('AgentLoop', `[agent-loop] modo "${rawMode}" no reconocido, usando "smart"`);
@@ -482,7 +537,9 @@ class AgentLoop {
       // con herramientas exitosas. El caller (agent.js) lo usa para persistir
       // la intención si el run se interrumpe.
       if (this._plan && result && !result.plan) {
-        const done = (result.toolResults || []).filter((t) => t && t.ok).length;
+        const done = (result.toolResults || []).filter(
+          (t) => t && t.ok && _marksProgress(t)
+        ).length;
         result.plan = {
           steps: this._plan.steps,
           done: Math.min(done, this._plan.steps.length),
@@ -530,6 +587,10 @@ class AgentLoop {
     // _emitRunMetrics en run()). Por-instancia: los subagentes son otro
     // AgentLoop, así sus métricas no contaminan las del run padre.
     this._metrics = new RunMetrics();
+    // Caché de solo-lectura: por-run (se limpia acá, no entre subagentes que
+    // comparten instancia — cada run arranca limpio).
+    this._readCache.clear();
+    this._execCache.clear();
     // Verificación forzada y reflexión intermedia: se capturan para que los
     // runs anidados (subagentes) hereden la misma política.
     this._verifyPlan = opts.verify || null;
@@ -659,6 +720,18 @@ class AgentLoop {
             'AgentLoop',
             `[agent-loop] plan de ${plan.steps.length} pasos generado e inyectado`
           );
+          // Plan visible en el chat (opts.onPlan): el payload con los pasos se
+          // reenvía al renderer para pintar el HUD de progreso mientras corre.
+          if (typeof opts.onPlan === 'function') {
+            try {
+              opts.onPlan({
+                kind: 'created',
+                steps: plan.steps,
+                done: 0,
+                total: plan.steps.length,
+              });
+            } catch (_) {}
+          }
         }
       } catch (e) {
         if (e?.code === 'ABORTED' || e?.name === 'AbortError') {
@@ -1129,11 +1202,37 @@ class AgentLoop {
             result = await this._executePlugin(action);
           } else if (action._needsInstructionResolve) {
             result = await this._executeResolvedEdit(action);
+          } else if (action.tool === 'read') {
+            // Caché por-run de read: mismo archivo + encoding devuelve el
+            // mismo resultado mientras no se mute ese archivo (la
+            // invalidación borra la entrada en write/edit/apply_patch).
+            result = await this._cachedRead(action);
+          } else if (action.tool === 'exec') {
+            // Caché por-run de exec SOLO LECTURA (ls/pwd/which/git status...).
+            // Comandos mutadores se ejecutan fresco e invalidan el caché.
+            result = await this._cachedExec(action);
           } else {
             result = await this._bridge.execute(action.tool, action.params);
           }
         } catch (e) {
           result = { ok: false, error: e.message, result: null, tool: action.tool, elapsed: 0 };
+        }
+
+        // ── Invalidación del caché de solo-lectura ─────────────────────────
+        // Una mutación real (write/edit/apply_patch, git, cualquier exec no
+        // cacheable con éxito) puede cambiar el filesystem o el repo: el
+        // resultado cacheado (read del archivo, git status/log) quedaría
+        // viejo. Solo se invalida ante éxito; un fallo no cambia el estado.
+        if (result && result.ok) {
+          if (MUTATOR_TOOLS.has(action.tool)) {
+            this._execCache.clear();
+            const p = action.params?.path || action.params?.filePath || '';
+            for (const k of Array.from(this._readCache.keys())) {
+              if (k.endsWith(`::${p}`)) this._readCache.delete(k);
+            }
+          } else if (GIT_TOOLS.has(action.tool) || GITHUB_TOOLS.has(action.tool)) {
+            this._execCache.clear();
+          }
         }
 
         result._action = action;
@@ -1188,10 +1287,20 @@ class AgentLoop {
         // en el LSP y se espera el push fresco de diagnósticos; si aparecen
         // errores, se anexan al resumen que ve el LLM en el siguiente turno.
         let lspFeedback = null;
+        let syntaxError = null;
         if (result.ok && EDIT_TOOLS.has(action.tool)) {
           lspFeedback = await this._lspFeedbackForEdit(result, action);
           if (lspFeedback && lspFeedback.diagnostics && lspFeedback.diagnostics.length > 0) {
             result.lspDiagnostics = lspFeedback.diagnostics;
+          }
+          // Verify por-paso: si el LSP no cubrió el archivo (no hay feedback),
+          // se valida la sintaxis del JS editado con node --check. Esto detecta
+          // en el acto lo que antes solo aparecía en el verify final.
+          if (!lspFeedback) {
+            syntaxError = await this._syntaxCheckForEdit(
+              action.params?.path || action.params?.filePath
+            );
+            if (syntaxError) result.syntaxError = syntaxError;
           }
         }
 
@@ -1201,6 +1310,9 @@ class AgentLoop {
           if (lspFeedback && lspFeedback.diagnostics && lspFeedback.diagnostics.length > 0) {
             resultSummary +=
               '\n\n' + this._formatDiagnostics(lspFeedback.filePath, lspFeedback.diagnostics);
+          }
+          if (syntaxError) {
+            resultSummary += '\n\n' + syntaxError;
           }
         } else {
           // Fase 2: hint barato por patrón de error para guiar la próxima jugada
@@ -1266,6 +1378,37 @@ class AgentLoop {
           // Veredicto CONTINUAR (o fallo de la llamada): no gastar rondas,
           // solo marcar para no re-disparar con las mismas fallas.
           failuresAtLastReflection = toolFailures;
+        }
+      }
+
+      // ── Progreso del plan (HUD del chat) ─────────────────────────────────
+      // Tras cada iteración se reenvía el conteo de pasos completados para que
+      // el renderer actualice el widget de plan en vivo (opts.onPlan).
+      if (this._plan && typeof opts.onPlan === 'function') {
+        try {
+          const okProgress = toolResults.filter((t) => t && t.ok && _marksProgress(t)).length;
+          opts.onPlan({
+            kind: 'progress',
+            steps: this._plan.steps,
+            done: Math.min(okProgress, this._plan.steps.length),
+            total: this._plan.steps.length,
+          });
+        } catch (_) {}
+      }
+
+      // ── Iteraciones adaptativas ──────────────────────────────────────────
+      // Cerca del límite y con progreso sostenido (las últimas tools todas
+      // ok:true), se extiende el presupuesto de a bloques, acotado a
+      // MAX_ITERATIONS_ABS. Si no hay progreso (fallas en cadena), no se
+      // extiende: es señal de estancamiento, no de avance.
+      if (i >= this.maxIterations - 3 && this.maxIterations < MAX_ITERATIONS_ABS) {
+        const okRecent = toolResults.slice(-3).filter((r) => r && r.ok).length;
+        if (okRecent >= 3) {
+          this.maxIterations = Math.min(MAX_ITERATIONS_ABS, this.maxIterations + 5);
+          logger.info(
+            'AgentLoop',
+            `[agent-loop] presupuesto extendido a ${this.maxIterations} iteraciones (progreso sostenido)`
+          );
         }
       }
     }
@@ -1336,6 +1479,79 @@ class AgentLoop {
       return { filePath: abs, diagnostics: Array.isArray(diagnostics) ? diagnostics : [] };
     } catch (e) {
       logger.warn('AgentLoop', `[agent-loop] feedback LSP post-edit falló: ${e.message}`);
+      return null;
+    }
+  }
+
+  /**
+   * Caché por-run de la tool `read`: la misma ruta + encoding devuelve el
+   * mismo resultado mientras el archivo no se mute (la invalidación en el
+   * dispatch borra la entrada tras write/edit/apply_patch del path).
+   * @param {{ params?: object }} action
+   * @returns {Promise<object>}
+   */
+  async _cachedRead(action) {
+    const params = action.params || {};
+    const filePath = params.path || params.filePath || '';
+    const encoding = params.encoding || 'utf-8';
+    const key = `${encoding}::${filePath}`;
+    const cached = this._readCache.get(key);
+    if (cached !== undefined) {
+      return { ...cached, cached: true, elapsed: 0 };
+    }
+    const result = await this._bridge.execute('read', params);
+    if (result && result.ok) this._readCache.set(key, result);
+    return result;
+  }
+
+  /**
+   * Caché por-run de `exec` SOLO PARA comandos de solo lectura (ls/pwd/which/
+   * git status/log/diff/branch...). Un comando mutador o variable se ejecuta
+   * fresco y, si tiene éxito, invalida el caché de exec (el estado pudo
+   * cambiar). El dispatch además invalida el caché tras write/edit/apply_patch
+   * y tras tools git/github.
+   * @param {{ params?: object }} action
+   * @returns {Promise<object>}
+   */
+  async _cachedExec(action) {
+    const params = action.params || {};
+    const command = String(params.command || '').trim();
+    if (!_isCacheableExecCommand(command)) {
+      const result = await this._bridge.execute('exec', params);
+      if (result && result.ok) this._execCache.clear();
+      return result;
+    }
+    const cached = this._execCache.get(command);
+    if (cached !== undefined) {
+      return { ...cached, cached: true, elapsed: 0 };
+    }
+    const result = await this._bridge.execute('exec', params);
+    if (result && result.ok) this._execCache.set(command, result);
+    return result;
+  }
+
+  /**
+   * Verificación de sintaxis por-paso (patrón opencode "verify tras editar"):
+   * tras una edición exitosa de un archivo JS se corre `node --check` por el
+   * MISMO bridge de exec. Solo se ejecuta cuando el LSP no dio feedback (si el
+   * LSP ya validó el archivo, es la fuente autoritativa y no duplicamos
+   * trabajo). Devuelve un string de error legible o null. Nunca lanza.
+   * @param {string|undefined} filePath
+   * @returns {Promise<string|null>}
+   */
+  async _syntaxCheckForEdit(filePath) {
+    if (!filePath || !/\.(?:js|cjs|mjs)$/i.test(filePath)) return null;
+    try {
+      const abs = path.resolve(filePath);
+      if (!fs.existsSync(abs)) return null;
+      const r = await this._bridge.execute('exec', {
+        command: `node --check ${_shellQuoteArg(abs)}`,
+      });
+      if (!r || r.ok) return null;
+      const detail = String(r.error || r.result?.stderr || '');
+      const brief = detail.trim().split('\n').filter(Boolean).slice(0, 4).join(' ');
+      return `[Sintaxis] node --check detectó un error en ${filePath}: ${brief || 'error desconocido'}`;
+    } catch (_) {
       return null;
     }
   }

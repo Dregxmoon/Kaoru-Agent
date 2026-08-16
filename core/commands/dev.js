@@ -200,7 +200,8 @@ module.exports = function registerCommands(register) {
 
   register({
     name: 'revertir-tarea',
-    description: 'Deshace SOLO los cambios que hizo la ultima tarea del agente (no toca tu working tree previo)',
+    description:
+      'Deshace SOLO los cambios que hizo la ultima tarea del agente (no toca tu working tree previo)',
     usage: '/revertir-tarea [id]',
     handler: async (args) => {
       const {
@@ -223,7 +224,8 @@ module.exports = function registerCommands(register) {
         );
       }
       const cp = id ? getCheckpoint(id) : null;
-      if (id && !cp) return `No existe un checkpoint \`${id}\`. Usa \`/revertir-tarea list\` para verlos.`;
+      if (id && !cp)
+        return `No existe un checkpoint \`${id}\`. Usa \`/revertir-tarea list\` para verlos.`;
       const result = await revertCheckpoint(id || undefined);
       if (!result.ok) return `No se pudo revertir: ${result.error || 'error desconocido'}`;
       const lines = [
@@ -287,6 +289,94 @@ module.exports = function registerCommands(register) {
         return 'Reintentando ultimo mensaje...';
       }
       return 'No se puede reintentar — processMessage no disponible.';
+    },
+  });
+
+  // ── Tareas en vuelo: estado y reanudación ─────────────────────────────────
+  // /estado muestra las intenciones activas (metas pendientes) con su plan y
+  // progreso; /reanudar-tarea [id] retoma la más reciente (o la indicada)
+  // desde donde quedó. Ambas son la contraparte de UI del HUD del plan.
+  async function _listActiveIntentions(ctx) {
+    if (!ctx.ipcRenderer) return [];
+    try {
+      return (await ctx.ipcRenderer.invoke('intentions-list')) || [];
+    } catch (_) {
+      return [];
+    }
+  }
+
+  function _intentionSteps(intention) {
+    let steps = [];
+    if (typeof intention?.steps === 'string') {
+      try {
+        steps = JSON.parse(intention.steps);
+      } catch (_) {}
+    } else if (Array.isArray(intention?.steps)) {
+      steps = intention.steps;
+    }
+    return steps
+      .map((s) => (typeof s === 'string' ? s : s && (s.description || s.label)))
+      .filter(Boolean);
+  }
+
+  register({
+    name: 'estado',
+    description: 'Muestra las tareas pendientes en vuelo (intenciones activas) y su progreso',
+    usage: '/estado',
+    handler: async (args, ctx) => {
+      const intentions = await _listActiveIntentions(ctx);
+      if (intentions.length === 0) {
+        return 'No hay tareas en vuelo. Todo listo por acá.';
+      }
+      const lines = [`**Tareas pendientes (${intentions.length}):**`, ''];
+      for (const it of intentions) {
+        const steps = _intentionSteps(it);
+        const stepLine = steps.length
+          ? '\n    Pasos: ' + steps.map((s) => `\`${s}\``).join(' → ')
+          : '';
+        const progress = it.last_progress ? `\n    Progreso: ${it.last_progress}` : '';
+        lines.push(
+          `- **#${it.id}** — ${it.goal}${progress}${stepLine}\n    ↳ para retomar: \`/reanudar-tarea ${it.id}\``
+        );
+      }
+      return lines.join('\n');
+    },
+  });
+
+  register({
+    name: 'reanudar-tarea',
+    description: 'Retoma la tarea pendiente (la mas reciente, o una por id) desde donde quedo',
+    usage: '/reanudar-tarea [id]',
+    handler: async (args, ctx) => {
+      const intentions = await _listActiveIntentions(ctx);
+      if (intentions.length === 0) {
+        return 'No hay tareas pendientes para reanudar.';
+      }
+      const idArg = args[0] ? Number(args[0]) : null;
+      let target = null;
+      if (idArg) {
+        target = intentions.find((it) => Number(it.id) === idArg) || null;
+        if (!target)
+          return `No existe una tarea pendiente \`#${idArg}\`. Usa \`/estado\` para verlas.`;
+      } else {
+        target = intentions[0]; // tope del stack = más reciente
+      }
+      const steps = _intentionSteps(target);
+      const lines = [`Retomá la tarea pendiente y completala:`, ``, `Objetivo: ${target.goal}`];
+      if (target.last_progress) lines.push(`Progreso previo: ${target.last_progress}`);
+      if (steps.length) {
+        lines.push(`Pasos planificados:`);
+        for (const s of steps) lines.push(`- ${s}`);
+      }
+      lines.push(
+        ``,
+        `Continuá DESDE donde quedó (no reinicies desde cero): primero verificá el estado actual con las herramientas y seguí con el próximo paso pendiente.`
+      );
+      if (ctx.processMessage) {
+        ctx.processMessage(lines.join('\n'));
+        return `Reanudando la tarea **#${target.id}**...`;
+      }
+      return 'No se pudo reanudar — processMessage no disponible.';
     },
   });
 };

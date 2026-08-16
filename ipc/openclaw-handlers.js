@@ -80,6 +80,12 @@ function register(ctx) {
           sendToChat('agent-progress', progress);
         },
 
+        // Plan explícito (HUD del chat): cada cambio de progreso del plan se
+        // reenvía al renderer para pintar el widget de pasos en vivo.
+        onPlan: (plan) => {
+          sendToChat('agent-plan', plan);
+        },
+
         // Streaming: cada fragmento de texto que genera el LLM se reenvía al
         // chat para pintarlo en vivo mientras se produce (patrón opencode).
         onToken: (token) => {

@@ -2619,6 +2619,46 @@ body {
   animation: activity-block-in 150ms ease-out;
 }
 
+/* ── HUD del plan explícito (plan-then-act) ──────────────────────────────── */
+.plan-block {
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  line-height: 1.5;
+  margin: 2px 0 8px;
+  padding: 6px 10px;
+  border: 1px solid var(--term-divider);
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--term-bg, #1c1e26) 55%, transparent);
+  animation: activity-block-in 150ms ease-out;
+}
+.plan-block-header {
+  color: var(--term-accent);
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  margin-bottom: 4px;
+}
+.plan-step {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  padding: 1px 0;
+  color: var(--term-text);
+}
+.plan-step.done {
+  color: var(--term-text-faint);
+  text-decoration: line-through;
+}
+.plan-check {
+  color: var(--term-accent);
+  flex-shrink: 0;
+}
+.plan-step.done .plan-check {
+  color: var(--term-success);
+}
+.plan-label {
+  word-break: break-word;
+}
+
 @keyframes activity-block-in {
   from {
     opacity: 0;
