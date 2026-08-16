@@ -31,6 +31,10 @@ fi
 SUITES=("$@")
 if [[ ${#SUITES[@]} -eq 0 ]]; then
   SUITES=(tests/test_*.js tests/e2e/test_*.js)
+  # tests/benchmarks/grade_run.js queda afuera del glob por defecto: a diferencia
+  # del resto, necesita corridas manuales previas en tests/benchmarks/runs/ (ver
+  # tests/benchmarks/README.md). Correlo explícito:
+  #   bash tests/run-all.sh tests/benchmarks/grade_run.js
 fi
 
 strip_ansi() { sed -r 's/\x1B\[[0-9;]*[mK]//g'; }
