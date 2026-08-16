@@ -432,10 +432,10 @@ function testSchemaConsistency() {
   }
 }
 
-// ── Test 6: Reintento 413 (TPM groq) con modelo smart ───────────────────────
+// ── Test 6: Tool-calling arranca en 'smart' (sin 413 predecible) ─────────────
 
-async function testGroq413Retry() {
-  console.log(C.bold('\n── Test 6: tool-calling 413 "Request too large" → reintento smart ──'));
+async function testToolCallingStartsSmart() {
+  console.log(C.bold('\n── Test 6: tool-calling arranca en smart, nunca en fast ──'));
 
   const LLMProvider = require('../core/llm/LLMProvider.js');
   const id = 'test-groq-413';
@@ -478,18 +478,18 @@ async function testGroq413Retry() {
       tools,
       'fast'
     );
-    assert(calls.fast === 1, 'el modelo fast se probó exactamente 1 vez', `fast=${calls.fast}`);
-    assert(calls.smart === 1, 'el modelo smart se reintentó 1 vez', `smart=${calls.smart}`);
+    assert(calls.fast === 0, 'tool-calling NO arranca con el modelo fast', `fast=${calls.fast}`);
+    assert(calls.smart === 1, 'tool-calling arranca directo con smart', `smart=${calls.smart}`);
     assert(
       Array.isArray(result.toolCalls) && result.toolCalls.length === 1,
       'tool-calling resolvió en smart'
     );
-    assert(result.toolCalls[0].tool === 'read', 'tool call correcto desde el reintento');
+    assert(result.toolCalls[0].tool === 'read', 'tool call correcto desde el primer intento');
   } catch (e) {
-    assert(false, 'reintento 413→smart no lanzó error', e.message);
+    assert(false, 'tool-calling en smart no lanzó error', e.message);
   }
 
-  // Caso control: error no-413 NO debe disparar el reintento smart.
+  // Caso control: con tools, un error no-413 también va a smart (nunca a fast).
   const calls2 = { fast: 0, smart: 0 };
   LLMProvider._debug_setToolCaller(id, async (_m, _s, mode, _tools, _opts) => {
     calls2[mode] = (calls2[mode] || 0) + 1;
@@ -503,7 +503,12 @@ async function testGroq413Retry() {
     tools,
     'fast'
   );
-  assert(calls2.smart === 0, 'un 404 NO reintenta con smart', `smart=${calls2.smart}`);
+  assert(calls2.fast === 0, 'el intento con tools nunca usa fast', `fast=${calls2.fast}`);
+  assert(
+    calls2.smart === 1,
+    'el intento con tools usa smart exactamente 1 vez',
+    `smart=${calls2.smart}`
+  );
   assert(
     fallback.content === 'fallback texto' && fallback.toolCalls === null,
     'un 404 cae a fallback de texto sin toolCalls'
@@ -562,12 +567,12 @@ async function testToolFallbackPromptInjection() {
   );
   assert(
     typeof capturedSystemPrompt === 'string' &&
-      capturedSystemPrompt.includes('No tienes acceso a herramientas'),
+      capturedSystemPrompt.includes('NO tenés acceso a herramientas'),
     'el fallback inyecta la nota "sin herramientas" al system prompt'
   );
   assert(
     typeof capturedSystemPrompt === 'string' &&
-      capturedSystemPrompt.includes('no describas que ya lo hiciste'),
+      capturedSystemPrompt.includes('describas, narres o simules que ya la ejecutaste'),
     'la nota pide declarar la limitación en vez de fingir acciones'
   );
   assert(
@@ -594,7 +599,7 @@ async function main() {
   testAnthropicToolCallerRegistered();
   testEdgeCases();
   testSchemaConsistency();
-  await testGroq413Retry();
+  await testToolCallingStartsSmart();
   await testToolFallbackPromptInjection();
 
   console.log(C.bold('\n════════════════════════════════════════════════════════'));

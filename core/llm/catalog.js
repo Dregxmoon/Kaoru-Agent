@@ -235,7 +235,7 @@ const BUILTIN_PROVIDERS = [
     type: 'gemini',
     baseURL: 'https://generativelanguage.googleapis.com/v1beta',
     free: true,
-    defaults: { fast: 'gemini-2.5-flash', smart: 'gemini-2.5-flash' },
+    defaults: { fast: 'gemini-3.6-flash', smart: 'gemini-3.6-flash' },
     models: {
       'gemini-2.0-flash': {
         label: 'Gemini 2.0 Flash',
@@ -295,6 +295,18 @@ const BUILTIN_PROVIDERS = [
         free: true,
         cost: { in: 1.25, out: 10.0 },
         aliases: ['2.5-pro', 'pro-2.5'],
+        roles: ['charla', 'tareas de agente', 'imágenes'],
+      },
+      'gemini-3.6-flash': {
+        label: 'Gemini 3.6 Flash',
+        context: 1048576,
+        maxOutput: 65536,
+        tools: true,
+        vision: true,
+        reasoning: false,
+        free: true,
+        cost: { in: 0.75, out: 3.75 },
+        aliases: ['3.6-flash', 'flash-3.6'],
         roles: ['charla', 'tareas de agente', 'imágenes'],
       },
       'gemini-1.5-flash': {

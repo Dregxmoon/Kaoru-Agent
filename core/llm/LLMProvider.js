@@ -1688,7 +1688,12 @@ async function _callWithFallbackTools(messages, systemPrompt, mode = 'smart', to
     }
 
     let lastErr = null;
-    let callMode = mode;
+    // Tool-calling arranca SIEMPRE en 'smart': el catálogo completo (27 tools)
+    // + system prompt (~7-8,5K tokens) excede el TPM del modelo fast de Groq
+    // (llama-3.1-8b-instant, 6K) → HTTP 413 ~100% de las veces. Empezar por
+    // 'fast' solo agrega latencia sin chance real de éxito; 'fast' queda solo
+    // para las llamadas de texto puro (complete/completeTask).
+    let callMode = 'smart';
     for (let attempt = 0; attempt <= MAX_RETRIES_PER_PROVIDER; attempt++) {
       try {
         if (attempt > 0) {
@@ -1721,22 +1726,6 @@ async function _callWithFallbackTools(messages, systemPrompt, mode = 'smart', to
             _markProviderDegraded(providerName, 'rate-limit (tool-calling)', waitMs);
           }
         }
-        // Fix Groq free tier: el modelo fast (llama-3.1-8b-instant, TPM 6K) no
-        // admite tool-calling con el prompt+27 tools (~8,7K tokens) → HTTP 413
-        // "Request too large". Se reintenta el MISMO provider con el modelo
-        // smart (llama-3.3-70b-versatile, TPM 12K) antes de saltar al fallback.
-        if (
-          !retryable &&
-          callMode !== 'smart' &&
-          /(request too large|HTTP 413|tokens per minute \(TPM\))/i.test(e.message)
-        ) {
-          callMode = 'smart';
-          logger.warn(
-            'LLMProvider',
-            `[llm] ${providerName} tool-calling excede el TPM del modelo fast, reintentando con modelo smart`
-          );
-          continue;
-        }
         if (!retryable || attempt === MAX_RETRIES_PER_PROVIDER) {
           tried.push(providerName);
           break;
@@ -1755,9 +1744,11 @@ async function _callWithFallbackTools(messages, systemPrompt, mode = 'smart', to
   // declarar su limitación en vez de fingir resultados.
   const fallbackPrompt =
     systemPrompt +
-    '\n\n[Modo fallback — sin herramientas] No tienes acceso a herramientas en esta respuesta. ' +
-    'Si la tarea que te piden requiere crear archivos, buscar en la web, etc., dilo explícitamente — ' +
-    'no describas que ya lo hiciste.';
+    '\n\nIMPORTANTE: en esta respuesta NO tenés acceso a herramientas ' +
+    '(crear archivos, buscar en la web, ejecutar comandos, etc.). ' +
+    'Si la tarea que te piden requiere alguna de esas capacidades, decilo explícitamente ' +
+    "(ej: 'no puedo ejecutar esto ahora mismo, intentá de nuevo') — NUNCA " +
+    'describas, narres o simules que ya la ejecutaste.';
   const text = await _callWithFallback(messages, fallbackPrompt, mode, opts);
   return { content: text, toolCalls: null };
 }

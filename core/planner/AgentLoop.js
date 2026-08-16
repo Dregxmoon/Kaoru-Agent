@@ -243,7 +243,7 @@ const REFLECTION_MIN_FAILURES = 2;
 // Bloques que AgentLoop añade al prompt DESPUÉS del ensamblado base. El
 // truncado final (truncateSystemPrompt) los elimina desde el inicio de su
 // encabezado hasta el final, de menor a mayor importancia, para respetar el
-// presupuesto MAX_SYSTEM_CHARS contando TODO lo ensamblado (no solo el base).
+// presupuesto contando TODO lo ensamblado (no solo el base).
 const TAIL_SECTIONS = [
   { name: 'Lo aprendido (feedback)', marker: '# LO APRENDIDO (FEEDBACK)' },
   { name: 'Skills', marker: '---\n\n**Skills activas' },
@@ -252,6 +252,16 @@ const TAIL_SECTIONS = [
   { name: 'Catálogo de tools', marker: '# HERRAMIENTAS DISPONIBLES' },
   { name: 'Loop agente', marker: '# MODO AGENTE' },
 ];
+
+// Presupuesto del system prompt del MODO AGENTE. El prompt base de buildContext
+// (identidad + comportamiento + contexto OS/memoria/episodios + MCP) ya ronda
+// los ~10.5K chars; sumado a AGENT_LOOP_SYSTEM (~3.7K) + catálogo de tools
+// (~8.6K) supera con holgura los 14K del presupuesto de chat, y el truncado
+// eliminaba SIEMPRE "Loop agente" y "Catálogo de tools" → el modelo no sabía
+// que podía usar herramientas y respondía sin ejecutar nada (tool_calls_total:
+// 0 en producción). El modo agent tiene presupuesto propio y más amplio; chat/
+// plan/execute conservan MAX_SYSTEM_CHARS (14K) intacto.
+const AGENT_MAX_SYSTEM_CHARS = 30_000;
 
 // G.1: compactación de contexto. Cuando la historia de iteraciones crece, los
 // turnos viejos se condensan en un resumen determinista (no se re-envía todo
@@ -595,7 +605,10 @@ class AgentLoop {
     // agent ya no se trunca en buildContext). Se eliminan bloques COMPLETOS
     // desde el menos importante (skills → recall → catálogo → loop), nunca a
     // mitad de una instrucción.
-    agentPrompt = truncateSystemPrompt(agentPrompt, { tailSections: TAIL_SECTIONS });
+    agentPrompt = truncateSystemPrompt(agentPrompt, {
+      max: AGENT_MAX_SYSTEM_CHARS,
+      tailSections: TAIL_SECTIONS,
+    });
 
     const iterationHistory = [...(messages || [])];
     let lastToolResult = null;
