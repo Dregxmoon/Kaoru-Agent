@@ -62,6 +62,25 @@ function testNeedsShell() {
   assert(srv._needsShellCommand('node script.js arg') === false, 'node con args → sin shell');
   assert(srv._needsShellCommand('echo x > out.txt') === true, 'redirección > → shell');
   assert(srv._needsShellCommand('npm i ; git status') === true, 'separador ; → shell');
+  assert(
+    srv._needsShellCommand('python3 -m http.server 8000 > /tmp/x.log 2>&1 &') === true,
+    'backgrounding + redirección → shell'
+  );
+  assert(srv._needsShellCommand('echo hi & echo bye') === true, '& simple → shell');
+  assert(
+    srv._needsShellCommand('node -e "console.log(1&2)"') === false,
+    '& sin espacios (no bg) → sin shell'
+  );
+  assert(srv._needsShellCommand('grep "a > b" file') === true, '> entre comillas igual → shell');
+
+  console.log(C.bold('  _hasBackgroundOperator (detach)'));
+  assert(
+    srv._hasBackgroundOperator('python3 -m http.server 8000 > /tmp/x.log 2>&1 &') === true,
+    'backgrounding & → detach'
+  );
+  assert(srv._hasBackgroundOperator('echo hi & echo bye') === true, '& simple → detach');
+  assert(srv._hasBackgroundOperator('echo hi 2>&1') === false, '2>&1 no es backgrounding');
+  assert(srv._hasBackgroundOperator('npm i && git status') === false, '&& no es backgrounding');
 }
 
 // ── Test 2: binds de la toolchain (raíz en $HOME se remonta) ────────────────
@@ -150,6 +169,27 @@ async function testExecSandbox() {
     assert(r2.result.stdout.includes('chain-ok'), 'la salida del comando encadenado llega');
   }
 
+  // 1b — auto-shell: cd/&& sin shell:true ya no falla con execvp cd
+  // (el bug que sufrió Kaoru levantando el http.server de adivinanza).
+  const r2b = await srv.HANDLERS.exec({
+    command: 'cd / && node -e "console.log(\'auto-shell-ok\')"',
+    timeout: 15,
+  });
+  ok(r2b, 'cd / && node SIN shell:true → exit 0 (auto-shell por detección)');
+  if (r2b && r2b.result && r2b.result.exitCode === 0) {
+    assert(r2b.result.stdout.includes('auto-shell-ok'), 'la salida del comando encadenado llega');
+  }
+
+  // 1b — auto-shell: redirección + backgrounding (comando real de adivinanza).
+  const r2c = await srv.HANDLERS.exec({
+    command: 'echo server-ok > /tmp/auto-shell.log && cat /tmp/auto-shell.log',
+    timeout: 15,
+  });
+  ok(r2c, 'redirección + && SIN shell:true → exit 0');
+  if (r2c && r2c.result && r2c.result.exitCode === 0) {
+    assert(r2c.result.stdout.trim() === 'server-ok', 'el archivo redirigido se lee');
+  }
+
   // 1b — pipe con sh -c (opt-in).
   const r3 = await srv.HANDLERS.exec({
     command: 'printf "a\\nb\\n" | wc -l',
@@ -188,6 +228,48 @@ async function testExecSandbox() {
   if (r6 && r6.result && r6.result.exitCode === 0) {
     assert(r6.result.stdout.includes('ok-ws'), 'la salida de node llega');
   }
+
+  // detach: un proceso en background sobrevive a la salida del exec
+  // (el bug de Kaoru: el http.server moría apenas terminaba el exec).
+  const marker = path.join(process.cwd(), '.detach-bg-test');
+  try {
+    require('fs').rmSync(marker, { force: true });
+  } catch {
+    // no existe
+  }
+  const r7 = await srv.HANDLERS.exec({
+    command: `(sleep 3 && touch ${marker}) & echo bg-started`,
+    timeout: 15,
+  });
+  ok(r7, 'backgrounding con & → exit 0 (detach)');
+  if (r7 && r7.result && r7.result.exitCode === 0) {
+    assert(r7.result.stdout.includes('bg-started'), 'el foreground responde sin esperar al bg');
+  }
+  await new Promise((res) => setTimeout(res, 5000));
+  assert(require('fs').existsSync(marker), 'el proceso en background sobrevive al exec (detach)');
+  try {
+    require('fs').rmSync(marker, { force: true });
+  } catch {
+    // ya no existe
+  }
+
+  // timeout: un proceso colgado se mata (antes quedaba huérfano del SIGKILL)
+  const sleepCount = () => {
+    try {
+      return parseInt(
+        require('child_process').execSync('ps -eo comm | grep -c "^sleep$"').toString().trim(),
+        10
+      );
+    } catch {
+      return 0;
+    }
+  };
+  const sleepsBefore = sleepCount();
+  const r8 = await srv.HANDLERS.exec({ command: 'sleep 9931', timeout: 2 });
+  assert(r8 && r8.result && r8.result.signal === 'timeout', 'sleep 9931 → signal timeout');
+  await new Promise((res) => setTimeout(res, 1000));
+  const sleepsAfter = sleepCount();
+  assert(sleepsAfter === sleepsBefore, 'el proceso colgado se mata con el timeout (sin leak)');
 }
 
 // ── Runner ───────────────────────────────────────────────────────────────────

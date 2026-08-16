@@ -22,7 +22,7 @@ const TOOL_SCHEMAS = [
         name: 'shell',
         type: 'boolean',
         description:
-          'true SOLO si el comando necesita un shell real: cd, &&, ||, ;, pipes |, redirección >, $(...) o backticks. Se ejecuta vía `sh -c` dentro del sandbox. false (default) = el comando corre SIN shell y esos operadores se pasan literales (más seguro).',
+          'Opcional. El server ya detecta solo la sintaxis de shell (cd, &&, ||, ;, pipes |, redirección >, backgrounding &, $(...) o backticks) y ejecuta vía `sh -c` dentro del sandbox. Mandalo true únicamente si querés forzar shell explícito. false (default) basta para la mayoría de comandos. Si mandás un proceso a background (`cmd > log 2>&1 &`), ese proceso sobrevive a la llamada (p.ej. para levantar un http.server).',
       },
     ],
     examples: [

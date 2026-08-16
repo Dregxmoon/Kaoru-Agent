@@ -487,10 +487,10 @@ async function testCommandBlocklist() {
   }
 }
 
-// ── Test 8: exec sin shell: true — pipes literales ──────────────────────────
+// ── Test 8: exec con sintaxis de shell — auto-shell vía sh -c ───────────────
 
-async function testExecNoShellPipes() {
-  console.log(C.bold('\n── Test 8: exec sin shell — pipes son literales ──────────'));
+async function testExecAutoShell() {
+  console.log(C.bold('\n── Test 8: exec auto-shell (cd/|/> sin shell:true) ─────────'));
 
   const http = require('http');
   const cp = require('child_process');
@@ -553,18 +553,23 @@ async function testExecNoShellPipes() {
   }
 
   try {
-    // Pipe '|' se pasa como argumento literal
+    // Pipe '|' sin shell:true ahora se ejecuta por detección automática
     const r1 = await post({ tool: 'exec', input: { command: 'echo hello | wc -c', timeout: 5 } });
     assert(r1.status === 200, 'echo pipe → 200');
-    assert(r1.body.result.stdout.trim() === 'hello | wc -c', 'Pipe es literal, no se ejecuta');
+    assert(r1.body.result.stdout.trim() === '6', 'Pipe se ejecuta (wc -c de "hello\\n" = 6)');
+    assert(r1.body.result.exitCode === 0, 'Pipe → exit 0');
 
-    // Redirección '>' es literal
+    // Redirección '>' + '&&' sin shell:true: el archivo se escribe y se lee
     const r2 = await post({
       tool: 'exec',
-      input: { command: 'echo test > /tmp/evil.txt', timeout: 5 },
+      input: { command: 'echo test > /tmp/auto-shell.txt && cat /tmp/auto-shell.txt', timeout: 5 },
     });
     assert(r2.status === 200, 'echo redirect → 200');
-    assert(!r2.body.result.stdout.includes('Written'), 'No escribió archivo');
+    assert(
+      r2.body.result.stdout.trim() === 'test',
+      'Redirección + && ejecutan (se lee el archivo)'
+    );
+    assert(r2.body.result.exitCode === 0, 'Redirección → exit 0');
   } finally {
     serverProcess.kill();
   }
@@ -629,7 +634,7 @@ async function main() {
   await testServerAuth();
   await testPathSandbox();
   await testCommandBlocklist();
-  await testExecNoShellPipes();
+  await testExecAutoShell();
 
   console.log(C.bold('\n════════════════════════════════════════════════════════'));
   const total = passed + failed;

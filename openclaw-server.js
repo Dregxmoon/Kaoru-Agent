@@ -291,19 +291,20 @@ if (_sandboxEnabled) {
 /**
  * Envuelve `commandArgs` en bwrap para aislar el proceso hijo. Si el sandbox
  * no está activo devuelve los args tal cual (comportamiento original).
+ * Con `detach: true` (comando con backgrounding `&`) se omite `--die-with-parent`:
+ * es la única variación necesaria para que un proceso en background sobreviva a
+ * la salida del exec (bwrap sigue con `--unshare-pid`/`--ro-bind / /`/tmpfs, así
+ * que el aislamiento se conserva; el bg queda en el mismo mount namespace).
  * @param {string[]} commandArgs
+ * @param {{ detach?: boolean }} [opts]
  * @returns {string[]}
  */
-function _wrapSandbox(commandArgs) {
+function _wrapSandbox(commandArgs, opts = {}) {
   if (!_sandboxEnabled) return commandArgs;
   const home = process.env.HOME || '/tmp';
-  const wrap = [
-    'bwrap',
-    '--unshare-user',
-    '--unshare-pid',
-    '--unshare-ipc',
-    '--unshare-uts',
-    '--die-with-parent',
+  const wrap = ['bwrap', '--unshare-user', '--unshare-pid', '--unshare-ipc', '--unshare-uts'];
+  if (!opts.detach) wrap.push('--die-with-parent');
+  wrap.push(
     '--new-session',
     '--ro-bind',
     '/',
@@ -315,8 +316,8 @@ function _wrapSandbox(commandArgs) {
     '--tmpfs',
     '/tmp',
     '--tmpfs',
-    home,
-  ];
+    home
+  );
   // Toolchains instaladas en $HOME (nvm/fnm/volta): se remontan sobre el
   // tmpfs para que npm/npx/tsc sean ejecutables dentro del sandbox.
   for (const dir of TOOLCHAIN_BINDS) {
@@ -381,11 +382,15 @@ function _buildCommandArgs(fullCommand) {
 }
 
 // Shell builtins / operadores que `spawn` no puede ejecutar sin un shell real
-// (`cd`, `&&`, `||`, `;`, pipes `|`/`>>`, redirección, `$(...)`/backticks).
-// El servidor NO los activa automáticamente: exec corre `sh -c` solo cuando el
-// llamador manda `shell: true`. La detección queda exportada para que el agente
-// (o los tests) decidan cuándo pedir shell explícito.
-const _SHELL_SYNTAX_RE = /(^|\s)cd(\s|$)|(\|\||&&|;|\||>>|>|<|\$\()|`/;
+// (`cd`, `&&`, `||`, `;`, pipes `|`/`>>`, redirección `>`/`<`, backgrounding
+// `&` simple, `$(...)`/backticks). exec corre `sh -c` cuando el llamador manda
+// `shell: true` O cuando el comando contiene esta sintaxis (detección
+// automática): antes un comando como `cd x && ...` o `python3 ... > log 2>&1 &`
+// se pasaba literal a spawn/bwrap y fallaba (`execvp cd: No such file or
+// directory`, `unrecognized arguments`). El sandbox sigue envolviendo `sh -c`,
+// así que la detección automática no lo debilita. La detección queda exportada
+// para tests y para que el agente pueda pedir shell explícito si lo prefiere.
+const _SHELL_SYNTAX_RE = /(^|\s)cd(\s|$)|(\|\||&&|;|\||>>|>|<|\$\()|`|(^|\s)&(\s|$)/;
 
 /**
  * @param {string} command
@@ -393,6 +398,19 @@ const _SHELL_SYNTAX_RE = /(^|\s)cd(\s|$)|(\|\||&&|;|\||>>|>|<|\$\()|`/;
  */
 function _needsShellCommand(command) {
   return _SHELL_SYNTAX_RE.test(command);
+}
+
+// Backgrounding `&` simple (no `2>&1` ni `&&`): un proceso en background
+// (`cmd > log 2>&1 &`) debe sobrevivir a la salida del exec. Se usa para
+// correr ese comando en modo "detach" del sandbox (sin --die-with-parent).
+const _DETACH_RE = /(^|\s)&(\s|$)/;
+
+/**
+ * @param {string} command
+ * @returns {boolean}
+ */
+function _hasBackgroundOperator(command) {
+  return _DETACH_RE.test(command);
 }
 
 // ── Rutas inmutablemente protegidas (nunca accesibles) ─────────────────────
@@ -666,13 +684,13 @@ const HANDLERS = {
     if (_isBlockedCommand(command)) return { error: 'command blocked by server security policy' };
     if (_isOutsideAllowed(cwd)) return { error: `cwd outside allowed path: ${cwd}` };
 
-    // Shell real SOLO si el llamador lo pide explícitamente (`shell: true`):
-    // el agente lo setea cuando el comando usa `cd`/`&&`/pipes/redirección.
-    // Sin el flag, los operadores de shell se pasan LITERALES — garantía de
-    // seguridad: un request directo a la API no puede escalar a shell sin
-    // opt-in explícito.
+    // Shell real: lo pide el llamador (`shell: true`) o se detecta solo cuando
+    // el comando necesita un shell para interpretarse (`cd`/`&&`/pipes/
+    // redirección/backgrounding). Sin el flag ni la sintaxis, los argumentos
+    // se pasan separados a spawn — y aunque se use shell, `sh -c` queda
+    // envuelto en bwrap y el blocklist ya se aplicó sobre el string crudo.
     let args =
-      input.shell === true
+      input.shell === true || _needsShellCommand(command)
         ? ['sh', '-c', command]
         : _rewriteToolchainCommand(_buildCommandArgs(command));
     if (!args || args.length === 0) return { error: 'empty command after parsing' };
@@ -686,7 +704,12 @@ const HANDLERS = {
     // Async con spawn (no spawnSync): un comando largo NO bloquea el proceso
     // main ni el event loop del server (antes congelaba la app entera).
     return new Promise((resolve) => {
-      const sandboxArgs = _wrapSandbox(args);
+      // Detach: si el comando manda algo a background (`&`), el sandbox omite
+      // --die-with-parent para que ese proceso sobreviva (p.ej. un http.server
+      // que el agente levanta para verificar). El proceso principal se sigue
+      // matando con el timeout (ver abajo).
+      const detach = _hasBackgroundOperator(command);
+      const sandboxArgs = _wrapSandbox(args, { detach });
       const child = spawn(sandboxArgs[0], sandboxArgs.slice(1), {
         cwd,
         stdio: ['pipe', 'pipe', 'pipe'],
@@ -713,10 +736,21 @@ const HANDLERS = {
         if (errSize <= MAX_EXEC_OUTPUT) stderr.push(c);
       });
 
-      const timer = setTimeout(() => {
+      // Timeout: primero SIGTERM (bwrap lo reenvía al init del sandbox y el
+      // pid namespace se desarma), y solo si a los 500ms sigue colgado, SIGKILL.
+      // Antes un SIGKILL directo a bwrap dejaba huérfano el proceso colgado.
+      const killTimer = () => {
         killed = true;
-        child.kill('SIGKILL');
-      }, timeout);
+        child.kill('SIGTERM');
+        setTimeout(() => {
+          try {
+            child.kill('SIGKILL');
+          } catch {
+            // ya cerró
+          }
+        }, 500);
+      };
+      const timer = setTimeout(killTimer, timeout);
 
       child.on('error', (e) => {
         clearTimeout(timer);
@@ -1160,6 +1194,7 @@ module.exports = {
   _parseDuckDuckGoHTML,
   _buildCommandArgs,
   _needsShellCommand,
+  _hasBackgroundOperator,
   _rewriteToolchainCommand,
   _wrapSandbox,
   _whichBin,
