@@ -16,6 +16,7 @@ const { getGitHubManager } = require('../github/GitHubManager.js');
 const { RunMetrics } = require('./run-metrics.js');
 const { getMoodEngine } = require('../identity/MoodEngine.js');
 const { runVerifyPlan, buildVerifyFailureNotice } = require('./verify-runner.js');
+const { estimateDifficulty } = require('../learning/difficulty.js');
 const {
   collectEditedFiles,
   analyzeSubagentReport,
@@ -240,6 +241,14 @@ const REFLECTION_MAX_ROUNDS = 2;
 // reflexión (falta de "ajustar pronto" sin gastar llamadas en cada fallo).
 const REFLECTION_MIN_FAILURES = 2;
 
+// Plan explícito (opcional, opts.planning): para tareas complejas (smart +
+// dificultad alta) se genera un plan de pasos ANTES de arrancar el bucle y se
+// inyecta al prompt. El loop ejecuta anclado a ese plan; la reflexión compara
+// contra él; el resultado expone cuántos pasos quedaron hechos.
+const PLANNING_MAX_STEPS = 6;
+const PLANNING_MIN_STEPS = 2;
+const PLANNING_DIFFICULTY_THRESHOLD = 0.5;
+
 // Bloques que AgentLoop añade al prompt DESPUÉS del ensamblado base. El
 // truncado final (truncateSystemPrompt) los elimina desde el inicio de su
 // encabezado hasta el final, de menor a mayor importancia, para respetar el
@@ -364,25 +373,29 @@ El resto del texto se mostrará al usuario.
    o si la tarea no se puede completar y responde informando el error.
 5. NUNCA ejecutes acciones destructivas sin antes informar al usuario qué
    vas a hacer y por qué.
-6. USA HERRAMIENTAS SOLO CUANDO LA TAREA LO REQUIERA. Saludos, preguntas
+6. SI HAY UNA SECCIÓN "# PLAN DE EJECUCIÓN" EN EL PROMPT, seguela paso a paso:
+   cada paso es una casilla "- [ ]" que debes completar en orden. No saltes
+   pasos ni inventes trabajo fuera del plan; si un paso se vuelve inviable,
+   replanificá y avisá.
+7. USA HERRAMIENTAS SOLO CUANDO LA TAREA LO REQUIERA. Saludos, preguntas
    sobre ti mismo ("quién eres", tu identidad, tu personalidad), preguntas de
    conversación y dudas que ya puedes responder con lo que sabes se contestan
    DIRECTAMENTE, sin llamar ninguna herramienta. browser y web_search son
    SOLO para información externa actual que no puedes conocer (noticias,
    datos en vivo, páginas web). NO busques en internet cosas que ya sabes,
    como tu propia identidad — eso desperdicia recursos y el rate-limit.
-7. DETENTE EN CUANTO LA TAREA PEDIDA ESTÉ COMPLETA. Si la acción que pidió
+8. DETENTE EN CUANTO LA TAREA PEDIDA ESTÉ COMPLETA. Si la acción que pidió
    el usuario terminó con éxito (p. ej. un push a git que confirma éxito, o
    un archivo escrito correctamente), tu turno TERMINA: responde confirmando
    y NO ejecutes más herramientas. No sigas "buscando más acciones", no
    repitas trabajo ya hecho y no hagas mejoras, refactors ni pasos extra que
    no te pidieron.
-8. NO TOQUES ARCHIVOS QUE NO SON PARTE DE LA TAREA. Si el usuario pidió, por
+9. NO TOQUES ARCHIVOS QUE NO SON PARTE DE LA TAREA. Si el usuario pidió, por
    ejemplo, subir cambios a git, no edites código ni archivos del repo. Si en
    el camino ves un problema en algo no relacionado, menciónalo en la
    respuesta, pero NO lo arregles por tu cuenta — un edit no solicitado
    cuenta como salirse del alcance y consume llamadas innecesariamente.
-9. MODIFICAR PARTES DE UN ARCHIVO EXISTENTE = edit, NO write. Cuando el
+10. MODIFICAR PARTES DE UN ARCHIVO EXISTENTE = edit, NO write. Cuando el
    archivo ya existe y solo hay que cambiar una o unas pocas líneas
    (color, texto, una función), usa \`\`\`action edit con old_text (fragmento
    EXACTO que ya está en el archivo) y new_text (el reemplazo). write es para
@@ -465,6 +478,17 @@ class AgentLoop {
     let result;
     try {
       result = await this._runInternal(userMessage, systemPrompt, messages, opts);
+      // Progreso del plan explícito (si hubo): cuántos pasos se completaron
+      // con herramientas exitosas. El caller (agent.js) lo usa para persistir
+      // la intención si el run se interrumpe.
+      if (this._plan && result && !result.plan) {
+        const done = (result.toolResults || []).filter((t) => t && t.ok).length;
+        result.plan = {
+          steps: this._plan.steps,
+          done: Math.min(done, this._plan.steps.length),
+          total: this._plan.steps.length,
+        };
+      }
       return result;
     } finally {
       try {
@@ -609,6 +633,46 @@ class AgentLoop {
       max: AGENT_MAX_SYSTEM_CHARS,
       tailSections: TAIL_SECTIONS,
     });
+
+    // ── Fase de plan explícito (mejora de calidad) ─────────────────────────
+    // Para tareas complejas (smart + dificultad alta) se genera un plan de
+    // pasos ANTES de arrancar el bucle y se inyecta al prompt DESPUÉS del
+    // truncado (así nunca se corta). El loop ejecuta anclado a ese plan, la
+    // reflexión compara contra él, y el resultado expone el progreso. Si el
+    // modelo no entrega pasos parseables o la llamada falla, el run sigue sin
+    // plan: nunca bloquea la tarea.
+    this._plan = null;
+    if (this._shouldPlan(userMessage, taskIntent, opts)) {
+      try {
+        const plan = await this._buildPlan({
+          userMessage,
+          taskIntent,
+          toolCatalog,
+          llm,
+          llmOpts,
+          signal,
+        });
+        if (plan && plan.steps && plan.steps.length) {
+          this._plan = plan;
+          agentPrompt = agentPrompt + '\n\n' + plan.text;
+          logger.info(
+            'AgentLoop',
+            `[agent-loop] plan de ${plan.steps.length} pasos generado e inyectado`
+          );
+        }
+      } catch (e) {
+        if (e?.code === 'ABORTED' || e?.name === 'AbortError') {
+          return {
+            response: 'Generación cancelada por el usuario.',
+            iterations: 0,
+            toolResults: [],
+            cancelled: true,
+            error: 'cancelled',
+          };
+        }
+        logger.warn('AgentLoop', `[agent-loop] planificación falló: ${e.message}`);
+      }
+    }
 
     const iterationHistory = [...(messages || [])];
     let lastToolResult = null;
@@ -1179,6 +1243,7 @@ class AgentLoop {
           llm,
           llmOpts,
           signal,
+          plan: this._plan || null,
         });
         if (reflection && reflection.verdict === 'CAMBIAR_PLAN' && !(signal && signal.aborted)) {
           reflectionRounds++;
@@ -1839,6 +1904,130 @@ class AgentLoop {
   }
 
   /**
+   * Plan explícito — ¿esta tarea merece planificar antes de actuar?
+   * Fase de calidad: opencode/claude-code generan un plan antes de tocar nada
+   * para anclar el contexto y reducir la deriva. Se aplica solo a tareas
+   * complejas (modo smart + dificultad alta), nunca a charla rápida ni a
+   * subagentes (su run ya lo orquesta el padre).
+   * @param {string} userMessage
+   * @param {{ domain?: string|null }|null} taskIntent
+   * @param {object} opts
+   * @returns {boolean}
+   */
+  _shouldPlan(userMessage, taskIntent, opts = {}) {
+    if (opts.planning !== true) return false;
+    if (this._mode !== 'smart') return false;
+    if (opts.reportMode) return false;
+    if (opts.activeIntentions && opts.activeIntentions.length) return false;
+    try {
+      const difficulty = estimateDifficulty({ message: userMessage, taskIntent });
+      return difficulty >= PLANNING_DIFFICULTY_THRESHOLD;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  /**
+   * Genera el plan de ejecución con UNA llamada LLM estructurada (no
+   * streamiea al chat: es control interno, igual que reflexión/auto-crítica).
+   * Devuelve null si el modelo no entrega pasos parseables — el run sigue sin
+   * plan, nunca se bloquea por esto.
+   * @param {object} p
+   * @param {string} p.userMessage
+   * @param {{ domain?: string|null }|null} p.taskIntent
+   * @param {string|null} p.toolCatalog
+   * @param {Function} p.llm
+   * @param {object} p.llmOpts
+   * @param {AbortSignal|null} p.signal
+   * @returns {Promise<{steps: string[], text: string}|null>}
+   */
+  async _buildPlan({ userMessage, taskIntent, toolCatalog, llm, llmOpts, signal }) {
+    const domain = taskIntent?.domain || null;
+    const planPrompt = [
+      '# PLANIFICACIÓN — desglosar la tarea antes de ejecutar',
+      '',
+      `Intención del usuario: ${String(userMessage).slice(0, 800)}`,
+      domain ? `Dominio: ${domain}` : '',
+      '',
+      'Vas a ejecutar esta tarea en un bucle agente con herramientas (una por vez).',
+      'Antes de empezar, generá un plan de ejecución de 2 a 6 pasos concretos.',
+      'Cada paso debe ser UNA línea accionable: qué hacer y con qué',
+      '(archivo/comando/herramienta). No repitas pasos ni añadas verificación',
+      'manual: el bucle ejecuta y observa los resultados reales por sí mismo.',
+      '',
+      'Formato EXACTO (sin texto fuera de este bloque):',
+      'PLAN:',
+      '1. <paso 1>',
+      '2. <paso 2>',
+      '',
+    ].join('\n');
+
+    const planSystem = [
+      'Eres la fase de planificación de un agente. Desglosás la tarea del usuario',
+      'en pasos accionables y verificables antes de que el agente ejecute.',
+      'Reglas:',
+      `- Entre ${PLANNING_MIN_STEPS} y ${PLANNING_MAX_STEPS} pasos, ordenados y no redundantes.`,
+      '- Cada paso menciona el archivo/comando/herramienta a usar. Nada vago',
+      '  ("resolver el problema"): algo que el agente pueda ejecutar y verificar.',
+      '- No planifiques pasos de "confirmar con el usuario": el agente trabaja solo.',
+      '- Si la tarea es trivial de una sola acción, es válido devolver SOLO 2 pasos',
+      '  (leer lo necesario → ejecutar).',
+    ].join('\n');
+
+    try {
+      const planSignal = signal || llmOpts?.signal || null;
+      const raw = await llm(
+        [{ role: 'user', content: planPrompt }],
+        planSystem,
+        planSignal ? { signal: planSignal } : {}
+      );
+      const text = typeof raw === 'string' ? raw : raw?.content || '';
+      const steps = this._parsePlanSteps(text);
+      if (!steps || steps.length < PLANNING_MIN_STEPS) return null;
+      return { steps, text: this._renderPlanSection(steps) };
+    } catch (e) {
+      if (e?.code === 'ABORTED' || e?.name === 'AbortError') throw e;
+      logger.warn('AgentLoop', `[agent-loop] planificación falló: ${e.message}`);
+      return null;
+    }
+  }
+
+  /**
+   * Extrae los pasos del bloque PLAN del texto del LLM.
+   * @param {string} text
+   * @returns {string[]}
+   */
+  _parsePlanSteps(text) {
+    if (!text) return [];
+    const steps = [];
+    let inPlan = false;
+    for (const line of text.split('\n')) {
+      const t = line.trim();
+      if (/^PLAN\s*:?\s*$/i.test(t)) {
+        inPlan = true;
+        continue;
+      }
+      if (!inPlan) continue;
+      const m = t.match(/^\d+[.)]\s*(.+)$/);
+      if (m && m[1].trim()) steps.push(m[1].trim());
+      if (steps.length >= PLANNING_MAX_STEPS) break;
+    }
+    return steps;
+  }
+
+  /**
+   * Renderiza la sección que se inyecta al prompt del bucle.
+   * @param {string[]} steps
+   * @returns {string}
+   */
+  _renderPlanSection(steps) {
+    const lines = ['# PLAN DE EJECUCIÓN', ''];
+    lines.push('Plan generado antes de actuar. Seguilo paso a paso:');
+    for (const s of steps) lines.push(`- [ ] ${s}`);
+    return lines.join('\n');
+  }
+
+  /**
    * Reflexión intermedia (opcional, opts.reflection): paso determinista que se
    * dispara cuando una iteración acumuló fallas de herramientas. Pide al LLM
    * evaluar el plan actual contra la intención original y devolver un veredicto
@@ -1863,9 +2052,10 @@ class AgentLoop {
    * @param {Function} p.llm - función LLM resuelta del run
    * @param {object} p.llmOpts - { signal } ya preparado
    * @param {AbortSignal|null} p.signal
+   * @param {{steps: string[]}|null} p.plan - plan explícito del run (si hubo)
    * @returns {Promise<{verdict: string, message?: string, reason?: string} | null>}
    */
-  async _reflect({ userMessage, toolResults, llm, llmOpts, signal }) {
+  async _reflect({ userMessage, toolResults, llm, llmOpts, signal, plan }) {
     const actionsSummary =
       (toolResults || [])
         .map((t) => {
@@ -1880,12 +2070,21 @@ class AgentLoop {
         })
         .join('\n') || '  (ninguna acción ejecutada)';
 
+    const planBlock =
+      plan && Array.isArray(plan.steps) && plan.steps.length
+        ? [
+            `Plan de ejecución declarado (${plan.steps.length} pasos):`,
+            ...plan.steps.map((s, i) => `  ${i + 1}. ${s}`),
+          ].join('\n')
+        : null;
+
     const reflectPrompt = [
       `# REFLEXIÓN — evaluación del plan en curso`,
       ``,
       `Intención original del usuario:`,
       String(userMessage).slice(0, 600),
       ``,
+      ...(planBlock ? [planBlock, ``] : []),
       `Acciones ejecutadas hasta ahora:`,
       actionsSummary,
       ``,

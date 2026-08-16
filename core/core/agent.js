@@ -168,7 +168,9 @@ async function runAgent(userMessage, opts = {}) {
   const { mode, maxIterations } = resolveAgentMode(effectiveMessage, opts);
   const { WorkspaceCheckpoint } = require('../git/WorkspaceCheckpoint.js');
   const projectCwd =
-    state.activeWorkspace || state.openclawWorkspace || require('../planner/ActionParser.js').PROJECT_CWD;
+    state.activeWorkspace ||
+    state.openclawWorkspace ||
+    require('../planner/ActionParser.js').PROJECT_CWD;
   const checkpoint = new WorkspaceCheckpoint({ cwd: projectCwd });
   const loop = new AgentLoop({
     maxIterations,
@@ -226,6 +228,14 @@ async function runAgent(userMessage, opts = {}) {
     loopOpts.reflection = true;
   }
 
+  // Plan explícito: en modo tarea (smart) y con dificultad alta, el loop
+  // genera un plan de pasos ANTES de actuar, lo inyecta al prompt y devuelve
+  // el progreso en el resultado. Igual que selfCritique/reflection, no aplica
+  // en conversación rápida (charla simple no necesita planificar).
+  if (opts.planning === undefined && mode === 'smart') {
+    loopOpts.planning = true;
+  }
+
   // Verificación forzada: en modo tarea (smart), el loop corre el comando de
   // verificación del proyecto (agent.verify.command en config.json, o
   // auto-detect de package.json scripts typecheck→lint→test→build) al cerrar
@@ -262,11 +272,7 @@ async function runAgent(userMessage, opts = {}) {
   const cpMeta = checkpoint.metadata();
   if (cpMeta && cpMeta.canRevert) {
     result.checkpoint = cpMeta;
-    if (
-      typeof result.response === 'string' &&
-      result.response.trim() &&
-      !result.cancelled
-    ) {
+    if (typeof result.response === 'string' && result.response.trim() && !result.cancelled) {
       const hint = `\n\n[Checkpoint de la tarea creado (${cpMeta.files.length} archivo(s) tocados). Si querés deshacer SOLO los cambios de esta tarea, escribí: \`/revertir-tarea\`]`;
       result.response += hint;
     }
@@ -314,6 +320,7 @@ async function runAgent(userMessage, opts = {}) {
   // ── Fase 3 ítem 1: si la meta queda en vuelo (se agotaron iteraciones o el
   //    usuario canceló), se persiste como intención activa para retomarla al
   //    reanudar la sesión (re-planificación). Las terminadas bien se limpian.
+  //    Si el run tuvo un plan explícito, se persisten SUS pasos (no vacío).
   if (
     result.error === 'max_iterations_reached' ||
     result.error === 'cancelled' ||
@@ -322,11 +329,14 @@ async function runAgent(userMessage, opts = {}) {
     try {
       const g = state.graph;
       if (g && !g.usingFallback && typeof g.createIntention === 'function') {
+        const planSteps = (result.plan && result.plan.steps) || [];
         g.createIntention({
           sessionId: state.session?.getSessionId?.() || '',
           goal: userMessage,
-          steps: [],
-          lastProgress: `Se interrumpió tras ${result.iterations || 0} iteraciones (${result.error || 'truncado'}).`,
+          steps: planSteps,
+          lastProgress:
+            `Se interrumpió tras ${result.iterations || 0} iteraciones ` +
+            `(${result.error || 'truncado'})${planSteps.length ? ` — plan ${result.plan.done}/${result.plan.total}` : ''}.`,
         });
       }
     } catch (e) {

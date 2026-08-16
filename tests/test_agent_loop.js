@@ -1999,6 +1999,184 @@ async function testUnrecognizedActionFeedback() {
   teardown();
 }
 
+// ── Plan explícito (mejora de calidad) ──────────────────────────────────────
+
+async function testParsePlanSteps() {
+  console.log(C.bold('\n── Test: _parsePlanSteps / _renderPlanSection ─────────────────'));
+
+  const { AgentLoop } = require('../core/planner/AgentLoop.js');
+  const loop = new AgentLoop({});
+
+  const steps = loop._parsePlanSteps(
+    'texto previo\nPLAN:\n1. Leer config.json\n2. Ejecutar tests\n3. Reportar\n'
+  );
+  assert(steps.length === 3, 'parsea los 3 pasos del bloque PLAN', JSON.stringify(steps));
+  assert(steps[0] === 'Leer config.json', 'primer paso correcto');
+  assert(steps[2] === 'Reportar', 'tercer paso correcto');
+
+  const garbage = loop._parsePlanSteps('no hay plan acá\n1. paso suelto\n');
+  assert(garbage.length === 0, 'sin bloque PLAN → sin pasos', JSON.stringify(garbage));
+
+  const section = loop._renderPlanSection(['A', 'B']);
+  assert(section.includes('# PLAN DE EJECUCIÓN'), 'render incluye el encabezado');
+  assert(section.includes('- [ ] A') && section.includes('- [ ] B'), 'render marca casillas');
+}
+
+async function testShouldPlanGates() {
+  console.log(C.bold('\n── Test: _shouldPlan gating ───────────────────────────────────'));
+
+  const { AgentLoop } = require('../core/planner/AgentLoop.js');
+  const loop = new AgentLoop({});
+  const hard =
+    'Necesito que actualices config.json con la nueva configuración del proyecto y que luego ejecutes el script de pruebas para verificar que todo funcione correctamente. Asegurate también de revisar los archivos relacionados para confirmar que los cambios no rompan ninguna parte del sistema existente antes de continuar con la siguiente fase del desarrollo de la aplicación.';
+
+  assert(
+    loop._shouldPlan(hard, null, { planning: true }),
+    'opts.planning + smart + dificultad alta → planifica'
+  );
+  assert(
+    !loop._shouldPlan('hola, ¿cómo estás?', null, { planning: true }),
+    'mensaje simple → sin plan'
+  );
+  const fast = new AgentLoop({});
+  fast._mode = 'fast';
+  assert(!fast._shouldPlan(hard, null, { planning: true }), 'modo fast → sin plan');
+  assert(!loop._shouldPlan(hard, null, {}), 'sin opts.planning → sin plan (opt-in)');
+  assert(
+    !loop._shouldPlan(hard, null, { planning: true, reportMode: true }),
+    'reportMode (subagente) → sin plan'
+  );
+  assert(
+    !loop._shouldPlan(hard, null, { planning: true, activeIntentions: [{}] }),
+    'intención activa previa → sin plan (ya hay plan persistido)'
+  );
+}
+
+async function testPlanGeneratedAndInjected() {
+  console.log(C.bold('\n── Test: plan generado, inyectado y expuesto en el resultado ─────'));
+
+  const { AgentLoop } = require('../core/planner/AgentLoop.js');
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'agent-loop-plan-'));
+  const p1 = path.join(dir, 'paso1.json');
+
+  const calls = [];
+  const llm = async (messages, systemPrompt) => {
+    calls.push({ systemPrompt });
+    const n = calls.length;
+    if (n === 1) return 'PLAN:\n1. Crear paso1.json\n2. Crear paso2.txt';
+    if (n === 2) {
+      return '```action\nACCIÓN: create_file | ARCHIVO: ' + p1 + '\nCONTENIDO: plan paso 1\n```';
+    }
+    return 'Listo, completé el plan.';
+  };
+
+  const loop = new AgentLoop({ maxIterations: 6, llm, bridge: createMockBridge(dir) });
+  const msg =
+    'Necesito que actualices config.json con la nueva configuración del proyecto y que luego ejecutes el script de pruebas para verificar que todo funcione correctamente. Asegurate también de revisar los archivos relacionados para confirmar que los cambios no rompan ninguna parte del sistema existente antes de continuar con la siguiente fase del desarrollo de la aplicación.';
+  const result = await loop.run(msg, 'Eres un asistente.', [], {
+    planning: true,
+    onApprovalNeeded: async () => true,
+  });
+
+  assert(
+    result.plan && result.plan.steps.length === 2,
+    'result.plan con 2 pasos',
+    JSON.stringify(result.plan)
+  );
+  assert(
+    result.plan.total === 2 && result.plan.done === 1,
+    'progreso: 1 paso completado de 2',
+    JSON.stringify(result.plan)
+  );
+  assert(
+    calls.length >= 2 && calls[1].systemPrompt.includes('# PLAN DE EJECUCIÓN'),
+    'el plan se inyectó al prompt del bucle'
+  );
+  assert(
+    calls[1].systemPrompt.includes('Crear paso1.json'),
+    'el paso 1 aparece en el prompt inyectado'
+  );
+  assert(!result.error && !result.truncated, 'run sin error');
+
+  fs.rmSync(dir, { recursive: true, force: true });
+}
+
+async function testPlanSkippedForSimpleTask() {
+  console.log(C.bold('\n── Test: tarea simple → sin plan (opt-in pero no califica) ──────'));
+
+  const { AgentLoop } = require('../core/planner/AgentLoop.js');
+  const mockLLM = createMockLLM(['config.json contiene la clave "key" con el valor "value".']);
+  const loop = new AgentLoop({ maxIterations: 5, llm: mockLLM, bridge: createMockBridge('/tmp') });
+
+  const result = await loop.run('¿Qué hay en config.json?', 'Eres un asistente.', [], {
+    planning: true,
+  });
+
+  assert(!result.plan, 'no hay plan para tarea simple');
+  assert(
+    mockLLM.callCount() === 1,
+    'solo 1 llamada LLM (sin llamada de planificación)',
+    `calls: ${mockLLM.callCount()}`
+  );
+  assert(result.iterations === 1, '1 iteración');
+}
+
+async function testPlanFailureFallsBack() {
+  console.log(C.bold('\n── Test: planificación sin pasos parseables → run sigue sin plan ──'));
+
+  const { AgentLoop } = require('../core/planner/AgentLoop.js');
+  const mockLLM = createMockLLM([
+    'texto sin bloque PLAN de ningún tipo',
+    'Respuesta normal a la tarea.',
+  ]);
+  const loop = new AgentLoop({ maxIterations: 5, llm: mockLLM, bridge: createMockBridge('/tmp') });
+  const msg =
+    'Necesito que actualices config.json con la nueva configuración del proyecto y que luego ejecutes el script de pruebas para verificar que todo funcione correctamente. Asegurate también de revisar los archivos relacionados para confirmar que los cambios no rompan ninguna parte del sistema existente antes de continuar con la siguiente fase del desarrollo de la aplicación.';
+
+  const result = await loop.run(msg, 'Eres un asistente.', [], { planning: true });
+
+  assert(!result.plan, 'sin plan (no parseable)');
+  assert(
+    mockLLM.callCount() === 2,
+    'el bucle continuó normal (1 plan fallida + 1 iteración)',
+    `calls: ${mockLLM.callCount()}`
+  );
+  assert(!result.error, 'run sin error');
+}
+
+async function testReflectUsesPlan() {
+  console.log(C.bold('\n── Test: la reflexión recibe el plan para comparar ───────────────'));
+
+  const { AgentLoop } = require('../core/planner/AgentLoop.js');
+  const loop = new AgentLoop({});
+  let seen = '';
+  const llm = async (messages) => {
+    seen = typeof messages === 'string' ? messages : JSON.stringify(messages);
+    return 'VEREDICTO: CAMBIAR_PLAN\nRAZÓN: el plan actual no lleva a la meta.';
+  };
+
+  const verdict = await loop._reflect({
+    userMessage: 'tarea compleja',
+    toolResults: [{ tool: 'read', ok: false, error: 'x', _action: { params: { path: '/a' } } }],
+    llm,
+    llmOpts: {},
+    signal: null,
+    plan: { steps: ['Leer el archivo', 'Escribir el resultado'] },
+  });
+
+  assert(
+    verdict && verdict.verdict === 'CAMBIAR_PLAN',
+    'veredicto parseado',
+    JSON.stringify(verdict)
+  );
+  assert(
+    seen.includes('Plan de ejecución declarado'),
+    'el plan entra en el prompt de reflexión',
+    seen.slice(0, 200)
+  );
+  assert(seen.includes('Escribir el resultado'), 'el paso 2 del plan está en el prompt');
+}
+
 // ── Main ──────────────────────────────────────────────────────────────────────
 
 async function main() {
@@ -2033,6 +2211,12 @@ async function main() {
   await testMidLoopReflectionReplans();
   await testMidLoopReflectionOffByDefaultInFast();
   await testUnrecognizedActionFeedback();
+  await testParsePlanSteps();
+  await testShouldPlanGates();
+  await testPlanGeneratedAndInjected();
+  await testPlanSkippedForSimpleTask();
+  await testPlanFailureFallsBack();
+  await testReflectUsesPlan();
 
   console.log(C.bold('\n════════════════════════════════════════════════════════'));
   const total = passed + failed;
