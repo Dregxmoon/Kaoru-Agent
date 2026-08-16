@@ -130,3 +130,29 @@ console.log(
 );
 console.log(`Resultado: ${passed} passed ${failed} failed / ${passed + failed} total`);
 if (failed > 0) process.exitCode = 1;
+
+// ── Test 6: acción no reconocida → marcador visible (2.2) ─────────────────────
+console.log(C.bold('\n── Test 6: acción no reconocida → marcador visible (2.2) ─────'));
+r = parser.parse('```action\nACCIÓN: hipnopatía_laser\n```', null);
+let u = r && r.find((x) => x.source === 'unrecognized');
+assert(!!u, 'acción desconocida devuelve marcador (no se descarta en silencio)', JSON.stringify(r));
+assert(u && u.tool === 'unknown_action', 'marcador: tool = unknown_action', u && u.tool);
+assert(u && u.action === 'hipnopatía_laser', 'marcador: conserva la acción original');
+assert(
+  !(r || []).some((x) => x.source !== 'unrecognized'),
+  'no hay acciones ejecutables junto al marcador'
+);
+
+r = parser.parse('```action\nACCIÓN: answer_question\n```', null);
+assert(!r || r.length === 0, 'answer_question sigue sin acción (conversacional)');
+
+r = parser.parse('```action\nSin campo ACCIÓN\n```', null);
+assert(!r || r.length === 0, 'bloque sin ACCIÓN sigue descartado (null)');
+
+console.log(
+  C.bold(
+    `\n── StructuredActionParser aliases: ${C.green(passed)}✓ ${failed ? C.red(failed + '✗') : ''} ──`
+  )
+);
+console.log(`Resultado: ${passed} passed ${failed} failed / ${passed + failed} total`);
+if (failed > 0) process.exitCode = 1;

@@ -288,6 +288,50 @@ function testInferredSeparatedFromFacts() {
   fs.rmSync(dir, { recursive: true, force: true });
 }
 
+// ── Test 2.1: el ejemplo de formato enseña CONTENIDO a create_file/edit_file ──
+
+function testFormatExampleTeachesContentField() {
+  console.log(C.bold('\n── 2.1: create_file/edit_file enseñan el campo CONTENIDO ──────'));
+
+  const {
+    GroqSerializer,
+    _debug_buildFormatExample,
+  } = require('../core/grounding/serializers/GroqSerializer.js');
+
+  const exCreate = _debug_buildFormatExample('create_file');
+  assertIncludes(exCreate, 'CONTENIDO:', 'create_file: ejemplo incluye CONTENIDO:');
+  assertIncludes(exCreate, 'ACCIÓN: create_file', 'create_file: conserva ACCIÓN');
+  assertIncludes(exCreate, 'ARCHIVO:', 'create_file: conserva ARCHIVO:');
+
+  const exEdit = _debug_buildFormatExample('edit_file');
+  assertIncludes(exEdit, 'CONTENIDO:', 'edit_file: ejemplo incluye CONTENIDO:');
+  assertIncludes(exEdit, 'ACCIÓN: edit_file', 'edit_file: conserva ACCIÓN');
+
+  // El ejemplo llega al system prompt cuando se detecta la intención (alta
+  // confianza), no solo en el helper.
+  const serializer = new GroqSerializer();
+  const contextPackage = {
+    identity: null,
+    osContext: null,
+    persistentMemory: null,
+    sessionHistory: [],
+    currentMessage: { role: 'user', content: 'creá un archivo nuevo con mi código' },
+    toolIntent: {
+      detected: true,
+      action: 'create_file',
+      tool: 'create_file',
+      confidence: 0.85,
+      level: 'high',
+    },
+  };
+  const prompt = serializer.serialize(contextPackage).systemPrompt;
+  assertIncludes(
+    prompt,
+    'CONTENIDO:',
+    'el system prompt con intención create_file enseña CONTENIDO:'
+  );
+}
+
 // ── Run ─────────────────────────────────────────────────────────────────────
 
 console.log(C.bold(C.cyan('\n════════════════════════════════════════════════════════')));
@@ -299,6 +343,7 @@ testMediumLevelHasAntiFabrication();
 testNoIntentNoFabricationBlock();
 testMemoryExcludedByDefault();
 testInferredSeparatedFromFacts();
+testFormatExampleTeachesContentField();
 
 console.log(C.bold('\n════════════════════════════════════════════════════════'));
 const total = passed + failed + skipped;

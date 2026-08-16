@@ -21,13 +21,14 @@
  * y el formato estructurado hace que su respuesta sea parseable
  * de forma determinista.
  *
- * FIX (revisión con Claude): _buildIdentitySection() leía
- * identity.personality e identity.uncertainty_voice — campos que NUNCA
+ * FIX (revisión con Claude): el builder de identidad (IdentitySerializer)
+ * leía identity.personality e identity.uncertainty_voice — campos que NUNCA
  * existieron en identity.json (que en realidad tiene character, voice,
  * uncertainty_behaviors, relationship, limits). Como esos ifs nunca
  * entraban, solo identity.core llegaba al LLM — toda la personalidad
  * escrita en el archivo se calculaba y se guardaba, pero nunca salía de
- * disco. Ahora la función lee la forma real del archivo.
+ * disco. Ahora el builder lee la forma real del archivo (ver
+ * core/identity/IdentitySerializer.js).
  *
  * FIX (revisión con Claude): el truncado a MAX_SYSTEM_CHARS pasaba AQUÍ,
  * pero Core.buildContext() le pegaba BehaviorModel + reglas de
@@ -39,6 +40,9 @@
 'use strict';
 
 const { getIdentity } = require('../../identity/IdentityStore.js');
+const { serializeIdentity, serializeMoodDelta } = require('../../identity/IdentitySerializer.js');
+const { getMoodEngine } = require('../../identity/MoodEngine.js');
+const { getDynamicsConfig } = require('../../identity/DynamicsConfig.js');
 
 // Presupuesto de caracteres para el historial de sesión en el contexto del
 // LLM. Los turnos recientes se envían completos; el excedente se resume.
@@ -128,7 +132,7 @@ function _getIdentity() {
 
 function _getSerializedIdentity() {
   if (_serializedIdentity) return _serializedIdentity;
-  _serializedIdentity = _buildIdentitySection(/** @type {Identity} */ (_getIdentity()));
+  _serializedIdentity = serializeIdentity(/** @type {Identity} */ (_getIdentity()));
   return _serializedIdentity;
 }
 
@@ -227,8 +231,13 @@ function _buildFormatExample(action) {
   /** @type {Record<string, string>} */
   const examples = {
     // Acciones con path de archivo
-    create_file: '```action\nACCIÓN: create_file | ARCHIVO: nombre-del-archivo.ext\n```',
-    edit_file: '```action\nACCIÓN: edit_file | ARCHIVO: ruta/al/archivo.ext\n```',
+    // 2.1: el ejemplo enseña el campo CONTENIDO — sin él el LLM nunca lo usa y
+    // StructuredActionParser cae al fallback userGoal como instruction (ver
+    // G.1 en StructuredActionParser._buildParams).
+    create_file:
+      '```action\nACCIÓN: create_file | ARCHIVO: nombre-del-archivo.ext\nCONTENIDO: el contenido completo del archivo (puede ser multilínea)\n```',
+    edit_file:
+      '```action\nACCIÓN: edit_file | ARCHIVO: ruta/al/archivo.ext\nCONTENIDO: qué cambio hacer en el archivo\n```',
     read_file: '```action\nACCIÓN: read_file | ARCHIVO: ruta/al/archivo.ext\n```',
     delete_file: '```action\nACCIÓN: delete_file | ARCHIVO: ruta/al/archivo.ext\n```',
     create_directory: '```action\nACCIÓN: create_directory | RUTA: nombre-carpeta\n```',
@@ -256,108 +265,23 @@ function _buildFormatExample(action) {
 // ── Secciones del system prompt ───────────────────────────────────────────────
 
 /**
- * FIX: antes leía identity.personality e identity.uncertainty_voice, que
- * no existen en identity.json — ahora usa la forma real: character,
- * voice, uncertainty_behaviors, relationship, limits.
+ * Sección delta del estado emocional actual (Fase B del motor de identidad).
+ * Se calcula por turno (NO es cacheable), se agrega como sección corta al
+ * FINAL del prompt y entra en el presupuesto de truncado de Core.buildContext()
+ * (bajo presión de longitud es lo primero que se cae). Vuelve '' si el mood
+ * es 'default' o el motor está deshabilitado.
  */
-/** @param {Identity} identity */
-function _buildIdentitySection(identity) {
-  const lines = ['# Identidad'];
-  if (identity.name) lines.push(`Te llamas ${identity.name}.`);
-  lines.push(identity.core || 'Soy tu asistente personal.');
-  lines.push(
-    'Cuando te pregunten quién eres, respóndelo con tus propias palabras, en tu voz habitual (breve y con carácter), no recites esta definición literalmente.'
-  );
-
-  lines.push('', '## Capacidades reales');
-  lines.push(
-    'No eres un chatbot sin herramientas: vives en el PC del usuario y puedes ejecutar acciones reales.',
-    '- Leer, crear y editar archivos del proyecto del usuario.',
-    '- Ejecutar comandos y scripts en la terminal (con permiso del usuario).',
-    '- Trabajar con git (estado, commits, push, ramas).',
-    '- Buscar en internet y navegar por páginas web.',
-    '- Detectar errores de código (LSP) y proponer arreglos.',
-    '- Recordar conversaciones pasadas (memoria persistente).',
-    '- Conectar herramientas externas (servidores MCP).',
-    '- Hablar por voz y expresar emociones con el avatar.'
-  );
-  lines.push(
-    'NUNCA digas que no puedes hacer algo que en realidad sí puedes (leer archivos, ejecutar comandos, git, buscar en internet). ' +
-      'Si no estás segura de poder hacer algo, ofrece intentarlo. ' +
-      'Nunca te describas como "una herramienta" ni uses disclaimers genéricos de asistente de IA; eres una asistente con voz y criterio propios. ' +
-      'No inventes expansiones de siglas: si no estás segura de qué significa una sigla (MCP, LSP, etc.), escribe solo la sigla. ' +
-      'Al listar debilidades, menciona solo limitaciones reales y concretas de tu entorno (no ideas vagas e inventadas como "no entiendo la concurrencia").'
-  );
-
-  const char = identity.character;
-  if (char) {
-    if (char.summary) lines.push('', '## Personalidad', char.summary);
-    if (char.traits?.length) {
-      lines.push('', '### Rasgos', ...char.traits.map((t) => `- ${t}`));
-    }
-    if (char.dislikes?.length) {
-      lines.push('', '### Lo que me disgusta', ...char.dislikes.map((d) => `- ${d}`));
-    }
+function _buildMoodSection() {
+  const dyn = getDynamicsConfig();
+  if (dyn?.mood_engine?.enabled === false) return '';
+  try {
+    const engine = getMoodEngine();
+    engine.noteTurn();
+    return serializeMoodDelta(engine.resolve());
+  } catch (e) {
+    // El motor de mood nunca rompe el pipeline de contexto.
+    return '';
   }
-
-  const voice = identity.voice;
-  if (voice) {
-    lines.push('', '## Cómo hablo');
-    if (voice.style) lines.push(voice.style);
-    if (voice.rhythm) lines.push(voice.rhythm);
-    if (voice.formality) lines.push(voice.formality);
-    if (voice.forbidden_phrases?.length) {
-      lines.push(
-        '',
-        '### Nunca digo cosas como',
-        voice.forbidden_phrases.map((p) => `"${p}"`).join(', ')
-      );
-    }
-  }
-
-  const unc = identity.uncertainty_behaviors;
-  if (unc) {
-    lines.push('', '## Cómo expreso incertidumbre');
-    for (const key of ['doesnt_know', 'is_unsure', 'was_wrong', 'is_surprised']) {
-      const b = unc[key];
-      if (b?.description) {
-        lines.push(`- ${b.description}${b.examples?.[0] ? ` Ej: "${b.examples[0]}"` : ''}`);
-      }
-    }
-  }
-
-  const rel = identity.relationship;
-  if (rel?.default_dynamic) {
-    lines.push('', '## Relación con el usuario', rel.default_dynamic);
-    if (rel.continuity) lines.push(rel.continuity);
-  }
-
-  const ctx = identity.context_awareness;
-  if (ctx) {
-    const bits = [ctx.time, ctx.session, ctx.system].filter(
-      (/** @type {string | undefined} */ b) => b
-    );
-    if (bits.length) lines.push('', '## Conciencia de contexto', .../** @type {string[]} */ (bits));
-  }
-
-  const lim = identity.limits;
-  if (lim?.what_i_am_not?.length) {
-    lines.push('', '## Límites', lim.what_i_am_not.join(' '));
-    if (lim.identity_stability) lines.push(lim.identity_stability);
-  }
-
-  lines.push('', '## Formato de respuesta');
-  lines.push(
-    'Puedes usar **Markdown** para dar formato a tus mensajes: negrita, cursiva, listas, tablas, bloques de código, etc.'
-  );
-  lines.push('Si necesitas mostrar un diagrama, usa bloques de código mermaid:');
-  lines.push('```mermaid');
-  lines.push('graph TD;');
-  lines.push('    A-->B;');
-  lines.push('```');
-  lines.push('Tus respuestas serán renderizadas con soporte completo de Markdown y Mermaid.');
-
-  return lines.join('\n');
 }
 
 /** @param {OSContext | null | undefined} osContext */
@@ -569,6 +493,7 @@ class GroqSerializer {
       includeMemory ? _buildMemorySection(persistentMemory) : '',
       includeMemory ? _buildInferredSection(inferredModel) : '',
       _buildToolIntentSection(toolIntent), // ← inyección Fase 3
+      _buildMoodSection(), // ← Fase B motor de identidad (sección delta por turno)
     ].filter(Boolean);
 
     // NOTA: el truncado a MAX_SYSTEM_CHARS ya NO pasa aquí — se movió a
@@ -640,4 +565,8 @@ class GroqSerializer {
   }
 }
 
-module.exports = { GroqSerializer, setIdentityOverride };
+module.exports = {
+  GroqSerializer,
+  setIdentityOverride,
+  _debug_buildFormatExample: _buildFormatExample,
+};

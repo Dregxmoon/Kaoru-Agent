@@ -15,6 +15,12 @@ en el repositorio Asistente-Vtuber.
 - **Pruebas:** suite por archivo en `tests/` (runner = Node de Electron vía
   `ELECTRON_RUN_AS_NODE=1`). Nunca uses `node` del sistema para correr pruebas
   que toquen `better-sqlite3`/`sqlite-vec` (ABI distinto).
+- **Módulos nativos:** `better-sqlite3`/`sqlite-vec` usan ABI de V8 → se
+  reconstruyen contra Electron (`npm run rebuild`). `onnxruntime-node` es
+  **NAPI** (ABI estable): NO se reconstruye con electron-rebuild — si falla con
+  `Module did not self-register`, el prebuild está corrupto y se repara
+  reinstalando el paquete (`npm install onnxruntime-node` o `npm ci`).
+  `EmbedService.checkNativeBindings()` diagnostica esto en runtime.
 
 ## Reglas del agente de código
 

@@ -1940,6 +1940,65 @@ async function testStuckToolDefaultThreshold() {
   teardown();
 }
 
+// ── Test: acción no reconocida produce aviso visible (2.2) ────────────────────
+
+async function testUnrecognizedActionFeedback() {
+  console.log(C.bold('\n── Test: acción no reconocida → aviso visible (2.2) ───────────'));
+
+  const { AgentLoop } = require('../core/planner/AgentLoop.js');
+  const AP = require('../core/planner/ActionParser.js');
+
+  const projectCwd = setup();
+  AP.setProjectCWD(projectCwd);
+
+  let callCount = 0;
+  let capturedAllUserMsg = '';
+  const mockLLM = async (messages) => {
+    callCount++;
+    if (callCount === 1) {
+      // El LLM inventa una acción que no existe en ACTION_TO_TOOL.
+      return '```action\nACCIÓN: hipnopatía_laser\n```';
+    }
+    capturedAllUserMsg = messages
+      .filter((m) => m.role === 'user')
+      .map((m) => (typeof m.content === 'string' ? m.content : ''))
+      .join('\n');
+    return 'No reconozco esa acción, así que no pude ejecutarla.';
+  };
+
+  const loop = new AgentLoop({
+    maxIterations: 5,
+    llm: mockLLM,
+    bridge: createMockBridge(projectCwd),
+  });
+
+  const result = await loop.run('hacé la hipnopatía láser', 'Eres un asistente.', [], {});
+
+  assert(
+    result.iterations === 2,
+    'el run continúa una iteración más con el aviso (no cierra en el bloque desconocido)',
+    `iteraciones: ${result.iterations}`
+  );
+  assert(
+    !!capturedAllUserMsg && /no es reconocida/.test(capturedAllUserMsg),
+    'el LLM recibe feedback con la señal de acción no reconocida',
+    capturedAllUserMsg.slice(0, 300)
+  );
+  assert(
+    !result.toolResults.some((t) => t.tool === 'unknown_action'),
+    'no se ejecuta una tool fantasma "unknown_action"',
+    JSON.stringify(result.toolResults)
+  );
+  assert(
+    result.response.includes('No reconozco'),
+    'la respuesta final es la del LLM tras el aviso',
+    result.response.slice(0, 120)
+  );
+  assert(!result.truncated && !result.error, 'run sin truncar ni error');
+
+  teardown();
+}
+
 // ── Main ──────────────────────────────────────────────────────────────────────
 
 async function main() {
@@ -1973,6 +2032,7 @@ async function main() {
   await testStuckToolDefaultThreshold();
   await testMidLoopReflectionReplans();
   await testMidLoopReflectionOffByDefaultInFast();
+  await testUnrecognizedActionFeedback();
 
   console.log(C.bold('\n════════════════════════════════════════════════════════'));
   const total = passed + failed;

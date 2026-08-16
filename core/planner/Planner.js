@@ -461,7 +461,12 @@ class Planner {
    */
   planFromLLMResponse(llmResponse, userGoal, toolIntent = null) {
     const parser = getStructuredActionParser(AP.PROJECT_CWD);
-    const actions = parser.parse(llmResponse, userGoal, toolIntent);
+    const actions = (parser.parse(llmResponse, userGoal, toolIntent) || []).filter(
+      // 2.2: los marcadores de acción no reconocida no son planes ejecutables —
+      // este camino legacy no tiene canal de aviso al usuario, se descartan
+      // (AgentLoop sí los convierte en señal visible).
+      (a) => a && a.source !== 'unrecognized'
+    );
     if (!actions || !actions.length) return null;
     if (actions.length === 1) {
       const action = actions[0];

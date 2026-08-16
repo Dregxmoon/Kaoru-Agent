@@ -14,6 +14,7 @@ const logger = require('../observability/Logger.js');
  */
 
 const { getIdentity: getIdentityStore } = require('../identity/IdentityStore.js');
+const { serializeMinimal } = require('../identity/IdentitySerializer.js');
 
 // ── Cargar Identity Core ──────────────────────────────────────────────────────
 let _identity = null;
@@ -50,49 +51,9 @@ function getOSContext() {
 }
 
 // ── Serializar Identity Core a texto ──────────────────────────────────────────
-function serializeIdentity(identity) {
-  const lines = [];
-
-  lines.push(`# QUIÉN SOY`);
-  lines.push(identity.core);
-  lines.push('');
-
-  if (identity.character) {
-    lines.push(`# CARÁCTER`);
-    lines.push(identity.character.summary);
-    if (identity.character.traits?.length) {
-      identity.character.traits.forEach((t) => lines.push(`- ${t}`));
-    }
-    lines.push('');
-  }
-
-  if (identity.voice) {
-    lines.push(`# VOZ Y ESTILO`);
-    lines.push(identity.voice.style);
-    if (identity.voice.forbidden_phrases?.length) {
-      lines.push(`Nunca uso estas frases: ${identity.voice.forbidden_phrases.join(' | ')}`);
-    }
-    lines.push('');
-  }
-
-  if (identity.uncertainty_behaviors) {
-    lines.push(`# CÓMO ME COMPORTO CUANDO NO SÉ ALGO`);
-    const ub = identity.uncertainty_behaviors;
-    lines.push(`Cuando no sé algo: ${ub.doesnt_know?.description}`);
-    lines.push(`Cuando estoy insegura: ${ub.is_unsure?.description}`);
-    lines.push(`Cuando me equivoco: ${ub.was_wrong?.description}`);
-    lines.push(`Cuando me sorprenden: ${ub.is_surprised?.description}`);
-    lines.push('');
-  }
-
-  if (identity.limits?.what_i_am_not?.length) {
-    lines.push(`# LO QUE NO SOY`);
-    identity.limits.what_i_am_not.forEach((l) => lines.push(`- ${l}`));
-    lines.push('');
-  }
-
-  return lines.join('\n');
-}
+// El builder vive en core/identity/IdentitySerializer.js (única fuente de
+// verdad identity → texto, mismo que usa GroqSerializer). Formato legacy
+// "minimal", byte a byte idéntico al que producía la función local.
 
 // ── Serializar working memory (historial de sesión) ───────────────────────────
 function serializeWorkingMemory(history, maxTurns = 8) {
@@ -126,7 +87,7 @@ function buildSystemPrompt(sessionHistory = []) {
   const sections = [];
 
   // 1. Identidad
-  sections.push(serializeIdentity(identity));
+  sections.push(serializeMinimal(identity));
 
   // 2. Contexto temporal
   sections.push(`# CONTEXTO ACTUAL`);

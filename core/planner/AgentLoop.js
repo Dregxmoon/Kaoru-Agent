@@ -14,6 +14,7 @@ const { getGitManager } = require('../git/GitManager.js');
 const { WorkspaceCheckpoint, MUTATOR_TOOLS } = require('../git/WorkspaceCheckpoint.js');
 const { getGitHubManager } = require('../github/GitHubManager.js');
 const { RunMetrics } = require('./run-metrics.js');
+const { getMoodEngine } = require('../identity/MoodEngine.js');
 const { runVerifyPlan, buildVerifyFailureNotice } = require('./verify-runner.js');
 const {
   collectEditedFiles,
@@ -822,6 +823,25 @@ class AgentLoop {
         };
       }
 
+      // ── 2.2: red de seguridad — acciones no reconocidas ───────────────────
+      // Un nombre de tool fuera de ACTION_TO_TOOL no debe descartarse en
+      // silencio: se devuelve feedback al LLM (visible en el turno siguiente)
+      // para que reformule, y se registra la señal para el usuario. Se procesa
+      // DESPUÉS del cierre de `actions.length === 0` para que un bloque con
+      // SOLO acciones desconocidas no se trague como "respuesta de texto" y
+      // vuelva a iterar con el aviso.
+      const unrecognized = actions.filter((a) => a && a.source === 'unrecognized');
+      if (unrecognized.length > 0) {
+        unrecognized.forEach(() => this._metrics.trackTool('unknown_action'));
+        const names = unrecognized.map((u) => `"${u.action}"`).join(', ');
+        const feedback =
+          `[La acción ${names} no es reconocida por el asistente y no se ejecutó nada. ` +
+          `Reformula tu petición con una acción válida, o si no puedes, avísale al usuario.]`;
+        iterationHistory.push({ role: 'user', content: feedback });
+        logger.warn('AgentLoop', `[agent-loop] acción no reconocida: ${names} — aviso al usuario`);
+        actions = actions.filter((a) => a && a.source !== 'unrecognized');
+      }
+
       // Normalizar nombres de tool legacy → modernos
       const LEGACY_TO_TOOL = {
         create_file: 'write',
@@ -1009,6 +1029,11 @@ class AgentLoop {
             phase: 'start',
           });
         }
+        // Motor de identidad (Fase B): cada evento agent-progress alimenta el
+        // estado emocional (default/gentle post-error). Nunca rompe el loop.
+        try {
+          getMoodEngine().noteProgress({ phase: 'start' });
+        } catch (_) {}
         try {
           if (GIT_TOOLS.has(action.tool)) {
             result = await this._executeGitTool(action);
@@ -1075,6 +1100,11 @@ class AgentLoop {
             meta: result.meta || null,
           });
         }
+        // Motor de identidad (Fase B): un fallo real de tool → estado ERROR →
+        // mood 'gentle' para el próximo turno (tono uncertainty.was_wrong).
+        try {
+          getMoodEngine().noteProgress({ phase: 'end', status: result.ok ? 'ok' : 'error' });
+        } catch (_) {}
 
         // ── LSP.1: feedback de diagnósticos tras editar (patrón opencode) ──
         // Cuando una tool que muta archivos tuvo éxito, se sincroniza el cambio

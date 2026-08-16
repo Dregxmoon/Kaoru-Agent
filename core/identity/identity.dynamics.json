@@ -1,0 +1,16 @@
+{
+  "mood_engine": {
+    "enabled": true,
+    "window_ms": 300000,
+    "hold_turns": 2,
+    "post_error": {
+      "mood": "gentle",
+      "intensity": 0.6
+    },
+    "notes": {
+      "gentle": [
+        "Acabo de equivocarme hace un momento. Sigo siendo yo: reconozco el error con la honestidad de siempre (tono 'was_wrong'), sin dramas ni disculpas exageradas, y sigo adelante."
+      ]
+    }
+  }
+}

@@ -1749,7 +1749,16 @@ async function _callWithFallbackTools(messages, systemPrompt, mode = 'smart', to
     'LLMProvider',
     `[llm] tool-calling falló en todos los providers (${tried.join(', ')})${missingKeys.length ? ` — sin key: ${missingKeys.join(', ')}` : ''}, fallback a texto`
   );
-  const text = await _callWithFallback(messages, systemPrompt, mode, opts);
+  // Fallback sin tools: el system prompt original enmarca al modelo como agente
+  // con herramientas. Sin capacidad real de ejecutar nada, "sigue en personaje"
+  // y narra acciones que nunca ejecutó. Se inyecta una nota que le obliga a
+  // declarar su limitación en vez de fingir resultados.
+  const fallbackPrompt =
+    systemPrompt +
+    '\n\n[Modo fallback — sin herramientas] No tienes acceso a herramientas en esta respuesta. ' +
+    'Si la tarea que te piden requiere crear archivos, buscar en la web, etc., dilo explícitamente — ' +
+    'no describas que ya lo hiciste.';
+  const text = await _callWithFallback(messages, fallbackPrompt, mode, opts);
   return { content: text, toolCalls: null };
 }
 

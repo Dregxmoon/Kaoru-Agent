@@ -32,6 +32,49 @@ const EMBED_TIMEOUT_MS = 60_000; // una inferencia nunca debería tardar tanto
 const WORKER_LOAD_TIMEOUT_MS = 90_000; // primera carga del modelo puede ser lenta
 const IDLE_TERMINATE_MS = 60_000; // inactividad tras la cual se termina el worker
 const MAX_CONSECUTIVE_FAILURES = 3;
+// Cooldown tras deshabilitar el worker: pasado este tiempo se reintenta en vez
+// de degradar la detección/recall a main thread (o LIKE) por el resto de la
+// sesión. Sin esto, un fallo transitorio (binding bloqueado, modelo en
+// descarga, lock de archivo) dejaba toda la sesión en modo degradado.
+const RETRY_DISABLED_AFTER_MS = 5 * 60 * 1000;
+
+// onnxruntime-node usa NAPI (ABI estable) — NO se reconstruye con
+// electron-rebuild. El error "Module did not self-register" indica un prebuild
+// corrupto o descarga parcial: la reparación es reinstalar el paquete.
+const BINDING_REMEDIATION =
+  '[embeddings] onnxruntime-node no cargó su binding nativo. Es un módulo NAPI (ABI estable), NO uses electron-rebuild: ' +
+  'eso corrompería el prebuild. Reparalo reinstalando el paquete (npm install onnxruntime-node o npm ci).';
+const SELF_REGISTER_RE = /did not self-register|onnxruntime_binding\.node|NODE_MODULE_VERSION/i;
+
+/**
+ * Diagnostica un fallo del worker: si viene del binding nativo de onnxruntime,
+ * devuelve la remediación concreta; si no, null (el fallo es otra cosa).
+ * @param {Error} err
+ * @returns {string | null}
+ */
+function bindingFailureHint(err) {
+  const msg = err && err.message ? String(err.message) : String(err);
+  return SELF_REGISTER_RE.test(msg) ? BINDING_REMEDIATION : null;
+}
+
+/**
+ * Verifica que el binding nativo de onnxruntime-node carga en este proceso.
+ * Devuelve { ok: true } o { ok: false, error, hint } con la remediación.
+ * @returns {{ ok: boolean; error?: string; hint?: string }}
+ */
+function checkNativeBindings() {
+  try {
+    require('onnxruntime-node');
+    return { ok: true };
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    return {
+      ok: false,
+      error: msg,
+      hint: bindingFailureHint(/** @type {Error} */ (e)) || BINDING_REMEDIATION,
+    };
+  }
+}
 
 /**
  * Mensajes que envía embedWorker.js al main process.
@@ -46,9 +89,13 @@ let _starting = null;
 let _pending = new Map();
 let _seq = 0;
 let _consecutiveFailures = 0;
-let _disabled = false;
+// 0 = worker habilitado; si no, timestamp hasta el cual se evita el worker.
+// Pasado el cooldown, embedText reintenta el worker (recuperación de sesión).
+let _disabledUntil = 0;
 /** @type {NodeJS.Timeout | null} */
 let _idleTimer = null;
+/** @type {(() => import('worker_threads').Worker) | null} */
+let _workerFactory = null;
 
 function _clearIdleTimer() {
   if (_idleTimer) {
@@ -86,13 +133,39 @@ function _terminateWorker() {
 function _noteFailure(err) {
   _consecutiveFailures++;
   logger.warn('EmbedService', `[embeddings] worker_threads falló: ${err.message}`);
-  if (_consecutiveFailures >= MAX_CONSECUTIVE_FAILURES) {
-    _disabled = true;
+  const hint = bindingFailureHint(err);
+  if (hint) logger.error('EmbedService', hint);
+  if (_consecutiveFailures >= MAX_CONSECUTIVE_FAILURES && !_disabledUntil) {
+    _disabledUntil = Date.now() + RETRY_DISABLED_AFTER_MS;
     logger.error(
       'EmbedService',
-      `[embeddings] ${MAX_CONSECUTIVE_FAILURES} fallos seguidos — worker deshabilitado, usando main thread`
+      `[embeddings] ${MAX_CONSECUTIVE_FAILURES} fallos seguidos — worker deshabilitado ` +
+        `${RETRY_DISABLED_AFTER_MS / 60000} min (reintento automático tras el cooldown)`
     );
   }
+}
+
+/** @returns {boolean} true si el worker está en cooldown (evitar intentarlo). */
+function _workerDisabled() {
+  return _disabledUntil !== 0 && Date.now() < _disabledUntil;
+}
+
+/** Si el cooldown ya expiró, re-habilita el worker para reintentarlo. */
+function _tryRecoverWorker() {
+  if (_disabledUntil && Date.now() >= _disabledUntil) {
+    _disabledUntil = 0;
+    _consecutiveFailures = 0;
+    logger.warn('EmbedService', '[embeddings] cooldown agotado — reintentando worker');
+  }
+}
+
+/**
+ * Crea el worker real. Se extrae como seam para que los tests inyecten un
+ * worker fake determinista (_debug_setWorkerFactory).
+ * @returns {import('worker_threads').Worker}
+ */
+function _createWorker() {
+  return new Worker(path.join(__dirname, 'embedWorker.js'));
 }
 
 /** @param {import('worker_threads').Worker} w @param {Error} err */
@@ -129,7 +202,7 @@ function _startWorker() {
     /** @type {any} */
     let w;
     try {
-      w = new Worker(path.join(__dirname, 'embedWorker.js'));
+      w = _workerFactory ? _workerFactory() : _createWorker();
       // El worker NO debe mantener vivo el proceso: el main process ya tiene
       // sus propios handles (ventanas, etc.); en tests/scripts sin handles,
       // sin unref() el proceso quedaba colgado esperando al worker.
@@ -161,6 +234,7 @@ function _startWorker() {
           _worker = w;
           _starting = null;
           _consecutiveFailures = 0;
+          _disabledUntil = 0;
           resolve(w);
           _scheduleIdleTerminate();
         } else if (msg.type === 'result') {
@@ -249,7 +323,8 @@ function _mainThreadFallback(text) {
  * @returns {Promise<Float32Array>}
  */
 async function embedText(text) {
-  if (_disabled) return _mainThreadFallback(text);
+  if (_workerDisabled()) return _mainThreadFallback(text);
+  _tryRecoverWorker();
   try {
     const w = await _startWorker();
     return await _request(w, String(text));
@@ -271,7 +346,8 @@ function float32ToBuffer(arr) {
  * @returns {Promise<boolean>}
  */
 async function warmup() {
-  if (_disabled) return false;
+  if (_workerDisabled()) return false;
+  _tryRecoverWorker();
   try {
     const w = await _startWorker();
     await _request(w, 'hola');
@@ -291,6 +367,60 @@ function dispose() {
   _pending.clear();
   for (const p of pending) p.reject(new Error('embed service cerrado'));
   _seq = 0;
+  _consecutiveFailures = 0;
+  _disabledUntil = 0;
 }
 
-module.exports = { embedText, float32ToBuffer, warmup, dispose };
+// ── Debug / tests ─────────────────────────────────────────────────────────────
+
+/**
+ * Inyecta un factory de worker (test determinista sin worker_threads real).
+ * @param {(() => import('worker_threads').Worker) | null} fn
+ */
+function _debug_setWorkerFactory(fn) {
+  _workerFactory = fn;
+}
+
+/** Reinicia el estado del servicio (workers, cooldown, contadores). */
+function _debug_resetState() {
+  _terminateWorker();
+  const pending = [..._pending.values()];
+  _pending.clear();
+  for (const p of pending) p.reject(new Error('embed service reset'));
+  _seq = 0;
+  _consecutiveFailures = 0;
+  _disabledUntil = 0;
+  _workerFactory = null;
+}
+
+/**
+ * Fuerza la deshabilitación del worker para probar cooldown/recuperación.
+ * @param {number} relativeMs offset sobre Date.now() para _disabledUntil
+ */
+function _debug_forceDisable(relativeMs) {
+  _consecutiveFailures = MAX_CONSECUTIVE_FAILURES;
+  _disabledUntil = Date.now() + relativeMs;
+}
+
+/** @returns {{ consecutiveFailures: number; disabledUntil: number; disabled: boolean; workerAlive: boolean }} */
+function _debug_getState() {
+  return {
+    consecutiveFailures: _consecutiveFailures,
+    disabledUntil: _disabledUntil,
+    disabled: _workerDisabled(),
+    workerAlive: !!_worker,
+  };
+}
+
+module.exports = {
+  embedText,
+  float32ToBuffer,
+  warmup,
+  dispose,
+  checkNativeBindings,
+  _debug_setWorkerFactory,
+  _debug_resetState,
+  _debug_forceDisable,
+  _debug_getState,
+  _debug_bindingHint: bindingFailureHint,
+};

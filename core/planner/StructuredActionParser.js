@@ -613,11 +613,20 @@ class StructuredActionParser {
       if (action === 'answer_question' || action === 'explain_code') {
         return null; // No hay herramienta que ejecutar
       }
+      // 2.2: no descartar en silencio. Se devuelve un marcador con
+      // source:'unrecognized' para que AgentLoop lo convierta en una señal
+      // visible (feedback al LLM / aviso al usuario) en vez de tragárselo.
       logger.warn(
         'StructuredActionParser',
-        `[structured-parser] Acción no reconocida: "${action}"`
+        `[structured-parser] Acción no reconocida: "${action}" — se marca para notificar al usuario`
       );
-      return null;
+      return {
+        tool: 'unknown_action',
+        params: { action },
+        description: `Acción no reconocida: ${action}`,
+        action,
+        source: 'unrecognized',
+      };
     }
 
     // Validaciones mínimas por tipo de acción

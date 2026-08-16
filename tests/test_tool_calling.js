@@ -510,6 +510,77 @@ async function testGroq413Retry() {
   );
 }
 
+// ── Test 7: Fallback a texto inyecta la nota "sin herramientas" ──────────────
+
+async function testToolFallbackPromptInjection() {
+  console.log(C.bold('\n── Test 7: fallback a texto tras tool-calling caído inyecta nota ──'));
+
+  const LLMProvider = require('../core/llm/LLMProvider.js');
+  const id = 'test-tool-fallback';
+
+  LLMProvider.registerProvider({
+    id,
+    name: 'Test Tool Fallback',
+    type: 'openai',
+    baseURL: 'http://127.0.0.1:9', // puerto cerrado: no debe llegar a red
+    free: true,
+    models: { fast: 'fast-model', smart: 'smart-model' },
+  });
+  LLMProvider.configure({ llm: { primary: id, fallback: [], apiKeys: { [id]: 'FAKE' } } });
+  LLMProvider._setKeychainResolver(false);
+
+  // tool-calling falla en TODOS los providers (no reintentable)
+  LLMProvider._debug_setToolCaller(id, async () => {
+    throw new Error('gemini 404: tool-calling no disponible');
+  });
+
+  let capturedSystemPrompt = null;
+  LLMProvider._debug_setCaller(id, async (_m, s, _mode, _opts) => {
+    capturedSystemPrompt = s;
+    return 'Entendido: no tengo herramientas en esta respuesta, así que no puedo crear archivos ni navegar.';
+  });
+
+  const tools = [
+    {
+      name: 'read',
+      description: 'lee un archivo',
+      parameters: { type: 'object', properties: { path: { type: 'string' } } },
+    },
+  ];
+
+  const result = await LLMProvider.completeWithTools(
+    [{ role: 'user', content: 'crea un archivo pacman/notas.md' }],
+    'sys',
+    tools,
+    'smart'
+  );
+
+  assert(result.toolCalls === null, 'el fallback textual no produce toolCalls');
+  assert(
+    capturedSystemPrompt !== null,
+    'el caller de texto recibió el system prompt (fallback invocado)'
+  );
+  assert(
+    typeof capturedSystemPrompt === 'string' &&
+      capturedSystemPrompt.includes('No tienes acceso a herramientas'),
+    'el fallback inyecta la nota "sin herramientas" al system prompt'
+  );
+  assert(
+    typeof capturedSystemPrompt === 'string' &&
+      capturedSystemPrompt.includes('no describas que ya lo hiciste'),
+    'la nota pide declarar la limitación en vez de fingir acciones'
+  );
+  assert(
+    !/```(?:tool|xml|json)|<tool_call>|<invoke>|<function_calls?>/i.test(result.content),
+    'la respuesta de fallback no contiene bloques con forma de tool call',
+    result.content
+  );
+  assert(
+    typeof result.content === 'string' && result.content.length > 0,
+    'la respuesta de fallback es texto plano'
+  );
+}
+
 // ── Main ──────────────────────────────────────────────────────────────────────
 
 async function main() {
@@ -524,6 +595,7 @@ async function main() {
   testEdgeCases();
   testSchemaConsistency();
   await testGroq413Retry();
+  await testToolFallbackPromptInjection();
 
   console.log(C.bold('\n════════════════════════════════════════════════════════'));
   const total = passed + failed;
