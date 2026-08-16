@@ -402,6 +402,79 @@ async function testOnPlanEmission() {
   }
 }
 
+// ── 7b. Plan auto-ejecutable: sección inyectada con orden de NO preguntar ────
+async function testPlanAutoExecute() {
+  console.log(C.bold('\n── plan auto-ejecutable (sin pedir confirmación) ─────────────'));
+  const projectCwd = setup();
+  const { AgentLoop } = require('../core/planner/AgentLoop.js');
+  const AP = require('../core/planner/ActionParser.js');
+  AP.setProjectCWD(projectCwd);
+
+  const loop = new AgentLoop({
+    maxIterations: 4,
+    llm: createMockLLM(['x']),
+    bridge: createMockBridge(projectCwd),
+  });
+  const section = loop._renderPlanSection(['Leer contexto', 'Escribir archivo']);
+  assert(
+    section.includes('# PLAN DE EJECUCIÓN'),
+    'la sección inyectada lleva el encabezado del plan'
+  );
+  assert(
+    section.includes('SIN pedir confirmación'),
+    'ordena ejecutar sin pedir confirmación',
+    section
+  );
+  assert(section.includes('- [ ] Leer contexto'), 'cada paso es una casilla "- [ ]"', section);
+
+  // Run completo: el agentPrompt que recibe el LLM incluye la sección del plan.
+  const target = path.join(projectCwd, 'plan-auto.txt');
+  const LLMProvider = require('../core/llm/LLMProvider.js');
+  const orig = LLMProvider.completeWithTools;
+  let sawPrompt = '';
+  LLMProvider.completeWithTools = async (_messages, agentPrompt) => {
+    sawPrompt = agentPrompt || '';
+    return {
+      content: null,
+      toolCalls: [{ tool: 'write', params: { path: target, content: 'v1' } }],
+    };
+  };
+  try {
+    const planLLM = createMockLLM(['PLAN:\n1. Leer contexto\n2. Escribir archivo\n']);
+    const loop2 = new AgentLoop({
+      maxIterations: 4,
+      llm: planLLM,
+      bridge: createMockBridge(projectCwd),
+    });
+    await loop2.run(
+      'Necesito que realices una tarea bastante compleja y de varios pasos para el proyecto: ' +
+        'primero revisar los archivos .js de configuración del módulo principal, luego modificar ' +
+        'el procesamiento para que soporte el nuevo formato de datos, actualizar las pruebas ' +
+        'unitarias y por último correr npm run typecheck y la verificación completa del proyecto.',
+      'Eres un asistente.',
+      [],
+      {
+        tools: [
+          {
+            name: 'write',
+            description: 'escribe',
+            inputSchema: { type: 'object', properties: {} },
+          },
+        ],
+        planning: true,
+        onApprovalNeeded: async () => true,
+      }
+    );
+    assert(
+      sawPrompt.includes('# PLAN DE EJECUCIÓN') && sawPrompt.includes('SIN pedir confirmación'),
+      'el prompt del bucle incluye el plan con orden de ejecutar sin confirmar'
+    );
+  } finally {
+    LLMProvider.completeWithTools = orig;
+    teardown();
+  }
+}
+
 // ── 8. LearningEngine.calibratedDifficulty ────────────────────────────────────
 function testCalibratedDifficulty() {
   console.log(C.bold('\n── dificultad calibrada con outcomes ───────────────────────'));
@@ -576,6 +649,7 @@ async function main() {
   await testAdaptiveIterations();
   await testGitStashNoProgress();
   await testOnPlanEmission();
+  await testPlanAutoExecute();
   testCalibratedDifficulty();
   await testIntentionCommands();
 

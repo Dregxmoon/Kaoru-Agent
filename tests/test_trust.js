@@ -314,6 +314,68 @@ function testRouting() {
   }
 }
 
+// ── Test 6: guard de complejidad — tareas complejas no bajan a fast ────────
+function testComplexityGuard() {
+  console.log(C.bold('\nTest 6: resolveAgentMode — guard de tareas complejas'));
+
+  const prevTrust = state.trust;
+  const prevDetector = state.taskDetector;
+  state.taskDetector = { detect: () => ({ isTask: true, confidence: 'high' }) };
+  try {
+    // Trust que recomienda fast (fast mucho mejor que smart, como en Test 5).
+    const t = new TrustModel({ filePath: tmpPath('trust-guard') });
+    for (let i = 0; i < 5; i++) {
+      t.recordOutcome(
+        goodOutcome({
+          mode: 'fast',
+          provider: 'groq',
+          model: 'llama-fast',
+          costUsd: 0.0005,
+          elapsedMs: 800,
+          difficulty: 0.8,
+        })
+      );
+    }
+    for (let i = 0; i < 5; i++) {
+      t.recordOutcome(
+        goodOutcome({
+          mode: 'smart',
+          provider: 'groq',
+          model: 'llama-smart',
+          success: false,
+          error: 'timeout',
+          costUsd: 0.02,
+          elapsedMs: 120000,
+          difficulty: 0.8,
+        })
+      );
+    }
+    state.trust = t;
+
+    // Mensaje complejo (heurístico crudo ≥ 0.5: >40 palabras + patrón .js) →
+    // el guard mantiene smart aunque el trust recomiende fast.
+    const complex =
+      'Kaoru, creá un mini dashboard web para mi comunidad VTuber en un solo archivo main.js ' +
+      'con header con mi nombre y estado de stream en vivo o fuera, tres tarjetas de suscriptores ' +
+      'donaciones del mes y horas de stream con datos de ejemplo, un feed con cinco mensajes ' +
+      'simulados del chat con avatares y colores por rol, tema oscuro con acento magenta, fuente ' +
+      'mono para los numeros y un boton que alterne el estado en vivo';
+    const guarded = resolveAgentMode(complex);
+    assert(
+      guarded.mode === 'smart',
+      'tarea compleja NO baja a fast (guard ≥ 0.5)',
+      `mode=${guarded.mode}`
+    );
+
+    // La tarea simple (heurístico < 0.5) sí puede bajar a fast.
+    const simple = resolveAgentMode('refactoriza algo');
+    assert(simple.mode === 'fast', 'tarea simple sí baja a fast', `mode=${simple.mode}`);
+  } finally {
+    state.trust = prevTrust;
+    state.taskDetector = prevDetector;
+  }
+}
+
 // ── Runner ─────────────────────────────────────────────────────────────────
 async function main() {
   testScoring();
@@ -321,6 +383,7 @@ async function main() {
   testRecommend();
   testCoreFacade();
   testRouting();
+  testComplexityGuard();
 
   const total = passed + failed;
   console.log(C.bold('\n═══════════════════════════════════════════'));

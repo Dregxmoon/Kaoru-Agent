@@ -638,6 +638,9 @@ function createChatWindow() {
   });
 
   S.chatWindow.on('closed', () => {
+    try {
+      require('./ipc/openclaw-handlers.js').resetSessionApprovals();
+    } catch (_) {}
     Core.closeSession().catch((e) => console.error('[session] close error:', e.message));
     Core.setChatOpen(false);
     S.chatWindow = null;

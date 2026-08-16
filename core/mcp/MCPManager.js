@@ -20,11 +20,12 @@
  * el nombre del servidor sirve de namespace para evitar colisiones entre
  * servidores distintos que expongan una tool con el mismo nombre.
  *
- * Seguridad: TODA llamada a una tool MCP requiere aprobación del usuario
- * (ver Planner.isHighImpact — tool 'mcp' siempre es alto impacto). No hay
- * forma de saber de antemano qué hace una tool de un servidor de terceros,
- * así que el default seguro es preguntar siempre, igual que edit_file o
- * create_file.
+ * Seguridad: la aprobación es CONDICIONAL (ver ActionParser.isHighImpact —
+ * caso tool 'mcp'). Las llamadas con path dentro del workspace y sin señales
+ * sensibles se ejecutan libres (igual que read/write/edit openclaw); piden
+ * aprobación solo cuando apuntan FUERA del workspace (external_directory),
+ * a rutas sensibles (.env, .ssh, keys...) o cuando la tool no expone path
+ * identificable (server de terceros con comportamiento desconocido).
  */
 
 'use strict';

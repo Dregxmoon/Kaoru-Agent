@@ -53,6 +53,12 @@ function _escapeHtml(value) {
 
 /**
  * Actualiza (o crea) el widget del plan con el payload recibido.
+ *
+ * El widget es un panel colapsable estilo "pensamiento": por defecto se
+ * muestra minimizado (solo el encabezado "▸ PLAN — N/M") y al hacer clic se
+ * despliega el detalle de pasos con checkboxes. Mientras el run sigue, se
+ * mantiene el estado abierto/cerrado que eligió el usuario: no se fuerza a
+ * abrir en cada actualización de progreso.
  * @param {AgentPlanPayload} payload
  */
 function renderPlanBlock(payload) {
@@ -61,35 +67,52 @@ function renderPlanBlock(payload) {
   if (!parent) return;
 
   if (!_planEl) {
-    _planEl = document.createElement('div');
-    _planEl.className = 'plan-block';
-    parent.insertBefore(_planEl, _planAnchor || null);
+    const el = document.createElement('div');
+    el.className = 'plan-block';
+    const header = document.createElement('div');
+    header.className = 'plan-block-header';
+    header.setAttribute('role', 'button');
+    header.addEventListener('click', () => {
+      el.classList.toggle('open');
+    });
+    el.appendChild(header);
+    const stepsEl = document.createElement('div');
+    stepsEl.className = 'plan-steps';
+    el.appendChild(stepsEl);
+    parent.insertBefore(el, _planAnchor || null);
+    _planEl = el;
   }
 
+  const header = _planEl.querySelector('.plan-block-header');
+  const stepsEl = _planEl.querySelector('.plan-steps');
   const steps = payload.steps;
   const done = Math.max(0, Math.min(payload.done || 0, steps.length));
-  const rows = steps
-    .map((step, idx) => {
-      const checked = idx < done;
-      const label =
-        typeof step === 'string' ? step : String((step && (step.description || step.label)) || '');
-      return (
-        '<div class="plan-step' +
-        (checked ? ' done' : '') +
-        '">' +
-        '<span class="plan-check">' +
-        (checked ? '✓' : '○') +
-        '</span>' +
-        '<span class="plan-label">' +
-        _escapeHtml(label) +
-        '</span>' +
-        '</div>'
-      );
-    })
-    .join('');
 
-  _planEl.innerHTML =
-    '<div class="plan-block-header">PLAN — ' + done + '/' + steps.length + '</div>' + rows;
+  if (header) header.textContent = '▸ PLAN — ' + done + '/' + steps.length;
+  if (stepsEl) {
+    const rows = steps
+      .map((step, idx) => {
+        const checked = idx < done;
+        const label =
+          typeof step === 'string'
+            ? step
+            : String((step && (step.description || step.label)) || '');
+        return (
+          '<div class="plan-step' +
+          (checked ? ' done' : '') +
+          '">' +
+          '<span class="plan-check">' +
+          (checked ? '✓' : '○') +
+          '</span>' +
+          '<span class="plan-label">' +
+          _escapeHtml(label) +
+          '</span>' +
+          '</div>'
+        );
+      })
+      .join('');
+    stepsEl.innerHTML = rows;
+  }
 
   const feed = document.getElementById('messages');
   if (feed) feed.scrollTop = feed.scrollHeight;

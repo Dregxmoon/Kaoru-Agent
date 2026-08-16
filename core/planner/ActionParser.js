@@ -120,6 +120,47 @@ function _isOutsideProject(p) {
   }
 }
 
+/**
+ * Extrae los paths objetivos de una llamada MCP (filesystem y similares). El
+ * payload de un mcp_call es { server, tool, args } donde `args` trae los
+ * parámetros reales de la tool; se cubren los campos path-typed habituales:
+ * path, paths[] (read_multiple_files), source y destination (move_file).
+ * @param {{ path?: string, args?: object }|undefined} params
+ * @returns {string[]}
+ */
+function _mcpApprovalTargets(params) {
+  const args = (params && params.args) || {};
+  const targets = [];
+  if (params && params.path) targets.push(params.path);
+  if (args.path) targets.push(args.path);
+  if (Array.isArray(args.paths)) targets.push(...args.paths);
+  if (args.source) targets.push(args.source);
+  if (args.destination) targets.push(args.destination);
+  return targets;
+}
+
+/**
+ * ¿Una llamada MCP requiere aprobación? (estilo opencode: defaults permisivos).
+ * Con targets dentro del workspace y sin señales sensibles → NO (se ejecuta
+ * libre, igual que read/write/edit openclaw). Pide aprobación solo si algún
+ * target:
+ *   1. Apunta FUERA del workspace (external_directory).
+ *   2. Es una ruta sensible (.env, .ssh, keys...).
+ *   3. Matchea patrones de alto impacto (/etc/, rm -rf...).
+ * Sin ningún path identificable (server de terceros, comportamiento
+ * desconocido) → default seguro: preguntar.
+ * @param {object} [params]
+ * @returns {boolean}
+ */
+function _mcpRequiresApproval(params) {
+  const targets = _mcpApprovalTargets(params);
+  if (targets.length === 0) return true;
+  return targets.some(
+    (t) =>
+      _isSensitivePath(t) || _isOutsideProject(t) || HIGH_IMPACT_PATTERNS.some((p) => p.test(t))
+  );
+}
+
 function isHighImpact(tool, params) {
   if (_isSensitivePath(params?.path) || _isSensitivePath(params?.command)) return true;
 
@@ -144,7 +185,7 @@ function isHighImpact(tool, params) {
   if (tool === 'apply_patch') return true;
   if (tool === 'code_execution') return true;
 
-  if (tool === 'mcp') return true;
+  if (tool === 'mcp') return _mcpRequiresApproval(params);
 
   // ── Plugins: ejecutan código arbitrario del usuario, default = preguntar ──
   if (tool === 'plugin' || (typeof tool === 'string' && tool.startsWith('plugin.'))) return true;

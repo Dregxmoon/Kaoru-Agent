@@ -457,11 +457,16 @@ function _showApprovalCard({ id, tool, params, description }) {
     runsCommand && openclawSandbox === false
       ? `<div class="approval-sandbox-warn">Ejecución de comandos SIN aislamiento de proceso (bwrap no disponible)${openclawSandboxReason ? ` — ${_escapeHtml(openclawSandboxReason)}` : ''}. Esta acción corre con permisos reales del sistema.</div>`
       : '';
-  card.innerHTML = `<div class="approval-title">ACCION DE ALTO IMPACTO — APROBACION REQUERIDA</div><div class="approval-cmd">${safeDescription}</div><div style="font-size:10px;color:var(--text-secondary);margin-bottom:10px">Herramienta: <b>${safeTool}</b>${safeParams.command ? ` · <code>${safeParams.command}</code>` : ''}${safeParams.path ? ` · <code>${safeParams.path}</code>` : ''}</div>${sandboxWarning}${_renderPatchPreview(params?.patch)}<div class="approval-actions"><button class="btn-approve" id="approve-${id}">Ejecutar</button><button class="btn-deny" id="deny-${id}">Cancelar</button></div>`;
+  card.innerHTML = `<div class="approval-title">ACCION DE ALTO IMPACTO — APROBACION REQUERIDA</div><div class="approval-cmd">${safeDescription}</div><div style="font-size:10px;color:var(--text-secondary);margin-bottom:10px">Herramienta: <b>${safeTool}</b>${safeParams.command ? ` · <code>${safeParams.command}</code>` : ''}${safeParams.path ? ` · <code>${safeParams.path}</code>` : ''}</div>${sandboxWarning}${_renderPatchPreview(params?.patch)}<div class="approval-actions"><button class="btn-approve" id="approve-${id}">Ejecutar</button><button class="btn-always" id="always-${id}">Siempre</button><button class="btn-deny" id="deny-${id}">Cancelar</button></div>`;
   messagesEl.appendChild(card);
   messagesEl.scrollTop = messagesEl.scrollHeight;
   document.getElementById(`approve-${id}`)?.addEventListener('click', () => {
     ipcRenderer.send('agent-approval-response', { id, approved: true });
+    card.style.opacity = '.5';
+    card.style.pointerEvents = 'none';
+  });
+  document.getElementById(`always-${id}`)?.addEventListener('click', () => {
+    ipcRenderer.send('agent-approval-response', { id, approved: true, always: true });
     card.style.opacity = '.5';
     card.style.pointerEvents = 'none';
   });

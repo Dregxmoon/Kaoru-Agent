@@ -14,6 +14,13 @@ const { MODE_ADVANTAGE } = require('../trust/TrustModel.js');
 
 const state = require('./state.js');
 
+// Guard de routing de confianza: tareas con dificultad cruda ≥ a este umbral
+// no se bajan a modo fast (modelo barato que no llama tools de forma fiable y
+// desactiva plan/reflexión/auto-corrección). Es el MISMO umbral que usa la
+// planificación explícita del AgentLoop (PLANNING_DIFFICULTY_THRESHOLD = 0.5):
+// si la tarea merece plan, merece el modelo de tarea.
+const ROUTING_COMPLEXITY_GUARD = 0.5;
+
 /**
  * Dificultad de una tarea usando la calibración del LearningEngine (heurístico
  * base + ajuste por outcomes reales del modo) si está disponible. Nunca lanza.
@@ -94,12 +101,29 @@ function resolveAgentMode(userMessage, opts = {}) {
           explicitMode: baseMode,
         });
         const currentTrust = currentBest && currentBest.mode === baseMode ? currentBest.trust : 0;
-        if (rec.confidence >= 0.6 && rec.trust - currentTrust >= MODE_ADVANTAGE) {
+        // Guard de routing: tareas complejas (heurístico crudo ≥ umbral de
+        // planificación) NO bajan a fast. El modo barato no llama tools de
+        // forma fiable y termina "planeando" en prosa sin ejecutar; además
+        // fast desactiva plan/reflexión/auto-corrección. El heurístico crudo
+        // (no calibrado) evita que un modo con buen historial arrastre tareas
+        // de código a un modelo débil.
+        const rawDifficulty = estimateDifficulty({ message: userMessage, taskIntent });
+        const downgradeToFast = rec.mode === 'fast' && rawDifficulty >= ROUTING_COMPLEXITY_GUARD;
+        if (
+          rec.confidence >= 0.6 &&
+          rec.trust - currentTrust >= MODE_ADVANTAGE &&
+          !downgradeToFast
+        ) {
           logger.info(
             'agent',
             `[trust] routing ${baseMode} → ${rec.mode} (${rec.rationale}, ventaja ${(rec.trust - currentTrust).toFixed(2)})`
           );
           baseMode = rec.mode;
+        } else if (downgradeToFast) {
+          logger.info(
+            'agent',
+            `[trust] routing ${baseMode} → ${rec.mode} BLOQUEADO (tarea compleja ≥ ${ROUTING_COMPLEXITY_GUARD}, se mantiene ${baseMode})`
+          );
         }
       }
     } catch (_) {}

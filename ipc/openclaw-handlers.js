@@ -1,6 +1,12 @@
 // @ts-nocheck
 'use strict';
 const logger = require('../core/observability/Logger.js');
+const {
+  approvalPattern,
+  isApproved,
+  addApproval,
+  resetApprovals,
+} = require('../core/security/SessionApprovals.js');
 
 const { ipcMain } = require('electron');
 
@@ -46,6 +52,14 @@ function register(ctx) {
         signal: abort.signal,
         onApprovalNeeded: async (action) => {
           return new Promise((resolve) => {
+            const pattern = approvalPattern(action);
+            // Aprobación "Siempre" ya registrada en esta sesión → se aprueba
+            // directo, sin mostrar el card (patrón opencode).
+            if (isApproved(pattern)) {
+              resolve(true);
+              return;
+            }
+
             if (!S.chatWindow || S.chatWindow.isDestroyed()) {
               resolve(false);
               return;
@@ -61,9 +75,10 @@ function register(ctx) {
                 `${action.tool}: ${JSON.stringify(action.params).slice(0, 100)}`,
             });
 
-            const handler = (e2, { id, approved }) => {
+            const handler = (e2, { id, approved, always }) => {
               if (id === actionId) {
                 ipcMain.removeListener('agent-approval-response', handler);
+                if (always) addApproval(pattern);
                 resolve(approved);
               }
             };
@@ -110,4 +125,9 @@ function register(ctx) {
   });
 }
 
-module.exports = { register };
+module.exports = { register, resetSessionApprovals };
+
+/** Limpia las aprobaciones "Siempre" de la sesión (al cerrar el chat). */
+function resetSessionApprovals() {
+  resetApprovals();
+}

@@ -1466,6 +1466,159 @@ function testPluginToolsAreHighImpact() {
   assert(!AP.isHighImpact('read', { path: 'src/index.js' }), 'read normal dentro del proyecto NO');
 }
 
+// ── MCP: aprobación condicional (estilo opencode) ────────────────────────────
+// Antes toda llamada mcp era alto impacto. Ahora solo pide aprobación si el
+// target sale del workspace, es sensible, matchea HIGH_IMPACT_PATTERNS o no
+// hay path identificable.
+
+function testMCPConditionalApproval() {
+  console.log(C.bold('\n── Aprobación MCP condicional (estilo opencode) ───────────────'));
+
+  const AP = require('../core/planner/ActionParser.js');
+  const projectCwd = teardown() || setup();
+  AP.setProjectCWD(projectCwd);
+
+  // Dentro del workspace → NO aprobación (default permisivo).
+  assert(
+    !AP.isHighImpact('mcp', {
+      server: 'filesystem',
+      tool: 'list_directory',
+      args: { path: projectCwd },
+    }),
+    'mcp list_directory dentro del workspace NO pide aprobación'
+  );
+  assert(
+    !AP.isHighImpact('mcp', {
+      server: 'filesystem',
+      tool: 'write_file',
+      args: { path: path.join(projectCwd, 'a.txt'), content: 'x' },
+    }),
+    'mcp write_file dentro del workspace NO pide aprobación'
+  );
+  assert(
+    !AP.isHighImpact('mcp', {
+      server: 'filesystem',
+      tool: 'move_file',
+      args: {
+        source: path.join(projectCwd, 'a.txt'),
+        destination: path.join(projectCwd, 'b.txt'),
+      },
+    }),
+    'mcp move_file con source+dst dentro NO pide aprobación'
+  );
+  assert(
+    !AP.isHighImpact('mcp', {
+      server: 'filesystem',
+      tool: 'read_multiple_files',
+      args: { paths: [path.join(projectCwd, 'a.txt')] },
+    }),
+    'mcp read_multiple_files (paths[]) dentro NO pide aprobación'
+  );
+
+  // Fuera del workspace → SI (external_directory).
+  assert(
+    AP.isHighImpact('mcp', {
+      server: 'filesystem',
+      tool: 'read_file',
+      args: { path: '/tmp/opencode/lejano.txt' },
+    }),
+    'mcp read_file fuera del workspace pide aprobación'
+  );
+  assert(
+    AP.isHighImpact('mcp', {
+      server: 'filesystem',
+      tool: 'move_file',
+      args: {
+        source: path.join(projectCwd, 'a.txt'),
+        destination: '/etc/backup.txt',
+      },
+    }),
+    'mcp move_file con destino /etc pide aprobación'
+  );
+
+  // Ruta sensible → SI.
+  assert(
+    AP.isHighImpact('mcp', {
+      server: 'filesystem',
+      tool: 'read_file',
+      args: { path: path.join(projectCwd, '.env') },
+    }),
+    'mcp read_file de .env pide aprobación'
+  );
+
+  // Sin path identificable (server de terceros) → SI (default seguro).
+  assert(
+    AP.isHighImpact('mcp', { server: 'github', tool: 'list_issues', args: {} }),
+    'mcp sin path identificable pide aprobación'
+  );
+
+  teardown();
+}
+
+// ── Integración: mcp_call dentro del workspace NO dispara onApprovalNeeded ──
+
+async function testMCPNoApprovalInWorkspace() {
+  console.log(C.bold('\n── mcp_call dentro del workspace NO pide aprobación ───────────'));
+
+  const { AgentLoop } = require('../core/planner/AgentLoop.js');
+  const AP = require('../core/planner/ActionParser.js');
+  const LLMProvider = require('../core/llm/LLMProvider.js');
+
+  const projectCwd = teardown() || setup();
+  AP.setProjectCWD(projectCwd);
+
+  const originalCompleteWithTools = LLMProvider.completeWithTools;
+  LLMProvider.completeWithTools = async () => {
+    throw new Error('proveedores caídos');
+  };
+
+  const mockMCP = createMockMCP(projectCwd);
+  const mockLLM = createMockLLM([
+    `Voy a listar el directorio del proyecto.
+\`\`\`action
+ACCIÓN: mcp_call | SERVIDOR: filesystem | HERRAMIENTA: list_directory | PARAMS: {"path": "${projectCwd}"}
+\`\`\``,
+    'Listado listo.',
+  ]);
+
+  let approvals = 0;
+
+  try {
+    const loop = new AgentLoop({
+      maxIterations: 5,
+      llm: mockLLM,
+      bridge: createMockBridge(projectCwd),
+      mcpManager: mockMCP,
+    });
+
+    const result = await loop.run('listá el directorio del proyecto', 'Eres un asistente.', [], {
+      tools: [{ name: 'list_directory', description: 'Lista un directorio', parameters: {} }],
+      toolResolver: createMCPPrecedenceResolver(),
+      onApprovalNeeded: async () => {
+        approvals++;
+        return true;
+      },
+    });
+
+    assert(!result.error, 'Sin error', `error: ${result.error}`);
+    assert(result.toolResults.length === 1, 'la tool MCP se ejecutó');
+    assert(
+      result.toolResults[0].ok,
+      'list_directory tuvo éxito',
+      result.toolResults[0].error || ''
+    );
+    assert(
+      approvals === 0,
+      'NO se pidió aprobación para mcp_call in-workspace',
+      `approvals: ${approvals}`
+    );
+  } finally {
+    LLMProvider.completeWithTools = originalCompleteWithTools;
+  }
+
+  teardown();
+}
+
 // ── Fase 2: anti-repetición de llamadas idénticas fallidas ──────────────────
 // Caso real de producción: el mismo Write contra un directorio (EISDIR) se
 // repitió 3 veces seguidas quemando iteraciones. El loop registra las llamadas
@@ -2204,6 +2357,8 @@ async function main() {
   await testSelfCritique();
   await testSelfCritiqueCompleteNoExtraRounds();
   testPluginToolsAreHighImpact();
+  testMCPConditionalApproval();
+  await testMCPNoApprovalInWorkspace();
   await testAntiRepetition();
   await testStuckToolWarning();
   await testStuckToolProgressResets();

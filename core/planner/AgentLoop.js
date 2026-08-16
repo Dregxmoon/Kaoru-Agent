@@ -423,10 +423,12 @@ El resto del texto se mostrará al usuario.
    o si la tarea no se puede completar y responde informando el error.
 5. NUNCA ejecutes acciones destructivas sin antes informar al usuario qué
    vas a hacer y por qué.
-6. SI HAY UNA SECCIÓN "# PLAN DE EJECUCIÓN" EN EL PROMPT, seguela paso a paso:
-   cada paso es una casilla "- [ ]" que debes completar en orden. No saltes
-   pasos ni inventes trabajo fuera del plan; si un paso se vuelve inviable,
-   replanificá y avisá.
+6. SI HAY UNA SECCIÓN "# PLAN DE EJECUCIÓN" EN EL PROMPT, EJECUTALA DIRECTAMENTE
+   sin preguntar ni esperar confirmación: cada paso es una casilla "- [ ]" que
+   debes completar en orden con tus herramientas, sin saltarte ninguno. Si una
+   herramienta falla, corregí el error vos mismo y continuá con el paso (o la
+   estrategia alternativa) — no te detengas a preguntar. Solo si un paso se
+   vuelve inviable, replanificá y avisá.
 7. USA HERRAMIENTAS SOLO CUANDO LA TAREA LO REQUIERA. Saludos, preguntas
    sobre ti mismo ("quién eres", tu identidad, tu personalidad), preguntas de
    conversación y dudas que ya puedes responder con lo que sabes se contestan
@@ -2238,7 +2240,8 @@ class AgentLoop {
    */
   _renderPlanSection(steps) {
     const lines = ['# PLAN DE EJECUCIÓN', ''];
-    lines.push('Plan generado antes de actuar. Seguilo paso a paso:');
+    lines.push('Plan generado antes de actuar. Ejecutá los pasos en orden con tus');
+    lines.push('herramientas, SIN pedir confirmación; si algo falla, corregilo y seguí:');
     for (const s of steps) lines.push(`- [ ] ${s}`);
     return lines.join('\n');
   }
