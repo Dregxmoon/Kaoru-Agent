@@ -9,7 +9,7 @@
   "license": "MIT",
   "scripts": {
     "start": "ELECTRON_DISABLE_SECURITY_WARNINGS=1 electron . 2>&1 | grep -vE 'Fontconfig warning|invalid (attribute|constant used)'",
-    "postinstall": "node fix-electron.js",
+    "postinstall": "node fix-electron.js && node scripts/link-asistente.js",
     "rebuild": "npx @electron/rebuild -f -w better-sqlite3",
     "test": "bash tests/run-all.sh",
     "coverage": "bash scripts/coverage.sh",

@@ -345,6 +345,12 @@ cp config.example.json ~/.config/vtuber-overlay/config.json   # Linux
 # o: %APPDATA%/vtuber-overlay/config.json                      # Windows
 ```
 
+El `postinstall` también instala el comando **`asistente`** en tu PATH global
+(symlink `~/.local/bin/asistente` en Linux/macOS, shims `asistente.cmd` en
+Windows) — lánzalo desde cualquier carpeta para abrir/retomar el asistente en
+ese directorio como workspace. Si por permisos/CI no se pudo enlazar, corré
+`npm link` dentro del proyecto.
+
 ### Configuración
 
 En `config.json` (fuente de claves) o `.env` (alternativa):
