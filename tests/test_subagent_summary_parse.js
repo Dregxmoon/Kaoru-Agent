@@ -124,7 +124,11 @@ function runSubagent({ llm, task, projectCwd }) {
 // ── Test 1: el bug existe a nivel parser (sin reportMode) y skipLegacy lo evita ──
 
 async function testParserLevel() {
-  console.log(C.bold('\n── Test 1: parser legacy re-dispara sobre resúmenes naturales; skipLegacy lo evita ──'));
+  console.log(
+    C.bold(
+      '\n── Test 1: parser legacy re-dispara sobre resúmenes naturales; skipLegacy lo evita ──'
+    )
+  );
 
   const { StructuredActionParser } = require('../core/planner/StructuredActionParser.js');
   const { ActionParser } = require('../core/planner/ActionParser.js');
@@ -157,7 +161,8 @@ async function testParserLevel() {
     // Sin skipLegacy, el StructuredActionParser cae al legacy y también dispara.
     const legacyFull = parser.parse(summary, marker, null);
     assert(
-      legacyFull.length === 1 && (legacyFull[0].tool === 'edit_file' || legacyFull[0].tool === 'edit'),
+      legacyFull.length === 1 &&
+        (legacyFull[0].tool === 'edit_file' || legacyFull[0].tool === 'edit'),
       'sin skipLegacy el StructuredActionParser también detecta el edit fantasma'
     );
   }
@@ -166,7 +171,9 @@ async function testParserLevel() {
 // ── Test 2: subagente E2E — resumen natural "Terminé escribiendo el archivo X" ──
 
 async function testSubagentNaturalSummaryWrite() {
-  console.log(C.bold('\n── Test 2: subagente con resumen natural "Terminé escribiendo el archivo X" ──'));
+  console.log(
+    C.bold('\n── Test 2: subagente con resumen natural "Terminé escribiendo el archivo X" ──')
+  );
 
   const dir = setup();
   const target = path.join(dir, 'src', 'foo.js');
@@ -211,7 +218,9 @@ async function testSubagentNaturalSummaryWrite() {
 // ── Test 3: subagente E2E — resumen "Hice la modificación del archivo X" ─────
 
 async function testSubagentNaturalSummaryModify() {
-  console.log(C.bold('\n── Test 3: subagente con resumen natural "Hice la modificación del archivo X" ──'));
+  console.log(
+    C.bold('\n── Test 3: subagente con resumen natural "Hice la modificación del archivo X" ──')
+  );
 
   const dir = setup();
   const target = path.join(dir, 'helpers.js');
@@ -268,7 +277,11 @@ async function testMainAgentProtection() {
   assert(subagentResult.ok, 'subagente resuelto', subagentResult.error || '');
 
   // El agente principal envuelve el resultado con el marker de herramienta.
-  const mainLoop = new AgentLoop({ maxIterations: 5, llm: async () => 'x', bridge: createWriteBridge() });
+  const mainLoop = new AgentLoop({
+    maxIterations: 5,
+    llm: async () => 'x',
+    bridge: createWriteBridge(),
+  });
   const markerMsg = mainLoop._buildToolResultMessage(subagentResult);
   assert(
     markerMsg.startsWith('[Resultado de herramienta "subagent"]:'),
@@ -281,7 +294,11 @@ async function testMainAgentProtection() {
   const mainText = 'Listo, la tarea quedó completa.';
   const viaStructured = parser.parse(mainText, markerMsg, null);
   const viaLegacy = ActionParser.parse(mainText, markerMsg);
-  assert(viaStructured.length === 0, 'el parser del padre no re-detecta edición del resumen', JSON.stringify(viaStructured));
+  assert(
+    viaStructured.length === 0,
+    'el parser del padre no re-detecta edición del resumen',
+    JSON.stringify(viaStructured)
+  );
   assert(viaLegacy.length === 0, 'el ActionParser del padre tampoco', JSON.stringify(viaLegacy));
 
   teardown();
@@ -344,10 +361,7 @@ async function testLastResponseIsActionBlock() {
   // La última salida del LLM del subagente es un bloque de acción (write), no
   // un resumen. reportMode NO debe tragárselo: el write se ejecuta y el run
   // termina en la siguiente iteración con el texto de agotamiento.
-  const llm = createSubagentLLM([
-    actionBlock('read_file', target),
-    actionBlock('write', target),
-  ]);
+  const llm = createSubagentLLM([actionBlock('read_file', target), actionBlock('write', target)]);
 
   const result = await runSubagent({ llm, projectCwd: dir });
 
@@ -360,11 +374,7 @@ async function testLastResponseIsActionBlock() {
     'la acción de la última respuesta se ejecutó (write:ok)',
     JSON.stringify(result.result.toolCalls)
   );
-  assert(
-    fs.existsSync(target),
-    'el archivo de la última acción quedó escrito',
-    target
-  );
+  assert(fs.existsSync(target), 'el archivo de la última acción quedó escrito', target);
 
   teardown();
 }

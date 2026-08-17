@@ -120,9 +120,7 @@ module.exports = function registerCommands(register) {
               ? null
               : current.agentRuns - previous.agentRuns;
           const toolsPerRun =
-            current.agentRuns > 0
-              ? (current.agentToolCalls / current.agentRuns).toFixed(1)
-              : '–';
+            current.agentRuns > 0 ? (current.agentToolCalls / current.agentRuns).toFixed(1) : '–';
           lines.push(
             `│ Runs agente: ${current.agentRuns || 0} vs ${previous.agentRuns || 0}  ${arrow(runsArrow)}`,
             `│ Tools/run: ${toolsPerRun} | Errores: ${current.agentErrors || 0} | Aprobaciones: ${current.agentApprovalsGranted || 0}/${current.agentApprovalRequests || 0}`,

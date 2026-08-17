@@ -36,7 +36,9 @@ function assert(condition, label, detail = '') {
 // ── TelemetryStore.recordAgentRun: agregación por día ─────────────────────────
 
 function testTelemetryRecordAgentRun() {
-  console.log(C.bold('\n── TelemetryStore.recordAgentRun: agregación por día y resumen mensual ──'));
+  console.log(
+    C.bold('\n── TelemetryStore.recordAgentRun: agregación por día y resumen mensual ──')
+  );
 
   const { TelemetryStore } = require('../core/telemetry/TelemetryStore.js');
   const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'metrics-telemetry-'));
@@ -78,9 +80,21 @@ function testTelemetryRecordAgentRun() {
   assert(m.agentRuns === 3, 'agentRuns === 3', `got=${m.agentRuns}`);
   assert(m.agentToolCalls === 4, 'agentToolCalls === 4 (3+1+0)', `got=${m.agentToolCalls}`);
   assert(m.agentErrors === 1, 'agentErrors === 1', `got=${m.agentErrors}`);
-  assert(m.agentApprovalRequests === 2, 'agentApprovalRequests === 2', `got=${m.agentApprovalRequests}`);
-  assert(m.agentApprovalsGranted === 1, 'agentApprovalsGranted === 1', `got=${m.agentApprovalsGranted}`);
-  assert(m.agentApprovalsDenied === 1, 'agentApprovalsDenied === 1', `got=${m.agentApprovalsDenied}`);
+  assert(
+    m.agentApprovalRequests === 2,
+    'agentApprovalRequests === 2',
+    `got=${m.agentApprovalRequests}`
+  );
+  assert(
+    m.agentApprovalsGranted === 1,
+    'agentApprovalsGranted === 1',
+    `got=${m.agentApprovalsGranted}`
+  );
+  assert(
+    m.agentApprovalsDenied === 1,
+    'agentApprovalsDenied === 1',
+    `got=${m.agentApprovalsDenied}`
+  );
   assert(m.agentCancelled === 1, 'agentCancelled === 1', `got=${m.agentCancelled}`);
   assert(m.avgRunDurationMs === 10000, 'avgRunDurationMs === 10000', `got=${m.avgRunDurationMs}`);
   assert(m.p50RunDurationMs === 10000, 'p50RunDurationMs === 10000', `got=${m.p50RunDurationMs}`);
@@ -121,19 +135,47 @@ function createBridge(projectCwd) {
       if (tool === 'read') {
         const p = resolve(params.path);
         return fs.existsSync(p)
-          ? { ok: true, result: fs.readFileSync(p, 'utf-8'), error: null, tool, elapsed: Date.now() - t0 }
-          : { ok: false, error: `File not found: ${p}`, result: null, tool, elapsed: Date.now() - t0 };
+          ? {
+              ok: true,
+              result: fs.readFileSync(p, 'utf-8'),
+              error: null,
+              tool,
+              elapsed: Date.now() - t0,
+            }
+          : {
+              ok: false,
+              error: `File not found: ${p}`,
+              result: null,
+              tool,
+              elapsed: Date.now() - t0,
+            };
       }
       if (tool === 'edit') {
         const p = resolve(params.path);
-        if (params.old_text && fs.existsSync(p) && fs.readFileSync(p, 'utf-8').includes(params.old_text)) {
+        if (
+          params.old_text &&
+          fs.existsSync(p) &&
+          fs.readFileSync(p, 'utf-8').includes(params.old_text)
+        ) {
           const content = fs.readFileSync(p, 'utf-8');
           fs.writeFileSync(p, content.replace(params.old_text, params.new_text), 'utf-8');
           return { ok: true, result: `Edited ${p}`, error: null, tool, elapsed: Date.now() - t0 };
         }
-        return { ok: false, error: 'no_matching_text', result: null, tool, elapsed: Date.now() - t0 };
+        return {
+          ok: false,
+          error: 'no_matching_text',
+          result: null,
+          tool,
+          elapsed: Date.now() - t0,
+        };
       }
-      return { ok: true, result: `[mock] ${tool} ejecutado`, error: null, tool, elapsed: Date.now() - t0 };
+      return {
+        ok: true,
+        result: `[mock] ${tool} ejecutado`,
+        error: null,
+        tool,
+        elapsed: Date.now() - t0,
+      };
     },
   };
 }
@@ -176,7 +218,10 @@ async function testMetricsSuccess() {
   const result = await loop.run('edita src/demo.js', 'Eres un asistente.', [], {});
 
   // Contrato de run() intacto (campo extra, no rompe nada).
-  assert(result.response && result.response.includes('corregí el typo'), 'run() sigue devolviendo response');
+  assert(
+    result.response && result.response.includes('corregí el typo'),
+    'run() sigue devolviendo response'
+  );
   assert(Array.isArray(result.toolResults), 'run() sigue devolviendo toolResults');
 
   const m = result.metrics;
@@ -185,10 +230,18 @@ async function testMetricsSuccess() {
   assert(m.tool_calls_total === 1, 'tool_calls_total === 1', `got=${m.tool_calls_total}`);
   assert(m.tool_calls_by_type && m.tool_calls_by_type.edit === 1, 'tool_calls_by_type.edit === 1');
   assert(m.errors_total === 0, 'errors_total === 0', `got=${m.errors_total}`);
-  assert(m.approval_requests === 0, 'approval_requests === 0 (edit dentro del proyecto)', `got=${m.approval_requests}`);
+  assert(
+    m.approval_requests === 0,
+    'approval_requests === 0 (edit dentro del proyecto)',
+    `got=${m.approval_requests}`
+  );
   assert(m.approvals_granted === 0 && m.approvals_denied === 0, 'sin aprobaciones');
   assert(m.cancelled === false, 'cancelled === false');
-  assert(Number.isInteger(m.duration_ms) && m.duration_ms >= 0, 'duration_ms es un número (puede ser 0 en mocks)', `got=${m.duration_ms}`);
+  assert(
+    Number.isInteger(m.duration_ms) && m.duration_ms >= 0,
+    'duration_ms es un número (puede ser 0 en mocks)',
+    `got=${m.duration_ms}`
+  );
   assert(m.error === null, 'error === null');
   assert(fs.readFileSync(f, 'utf-8').includes('const y = 1;'), 'La mutación quedó aplicada');
 
@@ -223,10 +276,17 @@ async function testMetricsToolError() {
   const result = await loop.run('edita src/demo.js', 'Eres un asistente.', [], {});
 
   const m = result.metrics;
-  assert(m.errors_total === 1, 'errors_total === 1 (falla real, no bloqueo)', `got=${m.errors_total}`);
+  assert(
+    m.errors_total === 1,
+    'errors_total === 1 (falla real, no bloqueo)',
+    `got=${m.errors_total}`
+  );
   assert(m.tool_calls_total === 1, 'tool_calls_total === 1', `got=${m.tool_calls_total}`);
   assert(m.cancelled === false, 'cancelled === false');
-  assert(result.toolResults && result.toolResults.length === 1 && result.toolResults[0].ok === false, 'El fallo quedó en toolResults');
+  assert(
+    result.toolResults && result.toolResults.length === 1 && result.toolResults[0].ok === false,
+    'El fallo quedó en toolResults'
+  );
 
   try {
     fs.rmSync(tmpDir, { recursive: true, force: true });
@@ -258,7 +318,11 @@ async function testMetricsCancelled() {
   assert(m.iterations >= 1, 'iterations >= 1', `got=${m.iterations}`);
   assert(m.tool_calls_total === 0, 'tool_calls_total === 0 (no llegó a ejecutar tools)');
   assert(m.errors_total === 0, 'errors_total === 0');
-  assert(Number.isInteger(m.duration_ms) && m.duration_ms >= 0, 'duration_ms es un número', `got=${m.duration_ms}`);
+  assert(
+    Number.isInteger(m.duration_ms) && m.duration_ms >= 0,
+    'duration_ms es un número',
+    `got=${m.duration_ms}`
+  );
 
   try {
     fs.rmSync(tmpDir, { recursive: true, force: true });
@@ -313,9 +377,17 @@ async function testMetricsApproval() {
     onApprovalNeeded: async () => false,
   });
   const md = resDeny.metrics;
-  assert(md.approval_requests === 1, 'denegada: approval_requests === 1', `got=${md.approval_requests}`);
+  assert(
+    md.approval_requests === 1,
+    'denegada: approval_requests === 1',
+    `got=${md.approval_requests}`
+  );
   assert(md.approvals_granted === 0, 'denegada: approvals_granted === 0');
-  assert(md.approvals_denied === 1, 'denegada: approvals_denied === 1', `got=${md.approvals_denied}`);
+  assert(
+    md.approvals_denied === 1,
+    'denegada: approvals_denied === 1',
+    `got=${md.approvals_denied}`
+  );
   assert(md.tool_calls_total === 1, 'denegada: tool_calls_total === 1 (igual fue pedida)');
   assert(md.errors_total === 0, 'denegada: errors_total === 0 (no es falla real)');
   assert(md.cancelled === false, 'denegada: cancelled === false (el run NO se cancela)');

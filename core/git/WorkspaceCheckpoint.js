@@ -146,10 +146,7 @@ class WorkspaceCheckpoint {
       }
       this.canRevert = true;
     } catch (err) {
-      logger.warn(
-        'WorkspaceCheckpoint',
-        `línea base de ${this.id} no disponible: ${errMsg(err)}`
-      );
+      logger.warn('WorkspaceCheckpoint', `línea base de ${this.id} no disponible: ${errMsg(err)}`);
       this.canRevert = false;
       this.reason = `no se pudo capturar la línea base (${errMsg(err)})`;
     }
@@ -418,9 +415,17 @@ function listCheckpoints() {
  * @param {string|undefined} id
  */
 async function revertCheckpoint(id) {
-  const cp = id ? getCheckpoint(id) : [...REGISTRY.values()].sort((a, b) => b.createdAt - a.createdAt)[0];
+  const cp = id
+    ? getCheckpoint(id)
+    : [...REGISTRY.values()].sort((a, b) => b.createdAt - a.createdAt)[0];
   if (!cp) return { ok: false, error: 'no hay checkpoints registrados' };
   return cp.revert(false);
 }
 
-module.exports = { WorkspaceCheckpoint, getCheckpoint, listCheckpoints, revertCheckpoint, MUTATOR_TOOLS };
+module.exports = {
+  WorkspaceCheckpoint,
+  getCheckpoint,
+  listCheckpoints,
+  revertCheckpoint,
+  MUTATOR_TOOLS,
+};

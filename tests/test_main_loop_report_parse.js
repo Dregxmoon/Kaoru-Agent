@@ -68,9 +68,21 @@ function createBridge(projectCwd) {
         if (tool === 'read') {
           const p = resolve(params.path);
           if (!fs.existsSync(p)) {
-            return { ok: false, error: `File not found: ${p}`, result: null, tool, elapsed: Date.now() - t0 };
+            return {
+              ok: false,
+              error: `File not found: ${p}`,
+              result: null,
+              tool,
+              elapsed: Date.now() - t0,
+            };
           }
-          return { ok: true, result: fs.readFileSync(p, 'utf-8'), error: null, tool, elapsed: Date.now() - t0 };
+          return {
+            ok: true,
+            result: fs.readFileSync(p, 'utf-8'),
+            error: null,
+            tool,
+            elapsed: Date.now() - t0,
+          };
         }
         if (tool === 'write' || tool === 'create_file') {
           const p = resolve(params.path);
@@ -81,16 +93,34 @@ function createBridge(projectCwd) {
         if (tool === 'edit') {
           const p = resolve(params.path);
           if (!fs.existsSync(p)) {
-            return { ok: false, error: `File not found: ${p}`, result: null, tool, elapsed: Date.now() - t0 };
+            return {
+              ok: false,
+              error: `File not found: ${p}`,
+              result: null,
+              tool,
+              elapsed: Date.now() - t0,
+            };
           }
           const content = fs.readFileSync(p, 'utf-8');
           if (params.old_text && content.includes(params.old_text)) {
             fs.writeFileSync(p, content.replace(params.old_text, params.new_text), 'utf-8');
             return { ok: true, result: `Edited ${p}`, error: null, tool, elapsed: Date.now() - t0 };
           }
-          return { ok: false, error: 'no_matching_text', result: null, tool, elapsed: Date.now() - t0 };
+          return {
+            ok: false,
+            error: 'no_matching_text',
+            result: null,
+            tool,
+            elapsed: Date.now() - t0,
+          };
         }
-        return { ok: true, result: `[mock] ${tool} ejecutado`, error: null, tool, elapsed: Date.now() - t0 };
+        return {
+          ok: true,
+          result: `[mock] ${tool} ejecutado`,
+          error: null,
+          tool,
+          elapsed: Date.now() - t0,
+        };
       } catch (e) {
         return { ok: false, error: e.message, result: null, tool, elapsed: Date.now() - t0 };
       }
@@ -114,7 +144,9 @@ async function testClosingProseDoesNotPhantomEdit() {
 
   const mockLLM = createRouterLLM({
     main: [
-      '```action\nACCIÓN: edit_file | ARCHIVO: ' + f + '\nCONTENIDO: cambia "x = 1" por "y = 2" en la primera línea\n```',
+      '```action\nACCIÓN: edit_file | ARCHIVO: ' +
+        f +
+        '\nCONTENIDO: cambia "x = 1" por "y = 2" en la primera línea\n```',
       'Listo, terminé la modificación del archivo ' + f + ' para corregir el bug.',
     ],
     resolution: JSON.stringify({ old_text: 'const x = 1;', new_text: 'const y = 2;' }),
@@ -136,9 +168,19 @@ async function testClosingProseDoesNotPhantomEdit() {
     'Una sola herramienta ejecutada (el edit real, sin fantasma)',
     `tools: ${JSON.stringify(result.toolResults.map((t) => `${t.tool}:${t.ok}`))}`
   );
-  assert(result.toolResults[0].tool === 'edit' && result.toolResults[0].ok, 'El edit real terminó en ok');
-  assert(result.iterations === 2, 'Dos iteraciones (edit + cierre)', `iterations: ${result.iterations}`);
-  assert(result.response.includes('terminé la modificación'), 'La prosa de cierre quedó intacta como respuesta');
+  assert(
+    result.toolResults[0].tool === 'edit' && result.toolResults[0].ok,
+    'El edit real terminó en ok'
+  );
+  assert(
+    result.iterations === 2,
+    'Dos iteraciones (edit + cierre)',
+    `iterations: ${result.iterations}`
+  );
+  assert(
+    result.response.includes('terminé la modificación'),
+    'La prosa de cierre quedó intacta como respuesta'
+  );
   assert(edited.includes('const y = 2;'), 'El archivo quedó editado (y = 2)');
   assert(!edited.includes('const x = 1;'), 'El texto original fue reemplazado');
 
@@ -170,7 +212,8 @@ async function testReflectionAbandonarClosingProseDoesNotPhantomEdit() {
       'Listo, terminé escribiendo el archivo ' + f + ' con la lógica nueva. Adiós.',
     ],
     resolution: 'no json', // resolución inválida → edit_no_resuelto → la tool falla
-    reflection: 'VEREDICTO: ABANDONAR\nRAZÓN: no se puede completar con las herramientas disponibles.',
+    reflection:
+      'VEREDICTO: ABANDONAR\nRAZÓN: no se puede completar con las herramientas disponibles.',
   });
 
   const loop = new AgentLoop({
@@ -194,8 +237,15 @@ async function testReflectionAbandonarClosingProseDoesNotPhantomEdit() {
     result.toolResults.every((t) => t.tool === 'edit' && !t.ok),
     'Ambas entradas son edits fallidos (sin fantasma ok)'
   );
-  assert(result.iterations === 3, 'Tres iteraciones (2 fallas + reflexión + cierre)', `iterations: ${result.iterations}`);
-  assert(result.response.includes('terminé escribiendo'), 'La prosa de cierre quedó intacta como respuesta');
+  assert(
+    result.iterations === 3,
+    'Tres iteraciones (2 fallas + reflexión + cierre)',
+    `iterations: ${result.iterations}`
+  );
+  assert(
+    result.response.includes('terminé escribiendo'),
+    'La prosa de cierre quedó intacta como respuesta'
+  );
 
   try {
     fs.rmSync(tmpDir, { recursive: true, force: true });
@@ -226,18 +276,32 @@ async function testFirstResponseProseStillDetectsEdit() {
     bridge: createBridge(tmpDir),
   });
 
-  const result = await loop.run('Modifica src/demo.js renombrando la variable x por y', 'Eres un asistente.', [], {
-    onApprovalNeeded: async () => true,
-  });
+  const result = await loop.run(
+    'Modifica src/demo.js renombrando la variable x por y',
+    'Eres un asistente.',
+    [],
+    {
+      onApprovalNeeded: async () => true,
+    }
+  );
 
   const edited = fs.readFileSync(path.join(tmpDir, 'src', 'demo.js'), 'utf-8');
   assert(
-    result.toolResults.length === 1 && result.toolResults[0].tool === 'edit' && result.toolResults[0].ok,
+    result.toolResults.length === 1 &&
+      result.toolResults[0].tool === 'edit' &&
+      result.toolResults[0].ok,
     'La edición pedida en prosa en la primera respuesta se ejecutó',
     `tools: ${JSON.stringify(result.toolResults.map((t) => `${t.tool}:${t.ok}`))}`
   );
-  assert(result.iterations === 2, 'Dos iteraciones (prosa + ejecución, cierre)', `iterations: ${result.iterations}`);
-  assert(edited.includes('const y = 1;') && !edited.includes('const x = 1;'), 'El archivo quedó editado');
+  assert(
+    result.iterations === 2,
+    'Dos iteraciones (prosa + ejecución, cierre)',
+    `iterations: ${result.iterations}`
+  );
+  assert(
+    edited.includes('const y = 1;') && !edited.includes('const x = 1;'),
+    'El archivo quedó editado'
+  );
   assert(!result.error, 'Sin error');
 
   try {

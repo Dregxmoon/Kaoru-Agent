@@ -192,10 +192,7 @@ async function testSilentReport() {
 
   const dir = setup();
   const target = path.join(dir, 'oculto.py');
-  const llm = createSubagentLLM([
-    actionBlock('write', target),
-    'Listo, ya terminé con la tarea.',
-  ]);
+  const llm = createSubagentLLM([actionBlock('write', target), 'Listo, ya terminé con la tarea.']);
 
   const result = await runSubagent({ llm, projectCwd: dir });
 

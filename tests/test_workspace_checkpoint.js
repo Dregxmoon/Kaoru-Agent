@@ -106,7 +106,10 @@ async function testGitHappyPath() {
 
   const { WorkspaceCheckpoint } = require('../core/git/WorkspaceCheckpoint.js');
   const cp = new WorkspaceCheckpoint({ cwd: dir });
-  await cp.onBeforeMutation({ tool: 'write', params: { path: path.join(dir, 'base.txt'), content: 'x' } });
+  await cp.onBeforeMutation({
+    tool: 'write',
+    params: { path: path.join(dir, 'base.txt'), content: 'x' },
+  });
   fs.writeFileSync(path.join(dir, 'base.txt'), 'agente-edit', 'utf-8');
   fs.writeFileSync(path.join(dir, 'nuevo.txt'), 'nuevo', 'utf-8');
 
@@ -119,7 +122,11 @@ async function testGitHappyPath() {
 
   const res = await cp.revert();
   assert(res.ok, 'revert() ok');
-  assertEqual(readFile(path.join(dir, 'base.txt')), 'original', 'base.txt restaurado a su estado original');
+  assertEqual(
+    readFile(path.join(dir, 'base.txt')),
+    'original',
+    'base.txt restaurado a su estado original'
+  );
   assert(!fileExists(path.join(dir, 'nuevo.txt')), 'nuevo.txt (creado por la tarea) eliminado');
   assertEqual(readFile(path.join(dir, 'otro.txt')), 'otro', 'otro.txt intacto');
 }
@@ -154,11 +161,25 @@ async function testDirtyTreePreserved() {
   const res = await cp.revert();
 
   assert(res.ok, 'revert() ok');
-  assertEqual(readFile(path.join(dir, 'base.txt')), 'user-edit', 'base.txt vuelve al dirty previo del usuario (NO a v1)');
-  assertEqual(readFile(path.join(dir, 'user-new.txt')), 'user-content', 'user-new.txt (untracked previo) restaurado');
-  assert(!fileExists(path.join(dir, 'agente-new.txt')), 'agente-new.txt (creado por la tarea) eliminado');
+  assertEqual(
+    readFile(path.join(dir, 'base.txt')),
+    'user-edit',
+    'base.txt vuelve al dirty previo del usuario (NO a v1)'
+  );
+  assertEqual(
+    readFile(path.join(dir, 'user-new.txt')),
+    'user-content',
+    'user-new.txt (untracked previo) restaurado'
+  );
+  assert(
+    !fileExists(path.join(dir, 'agente-new.txt')),
+    'agente-new.txt (creado por la tarea) eliminado'
+  );
   const status = await git(dir, ['status', '--porcelain']);
-  assert(status.includes(' M base.txt'), 'git status: base.txt sigue modificado (dirty preservado)');
+  assert(
+    status.includes(' M base.txt'),
+    'git status: base.txt sigue modificado (dirty preservado)'
+  );
   assert(status.includes('?? user-new.txt'), 'git status: user-new.txt sigue untracked');
   assert(!status.includes('agente-new'), 'git status: sin rastro del archivo creado por la tarea');
 }
@@ -219,7 +240,12 @@ async function testRegistry() {
   fs.writeFileSync(path.join(dir, 'base.txt'), 'orig', 'utf-8');
   initRepo(dir);
 
-  const { WorkspaceCheckpoint, getCheckpoint, listCheckpoints, revertCheckpoint } = require('../core/git/WorkspaceCheckpoint.js');
+  const {
+    WorkspaceCheckpoint,
+    getCheckpoint,
+    listCheckpoints,
+    revertCheckpoint,
+  } = require('../core/git/WorkspaceCheckpoint.js');
   const cp = new WorkspaceCheckpoint({ cwd: dir });
   await cp.onBeforeMutation({ tool: 'write', params: { path: path.join(dir, 'base.txt') } });
   fs.writeFileSync(path.join(dir, 'base.txt'), 'agente', 'utf-8');
@@ -227,9 +253,15 @@ async function testRegistry() {
 
   assert(getCheckpoint(cp.id) === cp, 'getCheckpoint(id) resuelve la instancia');
   const list = listCheckpoints();
-  assert(list.some((m) => m.id === cp.id), 'listCheckpoints() incluye el checkpoint');
+  assert(
+    list.some((m) => m.id === cp.id),
+    'listCheckpoints() incluye el checkpoint'
+  );
   const via = list.find((m) => m.id === cp.id);
-  assert(Array.isArray(via.files) && via.files.includes('base.txt'), 'metadata del listado incluye files');
+  assert(
+    Array.isArray(via.files) && via.files.includes('base.txt'),
+    'metadata del listado incluye files'
+  );
 
   const res = await revertCheckpoint(cp.id);
   assert(res.ok, 'revertCheckpoint(id) revierte');
@@ -307,7 +339,11 @@ ACCIÓN: write | ARCHIVO: ${created}
   const bridge = {
     execute: async (tool, params) => {
       if (tool === 'write') {
-        fs.writeFileSync(params.path, params.content || `contenido de ${path.basename(params.path)}`, 'utf-8');
+        fs.writeFileSync(
+          params.path,
+          params.content || `contenido de ${path.basename(params.path)}`,
+          'utf-8'
+        );
         return { ok: true, result: 'escrito', error: null, tool, elapsed: 0 };
       }
       return { ok: false, error: `tool desconocida ${tool}`, result: null, tool, elapsed: 0 };
@@ -326,7 +362,11 @@ ACCIÓN: write | ARCHIVO: ${created}
   assert(meta !== null, 'checkpoint finalizado y con metadata tras el run');
   assert(meta.canRevert, 'checkpoint reversible');
 
-  assert(readFile(target) !== 'original', 'el agente modificó base.txt (antes del revert)', readFile(target));
+  assert(
+    readFile(target) !== 'original',
+    'el agente modificó base.txt (antes del revert)',
+    readFile(target)
+  );
   assert(fileExists(created), 'el agente creó generado.txt');
 
   const res = await checkpoint.revert();

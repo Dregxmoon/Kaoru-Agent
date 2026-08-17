@@ -48,11 +48,16 @@ function testResolveVerifyPlan() {
   // 2. Auto-detect: scripts.typecheck → npm run typecheck
   fs.writeFileSync(
     path.join(dir, 'package.json'),
-    JSON.stringify({ scripts: { lint: 'eslint .', typecheck: 'tsc --noEmit', build: 'vite build' } }),
+    JSON.stringify({
+      scripts: { lint: 'eslint .', typecheck: 'tsc --noEmit', build: 'vite build' },
+    }),
     'utf-8'
   );
   const auto = resolveVerifyPlan(path.join(dir, 'no-config.json'), dir);
-  assert(auto.enabled === true && auto.command === 'npm run typecheck', 'Auto-detect prioriza typecheck');
+  assert(
+    auto.enabled === true && auto.command === 'npm run typecheck',
+    'Auto-detect prioriza typecheck'
+  );
   assert(auto.enabled === true, 'Auto-detect encontró comando');
 
   // 3. Sin typecheck → lint
@@ -96,7 +101,10 @@ function testResolveVerifyPlan() {
   // 6. agent.verify sin command → cae al auto-detect
   fs.writeFileSync(configPath, JSON.stringify({ agent: { verify: {} } }), 'utf-8');
   const fallback = resolveVerifyPlan(configPath, dir);
-  assert(fallback.enabled === true && fallback.command === 'npm run build', 'agent.verify vacío → auto-detect');
+  assert(
+    fallback.enabled === true && fallback.command === 'npm run build',
+    'agent.verify vacío → auto-detect'
+  );
 
   try {
     fs.rmSync(dir, { recursive: true, force: true });
@@ -126,13 +134,32 @@ function createBridge(projectCwd, execResponses = []) {
       const t0 = Date.now();
       if (tool === 'exec') {
         const r = execResponses[execIdx++];
-        return r || { ok: true, result: { stdout: '', stderr: '', exitCode: 0, signal: null, error: null }, tool, elapsed: Date.now() - t0 };
+        return (
+          r || {
+            ok: true,
+            result: { stdout: '', stderr: '', exitCode: 0, signal: null, error: null },
+            tool,
+            elapsed: Date.now() - t0,
+          }
+        );
       }
       if (tool === 'read') {
         const p = resolve(params.path);
         return fs.existsSync(p)
-          ? { ok: true, result: fs.readFileSync(p, 'utf-8'), error: null, tool, elapsed: Date.now() - t0 }
-          : { ok: false, error: `File not found: ${p}`, result: null, tool, elapsed: Date.now() - t0 };
+          ? {
+              ok: true,
+              result: fs.readFileSync(p, 'utf-8'),
+              error: null,
+              tool,
+              elapsed: Date.now() - t0,
+            }
+          : {
+              ok: false,
+              error: `File not found: ${p}`,
+              result: null,
+              tool,
+              elapsed: Date.now() - t0,
+            };
       }
       if (tool === 'edit') {
         const p = resolve(params.path);
@@ -141,9 +168,21 @@ function createBridge(projectCwd, execResponses = []) {
           fs.writeFileSync(p, content.replace(params.old_text, params.new_text), 'utf-8');
           return { ok: true, result: `Edited ${p}`, error: null, tool, elapsed: Date.now() - t0 };
         }
-        return { ok: false, error: 'no_matching_text', result: null, tool, elapsed: Date.now() - t0 };
+        return {
+          ok: false,
+          error: 'no_matching_text',
+          result: null,
+          tool,
+          elapsed: Date.now() - t0,
+        };
       }
-      return { ok: true, result: `[mock] ${tool} ejecutado`, error: null, tool, elapsed: Date.now() - t0 };
+      return {
+        ok: true,
+        result: `[mock] ${tool} ejecutado`,
+        error: null,
+        tool,
+        elapsed: Date.now() - t0,
+      };
     },
   };
 }
@@ -182,8 +221,14 @@ async function testVerifySkipNoMutations() {
 
   assert(result.verify && result.verify.status === 'skipped', 'verify.status === skipped');
   assert(result.verify && result.verify.reason === 'no_mutations', 'reason === no_mutations');
-  assert(result.toolResults.length === 1 && result.toolResults[0].tool === 'read', 'El read se ejecutó normal');
-  assert(result.response.includes('Revisé config.json'), 'Respuesta intacta (sin aviso de verificación)');
+  assert(
+    result.toolResults.length === 1 && result.toolResults[0].tool === 'read',
+    'El read se ejecutó normal'
+  );
+  assert(
+    result.response.includes('Revisé config.json'),
+    'Respuesta intacta (sin aviso de verificación)'
+  );
   assert(!result.error, 'Sin error');
 
   try {
@@ -213,7 +258,9 @@ async function testVerifyPasses() {
     maxIterations: 5,
     mode: 'smart',
     llm: mockLLM,
-    bridge: createBridge(tmpDir, [{ ok: true, result: { stdout: '', stderr: '', exitCode: 0, signal: null, error: null } }]),
+    bridge: createBridge(tmpDir, [
+      { ok: true, result: { stdout: '', stderr: '', exitCode: 0, signal: null, error: null } },
+    ]),
   });
 
   const result = await loop.run('edita src/demo.js', 'Eres un asistente.', [], {
@@ -235,7 +282,9 @@ async function testVerifyPasses() {
 // ── Test 3: mutación + comando falla (determinista) → failed + aviso ─────────
 
 async function testVerifyFailsDeterministic() {
-  console.log(C.bold('\n── Verificación: fallo determinista → failed, aviso explícito, run igual ──'));
+  console.log(
+    C.bold('\n── Verificación: fallo determinista → failed, aviso explícito, run igual ──')
+  );
 
   const { AgentLoop } = require('../core/planner/AgentLoop.js');
   const AP = require('../core/planner/ActionParser.js');
@@ -255,7 +304,16 @@ async function testVerifyFailsDeterministic() {
     mode: 'smart',
     llm: mockLLM,
     bridge: createBridge(tmpDir, [
-      { ok: true, result: { stdout: '', stderr: 'eslint: error in src/demo.js:12:5', exitCode: 1, signal: null, error: null } },
+      {
+        ok: true,
+        result: {
+          stdout: '',
+          stderr: 'eslint: error in src/demo.js:12:5',
+          exitCode: 1,
+          signal: null,
+          error: null,
+        },
+      },
     ]),
   });
 
@@ -265,17 +323,25 @@ async function testVerifyFailsDeterministic() {
 
   assert(result.verify && result.verify.status === 'failed', 'verify.status === failed');
   assert(result.verify && result.verify.exitCode === 1, 'exitCode === 1');
-  assert(result.verify && result.verify.attempts === 1, 'Un solo intento (determinista, sin retry)');
+  assert(
+    result.verify && result.verify.attempts === 1,
+    'Un solo intento (determinista, sin retry)'
+  );
   assert(
     result.verify && result.verify.stderr.includes('eslint: error'),
     'stderr truncado disponible en el resultado'
   );
   assert(
-    result.response.includes('[Verificación] La tarea se completó pero la verificación (npm run lint) falló (exit 1)'),
+    result.response.includes(
+      '[Verificación] La tarea se completó pero la verificación (npm run lint) falló (exit 1)'
+    ),
     'La respuesta lo dice explícitamente (nunca cierre silencioso)',
     `resp: ${result.response.slice(-200)}`
   );
-  assert(result.response.includes('corregí el typo'), 'El texto del LLM se conserva antes del aviso');
+  assert(
+    result.response.includes('corregí el typo'),
+    'El texto del LLM se conserva antes del aviso'
+  );
   assert(!result.error, 'El run NO reporta error (terminó igual, con aviso)');
   assert(fs.readFileSync(f, 'utf-8').includes('const y = 1;'), 'La mutación quedó aplicada igual');
 
@@ -287,7 +353,9 @@ async function testVerifyFailsDeterministic() {
 // ── Test 4: sin comando pero con mutación JS → sellado con node --check ──────
 
 async function testVerifyNodeCheckFallback() {
-  console.log(C.bold('\n── Verificación: sin scripts ni config pero con mutación JS → node --check ──'));
+  console.log(
+    C.bold('\n── Verificación: sin scripts ni config pero con mutación JS → node --check ──')
+  );
 
   const { AgentLoop } = require('../core/planner/AgentLoop.js');
   const AP = require('../core/planner/ActionParser.js');
@@ -316,7 +384,10 @@ async function testVerifyNodeCheckFallback() {
     verify: { enabled: false },
   });
 
-  assert(result.verify && result.verify.status === 'passed', 'verify.status === passed (sellado con node --check)');
+  assert(
+    result.verify && result.verify.status === 'passed',
+    'verify.status === passed (sellado con node --check)'
+  );
   assert(
     result.verify && result.verify.command.startsWith('node --check'),
     'verify.command usa node --check',
@@ -324,7 +395,10 @@ async function testVerifyNodeCheckFallback() {
   );
   assert(result.verify && result.verify.attempts === 1, 'Un solo intento');
   assert(result.verify && result.verify.exitCode === 0, 'exitCode === 0');
-  assert(result.toolResults.length === 1 && result.toolResults[0].ok === true, 'La edición se ejecutó normal');
+  assert(
+    result.toolResults.length === 1 && result.toolResults[0].ok === true,
+    'La edición se ejecutó normal'
+  );
   assert(fs.readFileSync(f, 'utf-8').includes('const y = 1;'), 'La mutación quedó aplicada');
   assert(result.response.includes('corregí el typo'), 'Respuesta intacta');
 
@@ -334,7 +408,9 @@ async function testVerifyNodeCheckFallback() {
 }
 
 async function testVerifyNodeCheckFails() {
-  console.log(C.bold('\n── Verificación: node --check falla (error de sintaxis) → failed + aviso ──'));
+  console.log(
+    C.bold('\n── Verificación: node --check falla (error de sintaxis) → failed + aviso ──')
+  );
 
   const { AgentLoop } = require('../core/planner/AgentLoop.js');
   const AP = require('../core/planner/ActionParser.js');
@@ -354,7 +430,16 @@ async function testVerifyNodeCheckFails() {
     mode: 'smart',
     llm: mockLLM,
     bridge: createBridge(tmpDir, [
-      { ok: true, result: { stdout: '', stderr: 'src/demo.js:2:1: SyntaxError: Unexpected token', exitCode: 1, signal: null, error: null } },
+      {
+        ok: true,
+        result: {
+          stdout: '',
+          stderr: 'src/demo.js:2:1: SyntaxError: Unexpected token',
+          exitCode: 1,
+          signal: null,
+          error: null,
+        },
+      },
     ]),
   });
 
@@ -362,11 +447,19 @@ async function testVerifyNodeCheckFails() {
     verify: { enabled: false },
   });
 
-  assert(result.verify && result.verify.status === 'failed', 'verify.status === failed (node --check detectó el error)');
-  assert(result.verify && result.verify.command.startsWith('node --check'), 'verify.command usa node --check');
+  assert(
+    result.verify && result.verify.status === 'failed',
+    'verify.status === failed (node --check detectó el error)'
+  );
+  assert(
+    result.verify && result.verify.command.startsWith('node --check'),
+    'verify.command usa node --check'
+  );
   assert(result.verify && result.verify.exitCode === 1, 'exitCode === 1');
   assert(
-    result.response.includes('[Verificación] La tarea se completó pero la verificación (node --check'),
+    result.response.includes(
+      '[Verificación] La tarea se completó pero la verificación (node --check'
+    ),
     'La respuesta lo dice explícitamente (nunca cierre silencioso)'
   );
 
@@ -397,7 +490,10 @@ async function testSubagentInheritsVerify() {
   const parent = new AgentLoop({ maxIterations: 6, mode: 'smart', llm: subLLM, bridge });
   parent._verifyPlan = { enabled: true, command: 'npm run lint' };
 
-  const out = await parent._executeSubagent({ tool: 'subagent', params: { task: 'edita el archivo' } });
+  const out = await parent._executeSubagent({
+    tool: 'subagent',
+    params: { task: 'edita el archivo' },
+  });
 
   assert(out.ok, 'subagente ejecutado', out.error || '');
   assert(
@@ -440,7 +536,10 @@ async function testVerifyRetryOnTransient() {
     llm: mockLLM,
     bridge: createBridge(tmpDir, [
       // 1er intento: SIGKILL por timeout del server (transitorio)
-      { ok: true, result: { stdout: '', stderr: '', exitCode: null, signal: 'timeout', error: null } },
+      {
+        ok: true,
+        result: { stdout: '', stderr: '', exitCode: null, signal: 'timeout', error: null },
+      },
       // 2º intento: pasa
       { ok: true, result: { stdout: '', stderr: '', exitCode: 0, signal: null, error: null } },
     ]),
@@ -450,8 +549,14 @@ async function testVerifyRetryOnTransient() {
     verify: { enabled: true, command: 'npm run typecheck' },
   });
 
-  assert(result.verify && result.verify.status === 'passed', 'verify.status === passed tras el retry');
-  assert(result.verify && result.verify.attempts === 2, 'attempts === 2 (reintento solo por transitorio)');
+  assert(
+    result.verify && result.verify.status === 'passed',
+    'verify.status === passed tras el retry'
+  );
+  assert(
+    result.verify && result.verify.attempts === 2,
+    'attempts === 2 (reintento solo por transitorio)'
+  );
 
   try {
     fs.rmSync(tmpDir, { recursive: true, force: true });
