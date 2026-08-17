@@ -413,6 +413,73 @@ function _hasBackgroundOperator(command) {
   return _DETACH_RE.test(command);
 }
 
+// `node -e '<script>'` / `node --eval '<script>'` donde el script está entre
+// comillas (simples o dobles) y PUEDE ser multilínea. El tokenizador sin shell
+// y la detección de shell no pueden manejar esto de forma fiable: comillas
+// anidadas, saltos de línea, backslashes de regex y operadores JS (`||`, `&&`,
+// `;`, `|`) se corrompen o se confunden con sintaxis de shell, y un script
+// vacío caía con "-e requires an argument". En vez de seguir escapando, se
+// extrae el script CRUDO (tal como lo escribió el LLM, sin desescapar nada) y
+// se pasa a `node -` por stdin — el mismo modo de evaluación que `node -e`,
+// que además conserva `require()` relativo al cwd y top-level `await`.
+const NODE_EVAL_RE = /^\s*(node|nodejs)\s+(?:-e|--eval)\s+([\s\S]*)$/;
+
+/**
+ * @param {string} command
+ * @returns {{ bin: string, script: string }|null}
+ *   Script crudo listo para stdin, o null si no aplica (ahí el comando sigue
+ *   el camino normal). Solo cuando el script está entre comillas y no hay nada
+ *   después del cierre; sin comillas el camino actual ya funciona.
+ */
+function _extractNodeEvalScript(command) {
+  const m = NODE_EVAL_RE.exec(command);
+  if (!m) return null;
+  const bin = m[1];
+  const rest = m[2];
+  if (!rest) return null;
+  let script;
+  if (rest[0] === "'") {
+    const end = rest.indexOf("'", 1);
+    if (end === -1) return null; // comilla sin cerrar: no tocar
+    script = rest.slice(1, end);
+    if (rest.slice(end + 1).trim()) return null; // contenido tras el cierre
+  } else if (rest[0] === '"') {
+    let i = 1;
+    let closed = false;
+    for (; i < rest.length; i++) {
+      const ch = rest[i];
+      if (ch === '\\') {
+        i += 1; // el carácter escapado (p.ej. \" o \\n) no cierra la comilla
+        continue;
+      }
+      if (ch === '"') {
+        closed = true;
+        break;
+      }
+    }
+    if (!closed) return null;
+    script = rest.slice(1, i);
+    if (rest.slice(i + 1).trim()) return null;
+  } else {
+    return null; // sin comillas: el camino normal (tokenizado) ya funciona
+  }
+  return { bin, script };
+}
+
+// Un script `node -e` que LEE su propio stdin (readline, prompt-sync,
+// process.stdin) no puede ir por `node -`: ahí el stdin lo consume node para
+// el programa y el script se quedaría esperando data que nunca llega. Ese caso
+// sigue el camino normal (inline), que ya funciona para scripts de 1 línea.
+const STDIN_USAGE_RE = /process\.stdin|readline|prompt-sync|\/dev\/stdin/;
+
+/**
+ * @param {string} script
+ * @returns {boolean}
+ */
+function _scriptReadsStdin(script) {
+  return STDIN_USAGE_RE.test(script);
+}
+
 // ── Rutas inmutablemente protegidas (nunca accesibles) ─────────────────────
 
 const IMMUTABLE_PATH_PATTERNS = [
@@ -684,22 +751,42 @@ const HANDLERS = {
     if (_isBlockedCommand(command)) return { error: 'command blocked by server security policy' };
     if (_isOutsideAllowed(cwd)) return { error: `cwd outside allowed path: ${cwd}` };
 
-    // Shell real: lo pide el llamador (`shell: true`) o se detecta solo cuando
-    // el comando necesita un shell para interpretarse (`cd`/`&&`/pipes/
-    // redirección/backgrounding). Sin el flag ni la sintaxis, los argumentos
-    // se pasan separados a spawn — y aunque se use shell, `sh -c` queda
-    // envuelto en bwrap y el blocklist ya se aplicó sobre el string crudo.
-    let args =
-      input.shell === true || _needsShellCommand(command)
-        ? ['sh', '-c', command]
-        : _rewriteToolchainCommand(_buildCommandArgs(command));
+    // `node -e '<script>'` con script entre comillas (puede ser multilínea):
+    // el script se pasa por stdin con `node -` en vez de tokenizarlo inline.
+    // Sin un shell real, el tokenizado del script (comillas anidadas, saltos
+    // de línea, backslashes de regex, operadores JS `||`/`&&`/`;` que la
+    // detección de shell malinterpreta) era imposible de garantizar y la
+    // verificación fallaba con "-e requires an argument" o un script corrupto.
+    // `node -` evalúa EXACTAMENTE igual que `node -e` (require relativo al
+    // cwd, top-level await) y elimina el problema de escaping por completo.
+    // Solo se reescribe si el llamador no provee `stdin` (ahí el script
+    // interactivo SÍ necesita el pipe para su propio input).
+    let stdinValue = input.stdin != null ? String(input.stdin) : null;
+    let args;
+    let nodeEval = null;
+    if (input.shell !== true && stdinValue == null) {
+      const ev = _extractNodeEvalScript(command);
+      if (ev && !_scriptReadsStdin(ev.script)) nodeEval = ev;
+    }
+    if (nodeEval) {
+      stdinValue = nodeEval.script;
+      args = _rewriteToolchainCommand([nodeEval.bin, '-']);
+    } else if (input.shell === true || _needsShellCommand(command)) {
+      // Shell real: lo pide el llamador (`shell: true`) o se detecta solo cuando
+      // el comando necesita un shell para interpretarse (`cd`/`&&`/pipes/
+      // redirección/backgrounding). Sin el flag ni la sintaxis, los argumentos
+      // se pasan separados a spawn — y aunque se use shell, `sh -c` queda
+      // envuelto en bwrap y el blocklist ya se aplicó sobre el string crudo.
+      args = ['sh', '-c', command];
+    } else {
+      args = _rewriteToolchainCommand(_buildCommandArgs(command));
+    }
     if (!args || args.length === 0) return { error: 'empty command after parsing' };
 
     // Programas interactivos (readline/prompt-sync): si el llamador manda el
     // input en `stdin`, se escribe en el pipe del hijo y luego se cierra; si no
     // hay input, se cierra el stdin de inmediato para que el programa no quede
     // colgado esperando teclas hasta el timeout.
-    const stdinValue = input.stdin != null ? String(input.stdin) : null;
 
     // Async con spawn (no spawnSync): un comando largo NO bloquea el proceso
     // main ni el event loop del server (antes congelaba la app entera).
@@ -1208,6 +1295,8 @@ module.exports = {
   _buildCommandArgs,
   _needsShellCommand,
   _hasBackgroundOperator,
+  _extractNodeEvalScript,
+  _scriptReadsStdin,
   _rewriteToolchainCommand,
   _wrapSandbox,
   _whichBin,

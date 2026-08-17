@@ -215,6 +215,42 @@ function _extractBalancedJSON(content, label) {
   return null; // JSON sin cerrar — se ignora, no se intenta adivinar
 }
 
+/**
+ * Extrae el span crudo de un campo de bloque estructurado (CONTENIDO, COMANDO),
+ * SIN normalizar pipes (mismo patrón que _extractBalancedJSON con PARAMS). El
+ * valor empieza tras "<CAMPO>:" y termina en la siguiente línea que parezca
+ * otro campo "CLAVE: valor" o en el final del bloque. Extraerlo sobre el texto
+ * original ANTES del replace de "|" → salto de línea evita corromper pipes
+ * literales del valor (operador || de JS, alternancia de regex, tablas
+ * markdown).
+ *
+ * @param {string} content
+ * @param {string} fieldName
+ * @param {boolean} [allowInline]
+ *   true: acepta el ancla compacta "| CAMPO:" (formato de una línea); false:
+ *   solo acepta el ancla al inicio de línea (formato multilínea). El formato
+ *   compacto de una línea no puede usar span — el valor termina en el mismo
+ *   "|" que separa los campos siguientes y debe pasar por el parser genérico.
+ * @returns {{ value: string, start: number, end: number }|null}
+ *   null si no hay el campo. `[start,end)` es el span completo (desde el
+ *   inicio de la línea "<CAMPO>:" hasta el campo siguiente o el final).
+ */
+function _extractFieldSpan(content, fieldName, allowInline = true) {
+  const re = new RegExp('(^|\\n|\\|)[ \\t]*' + fieldName + ':[ \\t]*', 'i');
+  const m = content.match(re);
+  if (!m) return null;
+  if (!allowInline && m[1] === '|') return null;
+  const valueStart = m.index + m[0].length;
+  const rest = content.slice(valueStart);
+  const nextField = rest.match(/(^|\n)[ \t]*[A-ZÀ-ÚÑ_][A-ZÀ-ÚÑ_0-9]{1,}:[ \t]/);
+  const valueEnd = nextField ? valueStart + nextField.index : content.length;
+  return {
+    value: content.slice(valueStart, valueEnd).trim(),
+    start: m.index,
+    end: valueEnd,
+  };
+}
+
 // ── Parseo de MCP_TOOL: "servidor.herramienta" ───────────────────────────────
 // Formato: filesystem.write_file, filesystem/write_file, mcp__filesystem__write_file.
 // Se parte por el PRIMER separador ('.' o '/') — el nombre de la herramienta
@@ -562,24 +598,38 @@ class StructuredActionParser {
         content.slice(paramsExtracted.fullMatchEnd);
     }
 
-    // Extraer el resto de campos clave:valor separados por "|" o por newlines
-    const normalized = workingContent.replace(/\|/g, '\n');
-
-    // G.1: CONTENIDO puede ser multilínea (markdown/código). Se extrae ANTES del
-    // loop genérico: el valor empieza tras "CONTENIDO:" y continúa por las líneas
-    // siguientes, salvo que una línea parezca otro campo "CLAVE: valor". Sin esto,
-    // el contenido se truncaba a la primera línea (o se repetía el userGoal).
-    let fieldsText = normalized;
-    const contMatch = fieldsText.match(/(^|\n)[ \t]*CONTENIDO:[ \t]*([\s\S]*)$/i);
-    if (contMatch) {
-      let value = contMatch[2];
-      const nextField = value.match(/(^|\n)[ \t]*[A-ZÀ-ÚÑ_][A-ZÀ-ÚÑ_0-9]{1,}:[ \t]/);
-      if (nextField) value = value.slice(0, nextField.index);
-      fields['CONTENIDO'] = value.trim();
-      fieldsText = fieldsText.slice(0, contMatch.index + contMatch[1].length);
+    // G.1 + corrupción de "|": CONTENIDO puede ser multilínea (markdown/código)
+    // y contener "|" literales. Se extrae ANTES de la normalización de pipes
+    // (igual que PARAMS) sobre el texto original: el valor empieza tras
+    // "CONTENIDO:" y continúa hasta la siguiente línea "CLAVE: valor" o el final
+    // del bloque. Si se normalizara primero, "||" de JS o "a|b" de regex se
+    // volverían saltos de línea y el archivo quedaría escrito corrupto en disco.
+    const contExtracted = _extractFieldSpan(workingContent, 'CONTENIDO');
+    if (contExtracted) {
+      fields['CONTENIDO'] = contExtracted.value;
+      workingContent =
+        workingContent.slice(0, contExtracted.start) + workingContent.slice(contExtracted.end);
     }
 
-    for (const line of fieldsText.split('\n')) {
+    // COMANDO multilínea (p.ej. `node -e` con el script en varias líneas): el
+    // valor se extrae con el mismo span y ANTES de la normalización de pipes,
+    // así un script con `||`/regex no se corrompe y no se trunca en la primera
+    // línea como hacía el parser genérico. Solo cuando el campo está al inicio
+    // de línea: el formato compacto "| COMANDO: x | CWD: y" sigue el camino
+    // genérico (allí el valor es de una línea y el "|" separa campos).
+    const cmdExtracted = _extractFieldSpan(workingContent, 'COMANDO', false);
+    if (cmdExtracted) {
+      fields['COMANDO'] = cmdExtracted.value;
+      workingContent =
+        workingContent.slice(0, cmdExtracted.start) + workingContent.slice(cmdExtracted.end);
+    }
+
+    // Extraer el resto de campos clave:valor separados por "|" o por newlines.
+    // Acá la normalización "|" → salto de línea es segura: workingContent ya no
+    // tiene CONTENIDO, solo los campos cortos tipo ACCIÓN/ARCHIVO de una línea.
+    const normalized = workingContent.replace(/\|/g, '\n');
+
+    for (const line of normalized.split('\n')) {
       const colonIdx = line.indexOf(':');
       if (colonIdx === -1) continue;
 

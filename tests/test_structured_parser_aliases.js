@@ -111,15 +111,29 @@ assert(
   JSON.stringify(a && a.params && a.params.instruction)
 );
 
-// CONTENIDO seguido de otro campo en la misma línea se corta ahí
+// CONTENIDO con "|" literal se preserva (fix corrupción de pipes): un "|"
+// dentro del contenido es CONTENIDO, no un separador de campos. El límite de
+// un campo solo aplica en una línea NUEVA tipo "CLAVE: valor".
 r = parser.parse(
   '```action\nACCIÓN: edit\nARCHIVO: a.js\nCONTENIDO: nuevo | OTRO: valor\n```',
   'userGoal'
 );
 a = r && r.find((x) => x.tool === 'edit_file');
 assert(
+  a && a.params && a.params.instruction === 'nuevo | OTRO: valor',
+  'CONTENIDO en línea única con | preserva el pipe (no lo parte en un campo)',
+  JSON.stringify(a && a.params)
+);
+
+// CONTENIDO multilínea seguido de una línea "CLAVE: valor" SÍ marca el límite.
+r = parser.parse(
+  '```action\nACCIÓN: edit\nARCHIVO: a.js\nCONTENIDO: nuevo\nOTRO: valor\n```',
+  'userGoal'
+);
+a = r && r.find((x) => x.tool === 'edit_file');
+assert(
   a && a.params && a.params.instruction === 'nuevo',
-  'CONTENIDO en línea única con | se corta en el siguiente campo',
+  'CONTENIDO multilínea se corta en la siguiente línea "CLAVE: valor"',
   JSON.stringify(a && a.params)
 );
 
