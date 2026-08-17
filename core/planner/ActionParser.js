@@ -139,26 +139,85 @@ function _mcpApprovalTargets(params) {
   return targets;
 }
 
+// Llamadas MCP de SOLO LECTURA reconocidas por el NOMBRE de la herramienta.
+// Lista EXPLÍCITA de prefijos/patrones de verbos de lectura usados por los
+// servers MCP conocidos (filesystem: read_file, list_directory, get_file_info,
+// search_files; github: list_issues, get_issue, repo_status; brave-search:
+// web_search/news_search; memory: read_memory, search_memory, ...). No es una
+// heurística abierta: cada patrón es un verbo de lectura conocido y la lista
+// está pensada para crecer de forma explícita. Una tool que matchee esto NO
+// pide aprobación por el solo hecho de ser MCP (leer no muta el workspace);
+// los checks de path (fuera del workspace / ruta sensible / HIGH_IMPACT_PATTERNS)
+// se aplican igual. Los mutadores típicos (create_*, write_*, update_*, edit_*,
+// delete_*, move_*, copy_*, send_*, post_*, put_*, commit_*, push_*, set_*, ...)
+// NO matchean esta lista.
+const READONLY_MCP_TOOL_PATTERNS = [
+  /^list(?:_.*)?$/, // list, list_directory, list_issues, list_databases, ...
+  /^read(?:_.*)?$/, // read, read_file, read_multiple_files, read_memory, ...
+  /^get(?:_.*)?$/, // get, get_file_info, get_issue, get_weather, ...
+  /^search(?:_.*)?$/, // search_files, search_repos, search_issues, ...
+  /^fetch(?:_.*)?$/, // fetch_url, fetch_page, fetch_document, ...
+  /^find(?:_.*)?$/, // find_files, find_references, find_notes, ...
+  /^query(?:_.*)?$/, // query_database, query_issues, query_todos, ...
+  /^show(?:_.*)?$/, // show_notes, show_members, show_dashboard, ...
+  /^describe(?:_.*)?$/, // describe_resource, describe_table, ...
+  /^count(?:_.*)?$/, // count_items, count_issues, ...
+  /^check(?:_.*)?$/, // check_status, check_file_exists, check_health, ...
+  /^inspect(?:_.*)?$/, // inspect_resource, inspect_file, ...
+  /^peek(?:_.*)?$/, // peek_memory, peek_schema, ...
+  /^lookup(?:_.*)?$/, // lookup_entity, lookup_user, ...
+  /^retrieve(?:_.*)?$/, // retrieve_document, retrieve_notes, ...
+  /^select(?:_.*)?$/, // select_notes, select_schema, ...
+  /^view(?:_.*)?$/, // view_file, view_diff, ...
+  /^exists?(?:_.*)?$/, // exists, exists_file, exists_table, ...
+  /^download(?:_.*)?$/, // download_file, download_asset (fetch remoto, no muta el workspace)
+  /^.*_info$/, // file_info, repo_info, system_info, server_info, ...
+  /^.*_status$/, // repo_status, task_status, server_status, ...
+  /^.*_health$/, // system_health, server_health, ...
+  /^.*_schema$/, // table_schema, resource_schema, ...
+  /^.*_metadata$/, // file_metadata, resource_metadata, ...
+  /^(?:ls|cat)$/, // comandos estilo unix que algunos servers exponen
+  /^web_search$/, // brave-search y similares
+  /^news_search$/,
+  /^web_fetch$/,
+  /^browse_web$/,
+];
+
+/**
+ * ¿El nombre de una tool MCP es de solo lectura (lista explícita conocida)?
+ * @param {string|undefined} toolName
+ * @returns {boolean}
+ */
+function _isMCPToolReadOnly(toolName) {
+  if (!toolName || typeof toolName !== 'string') return false;
+  const normalized = toolName.trim().toLowerCase();
+  if (!normalized) return false;
+  return READONLY_MCP_TOOL_PATTERNS.some((re) => re.test(normalized));
+}
+
 /**
  * ¿Una llamada MCP requiere aprobación? (estilo opencode: defaults permisivos).
- * Con targets dentro del workspace y sin señales sensibles → NO (se ejecuta
- * libre, igual que read/write/edit openclaw). Pide aprobación solo si algún
- * target:
- *   1. Apunta FUERA del workspace (external_directory).
- *   2. Es una ruta sensible (.env, .ssh, keys...).
- *   3. Matchea patrones de alto impacto (/etc/, rm -rf...).
- * Sin ningún path identificable (server de terceros, comportamiento
- * desconocido) → default seguro: preguntar.
+ * Distingue por el NOMBRE de la herramienta real (no solo por los paths):
+ *   1. Tool de SOLO LECTURA reconocida (lista explícita READONLY_MCP_TOOL_PATTERNS:
+ *      list_*, read_*, get_*, search_*, ...) → NO pide aprobación salvo que un
+ *      target apunte fuera del workspace, sea sensible o matchee un patrón de
+ *      alto impacto. Incluso sin paths identificables (server de terceros con
+ *      params no-path, p.ej. get_weather) la lectura se ejecuta libre.
+ *   2. Tool desconocida o claramente mutadora → con targets dentro del
+ *      workspace se ejecuta libre; sin ningún path identificable (comportamiento
+ *      desconocido) → default seguro: preguntar.
  * @param {object} [params]
  * @returns {boolean}
  */
 function _mcpRequiresApproval(params) {
   const targets = _mcpApprovalTargets(params);
-  if (targets.length === 0) return true;
-  return targets.some(
+  const hasDangerousTarget = targets.some(
     (t) =>
       _isSensitivePath(t) || _isOutsideProject(t) || HIGH_IMPACT_PATTERNS.some((p) => p.test(t))
   );
+  if (_isMCPToolReadOnly(params?.tool)) return hasDangerousTarget;
+  if (targets.length === 0) return true;
+  return hasDangerousTarget;
 }
 
 function isHighImpact(tool, params) {
@@ -180,8 +239,16 @@ function isHighImpact(tool, params) {
 
   if (tool === 'browser') return true;
 
-  if (tool === 'edit_file') return true;
-  if (tool === 'create_file') return true;
+  if (tool === 'edit_file' && params.path)
+    return _isSensitivePath(params.path) || _isOutsideProject(params.path);
+
+  if (tool === 'create_file' && params.path)
+    return (
+      _isSensitivePath(params.path) ||
+      HIGH_IMPACT_PATTERNS.some((p) => p.test(params.path)) ||
+      _isOutsideProject(params.path)
+    );
+
   if (tool === 'apply_patch') return true;
   if (tool === 'code_execution') return true;
 
@@ -682,6 +749,7 @@ class ActionParser {
 module.exports = {
   ActionParser,
   isHighImpact,
+  isMCPToolReadOnly: _isMCPToolReadOnly,
   setProjectCWD,
   get PROJECT_CWD() {
     return PROJECT_CWD;

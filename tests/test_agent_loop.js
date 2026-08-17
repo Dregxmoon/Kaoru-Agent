@@ -1546,10 +1546,48 @@ function testMCPConditionalApproval() {
     'mcp read_file de .env pide aprobación'
   );
 
-  // Sin path identificable (server de terceros) → SI (default seguro).
+  // Tool de SOLO LECTURA por nombre (lista explícita) SIN path identificable
+  // (server de terceros, params no-path) → NO pide aprobación: la lectura no
+  // muta el workspace.
   assert(
-    AP.isHighImpact('mcp', { server: 'github', tool: 'list_issues', args: {} }),
-    'mcp sin path identificable pide aprobación'
+    !AP.isHighImpact('mcp', { server: 'github', tool: 'list_issues', args: {} }),
+    'mcp list_issues (solo lectura, sin path) NO pide aprobación'
+  );
+  assert(
+    !AP.isHighImpact('mcp', { server: 'weather', tool: 'get_current', args: { city: 'CABA' } }),
+    'mcp get_* (solo lectura, args no-path) NO pide aprobación'
+  );
+  assert(
+    !AP.isHighImpact('mcp', { server: 'memory', tool: 'search_memory', args: { q: 'x' } }),
+    'mcp search_* (solo lectura) NO pide aprobación'
+  );
+
+  // Tool de solo lectura pero con target FUERA del workspace o sensible → SI.
+  assert(
+    AP.isHighImpact('mcp', {
+      server: 'filesystem',
+      tool: 'get_file_info',
+      args: { path: '/tmp/opencode/lejano.txt' },
+    }),
+    'mcp get_file_info fuera del workspace pide aprobación'
+  );
+  assert(
+    AP.isHighImpact('mcp', {
+      server: 'filesystem',
+      tool: 'read_file',
+      args: { path: path.join(projectCwd, '.env') },
+    }),
+    'mcp read_file de .env (aunque read-only) pide aprobación'
+  );
+
+  // Tool claramente mutadora (create_*/write_*/delete_*...) → default seguro.
+  assert(
+    AP.isHighImpact('mcp', { server: 'github', tool: 'create_issue', args: {} }),
+    'mcp create_issue (mutadora, sin path) pide aprobación'
+  );
+  assert(
+    AP.isHighImpact('mcp', { server: 'filesystem', tool: 'write_file', args: {} }),
+    'mcp write_file sin path pide aprobación'
   );
 
   teardown();

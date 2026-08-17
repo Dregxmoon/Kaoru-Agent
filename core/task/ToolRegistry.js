@@ -1,6 +1,8 @@
 // @ts-nocheck
 'use strict';
 
+const { isMCPToolReadOnly } = require('../planner/ActionParser.js');
+
 const TOOL_SCHEMAS = [
   {
     id: 'openclaw.exec',
@@ -750,7 +752,10 @@ class ToolRegistry {
               required: t.inputSchema.required?.includes(k) || false,
             }))
           : [],
-        highImpact: true,
+        // Coherente con ActionParser.isHighImpact: una tool MCP de solo
+        // lectura (read_file, list_directory, get_*, ...) no se marca como
+        // alto impacto; el resto puede requerir aprobación según args.
+        highImpact: !isMCPToolReadOnly(t.tool),
         available: true,
       }));
     } catch (e) {
