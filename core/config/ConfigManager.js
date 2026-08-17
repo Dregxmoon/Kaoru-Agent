@@ -112,6 +112,18 @@ const SCHEMA = {
       servers: { type: 'array', default: [], itemType: 'object' },
     },
   },
+  agent: {
+    type: 'object',
+    default: { approvalTimeoutMs: 120000 },
+    schema: {
+      // Tiempo máximo (ms) para que el usuario responda a un card de
+      // aprobación de alto impacto. Pasado ese lapso la acción se deniega y
+      // el card se marca como expirado en la UI. 120s por defecto: el
+      // usuario puede estar leyendo el resto de la respuesta del agente
+      // antes de llegar a la tarjeta.
+      approvalTimeoutMs: { type: 'number', default: 120000 },
+    },
+  },
 };
 
 /**

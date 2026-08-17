@@ -448,12 +448,44 @@ El resto del texto se mostrará al usuario.
    respuesta, pero NO lo arregles por tu cuenta — un edit no solicitado
    cuenta como salirse del alcance y consume llamadas innecesariamente.
 10. MODIFICAR PARTES DE UN ARCHIVO EXISTENTE = edit, NO write. Cuando el
-   archivo ya existe y solo hay que cambiar una o unas pocas líneas
-   (color, texto, una función), usa \`\`\`action edit con old_text (fragmento
-   EXACTO que ya está en el archivo) y new_text (el reemplazo). write es para
-   archivos NUEVOS o para reescribir el archivo ENTERO cuando el cambio
-   afecta la mayoría del contenido. Antes de decidir, lee el archivo con
-   read_file si no conoces su contenido exacto.
+    archivo ya existe y solo hay que cambiar una o unas pocas líneas
+    (color, texto, una función), usa \`\`\`action edit con old_text (fragmento
+    EXACTO que ya está en el archivo) y new_text (el reemplazo). write es para
+    archivos NUEVOS o para reescribir el archivo ENTERO cuando el cambio
+    afecta la mayoría del contenido. Antes de decidir, lee el archivo con
+    read_file si no conoces su contenido exacto.
+11. VERIFICACIÓN CON HONESTIDAD EN EL CIERRE. Si intentaste verificar la
+    tarea (con node -e, un test, typecheck, lint, un comando de ejecución...)
+    y ese intento falló SIN un reintento que pasara, tu texto final DEBE
+    decirlo explícitamente: qué lograste comprobar, qué falló y qué quedó SIN
+    verificar. "Se ve bien" o "parece correcto" NO equivale a "se verificó":
+    inspeccionar con read/head/grep nunca reemplaza una ejecución real que
+    pasó. No afirmes que algo se "verificó" si la última ejecución real de la
+    verificación terminó en error y no hubo un reintento exitoso — si no se
+    pudo comprobar, decilo, no lo des por sentado.
+
+## Verificar lógica JS sin shell
+
+Para verificar fragmentos de JS usá \`node -e\` con el script entre comillas.
+Podés escribir el script en VARIAS LÍNEAS dentro del COMANDO: el parser lo
+preserva completo y el server lo evalúa vía stdin, así que las comillas
+internas, backslashes de regex y operadores \`||\`/\`&&\`/\`;\` no se
+corrompen:
+
+\`\`\`action
+ACCIÓN: run_command
+COMANDO: node -e '
+const a = 40 + 2;
+if (a !== 42) process.exit(1);
+console.log("ok");
+'
+\`\`\`
+
+En un COMANDO de una sola línea separá las sentencias con punto y coma.
+\`\\n\` dentro de un string JS es un escape válido, pero NO lo uses entre
+sentencias (rompe la sintaxis). Evitá heredocs (\`cat > archivo << 'EOF'\`) y
+pipelines/redirecciones largas: dependen de un shell real y son frágiles en
+este entorno de ejecución.
 `;
 
 const MODE_ALIAS = {
@@ -577,6 +609,7 @@ class AgentLoop {
   async _runInternal(userMessage, systemPrompt, messages, opts = {}) {
     const taskIntent = opts.taskIntent || null;
     this._currentTaskIntent = taskIntent;
+    this._reportMode = Boolean(opts.reportMode);
     const domain = taskIntent?.domain || null;
     const llm = opts.llm || this._llm || this._getLLM();
     const parser = getStructuredActionParser(AP.PROJECT_CWD);
@@ -705,6 +738,11 @@ class AgentLoop {
     // modelo no entrega pasos parseables o la llamada falla, el run sigue sin
     // plan: nunca bloquea la tarea.
     this._plan = null;
+    // Tool de alto impacto cuya aprobación expiró (sin respuesta del usuario a
+    // tiempo) en este run. Si el run cierra con texto, el aviso se anexa a la
+    // respuesta final: nunca puede sonar a "todo listo" si una acción quedó
+    // denegada por timeout sin que el usuario lo supiera activamente.
+    this._approvalExpiredTool = null;
     if (this._shouldPlan(userMessage, taskIntent, opts)) {
       try {
         const plan = await this._buildPlan({
@@ -838,9 +876,10 @@ class AgentLoop {
               };
             }
             return {
-              response:
+              response: this._withExpiredApprovalNotice(
                 this._completedSummary(toolResults) +
-                `¡No te preocupes, eso es todo! Solo me quedé sin cuota y no pude escribir el resumen final (error en tool-calling y fallback textual: ${e2.message})`,
+                  `¡No te preocupes, eso es todo! Solo me quedé sin cuota y no pude escribir el resumen final (error en tool-calling y fallback textual: ${e2.message})`
+              ),
               iterations: i + 1,
               toolResults,
               error: 'llm_failure',
@@ -862,9 +901,10 @@ class AgentLoop {
             };
           }
           return {
-            response:
+            response: this._withExpiredApprovalNotice(
               this._completedSummary(toolResults) +
-              `¡No te preocupes, eso es todo! Solo me quedé sin cuota y no pude escribir el resumen final (error en LLM: ${e.message})`,
+                `¡No te preocupes, eso es todo! Solo me quedé sin cuota y no pude escribir el resumen final (error en LLM: ${e.message})`
+            ),
             iterations: i + 1,
             toolResults,
             error: 'llm_failure',
@@ -883,7 +923,7 @@ class AgentLoop {
         // una herramienta — no es un "no respondió", hay que ejecutar la llamada.
         if (!hasNativeToolCalls) {
           return {
-            response: 'El modelo no respondió.',
+            response: this._withExpiredApprovalNotice('El modelo no respondió.'),
             iterations: i + 1,
             toolResults,
             error: 'empty_response',
@@ -967,7 +1007,7 @@ class AgentLoop {
           responseText += buildVerifyFailureNotice(verify);
         }
         return {
-          response: responseText,
+          response: this._withExpiredApprovalNotice(responseText),
           iterations: i + 1,
           toolResults,
           verify,
@@ -1106,14 +1146,28 @@ class AgentLoop {
         }
 
         if (permissionAction === 'ask' && requiresApproval && opts.onApprovalNeeded) {
-          const approved = await opts.onApprovalNeeded(action);
+          const decision = await opts.onApprovalNeeded(action);
+          // onApprovalNeeded puede devolver boolean (true/false) o un objeto
+          // rico { approved, reason }. El caso reason === 'timeout' distingue
+          // una aprobación que EXPIRÓ (el usuario no respondió a tiempo) de
+          // una denegación explícita — el cierre del run debe decirlo.
+          const isObject = decision !== null && typeof decision === 'object';
+          const isTimeout = isObject && decision.reason === 'timeout';
+          const approved = isObject ? Boolean(decision.approved) : Boolean(decision);
           this._metrics.trackApproval(approved);
           if (!approved) {
+            if (isTimeout) this._approvalExpiredTool = action.tool;
             iterationHistory.push({
               role: 'user',
-              content: `[Herramienta "${action.tool}" cancelada por el usuario — continúa sin ella o busca otra estrategia]`,
+              content: isTimeout
+                ? `[La herramienta "${action.tool}" NO se ejecutó: el tiempo de aprobación expiró sin tu respuesta — continúa sin ella o busca otra estrategia]`
+                : `[Herramienta "${action.tool}" cancelada por el usuario — continúa sin ella o busca otra estrategia]`,
             });
-            lastToolResult = { ok: false, error: 'cancelada_por_usuario', tool: action.tool };
+            lastToolResult = {
+              ok: false,
+              error: isTimeout ? 'aprobacion_expirada' : 'cancelada_por_usuario',
+              tool: action.tool,
+            };
             continue;
           }
         } else if (requiresApproval && !opts.onApprovalNeeded && permissionAction !== 'allow') {
@@ -1420,7 +1474,7 @@ class AgentLoop {
       'Puedes pedirme que continúe o reformular la instrucción.';
 
     return {
-      response: lastResponseText || finalResponse,
+      response: this._withExpiredApprovalNotice(lastResponseText || finalResponse),
       iterations: this.maxIterations,
       toolResults,
       truncated: true,
@@ -2621,6 +2675,24 @@ class AgentLoop {
     const done = (toolResults || []).filter((r) => r && r.ok);
     if (done.length === 0) return '';
     return '¡La tarea quedó terminada! ✓\n\n' + done.map((r) => `✓ ${r.tool}`).join('\n') + '\n\n';
+  }
+
+  /**
+   * Anexa a la respuesta final un aviso explícito cuando una herramienta de
+   * alto impacto NO se ejecutó porque su aprobación expiró (timeout sin
+   * respuesta del usuario). Sin esto el LLM podría cerrar con "todo listo"
+   * mientras una acción quedó denegada en silencio. No aplica en reportMode
+   * (subagentes): su texto es un reporte y el padre decide cómo contarlo.
+   * @param {string} text
+   * @returns {string}
+   */
+  _withExpiredApprovalNotice(text) {
+    if (!this._approvalExpiredTool) return text;
+    if (this._reportMode) return text;
+    return (
+      String(text || '') +
+      `\n\n[Acción NO ejecutada] La herramienta "${this._approvalExpiredTool}" quedó DENEGADA: la aprobación expiró sin tu respuesta a tiempo. No se realizó ninguna escritura. Si la necesitás, pedímela de nuevo y aprobala antes de que venza.`
+    );
   }
 
   _summarizeResult(result) {

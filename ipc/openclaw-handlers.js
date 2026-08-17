@@ -10,6 +10,12 @@ const {
 
 const { ipcMain } = require('electron');
 
+// Tiempo máximo (ms) que el usuario tiene para responder a un card de
+// aprobación. Configurable en config.json → agent.approvalTimeoutMs. 120s
+// porque el usuario puede estar leyendo el resto de la respuesta del agente
+// antes de llegar a la tarjeta.
+const DEFAULT_APPROVAL_TIMEOUT_MS = 120_000;
+
 function register(ctx) {
   const { Core, S, sendToChat } = ctx;
 
@@ -45,6 +51,20 @@ function register(ctx) {
       return { response: null, iterations: 0, toolResults: [], error: 'texto vacío' };
     }
 
+    // Tiempo máximo de respuesta a un card de aprobación (configurable vía
+    // config.json → agent.approvalTimeoutMs). El usuario puede estar leyendo
+    // el resto de la respuesta del agente antes de llegar a la tarjeta; si
+    // expira, la acción se deniega y la UI marca el card como expirado.
+    let approvalTimeoutMs = DEFAULT_APPROVAL_TIMEOUT_MS;
+    try {
+      const cfg =
+        typeof ctx.loadEffectiveConfig === 'function'
+          ? ctx.loadEffectiveConfig()
+          : ctx.savedConfig || {};
+      const n = Number(cfg?.agent?.approvalTimeoutMs);
+      if (Number.isFinite(n) && n > 0) approvalTimeoutMs = n;
+    } catch (_) {}
+
     const abort = new AbortController();
     activeAbort = abort;
     try {
@@ -75,19 +95,34 @@ function register(ctx) {
                 `${action.tool}: ${JSON.stringify(action.params).slice(0, 100)}`,
             });
 
+            // `settled` garantiza que el promise se resuelve UNA sola vez
+            // (respuesta del usuario O timeout), y que el timeout NO dispara
+            // el evento de expiración si el usuario ya respondió a tiempo.
+            let settled = false;
             const handler = (e2, { id, approved, always }) => {
-              if (id === actionId) {
-                ipcMain.removeListener('agent-approval-response', handler);
-                if (always) addApproval(pattern);
-                resolve(approved);
-              }
+              if (id !== actionId) return;
+              clearTimeout(timer);
+              if (settled) return;
+              settled = true;
+              ipcMain.removeListener('agent-approval-response', handler);
+              if (always) addApproval(pattern);
+              resolve(approved);
             };
             ipcMain.on('agent-approval-response', handler);
 
-            setTimeout(() => {
+            const timer = setTimeout(() => {
+              if (settled) return;
+              settled = true;
               ipcMain.removeListener('agent-approval-response', handler);
-              resolve(false);
-            }, 60_000);
+              sendToChat('agent-approval-expired', { actionId });
+              logger.info(
+                'openclaw-handlers',
+                `[main] aprobación ${actionId} expiró (${approvalTimeoutMs}ms) — acción denegada`
+              );
+              // Objeto rico: el AgentLoop distingue timeout (aprobacion_expirada)
+              // de una denegación explícita (cancelada_por_usuario).
+              resolve({ approved: false, reason: 'timeout' });
+            }, approvalTimeoutMs);
           });
         },
 

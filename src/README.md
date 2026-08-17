@@ -48,6 +48,7 @@ Interfaz completa de conversación con el asistente.
 | `initiative`                               | Mensaje iniciado proactivamente por el asistente                                                  |
 | `initiative-decision`                      | Respuesta del usuario a una propuesta                                                             |
 | `agent-approval-needed` / `agent-progress` | Aprobaciones y progreso del bucle agente                                                          |
+| `agent-approval-expired`                   | La aprobación expiró (timeout): el card se marca como expirado y la acción NO se ejecutó          |
 | `plan-*`                                   | Eventos del plan de ejecución                                                                     |
 | `stt-*`                                    | Eventos de reconocimiento de voz                                                                  |
 | `telemetry-report`                         | Reporte `/telemetria`                                                                             |

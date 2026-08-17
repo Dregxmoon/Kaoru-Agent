@@ -15,15 +15,15 @@ ventanas (`mainWindow`, `chatWindow`), `tray`, estado del overlay
 
 ## Handlers (uno por dominio)
 
-| Módulo                     | Canales que expone                                                                                                              | Responsabilidad                                                                   |
-| -------------------------- | ------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------- |
-| `window-model-handlers.js` | overlay/modelo/vistas                                                                                                           | ventana overlay, click-through, cambios de modelo Live2D, `broadcastViewsChanged` |
-| `memory-handlers.js`       | `memory-add-turn`, `initiative-decision`, `grounding-build-context`, `sessions-*`, `memory-forget`, `list-skills`, `store-fact` | turnos, contexto, memoria, sesiones, skills                                       |
-| `config-handlers.js`       | config/keys/python-bin                                                                                                          | leer/guardar `config.json`, API keys, binario de Python                           |
-| `init-vectors-handlers.js` | `exec-command`                                                                                                                  | comandos de ejecución permitidos                                                  |
+| Módulo                     | Canales que expone                                                                                                              | Responsabilidad                                                                                                                                    |
+| -------------------------- | ------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `window-model-handlers.js` | overlay/modelo/vistas                                                                                                           | ventana overlay, click-through, cambios de modelo Live2D, `broadcastViewsChanged`                                                                  |
+| `memory-handlers.js`       | `memory-add-turn`, `initiative-decision`, `grounding-build-context`, `sessions-*`, `memory-forget`, `list-skills`, `store-fact` | turnos, contexto, memoria, sesiones, skills                                                                                                        |
+| `config-handlers.js`       | config/keys/python-bin                                                                                                          | leer/guardar `config.json`, API keys, binario de Python                                                                                            |
+| `init-vectors-handlers.js` | `exec-command`                                                                                                                  | comandos de ejecución permitidos                                                                                                                   |
 | `openclaw-handlers.js`     | `openclaw-available`, `openclaw-status`, `agent-run`, `agent-cancel`                                                            | puente OpenClaw, `runAgent`, cancelación (AbortController por ejecución); `openclaw-status` expone disponibilidad + aislamiento de proceso (bwrap) |
-| `mcp-handlers.js`          | MCP/workspace/telemetria                                                                                                        | servidores MCP, workspace activo, telemetría                                      |
-| `github-handlers.js`       | `github-*`                                                                                                                      | login OAuth, issues/PRs                                                           |
+| `mcp-handlers.js`          | MCP/workspace/telemetria                                                                                                        | servidores MCP, workspace activo, telemetría                                                                                                       |
+| `github-handlers.js`       | `github-*`                                                                                                                      | login OAuth, issues/PRs                                                                                                                            |
 
 ## Flujo típico
 
@@ -40,7 +40,12 @@ Los resultados de `agent-run` propagan `meta` (p. ej. `addedLines`/`removedLines
 
 El canal de aprobación (`agent-approval-needed` / `agent-approval-response`) es
 el único camino por el que una herramienta de alto impacto llega a ejecutarse:
-el renderer muestra el diálogo y la respuesta vuelve por el mismo canal.
+el renderer muestra el diálogo y la respuesta vuelve por el mismo canal. Si el
+usuario no responde dentro de `agent.approvalTimeoutMs` (config.json; default
+120 s), el main envía `agent-approval-expired` para que la tarjeta se marque
+como expirada y deniega la acción — el loop distingue este caso
+(`aprobacion_expirada`) de una cancelación explícita y el cierre del agente lo
+refleja en el texto final.
 
 ---
 

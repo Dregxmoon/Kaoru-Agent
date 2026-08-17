@@ -441,6 +441,10 @@ function _escapeHtml(value) {
 // Tarjeta de aprobación rica — se muestra cuando el AgentLoop pide permiso para
 // una acción de alto impacto. Los datos (description/tool/params) son texto del
 // LLM, así que TODO texto interpolado pasa por _escapeHtml (nunca innerHTML crudo).
+// Se registra por actionId para que _expireApprovalCard() pueda marcarla como
+// expirada cuando el timeout del main dispara 'agent-approval-expired'.
+const _approvalCards = new Map();
+
 function _showApprovalCard({ id, tool, params, description }) {
   const card = document.createElement('div');
   card.className = 'approval-card';
@@ -460,19 +464,52 @@ function _showApprovalCard({ id, tool, params, description }) {
   card.innerHTML = `<div class="approval-title">ACCION DE ALTO IMPACTO — APROBACION REQUERIDA</div><div class="approval-cmd">${safeDescription}</div><div style="font-size:10px;color:var(--text-secondary);margin-bottom:10px">Herramienta: <b>${safeTool}</b>${safeParams.command ? ` · <code>${safeParams.command}</code>` : ''}${safeParams.path ? ` · <code>${safeParams.path}</code>` : ''}</div>${sandboxWarning}${_renderPatchPreview(params?.patch)}<div class="approval-actions"><button class="btn-approve" id="approve-${id}">Ejecutar</button><button class="btn-always" id="always-${id}">Siempre</button><button class="btn-deny" id="deny-${id}">Cancelar</button></div>`;
   messagesEl.appendChild(card);
   messagesEl.scrollTop = messagesEl.scrollHeight;
+  _approvalCards.set(id, card);
+  if (_approvalCards.size > 50) {
+    const oldest = _approvalCards.keys().next().value;
+    _approvalCards.delete(oldest);
+  }
   document.getElementById(`approve-${id}`)?.addEventListener('click', () => {
     ipcRenderer.send('agent-approval-response', { id, approved: true });
-    card.style.opacity = '.5';
-    card.style.pointerEvents = 'none';
+    _markApprovalResolved(id, card);
   });
   document.getElementById(`always-${id}`)?.addEventListener('click', () => {
     ipcRenderer.send('agent-approval-response', { id, approved: true, always: true });
-    card.style.opacity = '.5';
-    card.style.pointerEvents = 'none';
+    _markApprovalResolved(id, card);
   });
   document.getElementById(`deny-${id}`)?.addEventListener('click', () => {
     ipcRenderer.send('agent-approval-response', { id, approved: false });
-    card.style.opacity = '.5';
-    card.style.pointerEvents = 'none';
+    _markApprovalResolved(id, card);
   });
+}
+
+// Desactiva el card tras una respuesta del usuario (opacidad + sin clicks).
+function _markApprovalResolved(id, card) {
+  _approvalCards.delete(id);
+  card.style.opacity = '.5';
+  card.style.pointerEvents = 'none';
+  card.querySelectorAll('button').forEach((b) => {
+    b.disabled = true;
+  });
+}
+
+// Marca un card como EXPIRADO (timeout en main). La acción fue denegada por
+// falta de respuesta a tiempo: el card queda visualmente inerte — los botones
+// se deshabilitan para que un clic tardío no envíe una respuesta que ya no
+// tiene listener en main (y no genere confusión ni errores).
+function _expireApprovalCard(id) {
+  const card = _approvalCards.get(id);
+  if (!card) return;
+  _approvalCards.delete(id);
+  card.classList.add('expired');
+  card.style.opacity = '.45';
+  card.style.pointerEvents = 'none';
+  card.querySelectorAll('button').forEach((b) => {
+    b.disabled = true;
+  });
+  const note = document.createElement('div');
+  note.className = 'approval-expired-note';
+  note.textContent = '⏳ Expirada — no se ejecutó (no hubo respuesta a tiempo).';
+  card.appendChild(note);
+  messagesEl.scrollTop = messagesEl.scrollHeight;
 }

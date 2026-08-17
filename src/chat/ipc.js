@@ -150,6 +150,13 @@ ipcRenderer.on('agent-approval-needed', (e, { actionId, tool, params, descriptio
   _showApprovalCard({ id: actionId, tool, params, description });
 });
 
+// El timeout de aprobación expiró en main (sin respuesta del usuario): el card
+// se marca como expirado en vez de quedar activo aceptando clics que no van a
+// ningún lado. La acción NO se ejecutó.
+ipcRenderer.on('agent-approval-expired', (e, { actionId }) => {
+  _expireApprovalCard(actionId);
+});
+
 ipcRenderer.on('initiative', (e, payload) => {
   if (!payload || typeof payload.suggestion !== 'string' || !payload.suggestion) return;
   if (chatGestureEngine) chatGestureEngine.onEvent('initiative');

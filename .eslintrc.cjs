@@ -83,6 +83,7 @@ module.exports = {
         messagesEl: 'writable',
         typewriterMarkdown: 'readonly',
         _showApprovalCard: 'readonly',
+        _expireApprovalCard: 'readonly',
         checkOpenClaw: 'readonly',
         loadModel: 'readonly',
         reloadModel: 'readonly',

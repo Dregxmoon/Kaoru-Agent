@@ -2326,6 +2326,16 @@ body {
   letter-spacing: 0.06em;
   margin-bottom: 6px;
 }
+.approval-card.expired {
+  border-color: rgba(107, 114, 128, 0.4);
+  background: rgba(107, 114, 128, 0.06);
+}
+.approval-expired-note {
+  color: #9ca3af;
+  font-size: 10px;
+  margin-top: 8px;
+  letter-spacing: 0.02em;
+}
 .approval-cmd {
   background: var(--bg-base);
   border-radius: 4px;

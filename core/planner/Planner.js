@@ -545,13 +545,24 @@ class Planner {
           const resolvedParams = this._resolveParams(step.params, stepResults);
 
           if (step.requiresApproval) {
-            const approved =
+            const decision =
               typeof opts.onApprovalNeeded === 'function'
                 ? await opts.onApprovalNeeded(step)
                 : false;
+            // Compatibilidad con el objeto rico { approved, reason } que
+            // devuelve el handler de aprobación en timeout (nunca tratar un
+            // objeto como "aprobado" por ser truthy).
+            const approved =
+              decision !== null && typeof decision === 'object'
+                ? Boolean(decision.approved)
+                : Boolean(decision);
             if (!approved) {
+              const expired =
+                decision !== null && typeof decision === 'object' && decision.reason === 'timeout';
               step.status = 'skipped';
-              step.error = 'Cancelado por el usuario';
+              step.error = expired
+                ? 'Aprobación expirada (sin respuesta a tiempo)'
+                : 'Cancelado por el usuario';
               opts.onStepDone?.(step, null);
               return { step, res: null, skipped: true };
             }

@@ -43,9 +43,23 @@ function makeTmpConfig() {
 function testSchemaShape() {
   console.log(C.bold('\n── Schema cubre claves reales ─────────────────────────'));
 
-  for (const k of ['activeModel', 'chatTheme', 'autonomy', 'llm', 'sensors', 'gestures', 'mcp']) {
+  for (const k of [
+    'activeModel',
+    'chatTheme',
+    'autonomy',
+    'llm',
+    'sensors',
+    'gestures',
+    'mcp',
+    'agent',
+  ]) {
     assert(k in SCHEMA, `schema incluye "${k}"`);
   }
+  assertEqual(
+    SCHEMA.agent.schema.approvalTimeoutMs.default,
+    120000,
+    'agent.approvalTimeoutMs default 120000'
+  );
   for (const k of ['primary', 'fallback', 'apiKeys', 'providers']) {
     assert(k in SCHEMA.llm.schema, `schema.llm incluye "${k}"`);
   }

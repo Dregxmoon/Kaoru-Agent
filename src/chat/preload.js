@@ -114,6 +114,7 @@ const SEND_ALLOWLIST = new Set([
 
 const ON_ALLOWLIST = new Set([
   'agent-approval-needed',
+  'agent-approval-expired',
   'agent-plan',
   'agent-progress',
   'agent-token',
