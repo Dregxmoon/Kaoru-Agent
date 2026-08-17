@@ -598,11 +598,61 @@ function renderActivityBlock(containerEl, progress) {
 function resetActivities() {
   _activityAnchor = null;
   _blocks.clear();
+  _thinkingCount = 0;
 }
 
 /** Alias de resetActivities para quien use el nombre antiguo del módulo. */
 function resetActivityBlocks() {
   resetActivities();
+}
+
+// ── Bloque "razonando" (narración intermedia plegable) ──────────────────────
+// La narración que el LLM streamió en una iteración que terminó en un tool-call
+// se pliega aquí (estilo opencode/Claude Code): header con clic que alterna el
+// cuerpo. Se inserta antes del ancla igual que los activity blocks, por lo que
+// queda justo encima del bloque del tool que la causó.
+let _thinkingCount = 0;
+
+/**
+ * Pliega la narración intermedia de una iteración en un bloque plegable.
+ * @param {string} text
+ */
+function renderThinkingBlock(text) {
+  const body = String(text || '').trim();
+  if (!body) return;
+  _thinkingCount += 1;
+  const block = document.createElement('div');
+  block.className = 'thinking-block';
+  const header = document.createElement('div');
+  header.className = 'thinking-block-header';
+  const label = document.createElement('span');
+  label.className = 'thinking-block-label';
+  label.textContent = `⟳ razonando${_thinkingCount > 1 ? ` (${_thinkingCount})` : ''}`;
+  const chevron = document.createElement('span');
+  chevron.className = 'thinking-block-chevron';
+  chevron.textContent = '▸';
+  const bodyEl = document.createElement('div');
+  bodyEl.className = 'thinking-block-body';
+  bodyEl.innerHTML = renderMarkdown(body);
+  bodyEl.setAttribute('hidden', '');
+  header.addEventListener('click', () => {
+    if (bodyEl.hasAttribute('hidden')) {
+      bodyEl.removeAttribute('hidden');
+      chevron.textContent = '▾';
+    } else {
+      bodyEl.setAttribute('hidden', '');
+      chevron.textContent = '▸';
+    }
+  });
+  header.appendChild(label);
+  header.appendChild(chevron);
+  block.appendChild(header);
+  block.appendChild(bodyEl);
+  const parent = _activityAnchor ? _activityAnchor.parentNode : null;
+  if (!parent) return;
+  if (_activityAnchor) parent.insertBefore(block, _activityAnchor);
+  else parent.appendChild(block);
+  _scrollFeed();
 }
 
 // ── Init ────────────────────────────────────────────────────────────────────

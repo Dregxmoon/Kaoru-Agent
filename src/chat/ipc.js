@@ -134,6 +134,12 @@ ipcRenderer.on('agent-progress', (e, progress) => {
     if (path) window.__lastWritePath = path;
   }
   renderActivityBlock(_activityContainerEl, progress);
+  // Cierre del segmento de streaming: cuando una iteración terminó en un
+  // tool-call (phase 'start' del tool), la narración que el LLM streamió en
+  // esa iteración se pliega en un bloque "razonando" y el buffer del bubble se
+  // limpia — así la respuesta final queda como único mensaje. Se llama DESPUÉS
+  // de renderActivityBlock para que el bloque quede justo encima del tool.
+  if (progress.phase === 'start') closeStreamSegment();
 });
 
 // HUD del plan explícito (plan-then-act): AgentLoop reenvía por 'agent-plan'
@@ -180,7 +186,7 @@ ipcRenderer.on('initiative', (e, payload) => {
     });
     await reveal.done;
     bubble.querySelectorAll('.mermaid').forEach((el) => _renderMermaid(el));
-    messagesEl.scrollTop = messagesEl.scrollHeight;
+    _scrollMessagesToBottom();
     speak(parsedIni.clean);
     pushToSession('assistant', parsedIni.clean);
     ipcRenderer.send('memory-add-turn', { role: 'assistant', content: parsedIni.clean });
@@ -240,7 +246,7 @@ function _renderProposal(proposal, bubble) {
     const oldest = _proposalActions.keys().next().value;
     _proposalActions.delete(oldest);
   }
-  messagesEl.scrollTop = messagesEl.scrollHeight;
+  _scrollMessagesToBottom();
 }
 
 function sendProposalDecision(proposal, decision, wrap, clickedBtn) {
@@ -266,7 +272,7 @@ function sendProposalDecision(proposal, decision, wrap, clickedBtn) {
       ? '✓ Aceptado — en proceso.'
       : 'Descartado — seré más selectiva con esto.';
   wrap.appendChild(status);
-  messagesEl.scrollTop = messagesEl.scrollHeight;
+  _scrollMessagesToBottom();
 }
 
 // Fase B: resultado real de la ejecución de una propuesta aceptada — la
@@ -289,7 +295,7 @@ ipcRenderer.on('proposal-result', (e, { proposalId, ok, skipped, detail }) => {
       ? `✓ ${detail || 'Listo.'}`
       : `✗ ${detail || 'Algo falló.'}`;
   wrap.appendChild(status);
-  messagesEl.scrollTop = messagesEl.scrollHeight;
+  _scrollMessagesToBottom();
 });
 
 // Init

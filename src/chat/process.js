@@ -108,6 +108,29 @@ function _maskUnclosedGesture(text) {
   return t.slice(0, openIdx);
 }
 
+// Streaming del AgentLoop: el buffer en vivo del bubble actual. En cada
+// iteración que termina en un tool-call (agent-progress phase 'start') se
+// cierra el segmento: la narración intermedia se pliega en un bloque
+// "razonando" y el buffer se limpia para la siguiente iteración. Así el
+// bubble solo acumula la respuesta final (que la reemplaza sin cambio visual)
+// y no da la ilusión de que el mensaje "cambia" a otro.
+let _activeAgentStream = null;
+
+function closeStreamSegment() {
+  const s = _activeAgentStream;
+  if (!s) return;
+  _activeAgentStream = null;
+  const text = s.buffer().trim();
+  if (text) {
+    try {
+      renderThinkingBlock(text);
+    } catch (e) {
+      console.warn('[stream] renderThinkingBlock falló:', e.message);
+    }
+  }
+  s.reset();
+}
+
 // processMessage
 async function processMessage(text, files = []) {
   const trimmed = text.trim();
@@ -246,13 +269,29 @@ async function processMessage(text, files = []) {
       const cursor = document.createElement('span');
       cursor.className = 'stream-cursor';
       streamedSpan.appendChild(cursor);
+      // Registro del segmento de streaming activo: closeStreamSegment() (que
+      // ipc.js invoca en agent-progress phase 'start') cierra la narración de
+      // la iteración que terminó en un tool-call, la pliega en un bloque
+      // "razonando" y limpia el buffer para la siguiente iteración.
+      _activeAgentStream = {
+        buffer: () => streamBuf,
+        reset: () => {
+          streamBuf = '';
+          streamedSpan.textContent = '';
+          streamedSpan.appendChild(cursor);
+          if (mdTimer) {
+            clearTimeout(mdTimer);
+            mdTimer = 0;
+          }
+        },
+      };
       const paintStream = () => {
         mdTimer = 0;
         streamedSpan.innerHTML = renderMarkdown(_maskUnclosedGesture(streamBuf), {
           streaming: true,
         });
         streamedSpan.appendChild(cursor);
-        messagesEl.scrollTop = messagesEl.scrollHeight;
+        _scrollMessagesToBottom();
       };
       const offStream = ipcRenderer.on('agent-token', (_e, token) => {
         if (!firstToken) {
@@ -289,7 +328,7 @@ async function processMessage(text, files = []) {
           pushToSession('assistant', partial);
           bubble.classList.add('markdown');
           bubble.innerHTML = renderMarkdown(partial, { path: window.__lastWritePath || '' });
-          messagesEl.scrollTop = messagesEl.scrollHeight;
+          _scrollMessagesToBottom();
         }
         setAgentState('done', 'Cancelado');
         return;
@@ -325,7 +364,7 @@ async function processMessage(text, files = []) {
         bubble.classList.add('markdown');
         bubble.innerHTML = renderMarkdown(response, { path: window.__lastWritePath || '' });
         bubble.querySelectorAll('.mermaid').forEach((el) => _renderMermaid(el));
-        messagesEl.scrollTop = messagesEl.scrollHeight;
+        _scrollMessagesToBottom();
         setAgentState('done', 'Listo');
         speak(response);
         return;
@@ -341,6 +380,8 @@ async function processMessage(text, files = []) {
         const parent = bubble.parentElement?.parentElement;
         if (parent?.parentNode) parent.parentNode.removeChild(parent);
       }
+    } finally {
+      _activeAgentStream = null;
     }
   }
 
@@ -405,7 +446,7 @@ async function processMessage(text, files = []) {
   bubble.classList.add('markdown');
   bubble.innerHTML = renderMarkdown(response);
   bubble.querySelectorAll('.mermaid').forEach((el) => _renderMermaid(el));
-  messagesEl.scrollTop = messagesEl.scrollHeight;
+  _scrollMessagesToBottom();
   setAgentState('done', 'Listo');
   speak(response);
 }
@@ -463,7 +504,7 @@ function _showApprovalCard({ id, tool, params, description }) {
       : '';
   card.innerHTML = `<div class="approval-title">ACCION DE ALTO IMPACTO — APROBACION REQUERIDA</div><div class="approval-cmd">${safeDescription}</div><div style="font-size:10px;color:var(--text-secondary);margin-bottom:10px">Herramienta: <b>${safeTool}</b>${safeParams.command ? ` · <code>${safeParams.command}</code>` : ''}${safeParams.path ? ` · <code>${safeParams.path}</code>` : ''}</div>${sandboxWarning}${_renderPatchPreview(params?.patch)}<div class="approval-actions"><button class="btn-approve" id="approve-${id}">Ejecutar</button><button class="btn-always" id="always-${id}">Siempre</button><button class="btn-deny" id="deny-${id}">Cancelar</button></div>`;
   messagesEl.appendChild(card);
-  messagesEl.scrollTop = messagesEl.scrollHeight;
+  _scrollMessagesToBottom();
   _approvalCards.set(id, card);
   if (_approvalCards.size > 50) {
     const oldest = _approvalCards.keys().next().value;
@@ -483,14 +524,15 @@ function _showApprovalCard({ id, tool, params, description }) {
   });
 }
 
-// Desactiva el card tras una respuesta del usuario (opacidad + sin clicks).
+// Oculta el card tras una respuesta del usuario (fade + colapso) y lo elimina
+// del DOM. Antes quedaba atenuado en el chat para siempre.
 function _markApprovalResolved(id, card) {
   _approvalCards.delete(id);
-  card.style.opacity = '.5';
-  card.style.pointerEvents = 'none';
+  card.classList.add('resolved');
   card.querySelectorAll('button').forEach((b) => {
     b.disabled = true;
   });
+  setTimeout(() => card.remove(), 260);
 }
 
 // Marca un card como EXPIRADO (timeout en main). La acción fue denegada por
@@ -511,5 +553,5 @@ function _expireApprovalCard(id) {
   note.className = 'approval-expired-note';
   note.textContent = '⏳ Expirada — no se ejecutó (no hubo respuesta a tiempo).';
   card.appendChild(note);
-  messagesEl.scrollTop = messagesEl.scrollHeight;
+  _scrollMessagesToBottom();
 }

@@ -275,7 +275,7 @@ async function renderGraph() {
     <div class="nodes-inline-gaps" id="nodes-inline-gaps"></div>
   `;
   messagesEl.appendChild(inline);
-  messagesEl.scrollTop = messagesEl.scrollHeight;
+  _scrollMessagesToBottom();
 
   function setMinimized(min) {
     inline.querySelector('.nodes-inline-body').style.display = min ? 'none' : '';

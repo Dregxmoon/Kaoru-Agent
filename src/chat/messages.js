@@ -2,6 +2,24 @@
 // Mensajes
 const messagesEl = document.getElementById('messages');
 
+// Auto-scroll "pegajoso": si el usuario subió a leer historial, el streaming y
+// las actualizaciones NO lo obligan a bajar. Solo se sigue al fondo mientras
+// ya estaba ahí (o dentro del margen de tolerancia).
+let _stickToBottom = true;
+const _SCROLL_STICKY_EPSILON = 60;
+
+function _updateStickToBottom() {
+  _stickToBottom =
+    messagesEl.scrollHeight - messagesEl.scrollTop - messagesEl.clientHeight <
+    _SCROLL_STICKY_EPSILON;
+}
+
+function _scrollMessagesToBottom() {
+  if (_stickToBottom) messagesEl.scrollTop = messagesEl.scrollHeight;
+}
+
+messagesEl.addEventListener('scroll', _updateStickToBottom, { passive: true });
+
 function addMessage(role, text, files = []) {
   const div = document.createElement('div');
   div.className = `msg ${role}`;
@@ -41,7 +59,7 @@ function addMessage(role, text, files = []) {
   div.appendChild(avatar);
   div.appendChild(body);
   messagesEl.appendChild(div);
-  messagesEl.scrollTop = messagesEl.scrollHeight;
+  _scrollMessagesToBottom();
   refreshFooterSession();
   updateHeaderModel();
   return { div, bubble };
@@ -56,14 +74,14 @@ async function typewriterMarkdown(bubble, text, delay = 14) {
   for (const char of text) {
     buffer += char;
     bubble.textContent = buffer;
-    messagesEl.scrollTop = messagesEl.scrollHeight;
+    _scrollMessagesToBottom();
     await new Promise((r) => setTimeout(r, delay + Math.random() * 8));
   }
   bubble.classList.remove('typewriter-cursor');
   bubble.classList.add('markdown');
   bubble.innerHTML = renderMarkdown(text);
   bubble.querySelectorAll('.mermaid').forEach((el) => _renderMermaid(el));
-  messagesEl.scrollTop = messagesEl.scrollHeight;
+  _scrollMessagesToBottom();
 }
 
 function showThinking() {
@@ -72,7 +90,7 @@ function showThinking() {
   div.id = 'thinking-msg';
   div.innerHTML = `<div class="msg-avatar">AP</div><div class="msg-body"><div class="msg-name">Asistente</div><div class="msg-bubble thinking-text"><span class="loading-spinner">⠋</span> pensando...</div></div>`;
   messagesEl.appendChild(div);
-  messagesEl.scrollTop = messagesEl.scrollHeight;
+  _scrollMessagesToBottom();
   startSpinner(div.querySelector('.loading-spinner'));
   setAgentState('thinking', 'Pensando');
 }

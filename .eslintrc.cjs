@@ -128,6 +128,9 @@ module.exports = {
         _renderPatchPreview: 'readonly',
         _parseGestureMarkers: 'readonly',
         _playGesture: 'readonly',
+        _scrollMessagesToBottom: 'readonly',
+        closeStreamSegment: 'readonly',
+        renderThinkingBlock: 'readonly',
       },
     },
     {
