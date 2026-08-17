@@ -131,6 +131,9 @@ module.exports = {
         _scrollMessagesToBottom: 'readonly',
         closeStreamSegment: 'readonly',
         renderThinkingBlock: 'readonly',
+        openSubagentRun: 'readonly',
+        renderSubagentBlock: 'readonly',
+        finalizeSubagentRun: 'readonly',
       },
     },
     {

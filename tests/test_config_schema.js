@@ -60,6 +60,11 @@ function testSchemaShape() {
     120000,
     'agent.approvalTimeoutMs default 120000'
   );
+  assertEqual(
+    SCHEMA.agent.schema.subagent.schema.enabled.default,
+    true,
+    'agent.subagent.enabled default true'
+  );
   for (const k of ['primary', 'fallback', 'apiKeys', 'providers']) {
     assert(k in SCHEMA.llm.schema, `schema.llm incluye "${k}"`);
   }
@@ -78,6 +83,7 @@ function testDefaults() {
   assertEqual(cfg.sensors.git, true, 'sensors.git default true');
   assertEqual(cfg.gestures.cooldownMs, 15000, 'gestures.cooldownMs default');
   assert(Array.isArray(cfg.mcp.servers), 'mcp.servers default []');
+  assertEqual(cfg.agent.subagent.enabled, true, 'agent.subagent.enabled default true');
   assert(mgr.report && mgr.report.ok, 'report ok sin archivo');
 
   const mgr2 = new ConfigManager(makeTmpConfig(), { verbose: false });

@@ -42,6 +42,7 @@ en el repositorio Asistente-Vtuber.
 - `core/grounding/` — ensamblado del system prompt y serializers.
 - `core/rules/` — reglas del proyecto (`AGENTS.md`/`CLAUDE.md`/`.cursorrules` → prompt).
 - `core/plugins/` — `PluginManager`: carga plugins locales con tools + hooks.
+- `core/planner/SubagentRegistry.js` — perfiles de subagentes (built-ins + `.kaoru/subagents/*.md`); `AgentLoop._executeSubagent` aplica perfil (modo/temperatura/gate de tools).
 - `plugins/` — plugins del usuario (carpeta con `plugin.json` + `index.js`).
 - `ipc/` — puente renderer ↔ núcleo (`ipcMain.handle`).
 - `src/chat/` — ventana de chat (renderer aislado; usa `window.assistant`).

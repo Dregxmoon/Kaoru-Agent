@@ -22,6 +22,7 @@ const {
   analyzeSubagentReport,
   formatSubagentDiscrepancy,
 } = require('./subagent-report.js');
+const { getSubagentRegistry, _toolAllowed } = require('./SubagentRegistry.js');
 
 const VALID_MODES = new Set(['smart', 'fast', 'task', 'conversational']);
 
@@ -554,6 +555,13 @@ class AgentLoop {
     return this._llmRef;
   }
 
+  // LLM para el fallback textual de un subagente según su perfil: 'fast'
+  // bindea completeForMode con modo explícito (completeTask siempre es smart).
+  _llmForMode(mode) {
+    if (!mode || mode === 'smart' || mode === 'inherit') return this._getLLM();
+    return LLMProvider.completeForMode.bind(LLMProvider, undefined, undefined, mode);
+  }
+
   /**
    * Punto de entrada del loop. Envuelve la ejecución con el WorkspaceCheckpoint:
    * la línea base se captura antes de la primera mutación (dentro del loop) y el
@@ -622,8 +630,15 @@ class AgentLoop {
     // _emitRunMetrics en run()). Por-instancia: los subagentes son otro
     // AgentLoop, así sus métricas no contaminan las del run padre.
     this._metrics = new RunMetrics();
-    // Caché de solo-lectura: por-run (se limpia acá, no entre subagentes que
-    // comparten instancia — cada run arranca limpio).
+    // Progreso de subagentes: si el padre lo suscribe, cada run anidado reporta
+    // sus fases vía opts.onSubagentProgress (el padre lo re-emite con el nombre
+    // del perfil).
+    this._onSubagentProgress =
+      typeof opts.onSubagentProgress === 'function' ? opts.onSubagentProgress : null;
+    // Gate de herramientas por perfil de subagente: si está definido, las tools
+    // fuera del conjunto se bloquean en runtime (defensa en profundidad sobre el
+    // filtrado de schemas/catálogo).
+    this._allowedToolNames = opts.allowedToolNames instanceof Set ? opts.allowedToolNames : null;
     this._readCache.clear();
     this._execCache.clear();
     // Verificación forzada y reflexión intermedia: se capturan para que los
@@ -632,10 +647,14 @@ class AgentLoop {
     this._reflectionOpt = opts.reflection || null;
     const llmOpts = onToken ? { onToken } : {};
     if (signal) llmOpts.signal = signal;
+    if (opts.temperature != null) llmOpts.temperature = opts.temperature;
 
     // ── Tool resolution (Fase 5): Skill > MCP > OpenClaw ────────────
     let tools = opts.tools || null;
     let toolCatalog = this._toolRegistry.serializeToPrompt(domain);
+    // Los subagentes con perfil restringido inyectan un catálogo YA filtrado
+    // (las tools prohibidas no se anuncian en el prompt del run anidado).
+    if (opts.toolCatalog) toolCatalog = opts.toolCatalog;
     const toolResolver = opts.toolResolver || null;
 
     if (toolResolver) {
@@ -1085,6 +1104,23 @@ class AgentLoop {
         // 'deny', o forzar 'ask'. El default es 'ask' solo para alto impacto.
         const permissionManager = opts.permissionManager || null;
         let permissionAction = requiresApproval ? 'ask' : 'allow';
+
+        // ── Gate de herramientas por perfil de subagente ─────────────────────
+        // Los subagentes con tools restringidas (explorador/investigador) solo
+        // pueden ejecutar tools permitidas, aunque el parser o el LLM intente
+        // llamar otra (defensa en profundidad sobre el catálogo filtrado).
+        if (this._allowedToolNames && !this._allowedToolNames.has(action.tool)) {
+          iterationHistory.push({
+            role: 'user',
+            content: `[Herramienta "${action.tool}" no está permitida en este perfil de subagente — continúa sin ella o busca otra estrategia]`,
+          });
+          lastToolResult = {
+            ok: false,
+            error: 'bloqueada_por_perfil',
+            tool: action.tool,
+          };
+          continue;
+        }
         if (permissionManager && typeof permissionManager.check === 'function') {
           const targetPath =
             action.params?.path || action.params?.filePath || action.params?.cwd || '';
@@ -1968,6 +2004,32 @@ class AgentLoop {
   }
 
   /**
+   * Conjunto de herramientas de un perfil de subagente: filtra el catálogo
+   * completo por allow/deny/read_only y devuelve el catálogo de prompt ya
+   * filtrado + el Set de nombres para el gate de runtime. `restricted` indica
+   * si el perfil limita tools (deny/read_only/allow parcial) — el general no.
+   */
+  _profileTools(profile) {
+    let catalog = { tools: [] };
+    try {
+      catalog = this._toolRegistry.getCatalog(null);
+    } catch (_) {}
+    const allowAll = profile.tools.allow.includes('*');
+    const restricted =
+      profile.readOnly || !allowAll || (profile.tools.deny && profile.tools.deny.length > 0);
+    const allowed = catalog.tools.filter((t) => _toolAllowed(profile, t.name));
+    const names = new Set(allowed.map((t) => t.name));
+    // Tools pseudo-estructurales de solo lectura que el parser textual puede
+    // emitir y no vienen en el catálogo; no se bloquean en perfiles restringidos.
+    names.add('webfetch');
+    let text = null;
+    try {
+      text = this._toolRegistry.serializeToPrompt(null, 30, names);
+    } catch (_) {}
+    return { catalog: text, names, restricted };
+  }
+
+  /**
    * §11: lanza un subagente autónomo (AgentLoop anidado) para resolver una
    * sub-tarea de forma independiente. Devuelve el resumen final del subagente.
    */
@@ -1996,7 +2058,27 @@ class AgentLoop {
       };
     }
 
-    const maxIters = Math.min(params.max_iterations || 8, 15);
+    // ── Perfil del subagente (F1): general / explorador / investigador / user ──
+    const agentName = params.agent || 'general';
+    const profile = getSubagentRegistry().resolve(agentName);
+    if (!profile) {
+      const known = getSubagentRegistry()
+        .list()
+        .map((p) => p.name)
+        .join(', ');
+      return {
+        ok: false,
+        error: `perfil de subagente desconocido: "${agentName}" (perfiles: ${known})`,
+        result: null,
+        tool: action.tool,
+        elapsed: 0,
+      };
+    }
+
+    const maxIters = Math.min(params.max_iterations || profile.max_iterations || 8, 15);
+    // El modo del run anidado sigue al perfil (fast = modelo barato/rápido del
+    // mismo provider) o hereda el del padre.
+    const nestedMode = profile.mode === 'fast' ? 'fast' : this._mode;
     let nested;
     try {
       nested = new AgentLoop({
@@ -2005,7 +2087,7 @@ class AgentLoop {
         lsp: this._lsp,
         git: this._git,
         github: this._github,
-        mode: this._mode,
+        mode: nestedMode,
         maxIterations: maxIters,
       });
       nested._subagentDepth = depth + 1;
@@ -2021,12 +2103,16 @@ class AgentLoop {
 
     const subTask = params.context ? `${task}\n\nContexto adicional:\n${params.context}` : task;
 
+    // Herramientas permitidas para este perfil: catálogo del prompt filtrado
+    // por allow/deny/read_only + conjunto de nombres para el gate de runtime
+    // del run anidado (defensa en profundidad). Solo aplica a perfiles
+    // RESTRINGIDOS: el general mantiene el catálogo completo de siempre.
+    const profileTools = this._profileTools(profile);
+
     try {
-      const out = await nested.run(subTask, SUBAGENT_SYSTEM, [], {
-        llm: this._llm,
+      const nestedOpts = {
         taskIntent: this._currentTaskIntent || null,
         signal: this._signal,
-        onProgress: null,
         // Los subagentes heredan la política de verificación y reflexión del run
         // padre: una tarea delegada NO puede mutar sin sellado post-acción ni
         // sin auto-crítica (inconsistencia de política corregida).
@@ -2037,7 +2123,21 @@ class AgentLoop {
         // edición no pedida). Las ediciones del subagente se expresan con
         // bloques de acción estructurados o tool calls nativos.
         reportMode: true,
-      });
+      };
+      if (profile.mode === 'fast') {
+        // Fallback textual del subagente con su PROPIO modo (fast), no el smart
+        // del padre (completeTask siempre es smart).
+        nestedOpts.llm = this._llmForMode('fast');
+      }
+      if (profileTools.restricted) {
+        if (profileTools.catalog) nestedOpts.toolCatalog = profileTools.catalog;
+        if (profileTools.names.size > 0) nestedOpts.allowedToolNames = profileTools.names;
+      }
+      if (profile.temperature != null) nestedOpts.temperature = profile.temperature;
+      if (this._onSubagentProgress) {
+        nestedOpts.onProgress = (p) => this._onSubagentProgress({ ...p, agent: agentName });
+      }
+      const out = await nested.run(subTask, SUBAGENT_SYSTEM, [], nestedOpts);
       const toolCalls = (out.toolResults || []).map((r) => `${r.tool}:${r.ok ? 'ok' : 'err'}`);
       const resultPayload = {
         response: out.response,

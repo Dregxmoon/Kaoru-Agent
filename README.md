@@ -196,6 +196,8 @@ Cliente MCP propio (stdio), reconexión automática con backoff, namespacing de 
 
 `grep` (búsqueda regex por contenido), `glob` (patrones de archivos) y `subagent` (sub-agente anidado) se suman a la whitelist de `AgentLoop`: el asistente explora el proyecto sin volcar todo al contexto, con límites de resultados y profundidad.
 
+**Subagentes por perfil** (patrón opencode/Claude Code): la tool `subagent` acepta un `agent` para elegir perfil — `general` (default, herramientas completas), `explorador` (solo lectura: investiga el codebase sin tocar nada) e `investigador` (búsqueda web + lectura). Cada perfil puede declarar en markdown (`description`, `mode: smart|fast`, `temperature`, `max_iterations`, `read_only`, `tools_allow`/`tools_deny`) qué puede hacer; los perfiles se cargan de `.kaoru/subagents/*.md` (proyecto) y `~/.config/vtuber-overlay/subagents/` (global). Los perfiles `fast` usan el modelo barato del mismo provider, y el gate de herramientas bloquea en runtime cualquier tool fuera de lo permitido. El trabajo delegado se ve en el chat como un bloque colapsable `subagent: <perfil>`. Se apaga con `agent.subagent.enabled: false` en `config.json`.
+
 </details>
 
 <details>

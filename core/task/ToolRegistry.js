@@ -2,6 +2,7 @@
 'use strict';
 
 const { isMCPToolReadOnly } = require('../planner/ActionParser.js');
+const { getSubagentRegistry } = require('../planner/SubagentRegistry.js');
 
 const TOOL_SCHEMAS = [
   {
@@ -241,16 +242,25 @@ const TOOL_SCHEMAS = [
   {
     id: 'openclaw.subagent',
     name: 'subagent',
-    domain: ['planning', 'code', 'web', 'data'],
+    domain: ['core'],
     source: 'openclaw',
     description:
-      'Lanza un subagente autónomo que resuelve una sub-tarea de forma independiente y devuelve un resumen conciso',
+      'Lanza un subagente autónomo que resuelve una sub-tarea de forma independiente y devuelve un resumen conciso. Perfiles disponibles:\n' +
+      getSubagentRegistry().describeForPrompt(),
     params: [
       {
         name: 'task',
         type: 'string',
         description: 'Sub-tarea concreta a resolver',
         required: true,
+      },
+      {
+        name: 'agent',
+        type: 'string',
+        description:
+          'Perfil del subagente (general, explorador, investigador, o uno definido por el usuario)',
+        default: 'general',
+        required: false,
       },
       {
         name: 'context',
@@ -664,6 +674,17 @@ class ToolRegistry {
     this._lspManager = null;
     /** @type {Array<object>} Tools de plugins registradas dinámicamente */
     this._pluginTools = [];
+    // Subagentes por perfil (F1): configurable en config.json →
+    // agent.subagent.enabled. Apagado deja la tool fuera del catálogo.
+    this._subagentsEnabled = true;
+  }
+
+  /**
+   * Activa/desactiva la tool subagent (config agent.subagent.enabled).
+   * @param {boolean} enabled
+   */
+  setSubagentsEnabled(enabled) {
+    this._subagentsEnabled = enabled !== false;
   }
 
   setMCPManager(mcp) {
@@ -708,10 +729,12 @@ class ToolRegistry {
         available = stats?.available ?? false;
       } catch (e) {}
     }
-    return TOOL_SCHEMAS.filter((s) => (s.source || 'openclaw') === 'openclaw').map((s) => ({
-      ...s,
-      available,
-    }));
+    return TOOL_SCHEMAS.filter((s) => (s.source || 'openclaw') === 'openclaw')
+      .filter((s) => this._subagentsEnabled || s.name !== 'subagent')
+      .map((s) => ({
+        ...s,
+        available,
+      }));
   }
 
   _getLSPTools() {
@@ -808,8 +831,12 @@ class ToolRegistry {
     return all.find((t) => t.id === id) || null;
   }
 
-  serializeToPrompt(domain = null, maxTools = 30) {
+  serializeToPrompt(domain = null, maxTools = 30, allowedNames = null) {
     const catalog = this.getCatalog(domain);
+    if (catalog.tools.length === 0) return null;
+    if (allowedNames instanceof Set) {
+      catalog.tools = catalog.tools.filter((t) => allowedNames.has(t.name));
+    }
     if (catalog.tools.length === 0) return null;
 
     const lines = ['# HERRAMIENTAS DISPONIBLES'];

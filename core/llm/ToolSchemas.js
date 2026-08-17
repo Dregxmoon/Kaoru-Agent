@@ -193,6 +193,11 @@ const TOOL_SCHEMAS = [
           type: 'string',
           description: 'Sub-tarea concreta y autocontenida que debe resolver el subagente',
         },
+        agent: {
+          type: 'string',
+          description:
+            'Perfil del subagente: general (default), explorador (solo lectura), investigador (búsqueda web), o un perfil definido por el usuario',
+        },
         context: {
           type: 'string',
           description: 'Contexto o restricciones adicionales para el subagente (opcional)',

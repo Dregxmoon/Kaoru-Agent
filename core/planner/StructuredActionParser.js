@@ -84,6 +84,9 @@ const ACTION_TO_TOOL = {
   browser_action: 'browser',
   apply_patch: 'apply_patch',
   run_code: 'code_execution',
+  // Subagentes: perfil opcional (general por defecto). Ahora el fallback
+  // textual puede delegar sub-tareas igual que el tool-calling nativo.
+  subagent: 'subagent',
 
   // MCP — independiente de OpenClaw. 'mcp' es un pseudo-tool, manejado
   // especialmente en Planner._executeMCP (ver ahí), no por OpenClawBridge.
@@ -131,6 +134,8 @@ function _buildDescription(action, fields) {
       return `Aplicar patch a: ${f.ARCHIVO || '(sin archivo)'}`;
     case 'run_code':
       return `Ejecutar código: ${(f.CÓDIGO || f.CODIGO || f.CODE || '').slice(0, 60)}`;
+    case 'subagent':
+      return `Subagente (${f.AGENT || 'general'}): ${f.TAREA || f.TASK || '(sin tarea)'}`;
     case 'mcp_call':
       if (f.MCP_TOOL) return `MCP · ${f.MCP_TOOL}`;
       return `MCP · ${f.SERVIDOR || f.SERVER || '?'}: ${f.HERRAMIENTA || f.TOOL || '?'}`;
@@ -461,6 +466,28 @@ function _buildParams(action, fields, userGoal, projectCwd) {
 
     case 'run_code':
       return { code: fields.CÓDIGO || fields.CODIGO || fields.CODE };
+
+    case 'subagent': {
+      const params = {
+        task: fields.TAREA || fields.TASK || fields.CONTENIDO || userGoal || '',
+      };
+      if (fields.CONTEXTO || fields.CONTEXT) params.context = fields.CONTEXTO || fields.CONTEXT;
+      if (fields.AGENT) params.agent = fields.AGENT;
+      if (fields.MAX_ITERATIONS) {
+        const n = Number(fields.MAX_ITERATIONS);
+        if (Number.isInteger(n) && n > 0) params.max_iterations = n;
+      }
+      // PARAMS (JSON) gana sobre los campos sueltos: el LLM nativo suele
+      // mandar { task, agent, context, max_iterations } completo ahí.
+      if (fields.PARAMS) {
+        let parsed = null;
+        try {
+          parsed = typeof fields.PARAMS === 'object' ? fields.PARAMS : JSON.parse(fields.PARAMS);
+        } catch (_) {}
+        if (parsed && typeof parsed === 'object') Object.assign(params, parsed);
+      }
+      return params;
+    }
 
     default:
       return { raw: fields };

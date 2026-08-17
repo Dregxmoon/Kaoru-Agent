@@ -134,12 +134,27 @@ ipcRenderer.on('agent-progress', (e, progress) => {
     if (path) window.__lastWritePath = path;
   }
   renderActivityBlock(_activityContainerEl, progress);
+  // Bloque de subagente (F4): la tool subagent del loop padre abre/cierra el
+  // bloque colapsable del perfil; el detalle lo llena 'agent-subagent-progress'
+  // (ver listener abajo) mientras el subagente trabaja.
+  if (progress.tool === 'subagent' || progress.tool === 'task') {
+    const agent = (progress.params && progress.params.agent) || 'general';
+    if (progress.phase === 'start') openSubagentRun(agent);
+    else if (progress.phase === 'end') finalizeSubagentRun(agent, progress);
+  }
   // Cierre del segmento de streaming: cuando una iteración terminó en un
   // tool-call (phase 'start' del tool), la narración que el LLM streamió en
   // esa iteración se pliega en un bloque "razonando" y el buffer del bubble se
   // limpia — así la respuesta final queda como único mensaje. Se llama DESPUÉS
   // de renderActivityBlock para que el bloque quede justo encima del tool.
   if (progress.phase === 'start') closeStreamSegment();
+});
+
+// Progreso interno de un subagente (perfil): el run anidado reporta sus
+// fases por este canal (re-emitidas desde el loop padre con el nombre del
+// perfil) y se pintan como líneas dentro del bloque subagent abierto.
+ipcRenderer.on('agent-subagent-progress', (e, payload) => {
+  renderSubagentBlock(payload);
 });
 
 // HUD del plan explícito (plan-then-act): AgentLoop reenvía por 'agent-plan'

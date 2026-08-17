@@ -163,6 +163,33 @@ assert(!r || r.length === 0, 'answer_question sigue sin acción (conversacional)
 r = parser.parse('```action\nSin campo ACCIÓN\n```', null);
 assert(!r || r.length === 0, 'bloque sin ACCIÓN sigue descartado (null)');
 
+// ── Test 7: subagente por perfil (agent param) ───────────────────────────────
+console.log(C.bold('\n── Test 7: subagente con perfil (agent) ───────────────────'));
+r = parser.parse(
+  '```action\nACCIÓN: subagent\nTAREA: revisa la API\nAGENT: investigador\n```',
+  null
+);
+a = r && r.find((x) => x.tool === 'subagent');
+assert(!!a, 'ACCIÓN: subagent → tool subagent', JSON.stringify(r));
+assert(a && a.params.task === 'revisa la API', 'params.task desde TAREA', a && a.params.task);
+assert(a && a.params.agent === 'investigador', 'params.agent desde AGENT', a && a.params.agent);
+
+r = parser.parse(
+  '```action\nACCIÓN: subagent\nPARAMS: {"task": "busca X", "agent": "explorador", "max_iterations": 4}\n```',
+  null
+);
+a = r && r.find((x) => x.tool === 'subagent');
+assert(
+  a && a.params.task === 'busca X' && a.params.agent === 'explorador',
+  'PARAMS JSON gana: task + agent',
+  JSON.stringify(a && a.params)
+);
+assert(
+  a && a.params.max_iterations === 4,
+  'PARAMS JSON: max_iterations',
+  a && a.params.max_iterations
+);
+
 console.log(
   C.bold(
     `\n── StructuredActionParser aliases: ${C.green(passed)}✓ ${failed ? C.red(failed + '✗') : ''} ──`

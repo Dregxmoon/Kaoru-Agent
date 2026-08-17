@@ -599,6 +599,7 @@ function resetActivities() {
   _activityAnchor = null;
   _blocks.clear();
   _thinkingCount = 0;
+  _subagentRuns.clear();
 }
 
 /** Alias de resetActivities para quien use el nombre antiguo del módulo. */
@@ -653,6 +654,122 @@ function renderThinkingBlock(text) {
   if (_activityAnchor) parent.insertBefore(block, _activityAnchor);
   else parent.appendChild(block);
   _scrollFeed();
+}
+
+// ── Bloque de subagente (F4): visibilidad del trabajo delegado ───────────────
+// Cada subagente (por perfil) abre un bloque colapsable al arrancar; los
+// events de su loop anidado (canal agent-subagent-progress) se pintan como
+// líneas indentadas adentro, con el mismo lenguaje visual de los activity
+// blocks. Cierre con finalizeSubagentRun (lo llama ipc.js cuando termina la
+// tool subagent del loop padre).
+/** @type {Map<string, { block: HTMLElement, body: HTMLElement, status: HTMLElement, stepEls: Map<string, HTMLElement> }>} */
+const _subagentRuns = new Map();
+
+/**
+ * Abre el bloque colapsable de un perfil (una vez por run).
+ * @param {string} name
+ */
+function openSubagentRun(name) {
+  if (!name || _subagentRuns.has(name)) return;
+  const block = document.createElement('div');
+  block.className = 'subagent-block';
+  const header = document.createElement('div');
+  header.className = 'subagent-block-header';
+  const label = document.createElement('span');
+  label.className = 'subagent-block-label';
+  label.textContent = `subagent: ${name}`;
+  const chevron = document.createElement('span');
+  chevron.className = 'subagent-block-chevron';
+  chevron.textContent = '▸';
+  const status = document.createElement('span');
+  status.className = 'subagent-block-status running';
+  status.textContent = '⋮';
+  const body = document.createElement('div');
+  body.className = 'subagent-block-body';
+  body.setAttribute('hidden', '');
+  header.addEventListener('click', () => {
+    if (body.hasAttribute('hidden')) {
+      body.removeAttribute('hidden');
+      chevron.textContent = '▾';
+    } else {
+      body.setAttribute('hidden', '');
+      chevron.textContent = '▸';
+    }
+  });
+  header.appendChild(label);
+  header.appendChild(status);
+  header.appendChild(chevron);
+  block.appendChild(header);
+  block.appendChild(body);
+  const parent = _activityAnchor ? _activityAnchor.parentNode : null;
+  if (!parent) return;
+  if (_activityAnchor) parent.insertBefore(block, _activityAnchor);
+  else parent.appendChild(block);
+  _subagentRuns.set(name, { block, body, status, stepEls: new Map() });
+  _scrollFeed();
+}
+
+/**
+ * @param {{ iteration: number, tool: string }} p
+ */
+function _subagentStepKey(p) {
+  return `${p.iteration}:${p.tool}`;
+}
+
+/**
+ * Pinta una línea de actividad del subagente dentro de su bloque.
+ * @param {AgentProgress & { agent?: string }} payload
+ */
+function renderSubagentBlock(payload) {
+  if (!payload || !payload.tool || !payload.agent) return;
+  if (!_subagentRuns.has(payload.agent)) openSubagentRun(payload.agent);
+  const run = _subagentRuns.get(payload.agent);
+  if (!run) return;
+  const key = _subagentStepKey(payload);
+
+  if (payload.phase === 'start') {
+    const line = document.createElement('div');
+    line.className = 'subagent-step';
+    const arg = _argLabel(payload);
+    line.innerHTML =
+      `<span class="subagent-step-tool">${_escapeHtml(TOOL_LABELS[payload.tool] || payload.tool)}</span>` +
+      (arg
+        ? `<span class="subagent-step-paren">(</span><span class="subagent-step-arg">${_escapeHtml(arg)}</span><span class="subagent-step-paren">)</span>`
+        : '') +
+      '<span class="subagent-step-status running">⋮</span>';
+    run.body.appendChild(line);
+    run.stepEls.set(key, line);
+    _scrollFeed();
+    return;
+  }
+
+  if (payload.phase === 'end') {
+    const line = run.stepEls.get(key);
+    if (!line) return;
+    run.stepEls.delete(key);
+    const st = line.querySelector('.subagent-step-status');
+    if (st) {
+      st.classList.remove('running');
+      st.classList.add(payload.status === 'ok' ? 'ok' : 'err');
+      st.textContent = payload.status === 'ok' ? 'ok' : 'err';
+    }
+    _scrollFeed();
+  }
+}
+
+/**
+ * Marca el bloque de un perfil como terminado (ok/err según el resultado del
+ * run anidado que ve el loop padre).
+ * @param {string} name
+ * @param {AgentProgress | null | undefined} progress
+ */
+function finalizeSubagentRun(name, progress) {
+  const run = _subagentRuns.get(name);
+  if (!run) return;
+  run.status.classList.remove('running');
+  const ok = !!progress && progress.status === 'ok';
+  run.status.classList.add(ok ? 'ok' : 'err');
+  run.status.textContent = ok ? 'ok' : 'err';
 }
 
 // ── Init ────────────────────────────────────────────────────────────────────

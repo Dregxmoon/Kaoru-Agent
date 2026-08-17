@@ -9,6 +9,7 @@ const {
 } = require('../core/security/SessionApprovals.js');
 
 const { ipcMain } = require('electron');
+const { getToolRegistry } = require('../core/task/ToolRegistry.js');
 
 // Tiempo máximo (ms) que el usuario tiene para responder a un card de
 // aprobación. Configurable en config.json → agent.approvalTimeoutMs. 120s
@@ -63,6 +64,9 @@ function register(ctx) {
           : ctx.savedConfig || {};
       const n = Number(cfg?.agent?.approvalTimeoutMs);
       if (Number.isFinite(n) && n > 0) approvalTimeoutMs = n;
+      // Subagentes por perfil (F1): agent.subagent.enabled (default true).
+      // Apagado quita la tool subagent del catálogo que ve el agente.
+      getToolRegistry().setSubagentsEnabled(cfg?.agent?.subagent?.enabled !== false);
     } catch (_) {}
 
     const abort = new AbortController();
@@ -70,6 +74,14 @@ function register(ctx) {
     try {
       const result = await Core.runAgent(text, {
         signal: abort.signal,
+        // Progreso de subagentes por perfil: el run anidado reporta sus fases
+        // (start/action/complete) y acá se re-emiten al chat para pintar el
+        // bloque colapsable con el nombre del perfil.
+        onSubagentProgress: (p) => {
+          if (S.chatWindow && !S.chatWindow.isDestroyed()) {
+            sendToChat('agent-subagent-progress', p);
+          }
+        },
         onApprovalNeeded: async (action) => {
           return new Promise((resolve) => {
             const pattern = approvalPattern(action);

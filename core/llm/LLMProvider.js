@@ -152,6 +152,13 @@ const CHAT_TEMPLATE_KWARGS_PROVIDERS = new Set([
 // Pasado el TTL, refreshProviderModels() re-valida contra GET /models.
 const CATALOG_REFRESH_TTL_MS = 5 * 60 * 1000;
 
+// Temperature de las llamadas: los perfiles de subagente pueden pedir una
+// distinta; si no, se usa el default del provider (0.85).
+function _temp(opts) {
+  if (opts && Number.isFinite(opts.temperature)) return opts.temperature;
+  return 0.85;
+}
+
 function _resolveMode(mode) {
   return VALID_MODES.has(mode) ? mode : 'fast';
 }
@@ -921,7 +928,7 @@ async function callOpenAI(providerId, messages, systemPrompt, mode = 'fast', opt
   );
 
   const headers = key ? { Authorization: `Bearer ${key}` } : {};
-  const body = { model, messages: msgs, max_tokens: maxTokens, temperature: 0.85 };
+  const body = { model, messages: msgs, max_tokens: maxTokens, temperature: _temp(opts) };
   if (opts.onToken) body.stream = true;
   // Modelos de razonamiento (Qwen3/DeepSeek) vuelcan su chain-of-thought en el
   // content y ese CoT se filtra al usuario por el chat. Se desactiva el modo
@@ -983,7 +990,7 @@ async function callGeminiProvider(providerId, messages, systemPrompt, mode = 'fa
   const body = {
     system_instruction: { parts: [{ text: systemPrompt }] },
     contents,
-    generationConfig: { maxOutputTokens: maxTokens, temperature: 0.85 },
+    generationConfig: { maxOutputTokens: maxTokens, temperature: _temp(opts) },
   };
   // OJO: para Gemini el streaming NO se activa con el campo `stream` en el
   // body (generateContent no lo acepta → 400 "Unknown name stream"). Se
@@ -1134,7 +1141,7 @@ async function callAnthropicWithTools(providerId, messages, systemPrompt, mode, 
     messages: msgs,
     system: systemPrompt,
     max_tokens: maxTokens,
-    temperature: 0.85,
+    temperature: _temp(opts),
     tools: _buildAnthropicTools(tools),
   };
 
@@ -1330,7 +1337,7 @@ async function callOpenAIWithTools(providerId, messages, systemPrompt, mode, too
     model,
     messages: msgs,
     max_tokens: maxTokens,
-    temperature: 0.85,
+    temperature: _temp(opts),
     tools: _buildOpenAITools(tools),
     tool_choice: 'auto',
   };
@@ -1409,7 +1416,7 @@ async function callGeminiWithTools(providerId, messages, systemPrompt, mode, too
     system_instruction: { parts: [{ text: systemPrompt }] },
     contents,
     tools: _buildGeminiTools(tools),
-    generationConfig: { maxOutputTokens: maxTokens, temperature: 0.85 },
+    generationConfig: { maxOutputTokens: maxTokens, temperature: _temp(opts) },
   };
   // Gemini: el streaming se activa con `alt=sse` en la URL, no con `body.stream`.
 
@@ -1779,6 +1786,13 @@ function completeTask(messages, systemPrompt, opts) {
   return _callWithFallback(messages, systemPrompt, 'smart', opts);
 }
 
+// Texto puro con modo explícito: los subagentes con perfil 'fast' bindean acá
+// en vez de completeTask (que siempre usa 'smart') para su fallback textual.
+function completeForMode(messages, systemPrompt, mode = 'fast', opts) {
+  _rebuildMaps();
+  return _callWithFallback(messages, systemPrompt, mode, opts);
+}
+
 async function completeWithTools(messages, systemPrompt, tools = [], mode = 'smart', opts) {
   _rebuildMaps();
   return _callWithFallbackTools(messages, systemPrompt, mode, tools, opts);
@@ -2138,6 +2152,7 @@ module.exports = {
   configure,
   complete,
   completeTask,
+  completeForMode,
   completeWithTools,
   getActiveProvider,
   getActiveModel,

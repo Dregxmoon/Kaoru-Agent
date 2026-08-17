@@ -1242,7 +1242,120 @@ async function testSubagentDepthLimit() {
   );
 }
 
-// ── Test 11: compactación persiste y reconstruye contexto (memoria) ───────────
+// ── Test 11: subagente por perfil (agent) ─────────────────────────────────────
+
+async function testSubagentPerfil() {
+  console.log(C.bold('\n── Test 11: subagente por perfil (agent) ─────────────────'));
+
+  const { AgentLoop } = require('../core/planner/AgentLoop.js');
+  const LLMProvider = require('../core/llm/LLMProvider.js');
+
+  const projectCwd = teardown() || setup();
+  const AP = require('../core/planner/ActionParser.js');
+  AP.setProjectCWD(projectCwd);
+
+  // 1) Perfil desconocido → error claro con la lista de perfiles.
+  {
+    const loop = new AgentLoop({
+      maxIterations: 3,
+      llm: async () => 'x',
+      bridge: createMockBridge('/tmp'),
+    });
+    const bad = await loop._executeSubagent({
+      tool: 'subagent',
+      params: { task: 'x', agent: 'no_existe' },
+    });
+    assert(
+      !bad.ok && bad.error.includes('perfil de subagente desconocido'),
+      'perfil desconocido → error claro',
+      bad.error || ''
+    );
+  }
+
+  // 2) Explorador (fast): un intento de write queda bloqueado por el gate de
+  //    runtime (no se crea el archivo, el resumen sí llega al padre). El
+  //    fallback textual del subagente fast va por completeForMode.
+  {
+    const target = path.join(projectCwd, 'hack.txt');
+    const originalCompleteForMode = LLMProvider.completeForMode;
+    let fmCalls = 0;
+    LLMProvider.completeForMode = async () => {
+      fmCalls++;
+      if (fmCalls === 1) {
+        return '```action\nACCIÓN: write\nARCHIVO: ' + target + '\nCONTENIDO: hack\n```';
+      }
+      return 'Resumen: solo leí el repo.';
+    };
+    try {
+      const loop = new AgentLoop({
+        maxIterations: 6,
+        bridge: createMockBridge(projectCwd),
+      });
+      const out = await loop._executeSubagent({
+        tool: 'subagent',
+        params: { task: 'explora el repo', agent: 'explorador' },
+      });
+      assert(fmCalls >= 1, 'explorador fast usa completeForMode', `calls: ${fmCalls}`);
+      assert(out.ok, 'subagente explorador se ejecuta', out.error || '');
+      assert(
+        !fs.existsSync(target),
+        'explorador NO escribió el archivo (write bloqueado por perfil)'
+      );
+      assert(
+        String(out.result.response || '').includes('Resumen'),
+        'el resumen del explorador llega al padre',
+        String(out.result.response || '').slice(0, 60)
+      );
+    } finally {
+      LLMProvider.completeForMode = originalCompleteForMode;
+    }
+  }
+
+  // 3) Investigador (fast): el fallback textual usa completeForMode y el
+  //    progreso interno se re-emite con el nombre del perfil.
+  {
+    const target = path.join(projectCwd, 'leido.txt');
+    fs.writeFileSync(target, 'contenido', 'utf-8');
+    const originalCompleteForMode = LLMProvider.completeForMode;
+    let fastCalls = 0;
+    LLMProvider.completeForMode = async () => {
+      fastCalls++;
+      if (fastCalls === 1) {
+        return '```action\nACCIÓN: read\nARCHIVO: ' + target + '\n```';
+      }
+      return 'Resumen rápido de la búsqueda.';
+    };
+    try {
+      const progEvents = [];
+      const loop = new AgentLoop({
+        maxIterations: 4,
+        bridge: createMockBridge(projectCwd),
+      });
+      loop._onSubagentProgress = (p) => progEvents.push(p);
+      const out = await loop._executeSubagent({
+        tool: 'subagent',
+        params: { task: 'busca info', agent: 'investigador' },
+      });
+      assert(fastCalls >= 1, 'perfil fast usa completeForMode', `calls: ${fastCalls}`);
+      assert(out.ok, 'subagente investigador se ejecuta', out.error || '');
+      assert(
+        String(out.result.response || '').includes('Resumen rápido'),
+        'respuesta del subagente fast llega al padre'
+      );
+      assert(
+        progEvents.some((p) => p.agent === 'investigador' && p.phase === 'start'),
+        'onSubagentProgress re-emite con agent (investigador)',
+        JSON.stringify(progEvents[0] || null)
+      );
+    } finally {
+      LLMProvider.completeForMode = originalCompleteForMode;
+    }
+  }
+
+  teardown();
+}
+
+// ── Test 12: compactación persiste y reconstruye contexto (memoria) ───────────
 
 async function testMemoryCompaction() {
   console.log(C.bold('\n── Test 11: compactación ↔ memoria vectorial ────────────'));
@@ -2390,6 +2503,7 @@ async function main() {
   await testContextCompaction();
   await testSubagentDispatch();
   await testSubagentDepthLimit();
+  await testSubagentPerfil();
   await testMemoryCompaction();
   await testResolvedLegacyEdit();
   await testSelfCritique();

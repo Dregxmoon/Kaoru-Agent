@@ -114,7 +114,7 @@ const SCHEMA = {
   },
   agent: {
     type: 'object',
-    default: { approvalTimeoutMs: 120000 },
+    default: { approvalTimeoutMs: 120000, subagent: { enabled: true } },
     schema: {
       // Tiempo máximo (ms) para que el usuario responda a un card de
       // aprobación de alto impacto. Pasado ese lapso la acción se deniega y
@@ -122,6 +122,15 @@ const SCHEMA = {
       // usuario puede estar leyendo el resto de la respuesta del agente
       // antes de llegar a la tarjeta.
       approvalTimeoutMs: { type: 'number', default: 120000 },
+      // Subagentes con perfil (F1): si se apaga, la tool subagent deja de
+      // estar disponible para el agente.
+      subagent: {
+        type: 'object',
+        default: { enabled: true },
+        schema: {
+          enabled: { type: 'boolean', default: true },
+        },
+      },
     },
   },
 };

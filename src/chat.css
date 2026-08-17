@@ -2732,6 +2732,91 @@ body {
   display: none;
 }
 
+/* ── Bloque de subagente (F4): trabajo delegado colapsable ────────────────── */
+.subagent-block {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  line-height: 1.5;
+  margin: 2px 0;
+  padding: 3px 0 3px 10px;
+  border-left: 2px solid var(--term-divider);
+  color: var(--term-text-ghost);
+  animation: activity-block-in 150ms ease-out;
+}
+.subagent-block-header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  cursor: pointer;
+  user-select: none;
+  color: var(--term-text-faint);
+  letter-spacing: 0.04em;
+  transition: color var(--transition-theme);
+}
+.subagent-block-header:hover {
+  color: var(--term-accent);
+}
+.subagent-block-chevron {
+  font-size: 9px;
+  color: var(--term-text-faint);
+}
+.subagent-block-label {
+  color: var(--term-accent);
+}
+.subagent-block-status {
+  font-size: 10px;
+}
+.subagent-block-status.running {
+  color: var(--term-text-faint);
+}
+.subagent-block-status.ok {
+  color: var(--term-success);
+}
+.subagent-block-status.err {
+  color: var(--term-error);
+}
+.subagent-block-body {
+  margin-top: 4px;
+  padding-left: 10px;
+  font-size: 10.5px;
+  color: var(--term-text-ghost);
+}
+.subagent-block-body[hidden] {
+  display: none;
+}
+.subagent-step {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  white-space: nowrap;
+  overflow: hidden;
+}
+.subagent-step-tool {
+  color: var(--term-text-ghost);
+}
+.subagent-step-arg {
+  color: var(--term-text-faint);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 260px;
+}
+.subagent-step-paren {
+  color: var(--term-text-faint);
+}
+.subagent-step-status {
+  margin-left: auto;
+  font-size: 10px;
+}
+.subagent-step-status.running {
+  color: var(--term-text-faint);
+}
+.subagent-step-status.ok {
+  color: var(--term-success);
+}
+.subagent-step-status.err {
+  color: var(--term-error);
+}
+
 /* ── HUD del plan explícito (plan-then-act) — panel colapsable ────────────── */
 /* Se muestra minimizado por defecto (estilo "pensamiento"); clic en el
    encabezado despliega los pasos. Mantiene el estado abierto/cerrado que
