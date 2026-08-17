@@ -178,6 +178,59 @@ async function testMCPReplacesOpenClaw() {
   assert(result.promptCatalog.includes('filesystem'), 'Catalog menciona servidor filesystem');
 }
 
+// ── Test 4b: filesystem MCP no barre exec/code_execution/git/LSP ─────
+// Regresión del bug de producción: filesystem reclamaba también el dominio
+// 'code' y la exclusión por dominio eliminaba exec (dominio shell/system/git/
+// code), code_execution, apply_patch, git y LSP — que el server MCP filesystem
+// NO reemplaza. El agente quedaba sin shell para tareas de archivos.
+async function testFilesystemMCPDoesNotExcludeExec() {
+  const registry = makeRegistry([
+    makeTool('exec', ['shell', 'system', 'git', 'package', 'docker', 'code']),
+    makeTool('code_execution', ['code', 'data']),
+    makeTool('apply_patch', ['code', 'data']),
+    makeTool('read', ['filesystem', 'code', 'data']),
+    makeTool('write', ['filesystem', 'code', 'data']),
+    makeTool('grep', ['filesystem', 'code']),
+    makeTool('glob', ['filesystem', 'code']),
+    makeTool('git_status', ['git', 'code']),
+  ]);
+
+  const mcpManager = makeMCPServer('filesystem', [
+    { name: 'read_file', description: 'Read file' },
+    { name: 'write_file', description: 'Write file' },
+    { name: 'edit_file', description: 'Edit file' },
+    { name: 'search_files', description: 'Search files' },
+  ]);
+
+  const result = await resolveToolset({
+    toolRegistry: registry,
+    mcpManager,
+  });
+
+  const excludedNames = result.excluded.map((e) => e.tool);
+  assert(excludedNames.includes('read'), 'read excluida (overlap filesystem real)');
+  assert(excludedNames.includes('write'), 'write excluida (overlap filesystem real)');
+  assert(excludedNames.includes('grep'), 'grep excluida (overlap search_files)');
+  assert(excludedNames.includes('glob'), 'glob excluida (overlap filesystem)');
+  assert(
+    !excludedNames.includes('exec'),
+    'exec NO excluida (el server filesystem no ejecuta comandos)',
+    `excluidas: ${excludedNames.join(', ')}`
+  );
+  assert(
+    !excludedNames.includes('code_execution'),
+    'code_execution NO excluida (no reemplazada por filesystem)'
+  );
+  assert(
+    !excludedNames.includes('apply_patch'),
+    'apply_patch NO excluida (no reemplazada por filesystem)'
+  );
+  assert(
+    !excludedNames.includes('git_status'),
+    'git_status NO excluida (no reemplazada por filesystem)'
+  );
+}
+
 // ── Test 5: Skill gana sobre MCP cuando ambas cubren mismo dominio ────
 async function testSkillBeatsMCP() {
   const registry = makeRegistry([
@@ -377,6 +430,7 @@ async function main() {
 
   console.log(C.bold('\n── MCP ──────────────────────────────────────────────'));
   await testMCPReplacesOpenClaw();
+  await testFilesystemMCPDoesNotExcludeExec();
   await testMCPNoOverlap();
 
   console.log(C.bold('\n── Skills + MCP combinados ──────────────────────────'));

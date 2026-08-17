@@ -6,8 +6,15 @@ const { getToolRegistry } = require('./ToolRegistry.js');
 
 const PRECEDENCE_ORDER = ['skill', 'mcp', 'openclaw'];
 
+// Dominios por servidor MCP conocido. OJO con 'filesystem': reclama SOLO
+// 'filesystem' (no 'code'): el server MCP filesystem ofrece read/write/edit/
+// search/list — las openclaw tools read/write/edit/grep/glob (dominio
+// 'filesystem') ya se excluyen por ese solapamiento real. Si además reclamara
+// 'code', la exclusión por dominio barrería TAMBIÉN exec/code_execution/
+// apply_patch/git/LSP, que el server filesystem NO reemplaza — y el agente se
+// quedaba sin shell para tareas de archivos ("crea una carpeta y una página").
 const PREDEFINED_MCP_DOMAINS = {
-  filesystem: ['filesystem', 'code'],
+  filesystem: ['filesystem'],
   memory: ['memory', 'data'],
   'sequential-thinking': ['planning', 'reasoning'],
   everything: ['test'],

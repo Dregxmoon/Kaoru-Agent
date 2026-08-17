@@ -97,6 +97,34 @@ function _canonicalToolName(tool) {
   return NATIVE_TOOL_ALIASES[tool] || tool;
 }
 
+// Tool-call nativo cuyo nombre vino en el formato textual `MCP_TOOL:
+// <servidor>.<herramienta>` (p.ej. "MCP_TOOL: filesystem.write_file"). El
+// prompt del catálogo enseña ese formato y algunos modelos lo replican como
+// FUNCTION NAME en tool-calling en vez de usar el schema nativo. Sin
+// normalización, el nombre llega tal cual a OpenClawBridge → "Herramienta
+// desconocida". Aquí se traduce a la pseudo-tool 'mcp' (MCPManager), el mismo
+// destino que usa StructuredActionParser con MCP_TOOL en el fallback textual.
+const NATIVE_MCP_TOOL_CALL_RE = /^MCP_TOOL:\s*([^.\s]+)\.([^.\s]+)$/;
+
+function _nativeToolCallToAction(tc) {
+  const raw = String(tc.tool || '');
+  const mcpMatch = NATIVE_MCP_TOOL_CALL_RE.exec(raw);
+  if (mcpMatch) {
+    return {
+      tool: 'mcp',
+      params: { server: mcpMatch[1], tool: mcpMatch[2], args: tc.params || {} },
+      description: `${raw}: ${JSON.stringify(tc.params).slice(0, 100)}`,
+      source: 'native_tool_call',
+    };
+  }
+  return {
+    tool: _canonicalToolName(raw),
+    params: tc.params,
+    description: `${raw}: ${JSON.stringify(tc.params).slice(0, 100)}`,
+    source: 'native_tool_call',
+  };
+}
+
 // ── Anti-repetición (Fase 2) ─────────────────────────────────────────────────
 // Un fallo mecánico real observado en producción: el mismo `Write` contra un
 // DIRECTORIO (EISDIR) se repitió 3 veces seguidas, quemando iteraciones sin
@@ -956,12 +984,7 @@ class AgentLoop {
       // ── Extraer acciones ───────────────────────────────────────────
       let actions = [];
       if (toolCalls && toolCalls.length > 0) {
-        actions = toolCalls.map((tc) => ({
-          tool: _canonicalToolName(tc.tool),
-          params: tc.params,
-          description: `${tc.tool}: ${JSON.stringify(tc.params).slice(0, 100)}`,
-          source: 'native_tool_call',
-        }));
+        actions = toolCalls.map((tc) => _nativeToolCallToAction(tc));
       } else {
         // Contexto = mensaje actual (el prompt original en i=0, el resultado de la
         // herramienta en iteraciones siguientes). Re-usar el prompt original en i>0

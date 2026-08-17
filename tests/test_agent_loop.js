@@ -912,6 +912,91 @@ ACCIÓN: mcp_call | SERVIDOR: filesystem | HERRAMIENTA: list_directory | PARAMS:
   teardown();
 }
 
+// ── Test 7d2: tool-call nativo con nombre "MCP_TOOL: server.tool" se normaliza ─
+// Caso real de producción: con precedencia mcp el modelo emite en tool-calling
+// nativo el nombre textual "MCP_TOOL: filesystem.write_file" (formato que enseña
+// el catálogo) y el loop lo mandaba a OpenClawBridge → "Herramienta desconocida:
+// MCP_TOOL: filesystem.write_file" y el run moría en "El modelo no respondió.".
+// El nombre híbrido debe traducirse a la pseudo-tool 'mcp' (MCPManager).
+
+async function testNativeMCPToolCallNormalization() {
+  console.log(C.bold('\n── Test 7d2: tool-call nativo "MCP_TOOL: server.tool" → mcp ─────'));
+
+  const { AgentLoop } = require('../core/planner/AgentLoop.js');
+  const AP = require('../core/planner/ActionParser.js');
+  const LLMProvider = require('../core/llm/LLMProvider.js');
+
+  const projectCwd = teardown() || setup();
+  AP.setProjectCWD(projectCwd);
+  const outFile = path.join(projectCwd, 'neon.html');
+
+  const originalCompleteWithTools = LLMProvider.completeWithTools;
+  let calls = 0;
+  LLMProvider.completeWithTools = async () => {
+    calls++;
+    if (calls === 1) {
+      return {
+        content: null,
+        toolCalls: [
+          {
+            tool: 'MCP_TOOL: filesystem.write_file',
+            params: { path: outFile, content: '<h1>neon</h1>' },
+          },
+        ],
+      };
+    }
+    return { content: 'Listo, archivo creado.', toolCalls: null };
+  };
+
+  try {
+    const mockMCP = createMockMCP(projectCwd);
+    const mockLLM = createMockLLM(['no se usa']);
+    const loop = new AgentLoop({
+      maxIterations: 5,
+      llm: mockLLM,
+      bridge: createMockBridge(projectCwd),
+      mcpManager: mockMCP,
+    });
+
+    const result = await loop.run('crea una página html', 'Eres un asistente.', [], {
+      tools: [{ name: 'write_file', description: 'Escribe un archivo', parameters: {} }],
+      onApprovalNeeded: async () => true,
+    });
+
+    assert(!result.error, 'Sin error', `error: ${result.error}`);
+    assert(
+      result.toolResults.length === 1,
+      'el tool-call nativo se ejecutó',
+      `tools: ${result.toolResults.length}`
+    );
+    assert(
+      result.toolResults[0].tool === 'mcp:filesystem:write_file',
+      'se enrutó a MCPManager (no OpenClawBridge)',
+      result.toolResults[0].tool
+    );
+    assert(result.toolResults[0].ok, 'write_file tuvo éxito', result.toolResults[0].error || '');
+    assert(mockMCP.calls.length === 1, 'callTool llamado 1 vez', `calls: ${mockMCP.calls.length}`);
+    assert(
+      mockMCP.calls[0].server === 'filesystem' && mockMCP.calls[0].tool === 'write_file',
+      'callTool(server="filesystem", tool="write_file")',
+      JSON.stringify(mockMCP.calls[0])
+    );
+    assert(
+      mockMCP.calls[0].args.path === outFile && mockMCP.calls[0].args.content === '<h1>neon</h1>',
+      'params nativos pasados como args',
+      JSON.stringify(mockMCP.calls[0].args)
+    );
+    assert(
+      fs.existsSync(outFile) && fs.readFileSync(outFile, 'utf-8') === '<h1>neon</h1>',
+      'el archivo quedó escrito por la tool MCP'
+    );
+  } finally {
+    LLMProvider.completeWithTools = originalCompleteWithTools;
+  }
+
+  teardown();
+}
+
 // ── Test 7e: tool MCP inexistente → error claro, no "Herramienta desconocida" ─
 
 async function testMCPUnknownToolClearError() {
@@ -2498,6 +2583,7 @@ async function main() {
   await testLLMFailureKeepsCompletedTools();
   await testMCPToolTextFallback();
   await testMCPCallClassicRouting();
+  await testNativeMCPToolCallNormalization();
   await testMCPUnknownToolClearError();
   await testMultiToolPerIteration();
   await testContextCompaction();
