@@ -114,7 +114,7 @@ for (const def of BUILTIN_PROVIDERS) {
 }
 
 // ── Límites ────────────────────────────────────────────────────────────────────
-const MAX_OUTPUT = { fast: 1024, smart: 3072 };
+const MAX_OUTPUT = { fast: 1024, smart: 8192 };
 const TIMEOUT_MS = { fast: 15_000, smart: 60_000 };
 const FAST_HISTORY_LIMIT = 8;
 const VALID_MODES = new Set(['fast', 'smart']);

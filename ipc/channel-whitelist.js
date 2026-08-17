@@ -131,6 +131,7 @@ const ON_ALLOWLIST = new Set([
   'agent-approval-expired',
   'agent-plan',
   'agent-progress',
+  'agent-subagent-progress',
   'agent-token',
   'chat-message',
   'gesture',

@@ -17,10 +17,17 @@ en el repositorio Asistente-Vtuber.
   que toquen `better-sqlite3`/`sqlite-vec` (ABI distinto).
 - **Módulos nativos:** `better-sqlite3`/`sqlite-vec` usan ABI de V8 → se
   reconstruyen contra Electron (`npm run rebuild`). `onnxruntime-node` es
-  **NAPI** (ABI estable): NO se reconstruye con electron-rebuild — si falla con
-  `Module did not self-register`, el prebuild está corrupto y se repara
-  reinstalando el paquete (`npm install onnxruntime-node` o `npm ci`).
-  `EmbedService.checkNativeBindings()` diagnostica esto en runtime.
+  **NAPI** (ABI estable): NO se reconstruye con electron-rebuild. Dos fallos
+  distintos con `Module did not self-register`:
+  - **Prebuild corrupto** (primera carga del proceso): reparar reinstalando el
+    paquete (`npm install onnxruntime-node` o `npm ci`).
+  - **Recarga en el mismo proceso**: el binding NAPI de onnxruntime NO es
+    context-aware y solo se carga UNA vez por proceso. El worker de embeddings
+    es persistente (no se termina por inactividad); si muere tras haber
+    cargado, `EmbedService` se degrada de forma permanente hasta reiniciar la
+    app. Nunca recrear el worker ni caer al main thread tras una carga
+    (ambos fallarán con `did not self-register`).
+    `EmbedService.checkNativeBindings()` diagnostica el prebuild en runtime.
 
 ## Reglas del agente de código
 

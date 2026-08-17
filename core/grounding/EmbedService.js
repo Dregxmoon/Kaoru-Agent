@@ -6,14 +6,17 @@
  *
  * Facade sobre core/grounding/embedWorker.js: mantiene UN worker singleton,
  * hace request/response con promesas por id y transfiere el Float32Array sin
- * copia. Si el worker no está disponible o falla de forma sostenida, cae al
- * embedder de main thread (IntentDetector.embedText) que es el comportamiento
- * histórico — nunca bloquea el pipeline por esto.
+ * copia. Si el worker falla ANTES de haber cargado el binding nativo, cae al
+ * embedder de main thread (IntentDetector.embedText) — el comportamiento
+ * histórico — y reintenta el worker tras un cooldown (fallo transitorio).
  *
- * El worker termina tras IDLE_TERMINATE_MS sin requests (un worker que haya
- * hecho un request/response mantiene vivo el proceso aunque esté unref'd, lo
- * que colgaba tests y scripts); al terminar por inactividad se reinicia bajo
- * demanda con la próxima llamada (~500ms si el modelo está en caché local).
+ * IMPORTANTE (single-load de onnxruntime-node): el binding es un módulo NAPI
+ * NO context-aware y solo se puede cargar UNA VEZ por proceso. Por eso el
+ * worker es persistente: NO se termina por inactividad. Terminarlo y recrearlo
+ * hace que el worker nuevo falle con "Module did not self-register", y el
+ * fallback de main thread tampoco puede cargar el binding una segunda vez.
+ * Si el worker muere DESPUÉS de haber cargado el modelo, el servicio queda
+ * degradado de forma permanente (sin embeddings) hasta reiniciar la app.
  *
  * Uso:
  *   const { embedText, float32ToBuffer } = require('./EmbedService.js');
@@ -30,7 +33,6 @@ const logger = require('../observability/Logger.js');
 
 const EMBED_TIMEOUT_MS = 60_000; // una inferencia nunca debería tardar tanto
 const WORKER_LOAD_TIMEOUT_MS = 90_000; // primera carga del modelo puede ser lenta
-const IDLE_TERMINATE_MS = 60_000; // inactividad tras la cual se termina el worker
 const MAX_CONSECUTIVE_FAILURES = 3;
 // Cooldown tras deshabilitar el worker: pasado este tiempo se reintenta en vez
 // de degradar la detección/recall a main thread (o LIKE) por el resto de la
@@ -39,11 +41,17 @@ const MAX_CONSECUTIVE_FAILURES = 3;
 const RETRY_DISABLED_AFTER_MS = 5 * 60 * 1000;
 
 // onnxruntime-node usa NAPI (ABI estable) — NO se reconstruye con
-// electron-rebuild. El error "Module did not self-register" indica un prebuild
-// corrupto o descarga parcial: la reparación es reinstalar el paquete.
+// electron-rebuild. "Module did not self-register" puede significar dos cosas:
+//   1) prebuild corrupto/descarga parcial (reparar reinstalando el paquete), o
+//   2) intento de cargar el binding por SEGUNDA vez en el mismo proceso (NAPI
+//      no context-aware: solo se carga una vez). Este servicio evita el caso 2
+//      manteniendo un worker persistente y degradándose de forma permanente si
+//      el worker muere tras haber cargado el modelo.
 const BINDING_REMEDIATION =
   '[embeddings] onnxruntime-node no cargó su binding nativo. Es un módulo NAPI (ABI estable), NO uses electron-rebuild: ' +
-  'eso corrompería el prebuild. Reparalo reinstalando el paquete (npm install onnxruntime-node o npm ci).';
+  'eso corrompería el prebuild. Si es la primera carga del proceso, repáralo reinstalando el paquete ' +
+  '(npm install onnxruntime-node o npm ci). Si es una recarga (worker recreado), es el límite single-load ' +
+  'de NAPI — el worker debe ser persistente, no se puede cargar dos veces.';
 const SELF_REGISTER_RE = /did not self-register|onnxruntime_binding\.node|NODE_MODULE_VERSION/i;
 
 /**
@@ -92,34 +100,14 @@ let _consecutiveFailures = 0;
 // 0 = worker habilitado; si no, timestamp hasta el cual se evita el worker.
 // Pasado el cooldown, embedText reintenta el worker (recuperación de sesión).
 let _disabledUntil = 0;
-/** @type {NodeJS.Timeout | null} */
-let _idleTimer = null;
+// true cuando el worker llegó a 'ready' (onnxruntime cargado en este proceso).
+// A partir de ahí onnxruntime NO puede recargarse (NAPI single-load): si el
+// worker muere, el servicio se degrada de forma permanente.
+let _loadedOnce = false;
 /** @type {(() => import('worker_threads').Worker) | null} */
 let _workerFactory = null;
 
-function _clearIdleTimer() {
-  if (_idleTimer) {
-    clearTimeout(_idleTimer);
-    _idleTimer = null;
-  }
-}
-
-function _scheduleIdleTerminate() {
-  _clearIdleTimer();
-  _idleTimer = setTimeout(() => {
-    _idleTimer = null;
-    logger.info(
-      'EmbedService',
-      '[embeddings] worker inactivo, terminado (se reinicia bajo demanda en la próxima llamada)'
-    );
-    _terminateWorker();
-  }, IDLE_TERMINATE_MS);
-  // El timer no debe impedir la salida limpia si el proceso decide terminar.
-  if (typeof _idleTimer.unref === 'function') _idleTimer.unref();
-}
-
 function _terminateWorker() {
-  _clearIdleTimer();
   const w = _worker;
   _worker = null;
   if (w) {
@@ -171,7 +159,20 @@ function _createWorker() {
 /** @param {import('worker_threads').Worker} w @param {Error} err */
 function _establishedFailed(w, err) {
   if (_worker === w) _worker = null;
-  _noteFailure(err);
+  // El binding ya se cargó (worker llegó a 'ready'): onnxruntime-node no es
+  // context-aware y no puede recargarse en este proceso (NAPI single-load).
+  // Recrear el worker o caer al main thread fallará con "did not self-register".
+  if (_loadedOnce) {
+    _disabledUntil = Number.MAX_SAFE_INTEGER;
+    _consecutiveFailures = MAX_CONSECUTIVE_FAILURES;
+    logger.error(
+      'EmbedService',
+      `[embeddings] worker caído tras haber cargado onnxruntime (single-load NAPI). ` +
+        `Embeddings degradados de forma permanente hasta reiniciar la app: ${err.message}`
+    );
+  } else {
+    _noteFailure(err);
+  }
   const pending = [..._pending.values()];
   _pending.clear();
   for (const p of pending) p.reject(err);
@@ -180,12 +181,18 @@ function _establishedFailed(w, err) {
 /** @returns {Promise<import('worker_threads').Worker>} */
 function _startWorker() {
   if (_worker) {
-    _clearIdleTimer();
     return Promise.resolve(_worker);
   }
   if (_starting) return _starting;
+  // El worker llegó a 'ready' alguna vez y ahora está muerto: onnxruntime ya
+  // quedó cargado en este proceso y NO puede recargarse (NAPI single-load).
+  // Degradación permanente — recrear el worker o caer al main thread fallará.
+  if (_loadedOnce) {
+    return Promise.reject(
+      new Error('onnxruntime ya cargado (single-load NAPI): el worker no puede reiniciarse')
+    );
+  }
 
-  _clearIdleTimer();
   _starting = new Promise((resolve, reject) => {
     let ready = false;
 
@@ -235,8 +242,8 @@ function _startWorker() {
           _starting = null;
           _consecutiveFailures = 0;
           _disabledUntil = 0;
+          _loadedOnce = true;
           resolve(w);
-          _scheduleIdleTerminate();
         } else if (msg.type === 'result') {
           const p = _pending.get(msg.id);
           if (p) {
@@ -298,12 +305,10 @@ function _request(w, text) {
       resolve: (v) => {
         clearTimeout(timer);
         resolve(v);
-        _scheduleIdleTerminate();
       },
       reject: (e) => {
         clearTimeout(timer);
         reject(e);
-        _scheduleIdleTerminate();
       },
     });
     w.postMessage({ id, text });
@@ -318,18 +323,28 @@ function _mainThreadFallback(text) {
 
 /**
  * Genera el embedding de un texto (Float32Array de 384 dims, normalizado L2).
- * Prefiere el worker; ante cualquier fallo cae al main thread.
+ * Prefiere el worker; ante fallo transitorio (worker nunca cargado) cae al
+ * main thread. Si onnxruntime ya se cargó y el worker cayó, lanza (degradación
+ * permanente): el main thread tampoco puede cargar el binding una segunda vez.
  * @param {string} text
  * @returns {Promise<Float32Array>}
  */
 async function embedText(text) {
-  if (_workerDisabled()) return _mainThreadFallback(text);
+  if (_workerDisabled()) {
+    if (_loadedOnce) {
+      throw new Error('embeddings no disponibles (onnxruntime ya cargado, worker caído)');
+    }
+    return _mainThreadFallback(text);
+  }
   _tryRecoverWorker();
   try {
     const w = await _startWorker();
     return await _request(w, String(text));
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
+    if (_loadedOnce) {
+      throw new Error(`embeddings no disponibles (onnxruntime ya cargado, worker caído): ${msg}`);
+    }
     logger.warn('EmbedService', `[embeddings] usando main thread: ${msg}`);
     return _mainThreadFallback(text);
   }
@@ -347,6 +362,13 @@ function float32ToBuffer(arr) {
  */
 async function warmup() {
   if (_workerDisabled()) return false;
+  if (_loadedOnce && !_worker) {
+    logger.error(
+      'EmbedService',
+      '[embeddings] warmup omitido: onnxruntime ya cargado y worker caído (single-load NAPI)'
+    );
+    return false;
+  }
   _tryRecoverWorker();
   try {
     const w = await _startWorker();
@@ -369,6 +391,7 @@ function dispose() {
   _seq = 0;
   _consecutiveFailures = 0;
   _disabledUntil = 0;
+  _loadedOnce = false;
 }
 
 // ── Debug / tests ─────────────────────────────────────────────────────────────
@@ -390,6 +413,7 @@ function _debug_resetState() {
   _seq = 0;
   _consecutiveFailures = 0;
   _disabledUntil = 0;
+  _loadedOnce = false;
   _workerFactory = null;
 }
 
@@ -402,13 +426,14 @@ function _debug_forceDisable(relativeMs) {
   _disabledUntil = Date.now() + relativeMs;
 }
 
-/** @returns {{ consecutiveFailures: number; disabledUntil: number; disabled: boolean; workerAlive: boolean }} */
+/** @returns {{ consecutiveFailures: number; disabledUntil: number; disabled: boolean; workerAlive: boolean; loadedOnce: boolean }} */
 function _debug_getState() {
   return {
     consecutiveFailures: _consecutiveFailures,
     disabledUntil: _disabledUntil,
     disabled: _workerDisabled(),
     workerAlive: !!_worker,
+    loadedOnce: _loadedOnce,
   };
 }
 

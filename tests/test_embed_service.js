@@ -28,7 +28,13 @@ function assert(condition, label, detail = '') {
 /**
  * Worker fake (EventEmitter) que replica el protocolo de embedWorker.js:
  *   ready → result | fatal | error
- * @param {'ok' | 'startError' | 'fatal'} mode
+ * Modos:
+ *   'ok'           → ready, responde requests, sigue vivo
+ *   'startError'   → error al arrancar (nunca 'ready')
+ *   'fatal'        → mensaje fatal al arrancar (nunca 'ready')
+ *   'readyThenExit'→ ready, responde una vez, luego emite 'exit' (simula un
+ *                    worker que cargó onnxruntime y muere después)
+ * @param {'ok' | 'startError' | 'fatal' | 'readyThenExit'} mode
  */
 function makeFakeWorker(mode) {
   const w = new EventEmitter();
@@ -48,10 +54,16 @@ function makeFakeWorker(mode) {
     }
     w.emit('message', { type: 'ready' });
   });
+  let served = 0;
   w.postMessage = (msg) => {
     if (!msg || typeof msg.id !== 'number' || w._terminated) return;
     setImmediate(() => {
       w.emit('message', { type: 'result', id: msg.id, embedding: new Float32Array(384) });
+      if (mode === 'readyThenExit' && ++served === 1) {
+        // Simula que el worker muere justo después de la primera respuesta.
+        // El servicio trata 'exit' como fallo establecido (ya llegó a 'ready').
+        setImmediate(() => w.emit('exit'));
+      }
     });
   };
   return w;
@@ -239,6 +251,70 @@ async function testWarmupRespectsCooldown() {
   EmbedService._debug_resetState();
 }
 
+// ── Test 6: worker muere tras haber cargado → degradación permanente ──────────
+// onnxruntime-node es NAPI single-load: si el worker llegó a 'ready' y luego
+// muere, NO se puede recrear (ni caer al main thread). El servicio se degrada
+// de forma permanente: embedText lanza, no instancia un worker nuevo.
+
+async function testPermanentDegradationAfterLoad() {
+  console.log(C.bold('\n── Test 6: worker muerto post-load → degradación permanente ────────'));
+
+  const EmbedService = require('../core/grounding/EmbedService.js');
+  const IntentDetector = require('../core/grounding/IntentDetector.js');
+
+  EmbedService._debug_resetState();
+  const origEmbed = IntentDetector.embedText;
+  IntentDetector.embedText = async () => {
+    throw new Error('NO debe usarse el main thread tras un worker cargado (single-load NAPI)');
+  };
+
+  let factoryCalls = 0;
+  EmbedService._debug_setWorkerFactory(() => {
+    factoryCalls++;
+    return makeFakeWorker('readyThenExit');
+  });
+
+  try {
+    // Primera llamada: worker carga ('ready') y responde.
+    const v = await EmbedService.embedText('hola');
+    assert(v instanceof Float32Array && v.length === 384, 'worker cargado responde normal');
+    assert(
+      EmbedService._debug_getState().loadedOnce === true,
+      'tras el primer éxito, loadedOnce = true (onnxruntime cargado)'
+    );
+
+    // El worker muere (evento 'exit' post-ready) → degradación permanente.
+    await new Promise((r) => setImmediate(r));
+    assert(
+      EmbedService._debug_getState().workerAlive === false,
+      'el worker quedó marcado como no vivo tras su terminación'
+    );
+    assert(
+      EmbedService._debug_getState().disabled === true,
+      'worker deshabilitado de forma permanente'
+    );
+
+    // Intento posterior: NO se instancia un worker nuevo y NO se cae a main.
+    const callsBefore = factoryCalls;
+    let threw = false;
+    try {
+      await EmbedService.embedText('otro');
+    } catch (e) {
+      threw = true;
+      assert(
+        /onnxruntime|embeddings no disponibles/i.test(e.message),
+        'el error informa la causa (single-load NAPI)',
+        e.message
+      );
+    }
+    assert(threw === true, 'embedText lanza tras degradación permanente');
+    assert(factoryCalls === callsBefore, 'NO se instancia un worker nuevo tras la degradación');
+  } finally {
+    IntentDetector.embedText = origEmbed;
+    EmbedService._debug_resetState();
+  }
+}
+
 // ── Main ──────────────────────────────────────────────────────────────────────
 
 async function main() {
@@ -251,6 +327,7 @@ async function main() {
   await testDisableThenCooldown();
   await testRecoveryAfterCooldown();
   await testWarmupRespectsCooldown();
+  await testPermanentDegradationAfterLoad();
 
   console.log(C.bold('\n════════════════════════════════════════════════════════'));
   const total = passed + failed;
