@@ -161,12 +161,12 @@ Detección de errores del editor vía **LSP real** (typescript-language-server):
 
 Ninguna acción de alto impacto se ejecuta sin aprobación explícita. Combina: permisos granulares `allow`/`ask`/`deny` por herramienta y ruta, confinamiento de rutas al workspace activo (resuelto por `realpath`, no por comparación de strings — resistente a symlinks y `../`), bloqueo de rutas sensibles (`.ssh`, `.env`, credenciales, `.aws`, `.npmrc`) e idempotencia por `proposalId`.
 
-| Mecanismo | Qué hace | Dónde se ve |
-| --- | --- | --- |
-| **Sandbox de proceso** (`bwrap`) | En Linux con `bubblewrap`, cada comando aprobado corre en namespaces propios de mount/pid/ipc/uts: filesystem read-only salvo workspace activo + `/tmp`, `.ssh`/`$HOME` fuera de alcance. Sin `bwrap`, degrada de forma transparente (nunca rompe el server). | `GET /health` y el canal IPC `openclaw-status` reportan si está activo y, si no, por qué. |
-| **Verificación forzada post-mutación** | Tras editar archivos: `typecheck → lint → test → build` (autodetectado de `package.json` o configurable), por el **mismo camino** que cualquier `exec` — hereda sandbox y entorno saneado. Sin comando configurado pero con JS tocado: `node --check` como piso mínimo. | Resultado (`passed`/`failed`/`skipped`) siempre visible en la respuesta — nunca un cierre silencioso. |
-| **Checkpoint y revert** | `WorkspaceCheckpoint` captura una línea base antes de la primera mutación de una tarea (diff+estado con git; snapshot de archivos sin git). | `/revertir-tarea [id]` deshace solo lo que hizo el agente, preserva cambios previos sin commitear del usuario. |
-| **Límite de confianza (anti-prompt-injection)** | Contenido de terceros (`webfetch`/`websearch`, páginas navegadas, issues/PRs/comentarios de GitHub, resultados de servidores MCP) se delimita y se le neutralizan patrones clásicos de inyección antes de entrar al prompt. | Aplica a web, GitHub y MCP por igual. |
+| Mecanismo                                       | Qué hace                                                                                                                                                                                                                                                                | Dónde se ve                                                                                                    |
+| ----------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------- |
+| **Sandbox de proceso** (`bwrap`)                | En Linux con `bubblewrap`, cada comando aprobado corre en namespaces propios de mount/pid/ipc/uts: filesystem read-only salvo workspace activo + `/tmp`, `.ssh`/`$HOME` fuera de alcance. Sin `bwrap`, degrada de forma transparente (nunca rompe el server).           | `GET /health` y el canal IPC `openclaw-status` reportan si está activo y, si no, por qué.                      |
+| **Verificación forzada post-mutación**          | Tras editar archivos: `typecheck → lint → test → build` (autodetectado de `package.json` o configurable), por el **mismo camino** que cualquier `exec` — hereda sandbox y entorno saneado. Sin comando configurado pero con JS tocado: `node --check` como piso mínimo. | Resultado (`passed`/`failed`/`skipped`) siempre visible en la respuesta — nunca un cierre silencioso.          |
+| **Checkpoint y revert**                         | `WorkspaceCheckpoint` captura una línea base antes de la primera mutación de una tarea (diff+estado con git; snapshot de archivos sin git).                                                                                                                             | `/revertir-tarea [id]` deshace solo lo que hizo el agente, preserva cambios previos sin commitear del usuario. |
+| **Límite de confianza (anti-prompt-injection)** | Contenido de terceros (`webfetch`/`websearch`, páginas navegadas, issues/PRs/comentarios de GitHub, resultados de servidores MCP) se delimita y se le neutralizan patrones clásicos de inyección antes de entrar al prompt.                                             | Aplica a web, GitHub y MCP por igual.                                                                          |
 
 </details>
 
@@ -536,6 +536,10 @@ El overlay Live2D con el modelo por defecto (**March 7th**) sobre el escritorio,
 |                                                            |                                                                |
 | ---------------------------------------------------------- | -------------------------------------------------------------- |
 | ![Overlay March 7th](./screenshots/01-overlay-desktop.png) | ![Personaje March 7th](./screenshots/02-overlay-character.png) |
+
+> **Demo en vídeo:** el chat detecta un `.env` sin ignorar en el repositorio, la propuesta proactiva se abre sola con la opción de arreglarlo, y una conversación fluye con streaming de Markdown:
+
+![Demo del asistente en acción](./screenshots/demo.gif)
 
 ![Conversación en el chat](./screenshots/03-chat-conversacion.png)
 
