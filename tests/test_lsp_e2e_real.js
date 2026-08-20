@@ -109,12 +109,18 @@ function setupWorkspace() {
 // El server TS vía npx necesita typescript resoluble desde el workspace.
 // npm install typescript (local) evita el "Could not find a valid TypeScript
 // installation". Offline → se omite el e2e.
+// En Windows npm/npx son shims `.cmd` → shell:true (igual que LSPManager).
+const IS_WIN = process.platform === 'win32';
+const NPM = IS_WIN ? 'npm.cmd' : 'npm';
+const NPX = IS_WIN ? 'npx.cmd' : 'npx';
+
 function installTypescript() {
   try {
-    execFileSync('npm', ['install', '--no-save', 'typescript@5.5.4'], {
+    execFileSync(NPM, ['install', '--no-save', 'typescript@5.5.4'], {
       cwd: WORKSPACE_DIR,
       stdio: 'pipe',
       timeout: 120000,
+      shell: IS_WIN,
     });
     return true;
   } catch (e) {
@@ -125,9 +131,10 @@ function installTypescript() {
 
 function serverAvailable() {
   try {
-    const r = spawnSync('npx', ['--no-install', 'typescript-language-server', '--version'], {
+    const r = spawnSync(NPX, ['--no-install', 'typescript-language-server', '--version'], {
       stdio: 'pipe',
       timeout: 15000,
+      shell: IS_WIN,
     });
     return r.status === 0;
   } catch {

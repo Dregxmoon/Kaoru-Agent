@@ -108,7 +108,7 @@ class _LSPInstance {
       let started = false;
       let proc;
       try {
-        proc = spawn(config.command, config.args, {
+        proc = _spawnLspServer(config.command, config.args, {
           cwd: workspacePath,
           stdio: ['pipe', 'pipe', 'pipe'],
           env: { ...process.env, ...(this._env || {}) },
@@ -196,12 +196,12 @@ class _LSPInstance {
       const wantFolders = this._serverConfig.workspaceFolders === true;
       const initializeParams = {
         processId: process.pid,
-        rootUri: `file://${this._workspacePath}`,
+        rootUri: _toFileUri(this._workspacePath),
       };
       if (wantFolders) {
         initializeParams.rootPath = this._workspacePath;
         initializeParams.workspaceFolders = [
-          { uri: `file://${this._workspacePath}`, name: path.basename(this._workspacePath) },
+          { uri: _toFileUri(this._workspacePath), name: path.basename(this._workspacePath) },
         ];
       }
       initializeParams.initializationOptions = this._initializationOptions || undefined;
@@ -357,7 +357,7 @@ class _LSPInstance {
   async openDocument(filePath) {
     const absPath = path.resolve(filePath);
     if (!fs.existsSync(absPath)) return;
-    const uri = `file://${absPath}`;
+    const uri = _toFileUri(absPath);
     // Fase D: no re-enviar didOpen si el documento ya está abierto (muchos
     // servers lo toleran, pero reabrir resetea su estado del buffer).
     if (this._openedDocs.has(uri)) return;
@@ -380,7 +380,7 @@ class _LSPInstance {
 
   async changeDocument(filePath, content, version = null) {
     const absPath = path.resolve(filePath);
-    const uri = `file://${absPath}`;
+    const uri = _toFileUri(absPath);
     // Si el documento no estaba abierto, abrirlo con el contenido nuevo.
     if (!this._openedDocs.has(uri)) {
       this._openedDocs.set(uri, 1);
@@ -407,7 +407,7 @@ class _LSPInstance {
 
   /** Olvida un documento abierto (p.ej. al dejar de escanearlo). */
   closeDocument(filePath) {
-    const uri = `file://${path.resolve(filePath)}`;
+    const uri = _toFileUri(path.resolve(filePath));
     if (!this._openedDocs.has(uri)) return;
     this._openedDocs.delete(uri);
     this._notify('textDocument/didClose', { textDocument: { uri } });
@@ -421,7 +421,7 @@ class _LSPInstance {
    */
   waitForDiagnostics(filePath, { debounceMs = 300, timeoutMs = 3000 } = {}) {
     const absPath = path.resolve(filePath);
-    const uri = `file://${absPath}`;
+    const uri = _toFileUri(absPath);
 
     return new Promise((resolve) => {
       let timer = null;
@@ -446,7 +446,7 @@ class _LSPInstance {
 
   async getDiagnostics(filePath) {
     const absPath = path.resolve(filePath);
-    const uri = `file://${absPath}`;
+    const uri = _toFileUri(absPath);
 
     // Ensure document is open
     await this.openDocument(filePath);
@@ -475,7 +475,7 @@ class _LSPInstance {
 
   async goToDefinition(filePath, line, character) {
     const absPath = path.resolve(filePath);
-    const uri = `file://${absPath}`;
+    const uri = _toFileUri(absPath);
     await this.openDocument(filePath);
 
     const result = await this._request('textDocument/definition', {
@@ -487,7 +487,7 @@ class _LSPInstance {
     const locations = Array.isArray(result) ? result : [result];
     return locations.map((loc) => ({
       uri: loc.uri,
-      filePath: loc.uri ? decodeURIComponent(loc.uri.replace(/^file:\/\//, '')) : null,
+      filePath: loc.uri ? _fromFileUri(loc.uri) : null,
       range: loc.range,
       line: loc.range?.start?.line,
       character: loc.range?.start?.character,
@@ -496,7 +496,7 @@ class _LSPInstance {
 
   async findReferences(filePath, line, character) {
     const absPath = path.resolve(filePath);
-    const uri = `file://${absPath}`;
+    const uri = _toFileUri(absPath);
     await this.openDocument(filePath);
 
     const result = await this._request('textDocument/references', {
@@ -508,7 +508,7 @@ class _LSPInstance {
     if (!result) return [];
     return result.map((loc) => ({
       uri: loc.uri,
-      filePath: loc.uri ? decodeURIComponent(loc.uri.replace(/^file:\/\//, '')) : null,
+      filePath: loc.uri ? _fromFileUri(loc.uri) : null,
       range: loc.range,
       line: loc.range?.start?.line,
       character: loc.range?.start?.character,
@@ -517,7 +517,7 @@ class _LSPInstance {
 
   async getDocumentSymbols(filePath) {
     const absPath = path.resolve(filePath);
-    const uri = `file://${absPath}`;
+    const uri = _toFileUri(absPath);
     await this.openDocument(filePath);
 
     const result = await this._request('textDocument/documentSymbol', {
@@ -544,9 +544,7 @@ class _LSPInstance {
       kind: sym.kind,
       kindName: _symbolKindName(sym.kind),
       location: sym.location,
-      filePath: sym.location?.uri
-        ? decodeURIComponent(sym.location.uri.replace(/^file:\/\//, ''))
-        : null,
+      filePath: sym.location?.uri ? _fromFileUri(sym.location.uri) : null,
     }));
   }
 
@@ -555,7 +553,7 @@ class _LSPInstance {
   /** Hover en una posición → contenido plano + lenguaje (LSP.3). */
   async hover(filePath, line, character) {
     const absPath = path.resolve(filePath);
-    const uri = `file://${absPath}`;
+    const uri = _toFileUri(absPath);
     await this.openDocument(filePath);
 
     const result = await this._request('textDocument/hover', {
@@ -587,7 +585,7 @@ class _LSPInstance {
       throw new Error('rename requiere newName (nombre nuevo del símbolo)');
     }
     const absPath = path.resolve(filePath);
-    const uri = `file://${absPath}`;
+    const uri = _toFileUri(absPath);
     await this.openDocument(filePath);
 
     const result = await this._request('textDocument/rename', {
@@ -599,7 +597,7 @@ class _LSPInstance {
     const edits = [];
     for (const [fileUri, textEdits] of Object.entries(result.changes)) {
       edits.push({
-        filePath: decodeURIComponent(fileUri.replace(/^file:\/\//, '')),
+        filePath: _fromFileUri(fileUri),
         uri: fileUri,
         edits: textEdits,
       });
@@ -610,7 +608,7 @@ class _LSPInstance {
   /** Code actions disponibles en una posición (LSP.3). No las aplica. */
   async codeActions(filePath, line, character, context = null) {
     const absPath = path.resolve(filePath);
-    const uri = `file://${absPath}`;
+    const uri = _toFileUri(absPath);
     await this.openDocument(filePath);
 
     const diagnostics = context?.diagnostics || this._diagnostics.get(uri) || [];
@@ -739,7 +737,7 @@ class _LSPInstance {
           this._respond(
             id,
             this._workspacePath
-              ? [{ uri: `file://${this._workspacePath}`, name: path.basename(this._workspacePath) }]
+              ? [{ uri: _toFileUri(this._workspacePath), name: path.basename(this._workspacePath) }]
               : null
           );
           return;
@@ -828,7 +826,7 @@ class _LSPInstance {
     this._openedDocs.clear();
     for (const uri of uris) {
       try {
-        const filePath = decodeURIComponent(uri.replace(/^file:\/\//, ''));
+        const filePath = _fromFileUri(uri);
         await this.openDocument(filePath);
       } catch (e) {
         logger.warn(
@@ -1127,7 +1125,56 @@ class LSPManager {
 
 // ── Módulo helpers ─────────────────────────────────────────────────────────
 
+// Construye un URI file:// correcto desde una ruta del filesystem. En Windows
+// una ruta `C:\Users\x\main.ts` NO puede ir como `file://C:\Users\...` (URI
+// inválido que tsserver rechaza): debe ser `file:///C:/Users/x/main.ts`
+// (drive + forward slashes + triple slash).
+function _toFileUri(filePath) {
+  const absPath =
+    process.platform === 'win32' ? path.win32.resolve(filePath) : path.resolve(filePath);
+  if (process.platform === 'win32') {
+    const withForwardSlashes = absPath.replace(/\\/g, '/');
+    return `file:///${withForwardSlashes}`;
+  }
+  return `file://${absPath}`;
+}
+
+// Convierte un URI file:// devuelto por el server de vuelta a ruta local.
+// `file:///C:/Users/x/main.ts` → `C:\Users\x\main.ts` en Windows.
+function _fromFileUri(uri) {
+  const decoded = decodeURIComponent(uri.replace(/^file:\/\//, ''));
+  if (process.platform === 'win32') {
+    return decoded.replace(/^\/([A-Za-z]:)/, '$1').replace(/\//g, '\\');
+  }
+  return decoded;
+}
+
+// Lanza el server LSP de forma portable:
+//  - En Windows los binarios npm (npx, node, tsc...) son shims `.cmd` que
+//    `spawn` no puede ejecutar directamente (ENOENT: ".cmd is not executable").
+//    La única forma fiable de lanzarlos es `shell: true` (cmd.exe los resuelve)
+//    o resolver el `.cmd` explícito. Usamos `shell: true` SOLO en win32.
+//  - En Linux/macOS los binarios son ejecutables reales: spawn directo.
+// `windowsHide` evita que salte una ventana de consola al arrancar el server.
+function _spawnLspServer(command, args, options) {
+  if (process.platform === 'win32') {
+    return spawn(command, args, { ...options, shell: true, windowsHide: true });
+  }
+  return spawn(command, args, options);
+}
+
+// Mata el árbol de procesos del server LSP. En Linux se recorre /proc (npx
+// lanza el server real en un hijo). En Windows `spawn` con shell:true deja el
+// server como hijo de cmd.exe → hay que matarlo por árbol con taskkill /T.
 function _killTree(rootPid) {
+  if (process.platform === 'win32') {
+    try {
+      require('child_process').execFileSync('taskkill', ['/pid', String(rootPid), '/T', '/F'], {
+        stdio: 'ignore',
+      });
+    } catch {}
+    return;
+  }
   if (process.platform !== 'linux') return;
   const children = new Map();
   try {
@@ -1199,4 +1246,11 @@ function getLSPManager() {
   return _instance;
 }
 
-module.exports = { LSPManager, getLSPManager, _LSPInstance, loadServersTable };
+module.exports = {
+  LSPManager,
+  getLSPManager,
+  _LSPInstance,
+  loadServersTable,
+  _toFileUri,
+  _fromFileUri,
+};
