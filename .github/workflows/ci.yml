@@ -103,6 +103,8 @@ jobs:
     needs: [quality, test]
     timeout-minutes: 60
     continue-on-error: true
+    permissions:
+      contents: write
     if: github.ref == 'refs/heads/produccion' || startsWith(github.ref, 'refs/tags/v')
     strategy:
       fail-fast: false
