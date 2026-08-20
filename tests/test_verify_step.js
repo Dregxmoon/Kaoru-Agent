@@ -128,11 +128,29 @@ function createRouterLLM({ main, resolution }) {
 // Bridge sobre FS real + cola de respuestas para exec (la verificación).
 function createBridge(projectCwd, execResponses = []) {
   let execIdx = 0;
+  let nodeCheckCount = 0;
   const resolve = (p) => (path.isAbsolute(p) ? p : path.join(projectCwd, p));
   return {
     execute: async (tool, params) => {
       const t0 = Date.now();
       if (tool === 'exec') {
+        // LSP.1: tras editar un .js, el AgentLoop valida la sintaxis con
+        // `node --check` por el MISMO bridge. El primer `node --check` por
+        // edición es SIEMPRE ese post-edit (debe pasar, el archivo recién
+        // editado es válido); los subsiguientes (fallback de verificación
+        // con `verify.enabled:false`) consumen los slots del mock.
+        if (typeof params.command === 'string' && params.command.includes('node --check')) {
+          if (nodeCheckCount === 0) {
+            nodeCheckCount++;
+            return {
+              ok: true,
+              result: { stdout: '', stderr: '', exitCode: 0, signal: null, error: null },
+              tool,
+              elapsed: Date.now() - t0,
+            };
+          }
+          nodeCheckCount++;
+        }
         const r = execResponses[execIdx++];
         return (
           r || {

@@ -260,6 +260,11 @@ console.log(C.bold(C.cyan('═════════════════�
       () => document.getElementById('model-browser').style.display !== 'none'
     );
     assert(mbrVisible, '/model expande el browser de modelos inline');
+    // Sin API keys el browser arranca mostrando solo conectados/favoritos
+    // (posiblemente 0 filas). El toggle expande el catálogo completo — esa es
+    // la vista que hay que validar (no depende de credenciales en el runner).
+    await chat.evaluate(() => document.getElementById('mbr-toggle-all').click());
+    await sleep(200);
     const mbrRows = await chat.evaluate(
       () => document.querySelectorAll('#model-browser-list .model-browser-row').length
     );
