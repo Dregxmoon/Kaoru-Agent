@@ -995,10 +995,12 @@ async function callGeminiProvider(providerId, messages, systemPrompt, mode = 'fa
   // OJO: para Gemini el streaming NO se activa con el campo `stream` en el
   // body (generateContent no lo acepta → 400 "Unknown name stream"). Se
   // activa con `alt=sse` en la URL (más abajo). No poner body.stream aquí.
+  // La API key NO va en el query string (quedaría en logs de red/proxies):
+  // va en el header `x-goog-api-key` (método documentado por Google).
 
   const res = await post(
-    `${def.baseURL}/models/${model}:generateContent?key=${key}${opts.onToken ? '&alt=sse' : ''}`,
-    {},
+    `${def.baseURL}/models/${model}:generateContent${opts.onToken ? '?alt=sse' : ''}`,
+    { 'x-goog-api-key': key },
     body,
     timeoutMs,
     opts.signal
@@ -1425,9 +1427,13 @@ async function callGeminiWithTools(providerId, messages, systemPrompt, mode, too
     `[llm] ${providerId} tool-calling model: ${model} (${mode}, ${tools.length} tools)${opts.onToken ? ' [stream]' : ''}`
   );
 
+  // Gemini: el streaming se activa con `alt=sse` en la URL, no con `body.stream`.
+  // La API key NO va en el query string (quedaría en logs de red/proxies):
+  // va en el header `x-goog-api-key` (método documentado por Google).
+
   const res = await post(
-    `${def.baseURL}/models/${model}:generateContent?key=${key}${opts.onToken ? '&alt=sse' : ''}`,
-    {},
+    `${def.baseURL}/models/${model}:generateContent${opts.onToken ? '?alt=sse' : ''}`,
+    { 'x-goog-api-key': key },
     body,
     timeoutMs,
     opts.signal
