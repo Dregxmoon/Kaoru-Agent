@@ -481,7 +481,7 @@ npm run coverage:check    # además valida umbrales (guard de regresión)
 | Plugins y skills                            | ✅ Operativo |
 | Modelo de confianza del agente              | ✅ Operativo |
 
-El proyecto se desarrolla por fases — ver [`ROADMAP.md`](./ROADMAP.md) para la estrategia completa y las siguientes entregas.
+El proyecto se desarrolla por fases y se entrega de forma incremental (ver el historial de `git log` para la estrategia completa y las siguientes entregas).
 
 ---
 
