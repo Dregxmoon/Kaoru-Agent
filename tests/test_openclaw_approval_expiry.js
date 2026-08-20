@@ -66,11 +66,11 @@ Module._load = function (_request, _parent, _isMain) {
 let capturedApproval = null;
 const sendLog = [];
 
-function makeCtx(approvalTimeoutMs) {
+function makeCtx(approvalTimeoutMs, agentConfig = {}) {
   return {
     S: { chatWindow: { isDestroyed: () => false } },
     sendToChat: (channel, payload) => sendLog.push({ channel, payload }),
-    loadEffectiveConfig: () => ({ agent: { approvalTimeoutMs } }),
+    loadEffectiveConfig: () => ({ agent: { approvalTimeoutMs, ...agentConfig } }),
     Core: {
       runAgent: async (_text, opts) => {
         capturedApproval = opts.onApprovalNeeded;
@@ -323,6 +323,28 @@ ACCIÓN: run_command | COMANDO: rm -rf /
   }
 }
 
+// ── Test 7: agent.autoApprove → sin card, aprobado al instante ───────────────
+
+async function testAutoApproveSkipsCard() {
+  console.log(C.bold('\n── Test 7: agent.autoApprove → auto-aprobado sin card ──────────'));
+  resetApprovals();
+  sendLog.length = 0;
+  const ctx = makeCtx(60, { autoApprove: true });
+  register(ctx);
+
+  mockIpcMain.invokeHandler('agent-run', {}, { text: 'haz algo' }).catch(() => {});
+  await new Promise((r) => setImmediate(r));
+
+  const value = await capturedApproval({ tool: 'exec', params: { command: 'rm -rf /' } });
+  assert(value === true, 'autoApprove → true sin mostrar card');
+  const needed = sendLog.find((x) => x.channel === 'agent-approval-needed');
+  assert(!needed, 'no se envía agent-approval-needed');
+  const expired = sendLog.find((x) => x.channel === 'agent-approval-expired');
+  assert(!expired, 'no se envía agent-approval-expired');
+  resetApprovals();
+  mockIpcMain.emit('agent-cancel');
+}
+
 // ── Run ───────────────────────────────────────────────────────────────────────
 
 async function main() {
@@ -337,6 +359,7 @@ async function main() {
     await testAgentLoopTimeoutNotice();
     await testAgentLoopPlainDenyNoNotice();
     await testAgentLoopObjectDecisionNotApproved();
+    await testAutoApproveSkipsCard();
   } finally {
     Module._load = realLoad;
   }

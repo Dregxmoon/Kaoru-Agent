@@ -355,19 +355,25 @@ class OpenClawBridge {
 
     const result = res.body?.result ?? res.body;
 
-    // Edit/apply_patch: el server adjunta oldContent/newContent y las líneas
-    // cambiadas para el split visual viejo/actualizado. Se propagan como `meta`
-    // para que la UI los pueda pintar sin mezclarlos con lo que ve el LLM
-    // (`result` sigue siendo el string de resumen).
-    const meta =
-      res.body && typeof res.body === 'object' && res.body.oldContent
-        ? {
-            oldContent: res.body.oldContent,
-            newContent: res.body.newContent,
-            addedLines: res.body.addedLines,
-            removedLines: res.body.removedLines,
-          }
-        : null;
+    // Edit/apply_patch (y write desde F: vista previa de diff): el server
+    // adjunta oldContent/newContent y las líneas cambiadas para el split
+    // visual viejo/actualizado. Se propagan como `meta` para que la UI los
+    // pueda pintar sin mezclarlos con lo que ve el LLM (`result` sigue siendo
+    // el string de resumen). Se usa hasOwnProperty porque oldContent puede ser
+    // '' (write a archivo nuevo): con un truthy-check se perdería el meta.
+    const hasMeta =
+      res.body &&
+      typeof res.body === 'object' &&
+      Object.prototype.hasOwnProperty.call(res.body, 'oldContent');
+    const meta = hasMeta
+      ? {
+          oldContent: res.body.oldContent,
+          newContent: res.body.newContent,
+          patch: res.body.patch,
+          addedLines: res.body.addedLines,
+          removedLines: res.body.removedLines,
+        }
+      : null;
 
     this._log({ tool, params, ok: true, result, elapsed });
     logger.info('OpenClawBridge', `[openclaw] ${tool} completado en ${elapsed}ms`);

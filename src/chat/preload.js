@@ -32,6 +32,13 @@ const INVOKE_ALLOWLIST = new Set([
   'get-model-picker',
   'connect-llm-provider',
   'favorite-model',
+  // Settings (§9) / PIN (§11.1)
+  'set-config',
+  'github-status',
+  'pin-status',
+  'pin-set',
+  'pin-check',
+  'pin-clear',
   // Workspace / contexto / agente
   'get-workspace',
   'pick-workspace-folder',

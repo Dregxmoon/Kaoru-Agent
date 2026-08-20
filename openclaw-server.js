@@ -536,6 +536,23 @@ function _diffLineMarkers(oldContent, newContent) {
   return { addedLines: added, removedLines: removed };
 }
 
+// Patch unificado del cambio (para el bloque visual de diff en el chat).
+function _diffPatch(filePath, oldContent, newContent) {
+  try {
+    return Diff.createTwoFilesPatch(
+      'a/' + path.basename(filePath),
+      'b/' + path.basename(filePath),
+      oldContent || '',
+      newContent || '',
+      '',
+      '',
+      { context: 3 }
+    );
+  } catch (_) {
+    return '';
+  }
+}
+
 // Realpath del ancestro existente más cercano a `p` (para rutas de archivos
 // que aún no existen, p.ej. al escribir uno nuevo), manteniendo el resto
 // del path como sufijo literal. Cierra la vía de escape por symlink: si un
@@ -896,9 +913,31 @@ const HANDLERS = {
         result: `Appended ${Buffer.byteLength(content, encoding)} bytes to ${filePath}`,
       };
     }
+
+    // Vista previa de diff: el contenido ACTUAL del archivo (si existe) es el
+    // "antes". Cubre tanto el archivo nuevo (oldContent = '') como el write
+    // que SOBREESCRIBE un archivo existente entero — el caso de mayor riesgo,
+    // donde el usuario debe ver claramente todo lo que se pierde. Solo tiene
+    // sentido para encodings de texto: con base64/binario el diff sería basura.
+    const textEncoding = !encoding || /^utf-?8$/i.test(String(encoding));
+    let oldContent = '';
+    if (textEncoding && fs.existsSync(filePath)) {
+      try {
+        oldContent = fs.readFileSync(filePath, 'utf-8');
+      } catch (_) {
+        oldContent = '';
+      }
+    }
+
     fs.writeFileSync(filePath, content, encoding);
+    const base = { result: `Written ${Buffer.byteLength(content, encoding)} bytes to ${filePath}` };
+    if (!textEncoding) return base;
     return {
-      result: `Written ${Buffer.byteLength(content, encoding)} bytes to ${filePath}`,
+      ...base,
+      oldContent,
+      newContent: content,
+      patch: _diffPatch(filePath, oldContent, content),
+      ..._diffLineMarkers(oldContent, content),
     };
   },
 
@@ -948,6 +987,7 @@ const HANDLERS = {
       result: `Edited ${filePath} (1 reemplazo exacto)`,
       oldContent: content,
       newContent,
+      patch: _diffPatch(filePath, content, newContent),
       ..._diffLineMarkers(content, newContent),
     };
   },
@@ -979,6 +1019,7 @@ const HANDLERS = {
       result: `Patch applied to ${filePath}`,
       oldContent: content,
       newContent: patched,
+      patch: _diffPatch(filePath, content, patched),
       ..._diffLineMarkers(content, patched),
     };
   },

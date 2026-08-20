@@ -1948,6 +1948,32 @@ function _pushPickerModel(models, seen, providerId, modelId, meta, remote) {
  * curado (registry) con el remoto (models.dev), marca conectados y favoritos.
  * @returns {object}
  */
+/**
+ * Modelos que el picker muestra por defecto (sin query): solo proveedores con
+ * API key configurada (`hasKey`) + favoritos. El resto del catálogo remoto
+ * (400+ providers de models.dev) queda oculto hasta buscar o togglear
+ * "ver todos". Orden: favoritos primero, luego providerId alfabético.
+ * @param {Array<{id: string, hasKey?: boolean}>} providers
+ * @param {Array<{providerId: string, modelId: string}>} models
+ * @param {Array<string>} favorites keys "providerId/modelId"
+ * @returns {Array<{providerId: string, modelId: string}>}
+ */
+function computeDefaultPickerRows(providers, models, favorites) {
+  const byId = new Map(providers.map((p) => [p.id, p]));
+  const favs = new Set(Array.isArray(favorites) ? favorites : []);
+  const key = (m) => `${m.providerId}/${m.modelId}`;
+  const rows = models.filter((m) => {
+    const p = byId.get(m.providerId) || {};
+    return !!p.hasKey || favs.has(key(m));
+  });
+  rows.sort(
+    (a, b) =>
+      (favs.has(key(a)) ? 0 : 1) - (favs.has(key(b)) ? 0 : 1) ||
+      a.providerId.localeCompare(b.providerId)
+  );
+  return rows;
+}
+
 function getModelPickerData() {
   const providers = _providerPickerStates();
   const registry = new Map(getProviders().map((p) => [p.id, p]));
@@ -1974,6 +2000,7 @@ function getModelPickerData() {
       }
     }
   }
+  const favorites = Array.isArray(_config.favorites) ? [..._config.favorites] : [];
   return {
     roles: ROLE_LABELS,
     active: {
@@ -1981,9 +2008,10 @@ function getModelPickerData() {
       fast: getActiveModel('fast'),
       smart: getActiveModel('smart'),
     },
-    favorites: Array.isArray(_config.favorites) ? [..._config.favorites] : [],
+    favorites,
     providers,
     models,
+    defaultModels: computeDefaultPickerRows(providers, models, favorites),
   };
 }
 
@@ -2171,6 +2199,7 @@ module.exports = {
   getProviderMeta,
   resolveModelId,
   getModelPickerData,
+  computeDefaultPickerRows,
   connectProvider,
   setFavoriteModel,
   getFavorites,

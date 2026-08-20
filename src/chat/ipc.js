@@ -134,6 +134,26 @@ ipcRenderer.on('agent-progress', (e, progress) => {
     if (path) window.__lastWritePath = path;
   }
   renderActivityBlock(_activityContainerEl, progress);
+  // Registro navegable de diffs: al terminar OK una mutación de archivo
+  // (write/edit/apply_patch), el meta del server trae el patch unificado y se
+  // inserta un bloque colapsable como registro al que volver después del run.
+  if (
+    progress.phase === 'end' &&
+    progress.status === 'ok' &&
+    progress.meta &&
+    typeof progress.meta.patch === 'string' &&
+    /^(write|edit|edit_file|create_file|apply_patch)$/i.test(progress.tool)
+  ) {
+    renderDiffBlock({
+      path:
+        (progress.params &&
+          (progress.params.path || progress.params.file_path || progress.params.file)) ||
+        '',
+      patch: progress.meta.patch,
+      added: (progress.meta.addedLines || []).length,
+      removed: (progress.meta.removedLines || []).length,
+    });
+  }
   // Bloque de subagente (F4): la tool subagent del loop padre abre/cierra el
   // bloque colapsable del perfil; el detalle lo llena 'agent-subagent-progress'
   // (ver listener abajo) mientras el subagente trabaja.
@@ -167,8 +187,8 @@ function setActivityContainer(el) {
   _activityContainerEl = el;
 }
 
-ipcRenderer.on('agent-approval-needed', (e, { actionId, tool, params, description }) => {
-  _showApprovalCard({ id: actionId, tool, params, description });
+ipcRenderer.on('agent-approval-needed', (e, { actionId, tool, params, description, diff }) => {
+  _showApprovalCard({ id: actionId, tool, params, description, diff });
 });
 
 // El timeout de aprobación expiró en main (sin respuesta del usuario): el card

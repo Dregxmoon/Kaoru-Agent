@@ -108,6 +108,62 @@ function register(ctx) {
     return true;
   });
 
+  // Panel de settings (§9): persiste autonomía y flags del agente con merge
+  // del objeto existente (save() hace merge shallow top-level, así que el
+  // patch de agent reemplaza el objeto completo — se mergea contra el actual).
+  ipcMain.handle('set-config', (e, patch) => {
+    if (!patch || typeof patch !== 'object' || Array.isArray(patch)) {
+      return { ok: false, error: 'patch inválido' };
+    }
+    const currentCfg = loadConfig();
+    const next = { ...currentCfg };
+
+    if (patch.autonomy !== undefined) {
+      if (!['observe', 'suggest', 'act'].includes(patch.autonomy)) {
+        return { ok: false, error: `autonomía inválida: ${patch.autonomy}` };
+      }
+      next.autonomy = patch.autonomy;
+    }
+
+    if (patch.agent !== undefined) {
+      if (!patch.agent || typeof patch.agent !== 'object') {
+        return { ok: false, error: 'agent inválido' };
+      }
+      const agent = { ...(currentCfg.agent || {}) };
+      if (patch.agent.autoApprove !== undefined) {
+        if (typeof patch.agent.autoApprove !== 'boolean') {
+          return { ok: false, error: 'autoApprove debe ser boolean' };
+        }
+        agent.autoApprove = patch.agent.autoApprove;
+      }
+      if (patch.agent.approvalTimeoutMs !== undefined) {
+        const n = Number(patch.agent.approvalTimeoutMs);
+        if (!Number.isFinite(n) || n <= 0) {
+          return { ok: false, error: 'approvalTimeoutMs debe ser > 0' };
+        }
+        agent.approvalTimeoutMs = n;
+      }
+      if (patch.agent.pinTimeoutMs !== undefined) {
+        const n = Number(patch.agent.pinTimeoutMs);
+        if (!Number.isFinite(n) || n < 0) {
+          return { ok: false, error: 'pinTimeoutMs debe ser >= 0' };
+        }
+        agent.pinTimeoutMs = n;
+      }
+      next.agent = agent;
+    }
+
+    saveConfig(next);
+    if (patch.autonomy !== undefined) {
+      Core.setAutonomyMode(patch.autonomy);
+      logger.info('config-handlers', `[config] autonomía persistida → ${patch.autonomy}`);
+    }
+    if (patch.agent !== undefined) {
+      logger.info('config-handlers', '[config] agent config actualizada');
+    }
+    return { ok: true };
+  });
+
   ipcMain.handle('get-python-bin', () => ctx.PYTHON_BIN);
 
   // ── Selector modelo-first (nivel opencode) ────────────────────────────────

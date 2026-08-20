@@ -2049,6 +2049,66 @@ body {
   color: var(--accent);
   font-family: var(--font-mono);
 }
+#model-browser-head .mbr-toggle-all {
+  font-family: var(--font-mono);
+  font-size: 9px;
+  padding: 2px 8px;
+  border: 1px solid var(--accent);
+  background: rgba(91, 110, 245, 0.12);
+  color: var(--accent);
+  border-radius: 2px;
+  cursor: pointer;
+  letter-spacing: 0.02em;
+  text-transform: none;
+}
+#model-browser-head .mbr-toggle-all:hover {
+  background: var(--accent);
+  color: #fff;
+}
+.mbr-group {
+  border-bottom: 1px solid var(--border);
+}
+.mbr-group-header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 14px;
+  cursor: pointer;
+  user-select: none;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--accent);
+  letter-spacing: 0.05em;
+}
+.mbr-group-header:hover {
+  background: var(--hover);
+}
+.mbr-group-chevron {
+  display: inline-block;
+  transition: transform 120ms ease;
+  color: var(--text-secondary);
+}
+.mbr-group-chevron::before {
+  content: '▾';
+}
+.mbr-group.collapsed .mbr-group-chevron {
+  transform: rotate(-90deg);
+}
+.mbr-group-name {
+  color: var(--text-primary);
+  font-weight: 600;
+}
+.mbr-group-count {
+  color: var(--text-secondary);
+  margin-left: auto;
+  font-size: 9px;
+}
+.mbr-group-body {
+  display: block;
+}
+.mbr-group.collapsed .mbr-group-body {
+  display: none;
+}
 #model-browser-status {
   padding: 4px 14px 6px;
   font-family: var(--font-mono);
@@ -2899,6 +2959,94 @@ body {
   }
 }
 
+/* ── Bloque de diff de archivos (write/edit/apply_patch) ──────────────────── */
+/* Colapsable por defecto (mismo patrón visual que plan-block): el encabezado
+   muestra el archivo + resumen +N/−M y el clic despliega el patch coloreado.
+   Se usa en el card de aprobación (antes de aprobar) y como registro
+   navegable post-edición en el feed. */
+.diff-block {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  line-height: 1.5;
+  margin: 2px 0 8px;
+  padding: 4px 10px 6px;
+  border: 1px solid var(--term-divider);
+  border-left: 2px solid var(--term-accent);
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--term-bg, #1c1e26) 45%, transparent);
+  color: var(--term-text-faint);
+  animation: activity-block-in 150ms ease-out;
+}
+.diff-block-header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--term-accent);
+  font-weight: 600;
+  letter-spacing: 0.03em;
+  cursor: pointer;
+  user-select: none;
+  padding: 2px 0;
+}
+.diff-block-chevron {
+  color: var(--term-text-faint);
+  transition: transform 120ms ease;
+}
+.diff-block.open .diff-block-chevron {
+  transform: rotate(90deg);
+}
+.diff-block-header:hover {
+  color: var(--term-text);
+}
+.diff-block-file {
+  word-break: break-all;
+}
+.diff-block-summary {
+  margin-left: auto;
+  flex-shrink: 0;
+  font-weight: 700;
+}
+.diff-block-body {
+  display: none;
+  margin-top: 4px;
+  border-top: 1px dashed var(--term-divider);
+  padding-top: 4px;
+  overflow-x: auto;
+  max-height: 260px;
+  overflow-y: auto;
+}
+.diff-block.open .diff-block-body {
+  display: block;
+}
+.diff-block-body pre {
+  margin: 0;
+  white-space: pre;
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  line-height: 1.55;
+}
+.diff-block .diff-del {
+  color: var(--term-error);
+}
+.diff-block .diff-add {
+  color: var(--term-success);
+}
+.diff-block .diff-hunk {
+  color: var(--term-accent);
+}
+.diff-block .diff-ctx {
+  color: var(--term-text-faint);
+}
+
+/* Aviso de vista previa de diff no disponible (el card la comunica, nunca
+   la oculta: aprobar sin saber qué cambia es exactamente lo que se evita). */
+.approval-no-diff {
+  font-size: 10.5px;
+  color: var(--term-text-faint);
+  font-style: italic;
+  margin-bottom: 10px;
+}
+
 .activity-block-header {
   display: flex;
   align-items: baseline;
@@ -3198,6 +3346,169 @@ body {
   color: var(--term-success);
   text-decoration: underline;
   text-decoration-color: var(--term-success);
+}
+
+/* ── Ajustes (§9): autonomía, agente, PIN, GitHub ─────────────────────────── */
+#prefs-modal {
+  display: none;
+  position: fixed;
+  inset: 0;
+  z-index: 1001;
+  background: var(--overlay);
+  align-items: center;
+  justify-content: center;
+  -webkit-app-region: no-drag;
+}
+#prefs-modal.visible {
+  display: flex;
+}
+#prefs-box {
+  background: var(--bg-panel);
+  border: 1px solid var(--border-accent);
+  padding: 24px;
+  width: 520px;
+  max-width: 92vw;
+  max-height: 86vh;
+  overflow-y: auto;
+}
+.prefs-section {
+  margin-bottom: 22px;
+  padding-bottom: 18px;
+  border-bottom: 1px solid var(--border);
+}
+.prefs-section:last-of-type {
+  border-bottom: none;
+}
+.prefs-label {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--accent);
+  margin-bottom: 6px;
+}
+.prefs-hint {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--text-secondary);
+  margin-bottom: 12px;
+}
+.prefs-segmented {
+  display: flex;
+  gap: 6px;
+}
+.prefs-seg {
+  flex: 1;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  background: transparent;
+  color: var(--text-secondary);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+.prefs-seg:hover {
+  border-color: var(--border-accent);
+  color: var(--text-primary);
+}
+.prefs-seg.active {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: white;
+}
+.prefs-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 10px;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--text-primary);
+}
+.prefs-row-label {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.prefs-row-hint {
+  font-size: 9px;
+  color: var(--text-secondary);
+  opacity: 0.8;
+}
+.prefs-row input[type='number'],
+.prefs-pin-row input[type='password'] {
+  background: transparent;
+  border: 1px solid var(--border);
+  color: var(--text-primary);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  padding: 6px 8px;
+  width: 150px;
+  text-align: right;
+}
+.prefs-pin-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+.prefs-pin-row input[type='password'] {
+  flex: 1;
+  text-align: left;
+}
+.prefs-status {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  min-height: 16px;
+  color: var(--text-secondary);
+}
+.prefs-gh-status {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--text-primary);
+  flex: 1;
+}
+.header-btn {
+  background: transparent;
+  border: none;
+  color: var(--text-secondary);
+  cursor: pointer;
+  padding: 6px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  opacity: 0.85;
+  transition: all 0.2s;
+}
+.header-btn:hover {
+  color: var(--text-primary);
+  opacity: 1;
+}
+
+/* ── Bloqueo con PIN (§11.1) ──────────────────────────────────────────────── */
+#app-lock {
+  display: none;
+  position: fixed;
+  inset: 0;
+  z-index: 1100;
+  background: var(--bg-app, #0d0f14);
+  align-items: center;
+  justify-content: center;
+}
+#app-lock.visible {
+  display: flex;
+}
+#app-lock-box {
+  width: 360px;
+  max-width: 90vw;
+  padding: 24px;
+  border: 1px solid var(--border-accent);
+  background: var(--bg-panel);
 }
 
 /* ── Rediseño — cero decoración: sin bordes redondeados ni sombras ────────── */

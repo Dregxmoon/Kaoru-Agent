@@ -12,6 +12,7 @@ const LLMProvider = require('../llm/LLMProvider.js');
 const { getToolRegistry } = require('../task/ToolRegistry.js');
 const { getGitManager } = require('../git/GitManager.js');
 const { WorkspaceCheckpoint, MUTATOR_TOOLS } = require('../git/WorkspaceCheckpoint.js');
+const { computeDiffPreview } = require('../git/FileDiff.js');
 const { getGitHubManager } = require('../github/GitHubManager.js');
 const { RunMetrics } = require('./run-metrics.js');
 const { getMoodEngine } = require('../identity/MoodEngine.js');
@@ -1201,6 +1202,29 @@ class AgentLoop {
               tool: action.tool,
             };
             continue;
+          }
+        }
+
+        // ── Vista previa de diff (aprobación informada) ─────────────────────
+        // Para mutaciones de archivos (write/edit/apply_patch) se calcula en
+        // memoria el diff real ANTES de pedir aprobación, y se adjunta al
+        // action para que onApprovalNeeded lo incluya en el card. Nunca
+        // bloquea ni es prerequisito de seguridad: si falla o da null (edit
+        // ambiguo, patch que no aplica) la aprobación sigue, y la UI lo
+        // comunica como "vista previa no disponible".
+        if (MUTATOR_TOOLS.has(action.tool) && action._diffPreview === undefined) {
+          try {
+            action._diffPreview = computeDiffPreview({
+              tool: action.tool,
+              params: action.params,
+              cwd: AP.PROJECT_CWD,
+            });
+          } catch (e) {
+            logger.warn(
+              'AgentLoop',
+              `[diff-preview] falló el cálculo para ${action.tool}: ${e.message}`
+            );
+            action._diffPreview = null;
           }
         }
 

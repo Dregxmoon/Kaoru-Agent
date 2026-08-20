@@ -21,6 +21,13 @@ const INVOKE_ALLOWLIST = new Set([
   'get-key-source',
   'save-llm-keys',
   'set-llm-model',
+  // Settings (§9) / PIN (§11.1)
+  'set-config',
+  'github-status',
+  'pin-status',
+  'pin-set',
+  'pin-check',
+  'pin-clear',
   // Selector modelo-first (nivel opencode)
   'get-model-picker',
   'connect-llm-provider',

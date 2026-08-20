@@ -206,6 +206,7 @@ async function processMessage(text, files = []) {
   triggerMotion();
   resetActivities();
   resetPlanBlock();
+  resetDiffBlocks();
 
   // Botón de cancelación: visible durante la generación. Aborta el agent-run
   // openclaw (agent-cancel → AbortController del main) Y el flujo simple
@@ -252,6 +253,8 @@ async function processMessage(text, files = []) {
       setActivityAnchor(bubble.parentElement.parentElement);
       // El HUD del plan (plan-then-act) usa el mismo ancla.
       setPlanAnchor(bubble.parentElement.parentElement);
+      // Los bloques de diff (registro navegable) usan el mismo ancla.
+      setDiffAnchor(bubble.parentElement.parentElement);
 
       // El progreso de tools llega por 'agent-progress' y se dibuja como
       // bloques de actividad (activityFromProgress en ui.js) en el feed.
@@ -486,7 +489,13 @@ function _escapeHtml(value) {
 // expirada cuando el timeout del main dispara 'agent-approval-expired'.
 const _approvalCards = new Map();
 
-function _showApprovalCard({ id, tool, params, description }) {
+// Tools que mutan archivos: si no hay vista previa de diff disponible, el card
+// DEBE decirlo explícitamente (nunca ocultarlo): alguien que se acostumbró a
+// revisar el diff antes de aprobar podría aprobar a ciegas pensando que ya vio
+// el cambio.
+const _FILE_MUTATOR_RE = /^(write|edit|edit_file|create_file|apply_patch)$/i;
+
+function _showApprovalCard({ id, tool, params, description, diff }) {
   const card = document.createElement('div');
   card.className = 'approval-card';
   const safeDescription = _escapeHtml(description);
@@ -502,8 +511,34 @@ function _showApprovalCard({ id, tool, params, description }) {
     runsCommand && openclawSandbox === false
       ? `<div class="approval-sandbox-warn">Ejecución de comandos SIN aislamiento de proceso (bwrap no disponible)${openclawSandboxReason ? ` — ${_escapeHtml(openclawSandboxReason)}` : ''}. Esta acción corre con permisos reales del sistema.</div>`
       : '';
-  card.innerHTML = `<div class="approval-title">ACCION DE ALTO IMPACTO — APROBACION REQUERIDA</div><div class="approval-cmd">${safeDescription}</div><div style="font-size:10px;color:var(--text-secondary);margin-bottom:10px">Herramienta: <b>${safeTool}</b>${safeParams.command ? ` · <code>${safeParams.command}</code>` : ''}${safeParams.path ? ` · <code>${safeParams.path}</code>` : ''}</div>${sandboxWarning}${_renderPatchPreview(params?.patch)}<div class="approval-actions"><button class="btn-approve" id="approve-${id}">Ejecutar</button><button class="btn-always" id="always-${id}">Siempre</button><button class="btn-deny" id="deny-${id}">Cancelar</button></div>`;
+  // Vista previa de diff: si está disponible se muestra el bloque colapsable
+  // del cambio real. Si NO está disponible para una tool que muta archivos, se
+  // comunica la ausencia (nunca se deja un espacio vacío silencioso).
+  let previewHtml = '';
+  if (diff && typeof diff.patch === 'string') {
+    previewHtml = renderDiffBlockHtml(diff);
+  } else if (_FILE_MUTATOR_RE.test(tool)) {
+    previewHtml = `<div class="approval-no-diff">Vista previa de diff no disponible para esta edición.</div>`;
+  } else {
+    previewHtml = _renderPatchPreview(params?.patch);
+  }
+  card.innerHTML = `<div class="approval-title">ACCION DE ALTO IMPACTO — APROBACION REQUERIDA</div><div class="approval-cmd">${safeDescription}</div><div style="font-size:10px;color:var(--text-secondary);margin-bottom:10px">Herramienta: <b>${safeTool}</b>${safeParams.command ? ` · <code>${safeParams.command}</code>` : ''}${safeParams.path ? ` · <code>${safeParams.path}</code>` : ''}</div>${sandboxWarning}${previewHtml}<div class="approval-actions"><button class="btn-approve" id="approve-${id}">Ejecutar</button><button class="btn-always" id="always-${id}">Siempre</button><button class="btn-deny" id="deny-${id}">Cancelar</button></div>`;
   messagesEl.appendChild(card);
+  // Toggle del bloque de diff incrustado en el card (misma interacción que el
+  // bloque del feed: clic en el encabezado alterna la clase .open).
+  const diffHeader = card.querySelector('.diff-block-header');
+  if (diffHeader) {
+    diffHeader.addEventListener('click', () => {
+      const root = diffHeader.closest('.diff-block');
+      if (root) root.classList.toggle('open');
+    });
+    diffHeader.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' || e.key === ' ') {
+        e.preventDefault();
+        diffHeader.click();
+      }
+    });
+  }
   _scrollMessagesToBottom();
   _approvalCards.set(id, card);
   if (_approvalCards.size > 50) {

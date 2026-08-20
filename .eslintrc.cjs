@@ -134,6 +134,10 @@ module.exports = {
         openSubagentRun: 'readonly',
         renderSubagentBlock: 'readonly',
         finalizeSubagentRun: 'readonly',
+        renderDiffBlockHtml: 'readonly',
+        renderDiffBlock: 'readonly',
+        setDiffAnchor: 'readonly',
+        resetDiffBlocks: 'readonly',
       },
     },
     {

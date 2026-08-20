@@ -50,6 +50,21 @@
           </div>
         </div>
         <div id="theme-toggle" title="Cambiar tema"></div>
+        <button id="settings-btn" title="Ajustes" class="header-btn">
+          <svg
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="2"
+            width="14"
+            height="14"
+          >
+            <circle cx="12" cy="12" r="3" />
+            <path
+              d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09a1.65 1.65 0 0 0-1-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09a1.65 1.65 0 0 0 1.51-1 1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33h.01a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51h.01a1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82v.01a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"
+            />
+          </svg>
+        </button>
         <button id="close-btn" title="Cerrar y salir">
           <svg
             viewBox="0 0 24 24"
@@ -94,6 +109,24 @@
 
         <div id="copy-toast" class="copy-toast">Copiado</div>
 
+        <div id="app-lock">
+          <div id="app-lock-box">
+            <div class="settings-title">Bloqueado</div>
+            <div class="prefs-hint">Introducí tu PIN para desbloquear la ventana.</div>
+            <div class="prefs-pin-row">
+              <input
+                type="password"
+                id="app-lock-input"
+                placeholder="PIN"
+                autocomplete="off"
+                autofocus
+              />
+              <button class="btn-save" id="app-lock-btn">Desbloquear</button>
+            </div>
+            <div class="prefs-status" id="app-lock-status"></div>
+          </div>
+        </div>
+
         <div id="drop-overlay">
           <span>SOLTAR ARCHIVO</span>
         </div>
@@ -113,6 +146,9 @@
             <div id="model-browser-head">
               <span>MODELOS</span>
               <span id="model-browser-count" class="model-browser-count"></span>
+              <button id="mbr-toggle-all" class="mbr-toggle-all" type="button">
+                ver todos los proveedores
+              </button>
               <span class="model-browser-hint">↑↓ navegar · Enter usar · Esc cerrar</span>
             </div>
             <div id="model-browser-list"></div>
@@ -122,20 +158,16 @@
           <div id="input-row">
             <input type="file" id="file-input" multiple />
             <span id="input-prompt" class="input-prompt" aria-hidden="true">></span>
-            <textarea id="msg-input" placeholder="escribe un mensaje · Enter envía · Shift+Enter salto de línea" rows="1"></textarea>
+            <textarea
+              id="msg-input"
+              placeholder="escribe un mensaje · Enter envía · Shift+Enter salto de línea"
+              rows="1"
+            ></textarea>
             <span id="input-cursor" class="input-cursor" aria-hidden="true"></span>
-            <button
-              id="mic-btn"
-              class="input-btn mic-btn"
-              title="Entrada de voz (STT)"
-            >
+            <button id="mic-btn" class="input-btn mic-btn" title="Entrada de voz (STT)">
               <svg viewBox="0 0 24 24" fill="currentColor" width="12" height="12">
-                <path
-                  d="M12 14a3 3 0 0 0 3-3V5a3 3 0 0 0-6 0v6a3 3 0 0 0 3 3z"
-                />
-                <path
-                  d="M19 11a7 7 0 0 1-14 0H3a9 9 0 0 0 8 8.94V23h2v-3.06A9 9 0 0 0 21 11h-2z"
-                />
+                <path d="M12 14a3 3 0 0 0 3-3V5a3 3 0 0 0-6 0v6a3 3 0 0 0 3 3z" />
+                <path d="M19 11a7 7 0 0 1-14 0H3a9 9 0 0 0 8 8.94V23h2v-3.06A9 9 0 0 0 21 11h-2z" />
               </svg>
             </button>
             <button
@@ -309,6 +341,98 @@
       </div>
     </div>
 
+    <!-- Modal de Ajustes (§9): autonomía, agente, PIN y cuenta de GitHub -->
+    <div id="prefs-modal">
+      <div id="prefs-box">
+        <div class="settings-title-row">
+          <span class="settings-title">Ajustes</span>
+          <button class="modal-x" id="prefs-close" title="Cerrar">[x]</button>
+        </div>
+        <div class="settings-sub">AUTONOMÍA · AGENTE · PIN · CUENTA</div>
+
+        <div class="prefs-section">
+          <div class="prefs-label">Autonomía</div>
+          <div class="prefs-hint">
+            Cuánta iniciativa toma Kaoru sin que le pidas. <code>observe</code> solo mira,
+            <code>suggest</code> propone, <code>act</code> ejecuta propuestas.
+          </div>
+          <div class="prefs-segmented" id="prefs-autonomy">
+            <button data-mode="observe" class="prefs-seg">observe</button>
+            <button data-mode="suggest" class="prefs-seg">suggest</button>
+            <button data-mode="act" class="prefs-seg">act</button>
+          </div>
+        </div>
+
+        <div class="prefs-section">
+          <div class="prefs-label">Agente</div>
+          <label class="prefs-row">
+            <span class="prefs-row-label"
+              >Auto-aprobar acciones<span class="prefs-row-hint"
+                >No pedir permiso para ejecutar comandos/escrituras</span
+              ></span
+            >
+            <input type="checkbox" id="prefs-autoapprove" />
+          </label>
+          <label class="prefs-row">
+            <span class="prefs-row-label"
+              >Timeout de aprobación (ms)<span class="prefs-row-hint"
+                >120000 = 2 min para responder el card</span
+              ></span
+            >
+            <input type="number" id="prefs-approval-timeout" min="1000" step="1000" />
+          </label>
+          <div class="prefs-status" id="prefs-agent-status"></div>
+        </div>
+
+        <div class="prefs-section">
+          <div class="prefs-label">Bloqueo con PIN</div>
+          <div class="prefs-hint">
+            Bloquea la ventana al abrirla. El hash se guarda en el llavero del sistema, nunca en
+            config.json.
+          </div>
+          <div class="prefs-pin-row">
+            <input
+              type="password"
+              id="prefs-pin-input"
+              placeholder="PIN (4+ caracteres)"
+              autocomplete="off"
+            />
+            <button class="btn-save" id="prefs-pin-set-btn">Guardar</button>
+            <button class="btn-cancel" id="prefs-pin-clear-btn" style="display: none">
+              Quitar
+            </button>
+          </div>
+          <label class="prefs-row">
+            <span class="prefs-row-label"
+              >Re-lock tras inactividad (ms)<span class="prefs-row-hint"
+                >0 = desbloquear una sola vez por sesión</span
+              ></span
+            >
+            <input type="number" id="prefs-pin-timeout" min="0" step="1000" />
+          </label>
+          <div class="prefs-status" id="prefs-pin-status"></div>
+        </div>
+
+        <div class="prefs-section">
+          <div class="prefs-label">Cuenta de GitHub</div>
+          <div class="prefs-hint">
+            Para <code>git push</code> y las tools de issues/PRs. El token vive en el llavero.
+          </div>
+          <div class="prefs-pin-row">
+            <span id="prefs-gh-status" class="prefs-gh-status">Comprobando...</span>
+            <button class="btn-save" id="prefs-gh-logout-btn" style="display: none">
+              Cerrar sesión
+            </button>
+          </div>
+          <div class="prefs-status" id="prefs-gh-error"></div>
+        </div>
+
+        <div class="settings-actions">
+          <button class="btn-cancel" id="prefs-done-btn">Listo</button>
+        </div>
+      </div>
+    </div>
+
     <script src="../vendor/live2dcubismcore.min.js"></script>
     <script src="../node_modules/pixi.js/dist/browser/pixi.min.js"></script>
     <script src="../node_modules/pixi-live2d-display/dist/cubism4.min.js"></script>
@@ -318,14 +442,17 @@
     <script src="../node_modules/marked/marked.min.js"></script>
     <script src="../node_modules/dompurify/dist/purify.min.js"></script>
 
-<script src="chat/core.js"></script>
-   <script src="chat/activityBlock.js"></script>
-   <script src="chat/planBlock.js"></script>
-   <script src="chat/messages.js"></script>
+    <script src="chat/core.js"></script>
+    <script src="chat/activityBlock.js"></script>
+    <script src="chat/planBlock.js"></script>
+    <script src="chat/diffBlock.js"></script>
+    <script src="chat/messages.js"></script>
     <script src="chat/mcp.js"></script>
     <script src="chat/sessions.js"></script>
     <script src="chat/nodes.js"></script>
     <script src="chat/permissions.js"></script>
+    <script src="chat/settings.js"></script>
+    <script src="chat/lock.js"></script>
     <script src="chat/process.js"></script>
     <script src="chat/input.js"></script>
     <script src="chat/tts.js"></script>

@@ -65,6 +65,12 @@ function testSchemaShape() {
     true,
     'agent.subagent.enabled default true'
   );
+  assertEqual(SCHEMA.agent.schema.autoApprove.default, false, 'agent.autoApprove default false');
+  assertEqual(
+    SCHEMA.agent.schema.pinTimeoutMs.default,
+    0,
+    'agent.pinTimeoutMs default 0 (desbloquear una vez por sesión)'
+  );
   for (const k of ['primary', 'fallback', 'apiKeys', 'providers']) {
     assert(k in SCHEMA.llm.schema, `schema.llm incluye "${k}"`);
   }

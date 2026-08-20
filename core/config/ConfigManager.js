@@ -114,7 +114,12 @@ const SCHEMA = {
   },
   agent: {
     type: 'object',
-    default: { approvalTimeoutMs: 120000, subagent: { enabled: true } },
+    default: {
+      approvalTimeoutMs: 120000,
+      autoApprove: false,
+      pinTimeoutMs: 0,
+      subagent: { enabled: true },
+    },
     schema: {
       // Tiempo máximo (ms) para que el usuario responda a un card de
       // aprobación de alto impacto. Pasado ese lapso la acción se deniega y
@@ -122,6 +127,14 @@ const SCHEMA = {
       // usuario puede estar leyendo el resto de la respuesta del agente
       // antes de llegar a la tarjeta.
       approvalTimeoutMs: { type: 'number', default: 120000 },
+      // Auto-aprobación de acciones de alto impacto (write/edit/exec/...):
+      // con true, el agente ejecuta sin mostrar el card de aprobación. El
+      // usuario asume que Kaoru corre los comandos/escrituras directo. El
+      // diff preview igual se calcula y se registra en el feed post-edit.
+      autoApprove: { type: 'boolean', default: false },
+      // Re-lock del PIN tras N ms de inactividad (0 = desbloquear una sola
+      // vez por sesión de la app; >0 vuelve a pedir el PIN al expirar).
+      pinTimeoutMs: { type: 'number', default: 0 },
       // Subagentes con perfil (F1): si se apaga, la tool subagent deja de
       // estar disponible para el agente.
       subagent: {

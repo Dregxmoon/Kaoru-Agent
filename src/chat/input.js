@@ -329,6 +329,8 @@ let _browserRows = [];
 let _browserSel = -1;
 let _browserQuery = '';
 let _browserExpanded = null; // { providerId, modelId }
+let _browserShowAll = false; // toggle "ver todos los proveedores"
+let _collapsedGroups = new Set(); // providerIds colapsados
 
 async function _ensurePickerData() {
   if (_pickerData) return _pickerData;
@@ -389,12 +391,34 @@ function _mbrRowHtml(m, i, byId, favs) {
   </div>`;
 }
 
+function _mbrGroupHtml(providerId, p, models, byId, favs) {
+  const collapsed = _collapsedGroups.has(providerId);
+  const body = models
+    .map((m, k) => {
+      const i = _browserRows.indexOf(m);
+      if (i === -1) return '';
+      return _mbrRowHtml(m, i, byId, favs);
+    })
+    .join('');
+  return `<div class="mbr-group${collapsed ? ' collapsed' : ''}" data-provider="${escapeHtml(providerId)}">
+    <div class="mbr-group-header" role="button">
+      <span class="mbr-group-chevron"></span>
+      <span class="mbr-group-name">${escapeHtml(p.name || providerId)}</span>
+      <span class="mbr-group-count">${models.length} ${models.length === 1 ? 'modelo' : 'modelos'}</span>
+    </div>
+    <div class="mbr-group-body">${body}</div>
+  </div>`;
+}
+
 function _mbrRender() {
   if (!_pickerData) return;
   const q = _browserQuery.toLowerCase();
   const byId = _providerById();
   const favs = new Set(_pickerData.favorites || []);
-  let rows = _pickerData.models.filter((m) => {
+  // Sin query y sin "ver todos": solo favoritos + proveedores con API key.
+  // Con query o con showAll: catálogo completo (400+ providers de models.dev).
+  const base = q || _browserShowAll ? _pickerData.models : _pickerData.defaultModels || [];
+  let rows = base.filter((m) => {
     if (!q) return true;
     const p = byId.get(m.providerId) || {};
     return (
@@ -408,17 +432,57 @@ function _mbrRender() {
       (favs.has(_mbrKey(a)) ? 0 : 1) - (favs.has(_mbrKey(b)) ? 0 : 1) ||
       a.providerId.localeCompare(b.providerId)
   );
-  _browserRows = rows.slice(0, 500);
+  // Agrupar por provider preservando el orden (favoritos primero).
+  const groups = [];
+  const groupIdx = new Map();
+  for (const m of rows) {
+    let g = groupIdx.get(m.providerId);
+    if (!g) {
+      g = { providerId: m.providerId, models: [] };
+      groupIdx.set(m.providerId, g);
+      groups.push(g);
+    }
+    g.models.push(m);
+  }
+  // _browserRows = filas de grupos expandidos, para navegación por teclado.
+  _browserRows = [];
+  for (const g of groups) {
+    if (_collapsedGroups.has(g.providerId)) continue;
+    for (const m of g.models) {
+      if (_browserRows.length >= 500) break;
+      _browserRows.push(m);
+    }
+  }
   if (_browserSel >= _browserRows.length) _browserSel = _browserRows.length - 1;
   if (_browserExpanded && !_browserRows.some((r) => _mbrKey(r) === _mbrKey(_browserExpanded))) {
     _browserExpanded = null;
   }
-  modelBrowserCount.textContent = `${rows.length} modelos`;
-  modelBrowserList.innerHTML = _browserRows.map((m, i) => _mbrRowHtml(m, i, byId, favs)).join('');
-  modelBrowserStatus.textContent =
-    rows.length > _browserRows.length
-      ? `mostrando ${_browserRows.length} de ${rows.length} — escribí para filtrar`
-      : '↑↓ navegar · Enter Charla · Ctrl+Enter Agente · Esc cerrar';
+  const connected = (_pickerData.providers || []).filter((p) => p.hasKey).length;
+  const total = _pickerData.models.length;
+  const toggleBtn = document.getElementById('mbr-toggle-all');
+  toggleBtn.style.display = q ? 'none' : 'inline-block';
+  toggleBtn.textContent = _browserShowAll ? 'ver solo conectados' : 'ver todos los proveedores';
+  const pl = (n, s, p) => `${n} ${n === 1 ? s : p}`;
+  if (q) {
+    modelBrowserCount.textContent = `${pl(rows.length, 'modelo', 'modelos')} de ${total} modelos`;
+  } else if (_browserShowAll) {
+    modelBrowserCount.textContent = `${pl(total, 'modelo', 'modelos')}`;
+  } else {
+    modelBrowserCount.textContent = `${pl(connected, 'proveedor conectado', 'proveedores conectados')}`;
+  }
+  modelBrowserList.innerHTML = groups
+    .map((g) => _mbrGroupHtml(g.providerId, byId.get(g.providerId) || {}, g.models, byId, favs))
+    .join('');
+  if (q) {
+    modelBrowserStatus.textContent =
+      rows.length > _browserRows.length
+        ? `mostrando ${_browserRows.length} de ${rows.length} — escribí para filtrar`
+        : '↑↓ navegar · Enter Charla · Ctrl+Enter Agente · Esc cerrar';
+  } else if (_browserShowAll) {
+    modelBrowserStatus.textContent = `catálogo completo (${total} modelos) · ↑↓ navegar · Enter usar · Esc cerrar`;
+  } else {
+    modelBrowserStatus.textContent = `escribí para buscar entre ${total} modelos · ↑↓ navegar · Enter usar · Esc cerrar`;
+  }
   modelBrowserStatus.style.color = 'var(--text-secondary)';
 }
 
@@ -441,6 +505,8 @@ function _mbrHide() {
   _browserSel = -1;
   _browserExpanded = null;
   _browserQuery = '';
+  _browserShowAll = false;
+  _collapsedGroups.clear();
 }
 
 function _mbrMove(delta) {
@@ -613,6 +679,17 @@ document.getElementById('at-suggestions').addEventListener('mousedown', (e) => {
 // Click handler del browser de modelos inline
 modelBrowserList.addEventListener('mousedown', async (e) => {
   e.preventDefault();
+  const groupHeader = e.target.closest('.mbr-group-header');
+  if (groupHeader) {
+    const group = groupHeader.closest('.mbr-group');
+    const pid = group ? group.dataset.provider : '';
+    if (pid) {
+      if (_collapsedGroups.has(pid)) _collapsedGroups.delete(pid);
+      else _collapsedGroups.add(pid);
+      _mbrRender();
+    }
+    return;
+  }
   const btn = e.target.closest('.mbr-btn');
   if (btn) {
     const row = _browserExpanded;
@@ -628,6 +705,11 @@ modelBrowserList.addEventListener('mousedown', async (e) => {
   const p = _providerById().get(row.providerId) || {};
   if (p.hasKey) await _mbrApplyConnected(row, 'fast');
   else _mbrToggleExpand(row);
+});
+
+document.getElementById('mbr-toggle-all').addEventListener('click', () => {
+  _browserShowAll = !_browserShowAll;
+  _mbrRender();
 });
 function sendMessage(text) {
   const files = [...pendingFiles];

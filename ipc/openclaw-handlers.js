@@ -57,6 +57,7 @@ function register(ctx) {
     // el resto de la respuesta del agente antes de llegar a la tarjeta; si
     // expira, la acción se deniega y la UI marca el card como expirado.
     let approvalTimeoutMs = DEFAULT_APPROVAL_TIMEOUT_MS;
+    let approvalConfig = { autoApprove: false };
     try {
       const cfg =
         typeof ctx.loadEffectiveConfig === 'function'
@@ -64,6 +65,7 @@ function register(ctx) {
           : ctx.savedConfig || {};
       const n = Number(cfg?.agent?.approvalTimeoutMs);
       if (Number.isFinite(n) && n > 0) approvalTimeoutMs = n;
+      approvalConfig = { autoApprove: cfg?.agent?.autoApprove === true };
       // Subagentes por perfil (F1): agent.subagent.enabled (default true).
       // Apagado quita la tool subagent del catálogo que ve el agente.
       getToolRegistry().setSubagentsEnabled(cfg?.agent?.subagent?.enabled !== false);
@@ -85,6 +87,12 @@ function register(ctx) {
         onApprovalNeeded: async (action) => {
           return new Promise((resolve) => {
             const pattern = approvalPattern(action);
+            // Auto-aprobación global (config.json → agent.autoApprove): el
+            // agente ejecuta acciones de alto impacto sin mostrar el card.
+            if (approvalConfig.autoApprove) {
+              resolve(true);
+              return;
+            }
             // Aprobación "Siempre" ya registrada en esta sesión → se aprueba
             // directo, sin mostrar el card (patrón opencode).
             if (isApproved(pattern)) {
@@ -105,6 +113,10 @@ function register(ctx) {
               description:
                 action.description ||
                 `${action.tool}: ${JSON.stringify(action.params).slice(0, 100)}`,
+              // Vista previa de diff (null cuando no se puede calcular: edit
+              // ambiguo, patch que no aplica, write sin content). La UI debe
+              // comunicar la ausencia explícitamente, nunca ocultarla.
+              diff: action._diffPreview || null,
             });
 
             // `settled` garantiza que el promise se resuelve UNA sola vez
