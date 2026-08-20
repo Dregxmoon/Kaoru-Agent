@@ -78,11 +78,11 @@ function mkTmpDir(prefix) {
   return dir;
 }
 
-function initRepo(dir) {
+async function initRepo(dir) {
   fs.mkdirSync(dir, { recursive: true });
-  git(dir, ['init', '-q']);
-  git(dir, ['add', '-A']);
-  git(dir, ['commit', '-m', 'init']);
+  await git(dir, ['init', '-q']);
+  await git(dir, ['add', '-A']);
+  await git(dir, ['commit', '-m', 'init']);
   return dir;
 }
 
@@ -102,7 +102,7 @@ async function testGitHappyPath() {
   const dir = mkTmpDir('ws-checkpoint-1-');
   fs.writeFileSync(path.join(dir, 'base.txt'), 'original', 'utf-8');
   fs.writeFileSync(path.join(dir, 'otro.txt'), 'otro', 'utf-8');
-  initRepo(dir);
+  await initRepo(dir);
 
   const { WorkspaceCheckpoint } = require('../core/git/WorkspaceCheckpoint.js');
   const cp = new WorkspaceCheckpoint({ cwd: dir });
@@ -138,7 +138,7 @@ async function testDirtyTreePreserved() {
 
   const dir = mkTmpDir('ws-checkpoint-2-');
   fs.writeFileSync(path.join(dir, 'base.txt'), 'v1', 'utf-8');
-  initRepo(dir);
+  await initRepo(dir);
 
   // Sucio previo del usuario: base.txt modificado (trackeado) y user-new.txt (untracked).
   fs.writeFileSync(path.join(dir, 'base.txt'), 'user-edit', 'utf-8');
@@ -218,7 +218,7 @@ async function testNoMutations() {
 
   const dir = mkTmpDir('ws-checkpoint-4-');
   fs.writeFileSync(path.join(dir, 'base.txt'), 'v1', 'utf-8');
-  initRepo(dir);
+  await initRepo(dir);
 
   const { WorkspaceCheckpoint } = require('../core/git/WorkspaceCheckpoint.js');
   const cp = new WorkspaceCheckpoint({ cwd: dir });
@@ -238,7 +238,7 @@ async function testRegistry() {
 
   const dir = mkTmpDir('ws-checkpoint-5-');
   fs.writeFileSync(path.join(dir, 'base.txt'), 'orig', 'utf-8');
-  initRepo(dir);
+  await initRepo(dir);
 
   const {
     WorkspaceCheckpoint,
@@ -275,7 +275,7 @@ async function testCommand() {
 
   const dir = mkTmpDir('ws-checkpoint-6-');
   fs.writeFileSync(path.join(dir, 'base.txt'), 'v0', 'utf-8');
-  initRepo(dir);
+  await initRepo(dir);
 
   const { WorkspaceCheckpoint } = require('../core/git/WorkspaceCheckpoint.js');
   const cp = new WorkspaceCheckpoint({ cwd: dir });
@@ -304,7 +304,7 @@ async function testAgentLoopIntegration() {
 
   const dir = mkTmpDir('ws-checkpoint-7-');
   fs.writeFileSync(path.join(dir, 'base.txt'), 'original', 'utf-8');
-  initRepo(dir);
+  await initRepo(dir);
 
   const { AgentLoop } = require('../core/planner/AgentLoop.js');
   const AP = require('../core/planner/ActionParser.js');
