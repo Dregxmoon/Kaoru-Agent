@@ -22,12 +22,6 @@ Detalles de implementación relevantes:
 - `_buildToolIntentSection()` — inyecta las instrucciones de parseo para acciones estructuradas
   (`ACCIÓN: ... | ARCHIVO/COMANDO: ...`).
 
-## `GeminiOpenAISerializer.js`
-
-Extiende `GroqSerializer` con los ajustes de cada proveedor:
-- **Gemini** — `system_instruction` va separado de `messages[]`.
-- **OpenAI** — mismo formato que Groq con ajustes menores de tono.
-
 ## Selección automática
 
 En `ContextAssembler.build()`:
@@ -36,14 +30,16 @@ En `ContextAssembler.build()`:
 const serializer = SERIALIZERS[activeProvider] ?? SERIALIZERS.groq;
 ```
 
+Todos los providers comparten el formato de Groq: `GeminiOpenAISerializer.js` fue eliminado porque
+sus clases (`GeminiSerializer`, `OpenAISerializer`) eran no-ops (devolvían `super.serialize()` sin
+modificar nada). Las diferencias reales de transporte por proveedor (system_instruction separado en
+Gemini, headers de Anthropic, etc.) viven en `LLMProvider`, no en el serializer.
+
 ```mermaid
 flowchart LR
     PACK["ContextPackage<br/>identidad · SO · memoria · toolIntent"] --> ASM["ContextAssembler.build()"]
-    ASM -->|"proveedor activo"| SEL{"SERIALIZERS[provider]"}
-    SEL -->|"groq"| G["GroqSerializer<br/>secciones markdown"]
-    SEL -->|"gemini"| GE["GeminiOpenAISerializer<br/>system_instruction separado"]
-    SEL -->|"openai"| O["GeminiOpenAISerializer<br/>ajustes de tono"]
-    G & GE & O --> LLM["LLMProvider.complete()"]
+    ASM --> G["GroqSerializer<br/>secciones markdown"]
+    G --> LLM["LLMProvider.complete()<br/>(transporte por proveedor)"]
 ```
 
 ---

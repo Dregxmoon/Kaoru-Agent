@@ -180,15 +180,14 @@ function testMemoryExcludedByDefault() {
   );
   assert(withMemory.systemPrompt.includes('Proyecto X'), 'El nodo de memoria llega al prompt');
 
-  // Gemini/OpenAI heredan el flag (ambos extienden GroqSerializer).
-  const {
-    GeminiSerializer,
-    OpenAISerializer,
-  } = require('../core/grounding/serializers/GeminiOpenAISerializer.js');
-  const gem = new GeminiSerializer().serialize({ ...base, persistentMemory: MEMORY_SAMPLE });
-  const oai = new OpenAISerializer().serialize({ ...base, persistentMemory: MEMORY_SAMPLE });
-  assert(!gem.systemPrompt.includes('Lo que sé del usuario'), 'Gemini: excluida por defecto');
-  assert(!oai.systemPrompt.includes('Lo que sé del usuario'), 'OpenAI: excluida por defecto');
+  // La memoria es excluida por defecto por el serializer único del pipeline
+  // (GroqSerializer). Gemini/OpenAI ya no tienen subclases propias: los
+  // serializers no-op fueron eliminados — el formato es compartido.
+  const shared = serializer.serialize({ ...base, persistentMemory: MEMORY_SAMPLE });
+  assert(
+    !shared.systemPrompt.includes('Lo que sé del usuario'),
+    'Memoria excluida por defecto (serializer compartido)'
+  );
 }
 
 // ── F3.3: inferencias NUNCA se presentan como hechos ─────────────────────────

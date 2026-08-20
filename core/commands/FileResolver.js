@@ -1,25 +1,45 @@
-// @ts-nocheck
+// @ts-check
 'use strict';
 
 const path = require('path');
 const fs = require('fs');
 
+const PathGuard = require('../security/PathGuard.js');
+
 const MAX_FILE_SIZE = 100 * 1024;
 const MAX_FILES = 10;
 const MAX_DEPTH = 4;
 
-function resolveFileReferences(text, projectCwd) {
+// Resuelve las referencias @archivo de `text`, descartando cualquier ref que
+// caiga fuera de `allowedRoot` (path traversal) o en rutas inmutables del
+// sistema. La contención es por realpath para cerrar también el escape por
+// symlink. `allowedRoot` es el workspace real (root del usuario); `projectCwd`
+// es la base de resolución (puede ser una subcarpeta de `allowedRoot`).
+/**
+ * @param {string} text
+ * @param {string} projectCwd
+ * @param {string} [allowedRoot]
+ * @returns {Array<{ ref: string; filePath: string; index: number }>}
+ */
+function resolveFileReferences(text, projectCwd, allowedRoot) {
   const refs = [];
+  const base = path.resolve(String(projectCwd || process.cwd()));
+  const root = path.resolve(String(allowedRoot || projectCwd || process.cwd()));
   const re = /@([\w./\\-]+(?:\.[\w]+)?)/g;
   let match;
   while ((match = re.exec(text)) !== null) {
     const ref = match[1];
-    const filePath = path.resolve(projectCwd, ref);
+    const filePath = path.resolve(base, ref);
+    if (PathGuard.isOutsideAllowed(filePath, root)) continue;
     refs.push({ ref, filePath, index: match.index });
   }
   return refs;
 }
 
+/**
+ * @param {string} filePath
+ * @returns {string | null}
+ */
 function readFileContent(filePath) {
   try {
     if (!fs.existsSync(filePath)) return null;
@@ -33,11 +53,18 @@ function readFileContent(filePath) {
   }
 }
 
-function buildFileContext(text, projectCwd) {
-  const refs = resolveFileReferences(text, projectCwd);
+/**
+ * @param {string} text
+ * @param {string} projectCwd
+ * @param {string} [allowedRoot]
+ * @returns {{ text: string; contexts: Array<{ ref: string; path: string; fullPath: string; content: string; truncated: boolean }> }}
+ */
+function buildFileContext(text, projectCwd, allowedRoot) {
+  const refs = resolveFileReferences(text, projectCwd, allowedRoot);
   if (refs.length === 0) return { text, contexts: [] };
 
   const contexts = [];
+  /** @type {string[]} */
   const resolved = [];
 
   for (const { ref, filePath } of refs) {
@@ -59,10 +86,20 @@ function buildFileContext(text, projectCwd) {
   return { text, contexts };
 }
 
+/**
+ * @param {string} projectCwd
+ * @param {string} [pattern]
+ * @returns {Array<{ path: string; type: string; name: string; size?: number }>}
+ */
 function listProjectFiles(projectCwd, pattern = '') {
+  /** @type {Array<{ path: string; type: string; name: string; size?: number }>} */
   const results = [];
   const query = pattern.toLowerCase();
 
+  /**
+   * @param {string} dir
+   * @param {number} depth
+   */
   function walk(dir, depth) {
     if (depth > MAX_DEPTH) return;
     let entries;

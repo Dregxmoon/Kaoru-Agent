@@ -482,33 +482,12 @@ function _scriptReadsStdin(script) {
 
 // ── Rutas inmutablemente protegidas (nunca accesibles) ─────────────────────
 
-const IMMUTABLE_PATH_PATTERNS = [
-  /[\\/]\.ssh[\\/]/i,
-  /[\\/]id_rsa$/i,
-  /[\\/]id_ed25519$/i,
-  /\.pem$/i,
-  /\.pfx$/i,
-  /\.key$/i,
-  /[\\/]\.aws[\\/]/i,
-  // .env y variantes de entorno con credenciales reales (.env.local,
-  // .env.production, .env.test, ...). Se EXCLUYEN los sufijos de plantilla
-  // (.env.example/.env.sample/.env.template/.env.dist): son archivos legítimos
-  // que el agente debe poder crear/editar sin fricción.
-  /\.env(?:$|\.(?!example$|sample$|template$|dist$))/i,
-  /[\\/]credentials/i,
-  /[\\/]\.git-credentials/i,
-  /[\\/]\.npmrc/i,
-  /[\\/]wallet/i,
-  /[\\/]\.pgpass/i,
-  /^\/etc\/(shadow|passwd|sudoers|gshadow|fstab|crontab|hosts|hostname)$/,
-  /^\/boot\//,
-  /^\/sys\//,
-  /^\/proc\//,
-  /^\/dev\//,
-];
+const PathGuard = require('./core/security/PathGuard.js');
+
+const IMMUTABLE_PATH_PATTERNS = PathGuard.IMMUTABLE_PATH_PATTERNS;
 
 function _isImmutablePath(filePath) {
-  return IMMUTABLE_PATH_PATTERNS.some((re) => re.test(filePath));
+  return PathGuard.isImmutablePath(filePath);
 }
 
 // Calcula qué líneas cambiaron entre oldContent y newContent para el split
@@ -557,35 +536,14 @@ function _diffPatch(filePath, oldContent, newContent) {
 // que aún no existen, p.ej. al escribir uno nuevo), manteniendo el resto
 // del path como sufijo literal. Cierra la vía de escape por symlink: si un
 // directorio intermedio es un symlink hacia fuera de ALLOWED_PATH, el realpath
-// lo resuelve y _isOutsideAllowed lo detecta.
+// lo resuelve y _isOutsideAllowed lo detecta. Delegado a PathGuard (lógica
+// compartida con FileResolver).
 function _realpathNearest(p) {
-  let cur = p;
-  const tail = [];
-  for (;;) {
-    try {
-      const base = fs.realpathSync(cur);
-      return tail.length ? path.resolve(base, ...tail) : base;
-    } catch {
-      const parent = path.dirname(cur);
-      if (parent === cur) return path.resolve(p);
-      tail.unshift(path.basename(cur));
-      cur = parent;
-    }
-  }
+  return PathGuard.realpathNearest(p);
 }
 
 function _isOutsideAllowed(filePath) {
-  try {
-    const resolved = path.resolve(filePath);
-    if (_isImmutablePath(resolved)) return true;
-    const realResolved = _realpathNearest(resolved);
-    if (_isImmutablePath(realResolved)) return true;
-    const realAllowed = _realpathNearest(ALLOWED_PATH);
-    const rel = path.relative(realAllowed, realResolved);
-    return rel.startsWith('..') || path.isAbsolute(rel);
-  } catch {
-    return true;
-  }
+  return PathGuard.isOutsideAllowed(filePath, ALLOWED_PATH);
 }
 
 // ── Handlers ────────────────────────────────────────────────────────────────

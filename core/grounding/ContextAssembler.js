@@ -10,13 +10,14 @@ const logger = require('../observability/Logger.js');
  */
 
 const { GroqSerializer } = require('./serializers/GroqSerializer.js');
-const { GeminiSerializer, OpenAISerializer } = require('./serializers/GeminiOpenAISerializer.js');
 const { getIdentity: getIdentityStore } = require('../identity/IdentityStore.js');
 
+// Todos los providers comparten el formato de system prompt de Groq
+// (secciones markdown). Gemini/OpenAI heredaban aquí con serializers no-op;
+// la diferencia real de transporte (system_instruction separado, headers)
+// vive en LLMProvider. El fallback ?? groq cubre claude, deepseek, etc.
 const SERIALIZERS = {
   groq: new GroqSerializer(),
-  gemini: new GeminiSerializer(),
-  openai: new OpenAISerializer(),
 };
 
 // ── Sanitización de privacidad ─────────────────────────────────────────────

@@ -43,14 +43,15 @@ acción que ejecutar.
 Planifica qué nodos del grafo recuperar según el mensaje + contexto del SO, con búsqueda por similitud
 coseno **ponderada por recencia**: lo reciente pesa más, sin descartar lo importante.
 
-## `serializers/` — adaptadores por proveedor
+## `serializers/` — formateo del system prompt
 
 | Archivo | Propósito |
 |---|---|
-| `GroqSerializer.js` | System prompt en secciones (identidad → contexto SO → memoria → intención de herramienta) |
-| `GeminiOpenAISerializer.js` | Extiende el de Groq; Gemini recibe `system_instruction` separado |
+| `GroqSerializer.js` | System prompt en secciones (identidad → contexto SO → memoria → intención de herramienta). Serializer único del pipeline para todos los providers. |
 
-La selección ocurre en `ContextAssembler.build()` según el proveedor activo.
+La selección ocurre en `ContextAssembler.build()` según el proveedor activo, con fallback a Groq.
+`GeminiOpenAISerializer.js` fue eliminado: sus clases eran no-ops y las diferencias reales de
+transporte por proveedor viven en `LLMProvider`.
 
 ---
 

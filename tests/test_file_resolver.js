@@ -181,9 +181,8 @@ function testListIgnoreNodeModules() {
 function testComplexPaths() {
   const text = 'Mira @./src/utils/helpers.js y @../docs/api.md';
   const refs = resolveFileReferences(text, '/proyecto');
-  assert(refs.length === 2, 'Encuentra rutas con ./ y ../');
-  assert(refs[0].ref === './src/utils/helpers.js', 'Path relativo con ./');
-  assert(refs[1].ref === '../docs/api.md', 'Path relativo con ../');
+  assert(refs.length === 1, 'El ref ../ que escapa del workspace NO se resuelve');
+  assert(refs[0].ref === './src/utils/helpers.js', 'Path relativo con ./ se resuelve');
 }
 
 // ── Test 14: buildFileContext máximo 10 archivos ────────────────────────
@@ -203,6 +202,53 @@ function testMaxFiles() {
   fs.rmSync(tmpDir, { recursive: true, force: true });
 }
 
+// ── Test 15: contención de path traversal (@../../etc/passwd) ────────────
+function testContainTraversal() {
+  const tmpDir = path.join(os.tmpdir(), `test-ct-${Date.now()}`);
+  fs.mkdirSync(tmpDir, { recursive: true });
+  fs.writeFileSync(path.join(tmpDir, 'ok.txt'), 'dentro', 'utf-8');
+
+  const text = 'lee @../../../../etc/passwd';
+  const result = buildFileContext(text, tmpDir);
+  assert(result.contexts.length === 0, 'Traversal fuera del workspace NO se resuelve');
+
+  fs.rmSync(tmpDir, { recursive: true, force: true });
+}
+
+// ── Test 16: ref ../ que permanece DENTRO del workspace sí se resuelve ───
+function testParentInside() {
+  const tmpBase = path.join(os.tmpdir(), `test-pi-${Date.now()}`);
+  const sub = path.join(tmpBase, 'sub');
+  fs.mkdirSync(sub, { recursive: true });
+  fs.writeFileSync(path.join(tmpBase, 'padre.txt'), 'arriba', 'utf-8');
+
+  const result = buildFileContext('lee @../padre.txt', sub, tmpBase);
+  assert(result.contexts.length === 1, '@../ dentro del workspace se resuelve');
+  assert(
+    result.contexts[0].fullPath === path.join(tmpBase, 'padre.txt'),
+    'Resuelve al archivo padre dentro del workspace'
+  );
+
+  fs.rmSync(tmpBase, { recursive: true, force: true });
+}
+
+// ── Test 17: PathGuard isCwdAllowed rechaza cwd externo ─────────────────
+function testCwdContained() {
+  const PathGuard = require('../core/security/PathGuard.js');
+  const tmpDir = path.join(os.tmpdir(), `test-cwd-${Date.now()}`);
+  fs.mkdirSync(tmpDir, { recursive: true });
+  const outside = path.join(os.tmpdir(), `test-cwd-out-${Date.now()}`);
+  fs.mkdirSync(outside, { recursive: true });
+
+  assert(PathGuard.isCwdAllowed(tmpDir, tmpDir), 'cwd == root aceptado');
+  assert(PathGuard.isCwdAllowed(path.join(tmpDir, 'sub'), tmpDir), 'subdirectorio aceptado');
+  assert(!PathGuard.isCwdAllowed(outside, tmpDir), 'cwd fuera del root rechazado');
+  assert(!PathGuard.isCwdAllowed('/', tmpDir), 'raíz del sistema rechazada');
+
+  fs.rmSync(tmpDir, { recursive: true, force: true });
+  fs.rmSync(outside, { recursive: true, force: true });
+}
+
 // ── Run ─────────────────────────────────────────────────────────────────
 console.log(C.bold('\n📁 FileResolver Tests\n'));
 
@@ -220,6 +266,9 @@ testListFilesFilter();
 testListIgnoreNodeModules();
 testComplexPaths();
 testMaxFiles();
+testContainTraversal();
+testParentInside();
+testCwdContained();
 
 const total = passed + failed;
 console.log(

@@ -36,6 +36,7 @@ const logger = require('../core/observability/Logger.js');
 const LLMProvider = require('../core/llm/LLMProvider.js');
 const CommandRegistry = require('../core/commands/CommandRegistry.js');
 const FileResolver = require('../core/commands/FileResolver.js');
+const PathGuard = require('../core/security/PathGuard.js');
 const AgentManager = require('../core/agents/AgentManager.js');
 const ModelAugmenter = require('../core/behavior/ModelAugmenter.js');
 const AsrClient = require('../core/voice/AsrClient.js');
@@ -105,6 +106,30 @@ function register(_ctx) {
   _sendToChat = _ctx && typeof _ctx.sendToChat === 'function' ? _ctx.sendToChat : () => {};
 
   const coreBehaviorDir = path.join(__dirname, '..', 'core', 'behavior');
+
+  // Root canónico para las operaciones de archivo del chat (@archivo y
+  // listado): el workspace activo, o el cwd de la app si no hay workspace.
+  // El `cwd` que manda el renderer NO se confía: solo se acepta si cae dentro
+  // de este root (PathGuard), nunca para escalar a otras carpetas.
+  const resolveChatRoot = () => {
+    try {
+      const ws = _ctx && _ctx.Core && _ctx.Core.getWorkspace ? _ctx.Core.getWorkspace() : null;
+      return ws ? path.resolve(String(ws)) : process.cwd();
+    } catch {
+      return process.cwd();
+    }
+  };
+  /**
+   * @param {string | null | undefined} rawCwd
+   * @param {string} root
+   * @returns {string}
+   */
+  const containCwd = (rawCwd, root) => {
+    if (!rawCwd) return root;
+    const resolved = path.resolve(String(rawCwd));
+    if (!PathGuard.isCwdAllowed(resolved, root)) return root;
+    return resolved;
+  };
 
   ipcMain.on('chat-ui-call-result', (_e, payload = {}) => {
     const p = _uiCallPending.get(String(payload.id || ''));
@@ -386,13 +411,19 @@ function register(_ctx) {
   );
 
   // ── FileResolver (@archivo) ───────────────────────────────────────────────
-  ipcMain.handle('chat-files-list', (_e, { cwd, pattern } = {}) =>
-    FileResolver.listProjectFiles(String(cwd || process.cwd()), String(pattern || ''))
-  );
+  // El cwd se contiene contra el workspace activo: un renderer comprometido no
+  // puede pedir listar/leer fuera del root (PathGuard + FileResolver).
+  ipcMain.handle('chat-files-list', (_e, { cwd, pattern } = {}) => {
+    const root = resolveChatRoot();
+    const safeCwd = containCwd(cwd, root);
+    return FileResolver.listProjectFiles(safeCwd, String(pattern || ''));
+  });
 
-  ipcMain.handle('chat-files-context', (_e, { text, cwd } = {}) =>
-    FileResolver.buildFileContext(String(text || ''), String(cwd || process.cwd()))
-  );
+  ipcMain.handle('chat-files-context', (_e, { text, cwd } = {}) => {
+    const root = resolveChatRoot();
+    const safeCwd = containCwd(cwd, root);
+    return FileResolver.buildFileContext(String(text || ''), safeCwd, root);
+  });
 
   // ── AgentManager (system prompt del agente) ───────────────────────────────
   ipcMain.handle('chat-agents-prompt', (_e, { name } = {}) => {
