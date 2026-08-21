@@ -34,24 +34,33 @@ class BehaviorModel {
     this._lastToneCount = 0;
   }
 
-  evaluate(userMessage = '', osContext = null, history = []) {
+  evaluate(userMessage = '', osContext = null, history = [], adaptationProfile = null) {
     const text = userMessage.trim();
 
     const tone = this._detectTone(text, osContext, history);
-    const responseLength = this._detectLength(text);
+    let responseLength = this._detectLength(text);
     const urgency = this._detectUrgency(text, osContext, history);
     const notes = this._buildNotes(tone, osContext, history);
     const proactiveScore = this._computeProactiveScore(osContext, history, urgency);
 
+    // Apply adaptation profile if available
+    if (adaptationProfile && adaptationProfile.confidence > 0.2) {
+      responseLength = adaptationProfile.responseLength || responseLength;
+      if (adaptationProfile.styleHint) {
+        notes.push(adaptationProfile.styleHint);
+      }
+    }
+
     this._lastTone = tone;
     this._lastToneCount++;
 
-    const ctx = { tone, responseLength, urgency, notes, proactiveScore };
+    const ctx = { tone, responseLength, urgency, notes, proactiveScore, adaptationProfile };
 
     logger.info(
       'BehaviorModel',
       `[behavior] tone=${tone} length=${responseLength}` +
-        ` urgency=${urgency} proactive=${proactiveScore.toFixed(2)}`
+        ` urgency=${urgency} proactive=${proactiveScore.toFixed(2)}` +
+        ` adaptation=${adaptationProfile?.confidence?.toFixed(2) ?? 'none'}`
     );
 
     return ctx;

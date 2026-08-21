@@ -128,6 +128,18 @@ class SessionManager {
     this._turnCount++;
     if (this._history.length > 40) this._history = this._history.slice(-40);
 
+    // Evolutionary memory analysis (per-turn, deterministic)
+    if (role === 'user' && this._graph) {
+      try {
+        const traitLearner = this._graph.getTraitLearner?.();
+        const topicTracker = this._graph.getTopicTracker?.();
+        if (traitLearner) traitLearner.analyzeTurn(content);
+        if (topicTracker) topicTracker.analyzeTurn(content);
+      } catch (e) {
+        // Evolutionary memory never blocks the main flow
+      }
+    }
+
     // Persistencia incremental — barata (better-sqlite3 es síncrono), y es
     // justo lo que permite resumir tras un crash: si la app truena ahora
     // mismo, como mucho se pierde el turno en vuelo, no la conversación.

@@ -27,6 +27,11 @@ const { DecayStore } = require('./stores/DecayStore.js');
 const { ConsolidatorStore } = require('./stores/ConsolidatorStore.js');
 const { FactReasonerStore } = require('./stores/FactReasonerStore.js');
 const { IntentionsStore } = require('./stores/IntentionsStore.js');
+const { EvolutionStore } = require('./evolution/EvolutionStore.js');
+const { TraitLearner } = require('./evolution/TraitLearner.js');
+const { CommunicationStyleProfiler } = require('./evolution/CommunicationStyleProfiler.js');
+const { TopicMomentumTracker } = require('./evolution/TopicMomentumTracker.js');
+const { AdaptiveResponseEngine } = require('./evolution/AdaptiveResponseEngine.js');
 const { UserModelBuilder } = require('./UserModelBuilder.js');
 const { ContradictionResolver } = require('./ContradictionResolver.js');
 const { NODE_TYPES, DECAY_RATES } = require('./stores/constants.js');
@@ -457,6 +462,11 @@ class StateGraph {
     this._intentions = new IntentionsStore(this._db, this);
     this._resolver = new ContradictionResolver(this);
     this._userModel = new UserModelBuilder(this._db, this);
+    this._evolution = new EvolutionStore(this._db);
+    this._traitLearner = new TraitLearner(this._evolution);
+    this._commStyleProfiler = new CommunicationStyleProfiler(this._evolution);
+    this._topicTracker = new TopicMomentumTracker(this._evolution);
+    this._adaptiveEngine = new AdaptiveResponseEngine(this._traitLearner, this._commStyleProfiler, this._topicTracker);
   }
 
   // Schema
@@ -570,6 +580,11 @@ class StateGraph {
 
       CREATE INDEX IF NOT EXISTS idx_intentions_active ON intentions(status, updated_at DESC);
     `);
+    
+    // Evolutionary memory tables
+    if (this._evolution) {
+      this._evolution.createSchema();
+    }
   }
 
   _migrateSchema() {
@@ -963,6 +978,28 @@ class StateGraph {
     return this._intentions.getStats();
   }
 
+  // Evolutionary memory accessors
+  getTraitLearner() {
+    return this._traitLearner;
+  }
+
+  getCommStyleProfiler() {
+    return this._commStyleProfiler;
+  }
+
+  getTopicTracker() {
+    return this._topicTracker;
+  }
+
+  getAdaptiveEngine() {
+    return this._adaptiveEngine;
+  }
+
+  getEvolutionStore() {
+    return this._evolution;
+  }
+
+
   getStats() {
     try {
       const total = this._db.prepare('SELECT COUNT(*) as c FROM nodes').get()?.c ?? 0;
@@ -982,6 +1019,7 @@ class StateGraph {
         byType,
         appHistoryToday,
         appHistoryTotal,
+        evolution: this._evolution ? this._evolution.getStats() : null,
         usingFallback: this.usingFallback,
       };
     } catch {

@@ -38,6 +38,42 @@ const CURIOSITY_TYPES = new Set([
   'pattern_uncertain',
   'memory_tension',
   'intention_stale',
+  'topic_cold',
+]);
+const CURIOSITY_TYPES = new Set([
+  'memory_stale',
+  'pattern_uncertain',
+  'memory_tension',
+  'intention_stale',
+  'topic_cold',
+]);
+const CURIOSITY_TYPES = new Set([
+  'memory_stale',
+  'pattern_uncertain',
+  'memory_tension',
+  'intention_stale',
+  'topic_cold',
+]);
+const CURIOSITY_TYPES = new Set([
+  'memory_stale',
+  'pattern_uncertain',
+  'memory_tension',
+  'intention_stale',
+  'topic_cold',
+]);
+const CURIOSITY_TYPES = new Set([
+  'memory_stale',
+  'pattern_uncertain',
+  'memory_tension',
+  'intention_stale',
+  'topic_cold',
+]);
+const CURIOSITY_TYPES = new Set([
+  'memory_stale',
+  'pattern_uncertain',
+  'memory_tension',
+  'intention_stale',
+  'topic_cold',
 ]);
 
 // Una intención activa con `last_progress_at` más viejo que esto (días) se
@@ -263,6 +299,15 @@ const PROPOSAL_HINTS = {
       action: null,
     },
   },
+  // Curiosidad sobre un topic en declive: el usuario hablaba de algo pero ya no tanto.
+  topic_cold: {
+    default: {
+      title: 'Preguntar sobre ese tema',
+      preview: 'Preguntarte si sigues interesado en ese tema que habías mencionado.',
+      kind: 'info',
+      action: null,
+    },
+  },
   // Fase D: error de código detectado por el LSP. La propuesta pide un parche;
   // si el LLM no logra generar uno válido, cae a informativa (ver el error).
   lsp_error: {
@@ -311,6 +356,7 @@ const TRIGGER_COOLDOWN_MS = {
   pattern_uncertain: 6 * 60 * 60 * 1000,
   memory_tension: 6 * 60 * 60 * 1000,
   intention_stale: 6 * 60 * 60 * 1000,
+  topic_cold: 4 * 60 * 60 * 1000,
 };
 
 module.exports = {

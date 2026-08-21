@@ -51,6 +51,15 @@ registerProfile('intention_stale', 'default', {
   urgencia: 0.3,
   confianza: 0.7,
 });
+// Topic en declive: momentum bajo, menciones pasadas pero Declining interest.
+registerProfile('topic_cold', 'default', {
+  severity: 0.15,
+  actionability: 0.4,
+  salience: 0.3,
+  costOfIgnore: 0.1,
+  urgencia: 0.2,
+  confianza: 0.6,
+});
 
 const { extractThemeTerms } = require('../../../core/misc.js');
 const { _localDayString } = require('../helpers.js');
@@ -249,6 +258,26 @@ module.exports = {
         salienceBoost: this._contextBoostFor(i.goal, i.last_progress || ''),
         context: `El usuario me pidió hace tiempo que haga "${i.goal}" y quedó activa sin actividad (status='active'). Pregúntale cómo va usando su texto real.${i.last_progress ? ` Último progreso que dejó: "${i.last_progress}".` : ''}`,
       });
+    }
+
+    // 5) Topic momentum: cold topics (declining interest)
+    try {
+      const topicTracker = g.getTopicTracker?.();
+      if (topicTracker) {
+        const coldTopics = topicTracker.getColdTopics({ limit: 3, maxMomentum: 0.2 });
+        for (const t of coldTopics) {
+          candidates.push({
+            type: 'topic_cold',
+            kind: 'default',
+            label: t.topic,
+            content: `El topic "${t.topic.replace(/_/g, ' ')}" tenía actividad pero está decayendo (momentum: ${t.momentum.toFixed(2)}).`,
+            salienceBoost: this._contextBoostFor(t.topic, t.topic.replace(/_/g, ' ')),
+            context: `El usuario hablaba de "${t.topic.replace(/_/g, ' ')}" pero ya no tanto. Pregúntale si sigue interesado.`,
+          });
+        }
+      }
+    } catch (e) {
+      logger.warn('curiosity', '[proactive] error leyendo topic momentum:', e.message);
     }
 
     return candidates;

@@ -197,6 +197,19 @@ class ContextAssembler {
       }
     }
 
+    // Get communication style hint from evolutionary memory
+    let commStyleHint = '';
+    if (this._graph && typeof this._graph.getCommStyleProfiler === 'function') {
+      try {
+        const profiler = this._graph.getCommStyleProfiler();
+        if (profiler) {
+          commStyleHint = profiler.buildStyleHint();
+        }
+      } catch (e) {
+        logger.warn('ContextAssembler', '[context-assembler] error getting style hint:', e.message);
+      }
+    }
+
     const contextPackage = {
       identity,
       osContext: osCtx,
@@ -204,7 +217,8 @@ class ContextAssembler {
       inferredModel,
       sessionHistory: history,
       currentMessage: currentMsg,
-      toolIntent, // ← Fase 3: el GroqSerializer lo lee e inyecta en el system prompt
+      toolIntent,
+      commStyleHint,
     };
 
     const serializer = SERIALIZERS[activeProvider] ?? SERIALIZERS.groq;

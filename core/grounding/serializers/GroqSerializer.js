@@ -450,6 +450,17 @@ function _buildToolIntentSection(toolIntent) {
 
 // ── Serializer principal ──────────────────────────────────────────────────────
 
+/**
+ * Sección de ESTILO DE COMUNICACIÓN: hint de adaptación al usuario basado en
+ * el perfil de estilo aprendido. Se inyecta al final del system prompt y entra
+ * en el presupuesto de truncado (baja prioridad).
+ * @param {string} styleHint
+ */
+function _buildCommStyleSection(styleHint) {
+  if (!styleHint || typeof styleHint !== 'string' || !styleHint.trim()) return '';
+  return `## Adaptación al usuario\n${styleHint.trim()}`;
+}
+
 class GroqSerializer {
   /**
    * Serializa el Context Package completo al formato que espera Groq/Llama.
@@ -477,10 +488,11 @@ class GroqSerializer {
       identity = null,
       osContext = null,
       persistentMemory = null,
-      inferredModel = null, // ← nuevo en F3.3
+      inferredModel = null,
       sessionHistory = [],
       currentMessage = null,
-      toolIntent = null, // ← nuevo en Fase 3
+      toolIntent = null,
+      commStyleHint = null,
     } = contextPackage;
     const includeMemory = opts.includeMemory === true;
 
@@ -492,8 +504,9 @@ class GroqSerializer {
       _buildOSSection(osContext),
       includeMemory ? _buildMemorySection(persistentMemory) : '',
       includeMemory ? _buildInferredSection(inferredModel) : '',
-      _buildToolIntentSection(toolIntent), // ← inyección Fase 3
-      _buildMoodSection(), // ← Fase B motor de identidad (sección delta por turno)
+      _buildToolIntentSection(toolIntent),
+      _buildMoodSection(),
+      commStyleHint ? _buildCommStyleSection(commStyleHint) : '',
     ].filter(Boolean);
 
     // NOTA: el truncado a MAX_SYSTEM_CHARS ya NO pasa aquí — se movió a

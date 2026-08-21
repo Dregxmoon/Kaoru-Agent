@@ -163,7 +163,19 @@ async function buildContext(sessionHistory, activeProvider, options = {}) {
   let behaviorCtx = null;
   if (state.behavior) {
     try {
-      behaviorCtx = state.behavior.evaluate(userText, osCtx, sessionHistory);
+      // Get adaptation profile from evolutionary memory
+      let adaptationProfile = null;
+      if (state.graph && typeof state.graph.getAdaptiveEngine === 'function') {
+        try {
+          const adaptiveEngine = state.graph.getAdaptiveEngine();
+          if (adaptiveEngine) {
+            adaptationProfile = adaptiveEngine.buildAdaptationProfile();
+          }
+        } catch (e) {
+          logger.warn('context', '[core] error getting adaptation profile:', e.message);
+        }
+      }
+      behaviorCtx = state.behavior.evaluate(userText, osCtx, sessionHistory, adaptationProfile);
       state.bus.emit('behavior:evaluated', behaviorCtx);
     } catch (e) {
       logger.warn('context', '[core] error en BehaviorModel:', e.message);
@@ -485,6 +497,7 @@ function truncateSystemPrompt(systemPrompt, opts = {}) {
   //    se recortan PRIMERO, antes que la identidad (critical, nunca se toca).
   const sectionMarkers = [
     { name: 'Impresiones', marker: '## Impresiones (no confirmadas', keepIf: null },
+    { name: 'Adaptación', marker: '## Adaptación al usuario', keepIf: null },
     { name: 'MCP', marker: '# HERRAMIENTAS MCP', keepIf: null },
     { name: 'OpenClaw', marker: '# HERRAMIENTAS DISPONIBLES', keepIf: null },
     { name: 'Plan', marker: '# MODO PLAN', keepIf: null },
