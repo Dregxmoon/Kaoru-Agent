@@ -24,6 +24,7 @@ const { ConfigManager } = require('./core/config/ConfigManager.js');
 const { initUpdater } = require('./updater.js');
 
 const { createSharedState } = require('./ipc/state.js');
+const logger = require('./core/utils/logger');
 
 app.setName('vtuber-overlay');
 
@@ -43,16 +44,16 @@ app.on('web-contents-created', (_e, contents) => {
   contents.on('will-navigate', (event, url) => {
     if (!url.startsWith('file:')) {
       event.preventDefault();
-      console.warn('[security] navegación a URL remota bloqueada:', url);
+      logger.warn('main', `navegación a URL remota bloqueada: ${url}`);
     }
   });
   contents.setWindowOpenHandler(({ url }) => {
-    console.warn('[security] window.open bloqueado:', url);
+    logger.warn('main', `window.open bloqueado: ${url}`);
     return { action: 'deny' };
   });
   contents.on('will-attach-webview', (event) => {
     event.preventDefault();
-    console.warn('[security] webview attach bloqueado');
+    logger.warn('main', 'webview attach bloqueado');
   });
 });
 
@@ -68,6 +69,18 @@ let _crashGuard = false;
 let _crashBytes = 0;
 
 const CRASH_LOG_MAX_BYTES = 5 * 1024 * 1024;
+
+// Timeouts y límites (extraídos de magic numbers)
+const CRASH_GUARD_COOLDOWN_MS = 1000;
+const PYTHON_PROBE_TIMEOUT_MS = 4000;
+const OVERLAY_INITIAL_DELAY_MS = 1500;
+const MAX_CRASH_RETRIES = 3;
+const CRASH_RELOAD_DELAY_MS = 1500;
+const CHAT_MIN_WIDTH = 700;
+const CHAT_MIN_HEIGHT = 480;
+const CONTROL_API_PORT = 3131;
+const INITIATIVE_FALLBACK_DELAY_MS = 1000;
+const SHUTDOWN_TIMEOUT_MS = 8000;
 
 function _crashSerialize(err) {
   if (err instanceof Error) return err.stack || err.message;
@@ -107,7 +120,7 @@ function logCrash(label, err) {
   } finally {
     setTimeout(() => {
       _crashGuard = false;
-    }, 1000);
+    }, CRASH_GUARD_COOLDOWN_MS);
   }
 }
 
@@ -117,14 +130,14 @@ process.on('unhandledRejection', (reason) => logCrash('unhandledRejection', reas
 // Python executable
 function resolvePythonBin() {
   if (process.env.ASISTENTE_PYTHON_BIN && fs.existsSync(process.env.ASISTENTE_PYTHON_BIN)) {
-    console.log('[python] usando override ASISTENTE_PYTHON_BIN:', process.env.ASISTENTE_PYTHON_BIN);
+    logger.info('python', `usando override ASISTENTE_PYTHON_BIN: ${process.env.ASISTENTE_PYTHON_BIN}`);
     return process.env.ASISTENTE_PYTHON_BIN;
   }
 
   const resolveViaCommand = (cmd, extraArgs = []) => {
     try {
       const res = spawnSync(cmd, [...extraArgs, '-c', 'import sys; print(sys.executable)'], {
-        timeout: 4000,
+        timeout: PYTHON_PROBE_TIMEOUT_MS,
         windowsHide: true,
         encoding: 'utf-8',
       });
@@ -141,20 +154,20 @@ function resolvePythonBin() {
   if (process.platform === 'win32') {
     const viaLauncher = resolveViaCommand('py', ['-3']);
     if (viaLauncher) {
-      console.log('[python] resuelto vía "py -3":', viaLauncher);
+      logger.info('python', `resuelto vía "py -3": ${viaLauncher}`);
       return viaLauncher;
     }
   }
 
   const viaPython = resolveViaCommand('python');
   if (viaPython) {
-    console.log('[python] resuelto vía "python" del PATH:', viaPython);
+    logger.info('python', `resuelto vía "python" del PATH: ${viaPython}`);
     return viaPython;
   }
 
   const viaPython3 = resolveViaCommand('python3');
   if (viaPython3) {
-    console.log('[python] resuelto vía "python3" del PATH:', viaPython3);
+    logger.info('python', `resuelto vía "python3" del PATH: ${viaPython3}`);
     return viaPython3;
   }
 
@@ -175,7 +188,7 @@ function resolvePythonBin() {
         for (const entry of entries) {
           const candidate = path.join(dir, entry, 'python.exe');
           if (fs.existsSync(candidate)) {
-            console.log('[python] encontrado por barrido de carpetas:', candidate);
+            logger.info('python', `encontrado por barrido de carpetas: ${candidate}`);
             return candidate;
           }
         }
@@ -185,8 +198,9 @@ function resolvePythonBin() {
     }
   }
 
-  console.warn(
-    '[python] no se encontró ningún intérprete de Python. La voz y el STT local no van a funcionar hasta que instales Python o definas ASISTENTE_PYTHON_BIN.'
+  logger.warn(
+    'python',
+    'no se encontró ningún intérprete de Python. La voz y el STT local no van a funcionar hasta que instales Python o definas ASISTENTE_PYTHON_BIN.'
   );
   return null;
 }
@@ -308,13 +322,13 @@ function loadEffectiveConfig() {
 
 function saveConfig(data) {
   const result = configManager.save(data);
-  for (const err of result.errors) console.log('[config] error guardando config.json:', err);
+  for (const err of result.errors) logger.info('config', `error guardando config.json: ${err}`);
 }
 
 function migratePlaintextApiKeysToKeychain() {
   const cfg = loadConfig();
   if (!KeychainManager.isAvailable()) {
-    console.log('[config] llavero del sistema no disponible — keys de LLM en config.json');
+    logger.info('config', 'llavero del sistema no disponible — keys de LLM en config.json');
     return;
   }
   const llm = cfg.llm || {};
@@ -350,11 +364,12 @@ function migratePlaintextApiKeysToKeychain() {
   }
   try {
     configManager.save(newCfg);
-    console.log(
-      `[config] keys LLM migradas al llavero y quitadas de config.json: ${migrated.join(', ')}`
+    logger.info(
+      'config',
+      `keys LLM migradas al llavero y quitadas de config.json: ${migrated.join(', ')}`
     );
   } catch (e) {
-    console.log('[config] error persistiendo config sin keys:', e.message);
+    logger.info('config', `error persistiendo config sin keys: ${e.message}`);
   }
 }
 
@@ -369,7 +384,7 @@ function ensureLLMConfig() {
         providers: {},
       },
     });
-    console.log('[config] bloque llm inicializado');
+    logger.info('config', 'bloque llm inicializado');
   }
 }
 
@@ -388,7 +403,7 @@ if (maskedConfig.llm?.apiKeys) {
     if (maskedConfig.llm.apiKeys[k]) maskedConfig.llm.apiKeys[k] = '***';
   }
 }
-console.log('[asistente] config cargada:', maskedConfig);
+logger.info('asistente', `config cargada: ${maskedConfig}`);
 
 if (process.platform === 'linux') app.commandLine.appendSwitch('enable-transparent-visuals');
 
@@ -449,7 +464,7 @@ const serializeResult = (result) => {
     try {
       const str = JSON.stringify(result);
       if (str.length > IPC_RESULT_LIMIT) {
-        console.warn(`[main] resultado muy grande (${str.length} chars), truncando para IPC`);
+        logger.warn('main', `resultado muy grande (${str.length} chars), truncando para IPC`);
         return {
           _truncated: true,
           preview: str.slice(0, IPC_RESULT_LIMIT),
@@ -537,7 +552,7 @@ function createWindow() {
   S.mainWindow.webContents.on('console-message', _createConsoleMessageFilter('overlay'));
   S.mainWindow.loadFile(path.join(__dirname, 'src/index.html'));
   S.mainWindow.webContents.once('did-finish-load', () => {
-    setTimeout(() => S.mainWindow.webContents.send('set-view', S.currentView), 1500);
+    setTimeout(() => S.mainWindow.webContents.send('set-view', S.currentView), OVERLAY_INITIAL_DELAY_MS);
   });
   attachCrashWatchdog(S.mainWindow, 'overlay');
 }
@@ -553,7 +568,7 @@ function attachCrashWatchdog(win, label) {
       reason: details.reason,
       exitCode: details.exitCode,
     });
-    if (crashes > 3) {
+    if (crashes > MAX_CRASH_RETRIES) {
       logCrash(`render-process-gone [${label}]`, 'demasiados crashes — sin auto-reload');
       return;
     }
@@ -561,11 +576,11 @@ function attachCrashWatchdog(win, label) {
       if (!win.isDestroyed()) {
         try {
           win.reload();
-        } catch (err) {
-          logCrash(`reload [${label}]`, err);
+        } catch (e) {
+          logCrash(`reload [${label}]`, e);
         }
       }
-    }, 1500);
+    }, CRASH_RELOAD_DELAY_MS);
   });
   win.webContents.on('did-fail-load', (_e, code, desc) => {
     logCrash(`did-fail-load [${label}]`, `${code}: ${desc}`);
@@ -593,8 +608,8 @@ function createChatWindow() {
     transparent: false,
     backgroundColor: '#0d0f14',
     resizable: true,
-    minWidth: 700,
-    minHeight: 480,
+    minWidth: CHAT_MIN_WIDTH,
+    minHeight: CHAT_MIN_HEIGHT,
     skipTaskbar: false,
     alwaysOnTop: false,
     hasShadow: true,
@@ -619,7 +634,7 @@ function createChatWindow() {
   if (S.mainWindow && !S.mainWindow.isDestroyed()) S.mainWindow.hide();
 
   const sessionPromise = Core.startSession().catch((e) => {
-    console.error('[session] error:', e.message);
+    logger.error('session', `error: ${e.message}`);
     return null;
   });
   Core.setChatOpen(true);
@@ -652,7 +667,7 @@ function createChatWindow() {
     try {
       require('./ipc/openclaw-handlers.js').resetSessionApprovals();
     } catch (_) {}
-    Core.closeSession().catch((e) => console.error('[session] close error:', e.message));
+    Core.closeSession().catch((e) => logger.error('session', `close error: ${e.message}`));
     Core.setChatOpen(false);
     S.chatWindow = null;
     if (S.mainWindow && !S.mainWindow.isDestroyed()) S.mainWindow.show();
@@ -828,10 +843,10 @@ function startControlServer() {
     fs.writeFileSync(helpFilePath, HELP_TEXT_PRIVATE, { mode: 0o600 });
   } catch {
     // Si falla la escritura, solo loguear sin exponer el token.
-    console.log('[control] no se pudo escribir control-api-help.txt');
+    logger.info('control', 'no se pudo escribir control-api-help.txt');
   }
   const maskedToken = '****' + CONTROL_API_TOKEN.slice(-4);
-  console.log(`[control] Token: ${maskedToken} — comandos completos en ${helpFilePath}`);
+  logger.info('control', `Token: ${maskedToken} — comandos completos en ${helpFilePath}`);
   const server = http.createServer((req, res) => {
     const url = new URL(req.url, 'http://localhost:3131');
     res.setHeader('Content-Type', 'text/plain; charset=utf-8');
@@ -872,7 +887,7 @@ function startControlServer() {
       const action = (url.searchParams.get('action') || '').toLowerCase();
       if (action === 'open') createChatWindow();
       else if (action === 'close') {
-        console.log('[asistente] Control API: cerrando asistente');
+        logger.info('asistente', 'Control API: cerrando asistente');
         app.quit();
       } else toggleChatWindow();
       res.writeHead(200);
@@ -957,11 +972,11 @@ function startControlServer() {
     res.writeHead(200);
     res.end(HELP_TEXT);
   });
-  server.listen(3131, '127.0.0.1', () =>
-    console.log('[asistente] API lista → http://localhost:3131/help')
+  server.listen(CONTROL_API_PORT, '127.0.0.1', () =>
+    logger.info('asistente', `API lista → http://localhost:${CONTROL_API_PORT}/help`)
   );
   server.on('error', (e) => {
-    if (e.code === 'EADDRINUSE') console.log('[asistente] puerto 3131 ocupado.');
+    if (e.code === 'EADDRINUSE') logger.info('asistente', `puerto ${CONTROL_API_PORT} ocupado.`);
   });
 }
 
@@ -1009,7 +1024,7 @@ async function _autoInitProject() {
       tags: ['workspace', 'auto-init'],
     });
   } catch (e) {
-    console.warn('[asistente] auto-init de proyecto falló:', e.message);
+    logger.warn('asistente', `auto-init de proyecto falló: ${e.message}`);
   }
 }
 
@@ -1021,8 +1036,9 @@ app.whenReady().then(() => {
   ensureLLMConfig();
 
   const keychainAvail = KeychainManager.isAvailable();
-  console.log(
-    `[config] fuente de keys: ${_keySource} | llavero del SO: ${keychainAvail ? 'disponible' : 'no disponible'}`
+  logger.info(
+    'config',
+    `fuente de keys: ${_keySource} | llavero del SO: ${keychainAvail ? 'disponible' : 'no disponible'}`
   );
 
   Core.init(app);
@@ -1054,7 +1070,7 @@ app.whenReady().then(() => {
       };
       if (S.chatWindow && !S.chatWindow.isDestroyed()) {
         S.chatWindow.webContents.once('did-finish-load', sendWhenReady);
-        setTimeout(sendWhenReady, 1000);
+        setTimeout(sendWhenReady, INITIATIVE_FALLBACK_DELAY_MS);
       }
     } else {
       if (S.mainWindow && !S.mainWindow.isDestroyed()) {
@@ -1085,8 +1101,9 @@ app.whenReady().then(() => {
 
   const shortcutOk = globalShortcut.register('CommandOrControl+Shift+Q', () => app.quit());
   if (!shortcutOk) {
-    console.warn(
-      '[asistente] no se pudo registrar el atajo global de salida (Ctrl/Cmd+Shift+Q) — probablemente ya lo usa otra app.'
+    logger.warn(
+      'main',
+      'no se pudo registrar el atajo global de salida (Ctrl/Cmd+Shift+Q) — probablemente ya lo usa otra app.'
     );
   }
 
@@ -1109,9 +1126,9 @@ app.on('before-quit', (event) => {
   _quitting = true;
   (async () => {
     try {
-      await withTimeout(Core.shutdown(), 8000);
+      await withTimeout(Core.shutdown(), SHUTDOWN_TIMEOUT_MS);
     } catch (e) {
-      console.error('[main] shutdown con errores:', e && e.message ? e.message : e);
+      logger.error('main', `shutdown con errores: ${e && e.message ? e.message : e}`);
     }
     app.quit();
   })();

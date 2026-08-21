@@ -16,8 +16,8 @@ function register(ctx) {
   ipcMain.handle('get-workspace', () => {
     try {
       return Core.getWorkspace();
-    } catch (err) {
-      logger.warn('mcp-handlers', '[main] error en get-workspace:', err.message);
+    } catch (e) {
+      logger.warn('mcp-handlers', '[main] error en get-workspace:', e.message);
       return null;
     }
   });
@@ -25,18 +25,18 @@ function register(ctx) {
   ipcMain.handle('mcp-list-servers', async () => {
     try {
       return await Core.mcpListServers();
-    } catch (err) {
-      logger.error('mcp-handlers', '[main] error en mcp-list-servers:', err.message);
-      return { error: err.message };
+    } catch (e) {
+      logger.error('mcp-handlers', '[main] error en mcp-list-servers:', e.message);
+      return { error: e.message };
     }
   });
 
   ipcMain.handle('mcp-search-registry', async (e, { query }) => {
     try {
       return await Core.mcpSearchRegistry(query || '');
-    } catch (err) {
-      logger.error('mcp-handlers', '[main] error en mcp-search-registry:', err.message);
-      return { error: err.message };
+    } catch (e) {
+      logger.error('mcp-handlers', '[main] error en mcp-search-registry:', e.message);
+      return { error: e.message };
     }
   });
 
@@ -50,9 +50,9 @@ function register(ctx) {
         mcp: { servers: [...withoutDup, { ...serverCfg, id: status.id, enabled: true }] },
       });
       return { ok: true, status };
-    } catch (err) {
-      logger.error('mcp-handlers', '[main] error en mcp-add-server:', err.message);
-      return { ok: false, error: err.message };
+    } catch (e) {
+      logger.error('mcp-handlers', '[main] error en mcp-add-server:', e.message);
+      return { ok: false, error: e.message };
     }
   });
 
@@ -63,9 +63,9 @@ function register(ctx) {
       const servers = (cfg?.mcp?.servers || []).filter((s) => s.id !== id);
       saveConfig({ mcp: { servers } });
       return { ok: true };
-    } catch (err) {
-      logger.error('mcp-handlers', '[main] error en mcp-remove-server:', err.message);
-      return { ok: false, error: err.message };
+    } catch (e) {
+      logger.error('mcp-handlers', '[main] error en mcp-remove-server:', e.message);
+      return { ok: false, error: e.message };
     }
   });
 
@@ -81,9 +81,9 @@ function register(ctx) {
       const updated = servers.map((s) => (s.id === id ? { ...s, enabled } : s));
       saveConfig({ mcp: { servers: updated } });
       return { ok: true };
-    } catch (err) {
-      logger.error('mcp-handlers', '[main] error en mcp-toggle-server:', err.message);
-      return { ok: false, error: err.message };
+    } catch (e) {
+      logger.error('mcp-handlers', '[main] error en mcp-toggle-server:', e.message);
+      return { ok: false, error: e.message };
     }
   });
 

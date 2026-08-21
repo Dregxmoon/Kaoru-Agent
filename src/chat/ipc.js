@@ -32,8 +32,8 @@ messagesEl.addEventListener('click', async (e) => {
       return;
     }
     addMessage('assistant', `Modelo cambiado a: **${res.info.name}**`);
-  } catch (err) {
-    addMessage('assistant', `Error al cambiar modelo: ${err.message}`);
+  } catch (e) {
+    addMessage('assistant', `Error al cambiar modelo: ${e.message}`);
   } finally {
     btn.disabled = false;
   }
@@ -59,8 +59,8 @@ messagesEl.addEventListener('click', async (e) => {
     if (viewMode !== 'random' && VIEW[viewMode] && model)
       applyView(viewMode, viewMode !== currentView);
     _refreshViewButtons();
-  } catch (err) {
-    addMessage('assistant', `Error: ${err.message}`);
+  } catch (e) {
+    addMessage('assistant', `Error: ${e.message}`);
   } finally {
     if (activeBtn)
       activeBtn.querySelectorAll('[data-view-mode]').forEach((b) => {

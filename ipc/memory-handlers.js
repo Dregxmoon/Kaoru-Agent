@@ -29,8 +29,8 @@ function register(ctx) {
         } catch {}
       }
       return { nodes, byType, usingFallback: graph?.usingFallback ?? false };
-    } catch (err) {
-      logger.warn('memory-handlers', '[nodes-list] error:', err.message);
+    } catch (e) {
+      logger.warn('memory-handlers', '[nodes-list] error:', e.message);
       return { nodes: [], byType: [], usingFallback: true };
     }
   });
@@ -42,8 +42,8 @@ function register(ctx) {
       const { nodes, edges } = Core.listNodeGraph({ limit });
       const gaps = Core.getMemoryGaps();
       return { nodes, edges, gaps, usingFallback: graph?.usingFallback ?? false };
-    } catch (err) {
-      logger.warn('memory-handlers', '[nodes-graph] error:', err.message);
+    } catch (e) {
+      logger.warn('memory-handlers', '[nodes-graph] error:', e.message);
       return { nodes: [], edges: [], gaps: [], usingFallback: true };
     }
   });
@@ -52,8 +52,8 @@ function register(ctx) {
   ipcMain.handle('memory-gaps', () => {
     try {
       return { gaps: Core.getMemoryGaps() };
-    } catch (err) {
-      logger.warn('memory-handlers', '[memory-gaps] error:', err.message);
+    } catch (e) {
+      logger.warn('memory-handlers', '[memory-gaps] error:', e.message);
       return { gaps: [] };
     }
   });
@@ -117,8 +117,8 @@ function register(ctx) {
           },
         });
       }
-    } catch (err) {
-      logger.warn('memory-handlers', '[config] no se pudo persistir el provider:', err.message);
+    } catch (e) {
+      logger.warn('memory-handlers', '[config] no se pudo persistir el provider:', e.message);
     }
     logger.info('memory-handlers', '[config] provedor cambiado a:', primary);
   });

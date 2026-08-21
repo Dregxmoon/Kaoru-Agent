@@ -372,10 +372,10 @@ async function processMessage(text, files = []) {
         speak(response);
         return;
       }
-    } catch (err) {
-      console.error('error en agent-run:', err.message);
+    } catch (e) {
+      console.error('error en agent-run:', e.message);
       disarmCancel();
-      error = err.message;
+      error = e.message;
       response = null;
       setAgentState('error', 'Error');
       // Limpiar bubble vacío creado en la línea 1119
@@ -417,9 +417,9 @@ async function processMessage(text, files = []) {
       }
       if (llm && llm.error) throw new Error(llm.error);
       response = llm && llm.response ? llm.response : null;
-    } catch (err) {
+    } catch (e) {
       disarmCancel();
-      console.error('error LLM:', err.message);
+      console.error('error LLM:', e.message);
       response = LLMProvider.getActiveProvider()
         ? 'Algo falló al conectar. Revisa tu conexión o la key.'
         : 'Sin API keys. Usa el boton de configuracion (engranaje) para configurarlas.';

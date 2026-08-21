@@ -9,6 +9,7 @@ const Diff = require('diff');
 const crypto = require('crypto');
 const { dirSet } = require('./core/utils/ignoreDirs.js');
 const { isUrlSafe } = require('./core/security/UrlGuard.js');
+const logger = require('./core/observability/Logger.js');
 
 // P3: límite de confianza anti prompt-injection — el texto de páginas web de
 // terceros NO es confiable (una página puede llevar instrucciones ocultas
@@ -31,7 +32,7 @@ const ALLOWED_PATH = process.env.OPENCLAW_ALLOWED_PATH
 // Sin API_KEY → servidor se niega a arrancar (fail closed)
 // Solo cuando se ejecuta como script (no al ser importado como módulo)
 if (require.main === module && !API_KEY) {
-  console.error('[openclaw-server] OPENCLAW_API_KEY no definida — abortando');
+  logger.error('openclaw-server', 'OPENCLAW_API_KEY no definida — abortando');
   process.exit(1);
 }
 
@@ -89,7 +90,7 @@ function _audit(tool, params, ok, detail) {
   };
   auditLog.push(entry);
   const status = ok ? 'OK' : 'FAIL';
-  console.log(`[audit] ${entry.ts} ${tool} ${status} — ${detail}`);
+  logger.info('openclaw-audit', `${entry.ts} ${tool} ${status} — ${detail}`);
   if (auditLog.length > 1000) auditLog.shift();
   _appendAuditFile(entry);
 }
@@ -207,7 +208,7 @@ let _sandboxReason = null;
       { stdio: 'ignore', timeout: 10_000 }
     );
     _sandboxEnabled = true;
-    console.log('[openclaw-server] sandbox de proceso: bwrap habilitado');
+    logger.info('openclaw-server', 'sandbox de proceso: bwrap habilitado');
   } catch (e) {
     _sandboxReason = `bwrap no usable: ${e.message}`;
     _sandboxEnabled = false;
@@ -1252,9 +1253,9 @@ const server = http.createServer((req, res) => {
 async function startServer(port = PORT) {
   return new Promise((resolve, reject) => {
     server.listen(port, '127.0.0.1', () => {
-      console.log(`[openclaw-server] escuchando en http://127.0.0.1:${port}`);
-      console.log(`[openclaw-server] allowed path: ${ALLOWED_PATH}`);
-      console.log(`[openclaw-server] auth: ${API_KEY ? 'enabled' : 'disabled'}`);
+      logger.info('openclaw-server', `escuchando en http://127.0.0.1:${port}`);
+      logger.info('openclaw-server', `allowed path: ${ALLOWED_PATH}`);
+      logger.info('openclaw-server', `auth: ${API_KEY ? 'enabled' : 'disabled'}`);
       resolve(server);
     });
     server.once('error', reject);
@@ -1277,7 +1278,7 @@ function _gracefulShutdown() {
 // Arrancar solo si es el entry point (no al ser importado como módulo)
 if (require.main === module) {
   startServer(PORT).catch((e) => {
-    console.error('[openclaw-server] error al iniciar:', e.message);
+    logger.error('openclaw-server', `error al iniciar: ${e.message}`);
     process.exit(1);
   });
   process.on('SIGTERM', _gracefulShutdown);

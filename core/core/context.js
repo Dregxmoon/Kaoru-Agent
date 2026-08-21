@@ -46,7 +46,7 @@ function buildWorkspaceStackSection(cwd) {
     if (fs.existsSync(pkgPath)) {
       try {
         pkg = JSON.parse(fs.readFileSync(pkgPath, 'utf-8'));
-      } catch (_) {}
+      } catch (_) { logger.debug('context', 'package.json corrupto o no parseable'); }
     }
     // TypeScript solo si hay fuentes .ts de verdad (un tsconfig puede ser solo
     // para typecheck con JSDoc, como en este mismo repo — no es motivo para
@@ -65,7 +65,7 @@ function buildWorkspaceStackSection(cwd) {
               return false;
             }
           });
-      } catch (_) {}
+      } catch (_) { logger.debug('context', 'escaneo de tsconfig.json falló'); }
     }
     if (pkg) {
       lang =
@@ -107,7 +107,7 @@ function buildWorkspaceStackSection(cwd) {
     let entries = [];
     try {
       entries = fs.readdirSync(cwd);
-    } catch (_) {}
+    } catch (_) { logger.debug('context', 'readdir de cwd falló'); }
     const items = entries
       .filter((e) => !e.startsWith('.') && e !== 'node_modules' && e !== 'dist')
       .slice(0, WORKSPACE_STACK_MAX_ENTRIES);
@@ -118,7 +118,7 @@ function buildWorkspaceStackSection(cwd) {
       const head = fs.readFileSync(path.join(cwd, '.git', 'HEAD'), 'utf-8').trim();
       const m = head.match(/^ref:\s*refs\/heads\/(.+)$/);
       if (m) lines.push(`- Rama git: ${m[1]}`);
-    } catch (_) {}
+    } catch (_) { logger.debug('context', 'lectura de .git/HEAD falló'); }
 
     return lines.join('\n');
   } catch (_) {

@@ -866,7 +866,7 @@ function postStream(url, headers, body, onToken, timeoutMs = 20_000, signal = nu
         if (out) {
           try {
             onToken && onToken(out);
-          } catch (_) {}
+          } catch (_) { logger.debug('LLMProvider', 'callback onToken falló'); }
         }
       };
       const parseDelta = (delta) => {
@@ -911,7 +911,7 @@ function postStream(url, headers, body, onToken, timeoutMs = 20_000, signal = nu
         if (cotState.pending && !cotState.inThinking) {
           try {
             onToken && onToken(cotState.pending);
-          } catch (_) {}
+          } catch (_) { logger.debug('LLMProvider', 'callback onToken (CoT) falló'); }
           cotState.pending = '';
         }
         const toolCallsOut = toolCalls
@@ -1079,7 +1079,7 @@ function _parseGeminiSSE(raw, onToken) {
         out += text;
         try {
           onToken && onToken(text);
-        } catch (_) {}
+        } catch (_) { logger.debug('LLMProvider', 'callback onToken (Gemini) falló'); }
       }
       if (part.functionCall) {
         toolCalls.push({

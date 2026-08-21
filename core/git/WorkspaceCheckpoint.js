@@ -145,10 +145,10 @@ class WorkspaceCheckpoint {
         }
       }
       this.canRevert = true;
-    } catch (err) {
-      logger.warn('WorkspaceCheckpoint', `línea base de ${this.id} no disponible: ${errMsg(err)}`);
+    } catch (e) {
+      logger.warn('WorkspaceCheckpoint', `línea base de ${this.id} no disponible: ${errMsg(e)}`);
       this.canRevert = false;
-      this.reason = `no se pudo capturar la línea base (${errMsg(err)})`;
+      this.reason = `no se pudo capturar la línea base (${errMsg(e)})`;
     }
   }
 
@@ -230,8 +230,8 @@ class WorkspaceCheckpoint {
   _readFile(abs) {
     try {
       return fs.readFileSync(abs, 'utf-8');
-    } catch (err) {
-      logger.warn('WorkspaceCheckpoint', `no se pudo snapshotear ${abs}: ${errMsg(err)}`);
+    } catch (e) {
+      logger.warn('WorkspaceCheckpoint', `no se pudo snapshotear ${abs}: ${errMsg(e)}`);
       return '';
     }
   }
@@ -265,8 +265,8 @@ class WorkspaceCheckpoint {
           }
           this.files = this._collectRelPaths();
         }
-      } catch (err) {
-        logger.warn('WorkspaceCheckpoint', `finalize de ${this.id}: ${errMsg(err)}`);
+      } catch (e) {
+        logger.warn('WorkspaceCheckpoint', `finalize de ${this.id}: ${errMsg(e)}`);
       }
     }
     const meta = this._metadata();
@@ -348,10 +348,10 @@ class WorkspaceCheckpoint {
         } else {
           result.skipped.push('(sin cambios trackeados)');
         }
-      } catch (err) {
+      } catch (e) {
         return {
           ok: false,
-          error: `error al revertir cambios trackeados: ${errMsg(err)}`,
+          error: `error al revertir cambios trackeados: ${errMsg(e)}`,
           dryRun,
         };
       }
@@ -371,8 +371,8 @@ class WorkspaceCheckpoint {
           if (!dryRun) fs.rmSync(abs, { force: true });
           result.reverted.push(`${rel} (eliminado)`);
         }
-      } catch (err) {
-        result.warnings.push(`${rel}: ${errMsg(err)}`);
+      } catch (e) {
+        result.warnings.push(`${rel}: ${errMsg(e)}`);
       }
     }
 
@@ -386,8 +386,8 @@ class WorkspaceCheckpoint {
       try {
         if (!dryRun) fs.rmSync(abs, { force: true });
         result.reverted.push(`${rel} (creado por la tarea)`);
-      } catch (err) {
-        result.warnings.push(`${rel}: ${errMsg(err)}`);
+      } catch (e) {
+        result.warnings.push(`${rel}: ${errMsg(e)}`);
       }
     }
 

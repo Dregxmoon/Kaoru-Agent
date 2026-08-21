@@ -146,13 +146,13 @@ class ProviderQueue {
       const res = await task.run();
       this._stats.completed++;
       task.resolve(res);
-    } catch (err) {
+    } catch (e) {
       this._stats.failed++;
-      const waitMs = parseRetryAfterMs(err?.message || '');
+      const waitMs = parseRetryAfterMs(e?.message || '');
       if (waitMs > 0) {
         this._stats.rateLimited++;
         this._cooldownUntil = Math.max(this._cooldownUntil, Date.now() + waitMs);
-        this._lastRateLimitError = err;
+        this._lastRateLimitError = e;
       }
       task.reject(err);
     } finally {

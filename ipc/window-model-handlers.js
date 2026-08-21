@@ -135,8 +135,8 @@ function register(ctx) {
     const dest = path.join(MODELS_DIR, id);
     try {
       fs.cpSync(folderPath, dest, { recursive: true });
-    } catch (err) {
-      return { error: 'No se pudo copiar el modelo: ' + err.message };
+    } catch (e) {
+      return { error: 'No se pudo copiar el modelo: ' + e.message };
     }
     if (!setActiveModel(id)) return { error: 'No se pudo activar el modelo importado.' };
     broadcastModelChanged();

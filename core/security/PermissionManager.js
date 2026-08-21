@@ -24,6 +24,7 @@
 
 const fs = require('fs');
 const path = require('path');
+const logger = require('../utils/logger');
 
 /** @typedef {'allow'|'ask'|'deny'} PermissionAction */
 
@@ -96,10 +97,16 @@ class PermissionManager {
     }
     const id = `${tool}:${rulePath || ''}`;
     const idx = this._rules.findIndex((r) => r.id === id);
+    const previous = idx >= 0 ? this._rules[idx] : null;
     const rule = /** @type {PermissionRule} */ ({ id, tool, path: rulePath || '', action });
     if (idx >= 0) this._rules[idx] = rule;
     else this._rules.push(rule);
     this._save();
+    if (previous) {
+      logger.info('PermissionManager', `regla actualizada: ${id} ${previous.action} → ${action}`);
+    } else {
+      logger.info('PermissionManager', `regla creada: ${id} → ${action}`);
+    }
     return rule;
   }
 
@@ -115,6 +122,7 @@ class PermissionManager {
     this._rules = this._rules.filter((r) => r.id !== id);
     if (this._rules.length !== before) {
       this._save();
+      logger.info('PermissionManager', `regla eliminada: ${id}`);
       return true;
     }
     return false;

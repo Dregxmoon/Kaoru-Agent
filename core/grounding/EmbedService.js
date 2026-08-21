@@ -131,7 +131,7 @@ function _terminateWorker() {
   if (w) {
     try {
       w.terminate();
-    } catch {}
+    } catch {} /* worker ya terminado */
   }
 }
 
@@ -142,7 +142,7 @@ function _terminateChildProcess() {
   if (c) {
     try {
       c.kill();
-    } catch {}
+    } catch {} /* proceso ya terminado */
   }
 }
 
@@ -466,7 +466,7 @@ function _startWorker() {
     const loadTimer = setTimeout(() => {
       try {
         w.terminate();
-      } catch {}
+      } catch {} /* worker ya terminado */
       fail(new Error('el embed worker no cargó el modelo a tiempo'));
     }, WORKER_LOAD_TIMEOUT_MS);
 
@@ -504,7 +504,7 @@ function _startWorker() {
           clearTimeout(loadTimer);
           try {
             w.terminate();
-          } catch {}
+          } catch {} /* worker ya terminado */
           if (!ready) fail(new Error(msg.message));
           else _establishedFailed(w, new Error(msg.message));
         }
@@ -522,7 +522,7 @@ function _startWorker() {
         clearTimeout(loadTimer);
         try {
           w.terminate();
-        } catch {}
+        } catch {} /* worker ya terminado */
         if (!ready) fail(err);
         else _establishedFailed(w, err);
       }

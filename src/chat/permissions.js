@@ -87,8 +87,8 @@ function attachPermsEvents() {
           path: btn.dataset.path,
         });
         renderPermsList();
-      } catch (err) {
-        console.error('[perms] error eliminando regla:', err.message || err);
+      } catch (e) {
+        console.error('[perms] error eliminando regla:', e.message || e);
       }
     });
   }

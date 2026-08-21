@@ -175,9 +175,9 @@ function register(ctx) {
         truncated: result.truncated || false,
         cancelled: result.cancelled || false,
       };
-    } catch (err) {
-      logger.error('openclaw-handlers', '[main] error en agent-run:', err.message);
-      return { response: null, iterations: 0, toolResults: [], error: err.message };
+    } catch (e) {
+      logger.error('openclaw-handlers', '[main] error en agent-run:', e.message);
+      return { response: null, iterations: 0, toolResults: [], error: e.message };
     } finally {
       if (activeAbort === abort) activeAbort = null;
     }

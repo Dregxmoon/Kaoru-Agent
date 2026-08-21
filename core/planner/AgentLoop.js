@@ -818,7 +818,7 @@ class AgentLoop {
                 done: 0,
                 total: plan.steps.length,
               });
-            } catch (_) {}
+            } catch (_) { logger.debug('AgentLoop', 'emitión de progress falló'); }
           }
         }
       } catch (e) {
