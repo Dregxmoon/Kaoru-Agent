@@ -17,6 +17,7 @@
 
 'use strict';
 const logger = require('../observability/Logger.js');
+const { isUrlSafe } = require('../security/UrlGuard.js');
 
 // Límite de confianza anti prompt-injection (P3): el texto que el navegador
 // extrae de páginas web de terceros NO es confiable — una página maliciosa
@@ -96,6 +97,10 @@ async function executeBrowserAction(input) {
   switch (action) {
     case 'navigate': {
       if (!url) throw new Error('navigate requiere "url"');
+      const urlCheck = await isUrlSafe(url, { timeout: 3000 });
+      if (!urlCheck.safe) {
+        throw new Error(`URL bloqueada por seguridad: ${urlCheck.reason}`);
+      }
       await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 20000 });
       const title = await page.title();
       return { result: `Navegado a ${url} — título: "${title}"` };

@@ -251,13 +251,15 @@ async function testWarmupRespectsCooldown() {
   EmbedService._debug_resetState();
 }
 
-// ── Test 6: worker muere tras haber cargado → degradación permanente ──────────
+// ── Test 6: worker muere tras haber cargado → recuperación vía child_process ─
 // onnxruntime-node es NAPI single-load: si el worker llegó a 'ready' y luego
-// muere, NO se puede recrear (ni caer al main thread). El servicio se degrada
-// de forma permanente: embedText lanza, no instancia un worker nuevo.
+// muere, un worker_threads nuevo fallará (mismo proceso). Pero
+// child_process.fork() crea un proceso OS separado donde SÍ se puede cargar
+// el binding limpio. Este test verifica que EmbedService intenta la
+// recuperación y que funciona cuando el child process carga exitosamente.
 
-async function testPermanentDegradationAfterLoad() {
-  console.log(C.bold('\n── Test 6: worker muerto post-load → degradación permanente ────────'));
+async function testChildProcessRecoveryAfterLoad() {
+  console.log(C.bold('\n── Test 6: worker muere post-load → recuperación vía child_process ─'));
 
   const EmbedService = require('../core/grounding/EmbedService.js');
   const IntentDetector = require('../core/grounding/IntentDetector.js');
@@ -265,50 +267,228 @@ async function testPermanentDegradationAfterLoad() {
   EmbedService._debug_resetState();
   const origEmbed = IntentDetector.embedText;
   IntentDetector.embedText = async () => {
-    throw new Error('NO debe usarse el main thread tras un worker cargado (single-load NAPI)');
+    throw new Error('NO debe usarse el main thread cuando hay child process');
   };
 
-  let factoryCalls = 0;
+  let workerFactoryCalls = 0;
   EmbedService._debug_setWorkerFactory(() => {
-    factoryCalls++;
+    workerFactoryCalls++;
     return makeFakeWorker('readyThenExit');
   });
 
+  let childFactoryCalls = 0;
+  EmbedService._debug_setChildProcessFactory(() => {
+    childFactoryCalls++;
+    const { EventEmitter } = require('events');
+    const c = new EventEmitter();
+    c._alive = true;
+    c.send = (msg) => {
+      setImmediate(() => {
+        if (!c._alive) return;
+        c.emit('message', {
+          type: 'result',
+          id: msg.id,
+          embedding: Array.from(new Float32Array(384)),
+        });
+      });
+    };
+    c.kill = () => { c._alive = false; };
+    setImmediate(() => {
+      if (c._alive) c.emit('message', { type: 'ready' });
+    });
+    return c;
+  });
+
   try {
-    // Primera llamada: worker carga ('ready') y responde.
+    // Worker carga (loadedOnce=true), responde una vez, luego muere.
     const v = await EmbedService.embedText('hola');
     assert(v instanceof Float32Array && v.length === 384, 'worker cargado responde normal');
     assert(
       EmbedService._debug_getState().loadedOnce === true,
-      'tras el primer éxito, loadedOnce = true (onnxruntime cargado)'
+      'loadedOnce = true tras el primer éxito'
     );
 
-    // El worker muere (evento 'exit' post-ready) → degradación permanente.
+    // El worker muere → EmbedService inicia child process recovery.
+    await new Promise((r) => setImmediate(r));
     await new Promise((r) => setImmediate(r));
     assert(
       EmbedService._debug_getState().workerAlive === false,
-      'el worker quedó marcado como no vivo tras su terminación'
+      'el worker quedó marcado como no vivo'
     );
     assert(
-      EmbedService._debug_getState().disabled === true,
-      'worker deshabilitado de forma permanente'
+      EmbedService._debug_getState().childRecoveryCount === 1,
+      'se intentó 1 child process recovery'
+    );
+    assert(childFactoryCalls === 1, 'child process factory fue invocado 1 vez');
+
+    // Embedding posterior se resuelve via child process.
+    const v2 = await EmbedService.embedText('otro');
+    assert(
+      v2 instanceof Float32Array && v2.length === 384,
+      'embedText resuelve via child process tras recuperación'
+    );
+    assert(
+      EmbedService._debug_getState().disabled === false,
+      'servicio habilitado tras child process recovery exitoso'
+    );
+  } finally {
+    IntentDetector.embedText = origEmbed;
+    EmbedService._debug_resetState();
+  }
+}
+
+// ── Test 7: 3 child process fallan → degradación permanente ───────────────────
+// Si el worker muere post-load y TODOS los child process fallan al cargar
+// onnxruntime, el servicio se degrada permanentemente.
+
+async function testChildProcessRecoveryExhausted() {
+  console.log(C.bold('\n── Test 7: 3 child process fallan → degradación permanente ───────'));
+
+  const EmbedService = require('../core/grounding/EmbedService.js');
+  const IntentDetector = require('../core/grounding/IntentDetector.js');
+
+  EmbedService._debug_resetState();
+  const origEmbed = IntentDetector.embedText;
+  IntentDetector.embedText = async () => {
+    throw new Error('NO debe usarse el main thread post-load');
+  };
+
+  EmbedService._debug_setWorkerFactory(() => makeFakeWorker('readyThenExit'));
+  EmbedService._debug_setChildProcessBackoff(0);
+
+  let childFactoryCalls = 0;
+  EmbedService._debug_setChildProcessFactory(() => {
+    childFactoryCalls++;
+    const { EventEmitter } = require('events');
+    const c = new EventEmitter();
+    c.send = () => {};
+    c.kill = () => {};
+    // process.nextTick: emite DESPUÉS de que _forkChildProcess attachee
+    // los listeners (c.on('message', ...)), pero ANTES del siguiente I/O.
+    // Así el listener recibe el fatal.
+    process.nextTick(() => {
+      c.emit('message', { type: 'fatal', message: 'onnxruntime binding failed' });
+    });
+    return c;
+  });
+
+  try {
+    // Worker carga y muere → inicia child process recovery.
+    await EmbedService.embedText('hola');
+    await new Promise((r) => setImmediate(r));
+    assert(EmbedService._debug_getState().loadedOnce === true, 'loadedOnce = true');
+
+    // Esperar a que los 3 child process fallen (nextTick + setImmediate cycles).
+    for (let i = 0; i < 30; i++) await new Promise((r) => setImmediate(r));
+
+    const st = EmbedService._debug_getState();
+    assert(
+      st.childRecoveryCount >= 3,
+      `se intentaron ≥3 child processes (actual: ${st.childRecoveryCount})`
+    );
+    assert(
+      childFactoryCalls >= 3,
+      `child process factory invocado ≥3 veces (actual: ${childFactoryCalls})`
+    );
+    assert(
+      st.disabled === true,
+      'servicio deshabilitado tras agotar child process recovery'
     );
 
-    // Intento posterior: NO se instancia un worker nuevo y NO se cae a main.
-    const callsBefore = factoryCalls;
+    // Intento posterior: lanza (degradación permanente).
     let threw = false;
     try {
       await EmbedService.embedText('otro');
     } catch (e) {
       threw = true;
       assert(
-        /onnxruntime|embeddings no disponibles/i.test(e.message),
-        'el error informa la causa (single-load NAPI)',
+        /embeddings no disponibles|degradados/i.test(e.message),
+        'error informa degradación permanente',
         e.message
       );
     }
-    assert(threw === true, 'embedText lanza tras degradación permanente');
-    assert(factoryCalls === callsBefore, 'NO se instancia un worker nuevo tras la degradación');
+    assert(threw === true, 'embedText lanza tras agotar child process recovery');
+  } finally {
+    IntentDetector.embedText = origEmbed;
+    EmbedService._debug_resetState();
+  }
+}
+
+// ── Test 8: child process recovery exitoso re-habilita el servicio ────────────
+// Verifica que tras un child process exitoso, los contadores se resetean
+// y el servicio funciona normalmente.
+
+async function testChildProcessRecoveryResetsState() {
+  console.log(C.bold('\n── Test 8: child process recovery exitoso resetea el estado ──────'));
+
+  const EmbedService = require('../core/grounding/EmbedService.js');
+  const IntentDetector = require('../core/grounding/IntentDetector.js');
+
+  EmbedService._debug_resetState();
+  const origEmbed = IntentDetector.embedText;
+  IntentDetector.embedText = async () => {
+    throw new Error('NO debe usarse el main thread');
+  };
+
+  // Primer worker: carga y muere.
+  EmbedService._debug_setWorkerFactory(() => makeFakeWorker('readyThenExit'));
+
+  let childCallCount = 0;
+  EmbedService._debug_setChildProcessFactory(() => {
+    childCallCount++;
+    const { EventEmitter } = require('events');
+    const c = new EventEmitter();
+    c._alive = true;
+    c.send = (msg) => {
+      // Responde inmediatamente (sin esperar 'ready').
+      setImmediate(() => {
+        if (!c._alive) return;
+        c.emit('message', {
+          type: 'result',
+          id: msg.id,
+          embedding: Array.from(new Float32Array(384)),
+        });
+      });
+    };
+    c.kill = () => { c._alive = false; };
+    // 'ready' se emite en process.nextTick: después de que _forkChildProcess
+    // attachee listeners, pero antes del siguiente I/O.
+    process.nextTick(() => {
+      if (c._alive) c.emit('message', { type: 'ready' });
+    });
+    return c;
+  });
+
+  try {
+    // Worker carga y muere.
+    await EmbedService.embedText('hola');
+    await new Promise((r) => setImmediate(r));
+    await new Promise((r) => setImmediate(r));
+
+    assert(
+      EmbedService._debug_getState().childRecoveryCount === 1,
+      '1 child process recovery en curso'
+    );
+
+    // Segundo embedding resuelve via child process.
+    const v = await EmbedService.embedText('mundo');
+    assert(v instanceof Float32Array, 'child process resuelve embedding');
+
+    // Estado limpio: child recovery count se mantuvo (es acumulativo),
+    // pero el servicio está habilitado y funcional.
+    assert(
+      EmbedService._debug_getState().disabled === false,
+      'servicio habilitado tras child process recovery'
+    );
+    assert(
+      EmbedService._debug_getState().workerAlive === false,
+      'worker sigue muerto (solo child process está activo)'
+    );
+    assert(
+      EmbedService._debug_getState().childAlive === true,
+      'child process sigue vivo'
+    );
+    assert(childCallCount === 1, 'solo 1 child process fue necesario');
   } finally {
     IntentDetector.embedText = origEmbed;
     EmbedService._debug_resetState();
@@ -327,7 +507,9 @@ async function main() {
   await testDisableThenCooldown();
   await testRecoveryAfterCooldown();
   await testWarmupRespectsCooldown();
-  await testPermanentDegradationAfterLoad();
+  await testChildProcessRecoveryAfterLoad();
+  await testChildProcessRecoveryExhausted();
+  await testChildProcessRecoveryResetsState();
 
   console.log(C.bold('\n════════════════════════════════════════════════════════'));
   const total = passed + failed;

@@ -39,8 +39,8 @@ const CORE_SOURCES = {
 };
 
 /**
- * @param {any} _ctx Estado compartido del proceso main (se ignora: los
- *   handlers del overlay son autocontenidos).
+ * @param {any} _ctx Estado compartido del proceso main.
+ *   PYTHON_BIN se usa como fuente confiable para TTS (nunca se acepta del renderer).
  */
 function register(_ctx) {
   const coreBehaviorDir = path.join(__dirname, '..', 'core', 'behavior');
@@ -92,22 +92,43 @@ function register(_ctx) {
     'overlay-tts-stream',
     (_e, args = {}) =>
       new Promise((resolve, reject) => {
-        if (!args.pythonBin) {
-          reject(new Error('pythonBin requerido'));
+        if (!_ctx || !_ctx.PYTHON_BIN) {
+          reject(new Error('Python no disponible'));
+          return;
+        }
+        // V-03: Input validation — limit text length, validate voice/rate/pitch format
+        const text = String(args.text || '');
+        if (text.length > 10000) {
+          reject(new Error('TTS: texto demasiado largo (máximo 10000 caracteres)'));
+          return;
+        }
+        const voice = String(args.voice || 'ja-JP-NanamiNeural');
+        if (!/^[a-zA-Z0-9-]+$/.test(voice)) {
+          reject(new Error('TTS: voice contiene caracteres inválidos'));
+          return;
+        }
+        const rate = String(args.rate || '+8%');
+        if (!/^[+-]\d{1,3}%$/.test(rate)) {
+          reject(new Error('TTS: rate debe tener formato +/-N%'));
+          return;
+        }
+        const pitch = String(args.pitch || '+18Hz');
+        if (!/^[+-]\d{1,3}Hz$/.test(pitch)) {
+          reject(new Error('TTS: pitch debe tener formato +/-NHz'));
           return;
         }
         /** @type {Buffer[]} */
         const chunks = [];
-        const proc = cp.spawn(args.pythonBin, [
+        const proc = cp.spawn(_ctx.PYTHON_BIN, [
           path.join(__dirname, '..', 'tts_stream.py'),
           '--voice',
-          args.voice || 'ja-JP-NanamiNeural',
+          voice,
           '--rate',
-          args.rate || '+8%',
+          rate,
           '--pitch',
-          args.pitch || '+18Hz',
+          pitch,
           '--text',
-          args.text || '',
+          text,
         ]);
         proc.stdout.on('data', (c) => chunks.push(c));
         proc.on('close', (code) => {

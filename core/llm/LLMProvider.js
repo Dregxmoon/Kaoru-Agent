@@ -129,6 +129,45 @@ const RETRY_BASE_MS = 2000;
 // final le avisa al usuario cuánto esperar o que cambie de proveedor.
 const MAX_RETRY_WAIT_MS = 30_000;
 
+// ── Filtro de forbidden phrases (defensa en profundidad) ─────────────────────
+// El system prompt ya incluye las forbidden_phrases de identity.json como
+// instrucción (IdentitySerializer), pero el LLM puede ignorarlas bajo presión
+// de contexto. Esta función actúa como red de seguridad: si la respuesta
+// contiene una frase prohibida textual, se elimina antes de llegar al usuario.
+// Es regex sobre texto plano — no reemplaza la instrucción en el prompt.
+function _stripForbiddenPhrases(text) {
+  if (!text) return text;
+  let identity;
+  try {
+    identity = require('../identity/IdentityStore.js').getIdentity();
+  } catch {
+    return text;
+  }
+  const forbidden = identity?.voice?.forbidden_phrases || [];
+  let cleaned = text;
+  for (const phrase of forbidden) {
+    if (!phrase) continue;
+    const re = new RegExp(phrase.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'gi');
+    if (re.test(cleaned)) {
+      logger.debug('LLMProvider', `[filter] frase prohibida eliminada: "${phrase}"`);
+      cleaned = cleaned.replace(re, '');
+    }
+  }
+  return cleaned.replace(/[ \t]{2,}/g, ' ').replace(/\n{3,}/g, '\n\n').trim();
+}
+
+// ── Anti-fabricación para funciones sin tools por diseño ──────────────────────
+// complete(), completeTask() y completeForMode() nunca tienen acceso a tools
+// reales. Sin esta nota, el LLM "sigue en personaje" y narra acciones que
+// nunca ejecutó (crear archivos, buscar web, etc.). La constante se usa tanto
+// acá como en el fallback de completeWithTools() para no duplicar el string.
+const NO_TOOLS_NOTICE =
+  '\n\nIMPORTANTE: en esta respuesta NO tenés acceso a herramientas ' +
+  '(crear archivos, buscar en la web, ejecutar comandos, etc.). ' +
+  'Si la tarea que te piden requiere alguna de esas capacidades, decilo explícitamente ' +
+  "(ej: 'no puedo ejecutar esto ahora mismo, intentá de nuevo') — NUNCA " +
+  'describas, narres o simules que ya la ejecutaste.';
+
 // Providers que aceptan el campo `chat_template_kwargs` (OpenAI-compatible) en
 // el body para desactivar el thinking de Qwen3/DeepSeek. Groq NO lo acepta y
 // responde HTTP 400; otros lo ignoran o lo rechazan. Si el provider no está en
@@ -1642,7 +1681,7 @@ async function _callWithFallback(messages, systemPrompt, mode = 'fast', opts = {
           opts
         );
         logger.info('LLMProvider', `[llm] respuesta de ${providerName} (${result.length} chars)`);
-        return result;
+        return _stripForbiddenPhrases(result);
       } catch (e) {
         lastErr = e;
         if (e?.code === 'ABORTED' || e?.name === 'AbortError') throw e;
@@ -1727,7 +1766,7 @@ async function _callWithFallbackTools(messages, systemPrompt, mode = 'smart', to
           () => fn(messages, systemPrompt, callMode, tools, opts),
           opts
         );
-        return result;
+        return { ...result, content: _stripForbiddenPhrases(result.content) };
       } catch (e) {
         lastErr = e;
         if (e?.code === 'ABORTED' || e?.name === 'AbortError') throw e;
@@ -1782,26 +1821,31 @@ function getResolvedApiKey(providerId) {
 }
 
 // ── Public API ────────────────────────────────────────────────────────────────
+// Estas funciones NUNCA tienen acceso a tools reales (son "texto puro").
+// Sin la nota anti-fabricación, el system prompt —que incluye catálogo de
+// herramientas e instrucciones de uso— lleva al LLM a narrar acciones que
+// nunca ejecuta. Se inyecta NO_TOOLS_NOTICE antes de pasar al LLM.
 function complete(messages, systemPrompt, opts) {
   _rebuildMaps();
-  return _callWithFallback(messages, systemPrompt, 'fast', opts);
+  return _callWithFallback(messages, systemPrompt + NO_TOOLS_NOTICE, 'fast', opts);
 }
 
 function completeTask(messages, systemPrompt, opts) {
   _rebuildMaps();
-  return _callWithFallback(messages, systemPrompt, 'smart', opts);
+  return _callWithFallback(messages, systemPrompt + NO_TOOLS_NOTICE, 'smart', opts);
 }
 
 // Texto puro con modo explícito: los subagentes con perfil 'fast' bindean acá
 // en vez de completeTask (que siempre usa 'smart') para su fallback textual.
 function completeForMode(messages, systemPrompt, mode = 'fast', opts) {
   _rebuildMaps();
-  return _callWithFallback(messages, systemPrompt, mode, opts);
+  return _callWithFallback(messages, systemPrompt + NO_TOOLS_NOTICE, mode, opts);
 }
 
 async function completeWithTools(messages, systemPrompt, tools = [], mode = 'smart', opts) {
   _rebuildMaps();
-  return _callWithFallbackTools(messages, systemPrompt, mode, tools, opts);
+  const result = await _callWithFallbackTools(messages, systemPrompt, mode, tools, opts);
+  return { ...result, content: _stripForbiddenPhrases(result.content) };
 }
 
 function getActiveProvider() {
@@ -2239,6 +2283,7 @@ module.exports = {
   _debug_isProviderDegraded: _isProviderDegraded,
   _debug_degradedProviders: _degradedProviders,
   _debug_callWithFallbackTools: _callWithFallbackTools,
+  _debug_stripForbiddenPhrases: _stripForbiddenPhrases,
   _debug_setToolCaller(providerId, fn) {
     if (typeof fn !== 'function') {
       _injectedToolCallers.delete(providerId);

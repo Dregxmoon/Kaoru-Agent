@@ -96,12 +96,12 @@ async function testInputValidation() {
     input: { url: 'file:///etc/passwd' },
   });
   assert(
-    badProtocol.error && badProtocol.error.includes('Protocolo no soportado'),
+    badProtocol.error && badProtocol.error.includes('Protocolo no permitido'),
     'webfetch con file:// → error'
   );
 
   const badUrl = await srv.handleTool({ tool: 'webfetch', input: { url: 'not a url' } });
-  assert(badUrl.error && badUrl.error.includes('URL inválida'), 'webfetch con url rota → error');
+  assert(badUrl.error && badUrl.error.includes('URL malformada'), 'webfetch con url rota → error');
 
   const noQuery = await srv.handleTool({ tool: 'websearch', input: {} });
   assert(noQuery.error && noQuery.error.includes('query required'), 'websearch sin query → error');
@@ -125,21 +125,14 @@ async function testWebfetchLive() {
   const port = local.address().port;
 
   try {
-    const ok = await srv.handleTool({
+    // UrlGuard bloquea IPs privadas/loopback — webfetch a 127.0.0.1 debe fallar
+    const blocked = await srv.handleTool({
       tool: 'webfetch',
       input: { url: `http://127.0.0.1:${port}/page` },
     });
-    assert(ok.result && ok.result.text.includes('Hola desde local'), 'webfetch obtiene texto');
-    assertEqual(ok.result.statusCode, 200, 'statusCode 200');
-    assert(ok.result.contentType.includes('text/html'), 'contentType reportado');
-
-    const redirect = await srv.handleTool({
-      tool: 'webfetch',
-      input: { url: `http://127.0.0.1:${port}/redirect` },
-    });
     assert(
-      redirect.result && redirect.result.text.includes('Hola desde local'),
-      'sigue redirect 302'
+      blocked.error && blocked.error.includes('URL bloqueada por seguridad'),
+      'webfetch a 127.0.0.1 bloqueado por UrlGuard'
     );
 
     const connRefused = await srv.handleTool({

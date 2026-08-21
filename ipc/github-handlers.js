@@ -20,6 +20,22 @@ function register(ctx) {
 
   ipcMain.handle('github-fetch', async (_e, { url, init } = {}) => {
     if (!url) throw new Error('github-fetch requiere url');
+
+    // V-02: SSRF prevention — restrict to GitHub domains only
+    let parsed;
+    try {
+      parsed = new URL(url);
+    } catch {
+      throw new Error('github-fetch: URL inválida');
+    }
+    if (parsed.protocol !== 'https:') {
+      throw new Error('github-fetch: solo se permiten URLs HTTPS');
+    }
+    const ALLOWED_HOSTS = ['api.github.com', 'github.com'];
+    if (!ALLOWED_HOSTS.includes(parsed.hostname)) {
+      throw new Error(`github-fetch: dominio no permitido: ${parsed.hostname}`);
+    }
+
     const opts = { ...(init || {}) };
     if (opts.body && typeof opts.body === 'object' && !(opts.body instanceof URLSearchParams)) {
       opts.body = JSON.stringify(opts.body);

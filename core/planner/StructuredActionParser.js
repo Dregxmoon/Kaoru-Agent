@@ -53,6 +53,17 @@ const logger = require('../observability/Logger.js');
 
 const path = require('path');
 
+// V-05: Prototype pollution prevention — strip dangerous keys from LLM output
+const DANGEROUS_KEYS = new Set(['__proto__', 'constructor', 'prototype']);
+function _sanitizeLLMObject(obj) {
+  if (!obj || typeof obj !== 'object') return obj;
+  const clean = {};
+  for (const [k, v] of Object.entries(obj)) {
+    if (!DANGEROUS_KEYS.has(k)) clean[k] = v;
+  }
+  return clean;
+}
+
 // ── Mapa action → tool de OpenClaw ────────────────────────────────────────────
 // Mismo mapping que en el catálogo de init_vectors.js para consistencia.
 const ACTION_TO_TOOL = {
@@ -299,7 +310,7 @@ function _buildMCPArgs(fields) {
   }
   if (fields.PARAMS) {
     try {
-      Object.assign(args, JSON.parse(fields.PARAMS));
+      Object.assign(args, _sanitizeLLMObject(JSON.parse(fields.PARAMS)));
     } catch (e) {
       logger.warn(
         'StructuredActionParser',
@@ -484,7 +495,7 @@ function _buildParams(action, fields, userGoal, projectCwd) {
         try {
           parsed = typeof fields.PARAMS === 'object' ? fields.PARAMS : JSON.parse(fields.PARAMS);
         } catch (_) {}
-        if (parsed && typeof parsed === 'object') Object.assign(params, parsed);
+        if (parsed && typeof parsed === 'object') Object.assign(params, _sanitizeLLMObject(parsed));
       }
       return params;
     }

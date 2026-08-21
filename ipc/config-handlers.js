@@ -2,6 +2,7 @@
 'use strict';
 const logger = require('../core/observability/Logger.js');
 const LLMProvider = require('../core/llm/LLMProvider.js');
+const SafeStorageCrypto = require('../infrastructure/config/SafeStorageCrypto.js');
 
 const { ipcMain } = require('electron');
 
@@ -32,7 +33,9 @@ function register(ctx) {
         newProviders[id] = { ...(newProviders[id] || {}), apiKey: '' };
       } else {
         ctx.KeychainManager.deleteKey(id);
-        newProviders[id] = { ...(newProviders[id] || {}), apiKey: key };
+        // Cifrar con safeStorage si el keychain nativo no está disponible.
+        const toStore = key ? SafeStorageCrypto.encrypt(key) : key;
+        newProviders[id] = { ...(newProviders[id] || {}), apiKey: toStore };
       }
     }
 
@@ -53,10 +56,12 @@ function register(ctx) {
 
     const apiKeysToSave = keychainActive
       ? {}
-      : Object.fromEntries(
-          Object.entries(newProviders)
-            .filter(([, p]) => p && p.apiKey)
-            .map(([id, p]) => [id, p.apiKey])
+      : SafeStorageCrypto.encryptAllKeys(
+          Object.fromEntries(
+            Object.entries(newProviders)
+              .filter(([, p]) => p && p.apiKey)
+              .map(([id, p]) => [id, p.apiKey])
+          )
         );
 
     saveConfig({
@@ -204,7 +209,8 @@ function register(ctx) {
         else ctx.KeychainManager.deleteKey(providerId);
         delete apiKeys[providerId];
       } else if (apiKey && typeof apiKey === 'string' && apiKey.trim()) {
-        apiKeys[providerId] = apiKey.trim();
+        // Cifrar con safeStorage si el keychain nativo no está disponible.
+        apiKeys[providerId] = SafeStorageCrypto.encrypt(apiKey.trim());
       }
 
       // Providers custom conectados desde models.dev: se persisten para

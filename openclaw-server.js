@@ -8,6 +8,7 @@ const path = require('path');
 const Diff = require('diff');
 const crypto = require('crypto');
 const { dirSet } = require('./core/utils/ignoreDirs.js');
+const { isUrlSafe } = require('./core/security/UrlGuard.js');
 
 // P3: límite de confianza anti prompt-injection — el texto de páginas web de
 // terceros NO es confiable (una página puede llevar instrucciones ocultas
@@ -622,7 +623,13 @@ function _htmlToText(html) {
     .trim();
 }
 
-function _httpGet(urlString, redirectsLeft = 3) {
+async function _httpGet(urlString, redirectsLeft = 3) {
+  // Defensa: validar que la URL no apunte a una IP interna/loopback/link-local
+  const urlCheck = await isUrlSafe(urlString, { timeout: 3000 });
+  if (!urlCheck.safe) {
+    throw new Error(`URL bloqueada por seguridad: ${urlCheck.reason}`);
+  }
+
   return new Promise((resolve, reject) => {
     let parsed;
     try {

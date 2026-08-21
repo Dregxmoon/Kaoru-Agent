@@ -823,13 +823,7 @@ class AgentLoop {
         }
       } catch (e) {
         if (e?.code === 'ABORTED' || e?.name === 'AbortError') {
-          return {
-            response: 'Generación cancelada por el usuario.',
-            iterations: 0,
-            toolResults: [],
-            cancelled: true,
-            error: 'cancelled',
-          };
+          return this._makeAbortResponse(0, []);
         }
         logger.warn('AgentLoop', `[agent-loop] planificación falló: ${e.message}`);
       }
@@ -897,13 +891,7 @@ class AgentLoop {
           toolCalls = tcResult.toolCalls;
         } catch (e) {
           if (e?.code === 'ABORTED' || e?.name === 'AbortError') {
-            return {
-              response: 'Generación cancelada por el usuario.',
-              iterations: i + 1,
-              toolResults,
-              cancelled: true,
-              error: 'cancelled',
-            };
+            return this._makeAbortResponse(i + 1, toolResults);
           }
           logger.warn(
             'AgentLoop',
@@ -915,13 +903,7 @@ class AgentLoop {
             responseText = typeof fallback === 'string' ? fallback : fallback?.content || '';
           } catch (e2) {
             if (e2?.code === 'ABORTED' || e2?.name === 'AbortError') {
-              return {
-                response: 'Generación cancelada por el usuario.',
-                iterations: i + 1,
-                toolResults,
-                cancelled: true,
-                error: 'cancelled',
-              };
+              return this._makeAbortResponse(i + 1, toolResults);
             }
             return {
               response: this._withExpiredApprovalNotice(
@@ -940,13 +922,7 @@ class AgentLoop {
           responseText = typeof raw === 'string' ? raw : raw?.content || '';
         } catch (e) {
           if (e?.code === 'ABORTED' || e?.name === 'AbortError') {
-            return {
-              response: 'Generación cancelada por el usuario.',
-              iterations: i + 1,
-              toolResults,
-              cancelled: true,
-              error: 'cancelled',
-            };
+            return this._makeAbortResponse(i + 1, toolResults);
           }
           return {
             response: this._withExpiredApprovalNotice(
@@ -2476,19 +2452,7 @@ class AgentLoop {
    * @returns {Promise<{verdict: string, message?: string, reason?: string} | null>}
    */
   async _reflect({ userMessage, toolResults, llm, llmOpts, signal, plan }) {
-    const actionsSummary =
-      (toolResults || [])
-        .map((t) => {
-          const brief = t._action?.params || {};
-          const params = Object.entries(brief)
-            .map(
-              ([k, v]) =>
-                `${k}=${typeof v === 'string' ? v.slice(0, 60) : JSON.stringify(v)?.slice(0, 60)}`
-            )
-            .join(' ');
-          return `  - ${t.tool}${params ? ' · ' + params : ''} → ${t.ok ? 'OK' : `FALLÓ: ${t.error || ''}`}`;
-        })
-        .join('\n') || '  (ninguna acción ejecutada)';
+    const actionsSummary = this._formatActionsSummary(toolResults);
 
     const planBlock =
       plan && Array.isArray(plan.steps) && plan.steps.length
@@ -2585,19 +2549,7 @@ class AgentLoop {
    * @param {AbortSignal|null} p.signal
    */
   async _selfCritique({ userMessage, responseText, toolResults, llm, llmOpts, signal }) {
-    const actionsSummary =
-      (toolResults || [])
-        .map((t) => {
-          const brief = t._action?.params || {};
-          const params = Object.entries(brief)
-            .map(
-              ([k, v]) =>
-                `${k}=${typeof v === 'string' ? v.slice(0, 60) : JSON.stringify(v)?.slice(0, 60)}`
-            )
-            .join(' ');
-          return `  - ${t.tool}${params ? ' · ' + params : ''} → ${t.ok ? 'OK' : `FALLÓ: ${t.error || ''}`}`;
-        })
-        .join('\n') || '  (ninguna acción ejecutada)';
+    const actionsSummary = this._formatActionsSummary(toolResults);
 
     const critiquePrompt = [
       `# AUTO-CRÍTICA — verificación contra la intención original`,
@@ -2724,20 +2676,10 @@ class AgentLoop {
 
   /** Resumen determinista de lo hecho hasta ahora (para la compactación). */
   _compactSummary(userMessage, toolResults, droppedTurns) {
-    const actions =
-      (toolResults || [])
-        .map((t) => {
-          const ok = t.ok ? 'OK' : `FALLÓ: ${t.error || ''}`;
-          const params = t._action?.params || {};
-          const brief = Object.entries(params)
-            .map(
-              ([k, v]) =>
-                `${k}=${typeof v === 'string' ? v.slice(0, 60) : JSON.stringify(v)?.slice(0, 60)}`
-            )
-            .join(' ');
-          return `  - ${t.tool} (${ok})${brief ? ' · ' + brief : ''}`;
-        })
-        .join('\n') || '  (ninguna todavía)';
+    const actions = this._formatActionsSummary(toolResults, {
+      empty: '  (ninguna todavía)',
+      format: (t, params, ok) => `  - ${t.tool} (${ok})${params ? ' · ' + params : ''}`,
+    });
 
     return [
       `[RESUMEN DE LO HECHO HASTA AHORA — ${droppedTurns} turnos anteriores condensados para ahorrar contexto]`,
@@ -2822,6 +2764,56 @@ class AgentLoop {
     const done = (toolResults || []).filter((r) => r && r.ok);
     if (done.length === 0) return '';
     return '¡La tarea quedó terminada! ✓\n\n' + done.map((r) => `✓ ${r.tool}`).join('\n') + '\n\n';
+  }
+
+  /**
+   * Construye la respuesta estándar cuando el usuario cancela la generación.
+   * Centraliza la lógica para que los 4 paths de abort (planificación,
+   * tool-calling, fallback, pure-text) devuelvan exactamente la misma forma.
+   * @param {number} iterations
+   * @param {Array} toolResults
+   * @returns {{ response: string, iterations: number, toolResults: Array, cancelled: boolean, error: string }}
+   */
+  _makeAbortResponse(iterations, toolResults) {
+    return {
+      response: 'Generación cancelada por el usuario.',
+      iterations,
+      toolResults,
+      cancelled: true,
+      error: 'cancelled',
+    };
+  }
+
+  /**
+   * Formatea un array de toolResults en un resumen legible para prompts de
+   * reflexión, auto-crítica y compactación. Centraliza la lógica de truncado
+   * de params y el formateo ok/falló para evitar duplicación.
+   * @param {Array} toolResults
+   * @param {{ join?: string, empty?: string, format?: (t, params, ok) => string }} [opts]
+   * @returns {string}
+   */
+  _formatActionsSummary(toolResults, opts = {}) {
+    const joinSep = opts.join ?? '\n';
+    const emptyMsg = opts.empty ?? '  (ninguna acción ejecutada)';
+    const defaultFormat = (t, params, ok) =>
+      `  - ${t.tool}${params ? ' · ' + params : ''} → ${ok}`;
+    const fmt = opts.format || defaultFormat;
+
+    return (
+      (toolResults || [])
+        .map((t) => {
+          const brief = t._action?.params || {};
+          const params = Object.entries(brief)
+            .map(
+              ([k, v]) =>
+                `${k}=${typeof v === 'string' ? v.slice(0, 60) : JSON.stringify(v)?.slice(0, 60)}`
+            )
+            .join(' ');
+          const ok = t.ok ? 'OK' : `FALLÓ: ${t.error || ''}`;
+          return fmt(t, params, ok);
+        })
+        .join(joinSep) || emptyMsg
+    );
   }
 
   /**

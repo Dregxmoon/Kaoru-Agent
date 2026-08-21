@@ -19,6 +19,7 @@ const crypto = require('crypto');
 
 const Core = require('./core/Core.js');
 const KeychainManager = require('./infrastructure/keychain/KeychainManager.js');
+const SafeStorageCrypto = require('./infrastructure/config/SafeStorageCrypto.js');
 const { ConfigManager } = require('./core/config/ConfigManager.js');
 const { initUpdater } = require('./updater.js');
 
@@ -249,6 +250,19 @@ function loadEffectiveConfig() {
   if (!cfg.llm.apiKeys) cfg.llm.apiKeys = {};
   if (!cfg.llm.providers) cfg.llm.providers = {};
 
+  // Descifrar keys que estén en formato safeStorage (enc:v1:...) — vienen
+  // de config.json cuando KeychainManager no estaba disponible al guardar.
+  // Keys de env vars y keychain ya están en texto plano.
+  for (const [k, v] of Object.entries(cfg.llm.apiKeys)) {
+    if (v && typeof v === 'string') {
+      const decrypted = SafeStorageCrypto.decrypt(v);
+      if (decrypted !== v) {
+        cfg.llm.apiKeys[k] = decrypted;
+        _keySourcesByProvider[k] = 'config.json (cifrado)';
+      }
+    }
+  }
+
   for (const envKey of Object.keys(process.env)) {
     const match = envKey.match(/^LLM_KEY_(.+)$/);
     if (!match) continue;
@@ -314,9 +328,11 @@ function migratePlaintextApiKeysToKeychain() {
   let toStrip = false;
   for (const [id, key] of Object.entries(candidates)) {
     if (!key || !key.trim()) continue;
+    // Descifrar si estaba en formato safeStorage antes de migrar al keychain.
+    const plainKey = SafeStorageCrypto.decrypt(key);
     if (KeychainManager.getKey(id)) {
       toStrip = true;
-    } else if (KeychainManager.setKey(id, key.trim())) {
+    } else if (KeychainManager.setKey(id, plainKey.trim())) {
       migrated.push(id);
       toStrip = true;
     }
@@ -466,8 +482,23 @@ const ctx = {
   sendOverlayGesture,
   keySource: () => _keySource,
   keySourcesByProvider: () => _keySourcesByProvider,
-  broadcastModelChanged: () => {},
 };
+
+// Filtro de console-message compartido por overlay y chat: silencia logs de
+// PixiJS/Live2D/Electron que ensucian la consola sin valor diagnóstico.
+function _createConsoleMessageFilter(label) {
+  return (_e, _level, msg) => {
+    if (
+      msg.includes('PixiJS') ||
+      msg.includes('Live2D Cubism Core') ||
+      msg.includes('CubismFramework.') ||
+      msg.startsWith(' %c') ||
+      msg.includes('Electron Security Warning')
+    )
+      return;
+    console.log(`[${label}] ${msg}`);
+  };
+}
 
 // Ventana overlay
 function createWindow() {
@@ -503,17 +534,7 @@ function createWindow() {
   S.mainWindow.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
   S.mainWindow.setMenuBarVisibility(false);
   S.mainWindow.setIgnoreMouseEvents(true, { forward: true });
-  S.mainWindow.webContents.on('console-message', (e, level, msg) => {
-    if (
-      msg.includes('PixiJS') ||
-      msg.includes('Live2D Cubism Core') ||
-      msg.includes('CubismFramework.') ||
-      msg.startsWith(' %c') ||
-      msg.includes('Electron Security Warning')
-    )
-      return;
-    console.log(`[overlay] ${msg}`);
-  });
+  S.mainWindow.webContents.on('console-message', _createConsoleMessageFilter('overlay'));
   S.mainWindow.loadFile(path.join(__dirname, 'src/index.html'));
   S.mainWindow.webContents.once('did-finish-load', () => {
     setTimeout(() => S.mainWindow.webContents.send('set-view', S.currentView), 1500);
@@ -593,17 +614,7 @@ function createChatWindow() {
   S.chatWindow.setMenuBarVisibility(false);
   S.chatWindow.loadFile(path.join(__dirname, 'src/chat.html'));
   attachCrashWatchdog(S.chatWindow, 'chat');
-  S.chatWindow.webContents.on('console-message', (e, level, msg) => {
-    if (
-      msg.includes('PixiJS') ||
-      msg.includes('Live2D Cubism Core') ||
-      msg.includes('CubismFramework.') ||
-      msg.startsWith(' %c') ||
-      msg.includes('Electron Security Warning')
-    )
-      return;
-    console.log(`[chat] ${msg}`);
-  });
+  S.chatWindow.webContents.on('console-message', _createConsoleMessageFilter('chat'));
 
   if (S.mainWindow && !S.mainWindow.isDestroyed()) S.mainWindow.hide();
 
@@ -810,7 +821,17 @@ function _controlAuthOk(req, url) {
 }
 
 function startControlServer() {
-  console.log(HELP_TEXT_PRIVATE);
+  // Escribir HELP_TEXT_PRIVATE a archivo con permisos restrictivos en vez de
+  // imprimirlo a stdout — el token no debe quedar en logs de proceso/terminal.
+  const helpFilePath = path.join(app.getPath('userData'), 'control-api-help.txt');
+  try {
+    fs.writeFileSync(helpFilePath, HELP_TEXT_PRIVATE, { mode: 0o600 });
+  } catch {
+    // Si falla la escritura, solo loguear sin exponer el token.
+    console.log('[control] no se pudo escribir control-api-help.txt');
+  }
+  const maskedToken = '****' + CONTROL_API_TOKEN.slice(-4);
+  console.log(`[control] Token: ${maskedToken} — comandos completos en ${helpFilePath}`);
   const server = http.createServer((req, res) => {
     const url = new URL(req.url, 'http://localhost:3131');
     res.setHeader('Content-Type', 'text/plain; charset=utf-8');

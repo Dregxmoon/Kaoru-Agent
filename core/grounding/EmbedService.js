@@ -40,6 +40,16 @@ const MAX_CONSECUTIVE_FAILURES = 3;
 // descarga, lock de archivo) dejaba toda la sesión en modo degradado.
 const RETRY_DISABLED_AFTER_MS = 5 * 60 * 1000;
 
+// ── Recuperación vía child_process (NAPI single-load) ────────────────────────
+// Si el worker muere DESPUÉS de haber cargado onnxruntime (loadedOnce=true),
+// un worker_threads nuevo falla con "did not self-register" (mismo proceso OS).
+// child_process.fork() crea un proceso OS separado donde el binding puede
+// cargarse limpio. Límite para no entrar en loop si el problema de fondo es
+// otro (modelo corrupto, etc.).
+const MAX_CHILD_PROCESS_RECOVERIES = 3;
+let _childProcessBackoffMs = 2_000;
+const CHILD_PROCESS_LOAD_TIMEOUT_MS = 90_000;
+
 // onnxruntime-node usa NAPI (ABI estable) — NO se reconstruye con
 // electron-rebuild. "Module did not self-register" puede significar dos cosas:
 //   1) prebuild corrupto/descarga parcial (reparar reinstalando el paquete), o
@@ -107,12 +117,31 @@ let _loadedOnce = false;
 /** @type {(() => import('worker_threads').Worker) | null} */
 let _workerFactory = null;
 
+// ── Child process recovery state ──────────────────────────────────────────────
+/** @type {import('child_process').ChildProcess | null} */
+let _child = null;
+let _childStarting = false;
+let _childRecoveryCount = 0;
+let _childPending = new Map();
+let _childSeq = 0;
+
 function _terminateWorker() {
   const w = _worker;
   _worker = null;
   if (w) {
     try {
       w.terminate();
+    } catch {}
+  }
+}
+
+function _terminateChildProcess() {
+  const c = _child;
+  _child = null;
+  _childStarting = false;
+  if (c) {
+    try {
+      c.kill();
     } catch {}
   }
 }
@@ -147,6 +176,209 @@ function _tryRecoverWorker() {
   }
 }
 
+// ── Child process recovery (NAPI single-load workaround) ─────────────────────
+
+/**
+ * Crea un child process que carga onnxruntime en un proceso OS separado.
+ * El child Protocol es idéntico al de embedWorker.js (ready/result/error/fatal)
+ * pero usa IPC (process.send) en vez de postMessage.
+ * @param {string} workerPath path al embedWorker.js (para tests: inyectable)
+ * @returns {import('child_process').ChildProcess}
+ */
+let _createChildProcessImpl = (workerPath) => {
+  const cp = require('child_process');
+  return cp.fork(workerPath, [], { silent: true });
+};
+
+/**
+ * Intenta recuperar embeddings vía child_process.fork(). Un child process es
+ * un proceso OS separado con su propio espacio de memoria: onnxruntime-node
+ * (NAPI) puede cargarse limpio ahí, a diferencia de un worker_threads nuevo
+ * en el mismo proceso.
+ * @param {Error} cause error que provocó la recuperación
+ */
+function _recoverViaChildProcess(cause) {
+  if (_childStarting || _child) return;
+  if (_childRecoveryCount >= MAX_CHILD_PROCESS_RECOVERIES) return;
+
+  _childRecoveryCount++;
+  _childStarting = true;
+
+  const attempt = _childRecoveryCount;
+  logger.warn(
+    'EmbedService',
+    `[embeddings] worker murió tras cargar onnxruntime — ` +
+      `intentando recuperación vía child_process (${attempt}/${MAX_CHILD_PROCESS_RECOVERIES}): ` +
+      `${cause.message}`
+  );
+
+  if (_childProcessBackoffMs > 0 && attempt > 1) {
+    setTimeout(() => _forkChildProcess(attempt), _childProcessBackoffMs);
+  } else {
+    _forkChildProcess(attempt);
+  }
+}
+
+/**
+ * Realiza el fork del child process y configura los handlers de IPC.
+ * @param {number} attempt número de intento (para logs)
+ */
+function _forkChildProcess(attempt) {
+  let resolved = false;
+
+  const childPath = path.join(__dirname, 'embedChildProcess.js');
+  let c;
+  try {
+    c = _createChildProcessImpl(childPath);
+  } catch (e) {
+    _childStarting = false;
+    logger.error(
+      'EmbedService',
+      `[embeddings] child_process fork falló (intento ${attempt}): ` +
+        `${e instanceof Error ? e.message : String(e)}`
+    );
+    _finalizeChildRecovery(new Error(`child_process fork falló: ${e instanceof Error ? e.message : String(e)}`));
+    return;
+  }
+
+  _child = c;
+  _childStarting = false;
+
+  const loadTimer = setTimeout(() => {
+    if (!resolved) {
+      resolved = true;
+      try { c.kill(); } catch {}
+      _child = null;
+      _childStarting = false;
+      _finalizeChildRecovery(new Error('child process no cargó el modelo a tiempo'));
+    }
+  }, CHILD_PROCESS_LOAD_TIMEOUT_MS);
+
+  c.on('message', (/** @type {any} */ msg) => {
+    if (msg.type === 'ready') {
+      if (resolved) return;
+      resolved = true;
+      clearTimeout(loadTimer);
+      logger.warn(
+        'EmbedService',
+        `[embeddings] child process de recuperación listo (intento ${attempt})`
+      );
+      _finalizeChildRecovery(null);
+    } else if (msg.type === 'result') {
+      const p = _childPending.get(msg.id);
+      if (p) {
+        _childPending.delete(msg.id);
+        p.resolve(new Float32Array(msg.embedding));
+      }
+    } else if (msg.type === 'error') {
+      const p = _childPending.get(msg.id);
+      if (p) {
+        _childPending.delete(msg.id);
+        p.reject(new Error(msg.message));
+      }
+    } else if (msg.type === 'fatal') {
+      if (!resolved) {
+        resolved = true;
+        clearTimeout(loadTimer);
+        try { c.kill(); } catch {}
+        _child = null;
+        _childStarting = false;
+        _finalizeChildRecovery(new Error(msg.message));
+      }
+    }
+  });
+
+  c.on('error', (/** @type {Error} */ err) => {
+    if (!resolved) {
+      resolved = true;
+      clearTimeout(loadTimer);
+      try { c.kill(); } catch {}
+      _child = null;
+      _childStarting = false;
+      _finalizeChildRecovery(err);
+    }
+  });
+
+  c.on('exit', () => {
+    if (!resolved) {
+      resolved = true;
+      clearTimeout(loadTimer);
+      _child = null;
+      _childStarting = false;
+      _finalizeChildRecovery(new Error('child process terminó prematuramente'));
+    } else if (_child === c) {
+      // Child process muere después de haber estado listo → degradación permanente.
+      _child = null;
+      logger.error(
+        'EmbedService',
+        `[embeddings] child process de recuperación murió (intento ${attempt})`
+      );
+      if (_childRecoveryCount >= MAX_CHILD_PROCESS_RECOVERIES) {
+        _disabledUntil = Number.MAX_SAFE_INTEGER;
+        _consecutiveFailures = MAX_CONSECUTIVE_FAILURES;
+        const pending = [..._pending.values(), ...[..._childPending.values()]];
+        _pending.clear();
+        _childPending.clear();
+        for (const p of pending) {
+          p.reject(new Error('child process de recuperación falló — embeddings degradados'));
+        }
+      }
+    }
+  });
+}
+
+/**
+ * Finaliza el intento de recuperación por child process.
+ * Si fue exitoso, re-habilita el servicio y reintenta los embeddings pendientes.
+ * Si falló, reintenta o degrada según el límite.
+ * @param {Error | null} err null = éxito
+ */
+function _finalizeChildRecovery(err) {
+  if (err) {
+    logger.error(
+      'EmbedService',
+      `[embeddings] child process recuperación falló (intento ${_childRecoveryCount}): ` +
+        `${err.message}`
+    );
+    if (_childRecoveryCount >= MAX_CHILD_PROCESS_RECOVERIES) {
+      _disabledUntil = Number.MAX_SAFE_INTEGER;
+      _consecutiveFailures = MAX_CONSECUTIVE_FAILURES;
+      const pending = [..._pending.values(), ...[..._childPending.values()]];
+      _pending.clear();
+      _childPending.clear();
+      for (const p of pending) {
+        p.reject(new Error('child process de recuperación agotado — embeddings degradados'));
+      }
+    } else {
+      _recoverViaChildProcess(err);
+    }
+    return;
+  }
+
+  // Éxito: el child process cargó onnxruntime limpio. Re-habilitar el servicio
+  // y reintenta los embeddings que estaban pendientes cuando el worker murió.
+  _consecutiveFailures = 0;
+  _disabledUntil = 0;
+
+  const pending = [..._pending.values()];
+  _pending.clear();
+  for (const p of pending) {
+    if (_child) {
+      const id = ++_childSeq;
+      const timer = setTimeout(() => {
+        if (_childPending.delete(id)) p.reject(new Error('embedding timeout (child process)'));
+      }, EMBED_TIMEOUT_MS);
+      _childPending.set(id, {
+        resolve: (v) => { clearTimeout(timer); p.resolve(v); },
+        reject: (e) => { clearTimeout(timer); p.reject(e); },
+      });
+      _child.send({ id, text: p._text || '' });
+    } else {
+      p.reject(new Error('child process no disponible tras recuperación'));
+    }
+  }
+}
+
 /**
  * Crea el worker real. Se extrae como seam para que los tests inyecten un
  * worker fake determinista (_debug_setWorkerFactory).
@@ -161,21 +393,33 @@ function _establishedFailed(w, err) {
   if (_worker === w) _worker = null;
   // El binding ya se cargó (worker llegó a 'ready'): onnxruntime-node no es
   // context-aware y no puede recargarse en este proceso (NAPI single-load).
-  // Recrear el worker o caer al main thread fallará con "did not self-register".
+  // Un worker_threads nuevo fallará con "did not self-register".
+  // Pero un child_process.fork() crea un proceso OS separado donde SÍ se
+  // puede cargar el binding limpio — se intenta como recuperación.
   if (_loadedOnce) {
-    _disabledUntil = Number.MAX_SAFE_INTEGER;
-    _consecutiveFailures = MAX_CONSECUTIVE_FAILURES;
-    logger.error(
-      'EmbedService',
-      `[embeddings] worker caído tras haber cargado onnxruntime (single-load NAPI). ` +
-        `Embeddings degradados de forma permanente hasta reiniciar la app: ${err.message}`
-    );
+    if (_childRecoveryCount < MAX_CHILD_PROCESS_RECOVERIES && !_childStarting) {
+      _recoverViaChildProcess(err);
+    } else if (_childRecoveryCount >= MAX_CHILD_PROCESS_RECOVERIES) {
+      _disabledUntil = Number.MAX_SAFE_INTEGER;
+      _consecutiveFailures = MAX_CONSECUTIVE_FAILURES;
+      logger.error(
+        'EmbedService',
+        `[embeddings] worker caído tras cargar onnxruntime (single-load NAPI). ` +
+          `${MAX_CHILD_PROCESS_RECOVERIES} intentos de child_process agotados — ` +
+          `embeddings degradados permanentemente: ${err.message}`
+      );
+      const pending = [..._pending.values()];
+      _pending.clear();
+      for (const p of pending) p.reject(err);
+    }
+    // _childRecoveryCount < MAX && _childStarting: child process ya está
+    // arrancando, los pending se resolverán cuando esté listo.
   } else {
     _noteFailure(err);
+    const pending = [..._pending.values()];
+    _pending.clear();
+    for (const p of pending) p.reject(err);
   }
-  const pending = [..._pending.values()];
-  _pending.clear();
-  for (const p of pending) p.reject(err);
 }
 
 /** @returns {Promise<import('worker_threads').Worker>} */
@@ -321,17 +565,42 @@ function _mainThreadFallback(text) {
   return embedText(text);
 }
 
+/** Envía un embedding request al child process de recuperación. @param {string} text */
+function _requestChild(text) {
+  return new Promise((resolve, reject) => {
+    if (!_child) {
+      reject(new Error('child process no disponible'));
+      return;
+    }
+    const id = ++_childSeq;
+    const timer = setTimeout(() => {
+      if (_childPending.delete(id)) reject(new Error('embedding timeout (child process)'));
+    }, EMBED_TIMEOUT_MS);
+    _childPending.set(id, {
+      resolve: (v) => { clearTimeout(timer); resolve(v); },
+      reject: (e) => { clearTimeout(timer); reject(e); },
+    });
+    _child.send({ id, text });
+  });
+}
+
 /**
  * Genera el embedding de un texto (Float32Array de 384 dims, normalizado L2).
  * Prefiere el worker; ante fallo transitorio (worker nunca cargado) cae al
- * main thread. Si onnxruntime ya se cargó y el worker cayó, lanza (degradación
- * permanente): el main thread tampoco puede cargar el binding una segunda vez.
+ * main thread. Si onnxruntime ya se cargó y el worker cayó, intenta child
+ * process (proceso OS separado con binding NAPI limpio) o cae al main thread
+ * solo si nunca se cargó el binding.
  * @param {string} text
  * @returns {Promise<Float32Array>}
  */
 async function embedText(text) {
   if (_workerDisabled()) {
     if (_loadedOnce) {
+      // Worker murió post-load: child process recovery puede estar en curso
+      // o ya haber completado. Si hay child listo, usarlo.
+      if (_child) {
+        return _requestChild(text);
+      }
       throw new Error('embeddings no disponibles (onnxruntime ya cargado, worker caído)');
     }
     return _mainThreadFallback(text);
@@ -343,6 +612,7 @@ async function embedText(text) {
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
     if (_loadedOnce) {
+      if (_child) return _requestChild(text);
       throw new Error(`embeddings no disponibles (onnxruntime ya cargado, worker caído): ${msg}`);
     }
     logger.warn('EmbedService', `[embeddings] usando main thread: ${msg}`);
@@ -358,11 +628,41 @@ function float32ToBuffer(arr) {
 /**
  * Pre-carga el modelo en el worker (fuera del main process) para que el
  * primer embedding real sea rápido. Devuelve false si el worker falla.
+ * Si hay child process de recuperación disponible, lo usa para warmup.
  * @returns {Promise<boolean>}
  */
 async function warmup() {
-  if (_workerDisabled()) return false;
+  if (_workerDisabled()) {
+    if (_loadedOnce && _child) {
+      try {
+        await _requestChild('hola');
+        logger.info('EmbedService', '[embeddings] child process precalentado');
+        return true;
+      } catch (e) {
+        logger.warn('EmbedService', `[embeddings] warmup del child process falló: ${e.message}`);
+        return false;
+      }
+    }
+    if (_loadedOnce) {
+      logger.error(
+        'EmbedService',
+        '[embeddings] warmup omitido: onnxruntime ya cargado y worker caído (single-load NAPI)'
+      );
+      return false;
+    }
+    return false;
+  }
   if (_loadedOnce && !_worker) {
+    if (_child) {
+      try {
+        await _requestChild('hola');
+        logger.info('EmbedService', '[embeddings] child process precalentado');
+        return true;
+      } catch (e) {
+        logger.warn('EmbedService', `[embeddings] warmup del child process falló: ${e.message}`);
+        return false;
+      }
+    }
     logger.error(
       'EmbedService',
       '[embeddings] warmup omitido: onnxruntime ya cargado y worker caído (single-load NAPI)'
@@ -382,14 +682,18 @@ async function warmup() {
   }
 }
 
-/** Libera el worker (al cerrar la app o al final de tests/scripts). */
+/** Libera el worker y child process (al cerrar la app o al final de tests/scripts). */
 function dispose() {
   _terminateWorker();
-  const pending = [..._pending.values()];
+  _terminateChildProcess();
+  const pending = [..._pending.values(), ...[..._childPending.values()]];
   _pending.clear();
+  _childPending.clear();
   for (const p of pending) p.reject(new Error('embed service cerrado'));
   _seq = 0;
+  _childSeq = 0;
   _consecutiveFailures = 0;
+  _childRecoveryCount = 0;
   _disabledUntil = 0;
   _loadedOnce = false;
 }
@@ -404,17 +708,25 @@ function _debug_setWorkerFactory(fn) {
   _workerFactory = fn;
 }
 
-/** Reinicia el estado del servicio (workers, cooldown, contadores). */
+/** Reinicia el estado del servicio (workers, child process, cooldown, contadores). */
 function _debug_resetState() {
   _terminateWorker();
-  const pending = [..._pending.values()];
+  _terminateChildProcess();
+  const pending = [..._pending.values(), ...[..._childPending.values()]];
   _pending.clear();
+  _childPending.clear();
   for (const p of pending) p.reject(new Error('embed service reset'));
   _seq = 0;
+  _childSeq = 0;
   _consecutiveFailures = 0;
+  _childRecoveryCount = 0;
   _disabledUntil = 0;
   _loadedOnce = false;
   _workerFactory = null;
+  _createChildProcessImpl = (workerPath) => {
+    const cp = require('child_process');
+    return cp.fork(workerPath, [], { silent: true });
+  };
 }
 
 /**
@@ -426,7 +738,7 @@ function _debug_forceDisable(relativeMs) {
   _disabledUntil = Date.now() + relativeMs;
 }
 
-/** @returns {{ consecutiveFailures: number; disabledUntil: number; disabled: boolean; workerAlive: boolean; loadedOnce: boolean }} */
+/** @returns {{ consecutiveFailures: number; disabledUntil: number; disabled: boolean; workerAlive: boolean; loadedOnce: boolean; childRecoveryCount: number; childAlive: boolean }} */
 function _debug_getState() {
   return {
     consecutiveFailures: _consecutiveFailures,
@@ -434,6 +746,8 @@ function _debug_getState() {
     disabled: _workerDisabled(),
     workerAlive: !!_worker,
     loadedOnce: _loadedOnce,
+    childRecoveryCount: _childRecoveryCount,
+    childAlive: !!_child,
   };
 }
 
@@ -448,4 +762,10 @@ module.exports = {
   _debug_forceDisable,
   _debug_getState,
   _debug_bindingHint: bindingFailureHint,
+  _debug_setChildProcessFactory(fn) {
+    _createChildProcessImpl = fn;
+  },
+  _debug_setChildProcessBackoff(ms) {
+    _childProcessBackoffMs = ms;
+  },
 };

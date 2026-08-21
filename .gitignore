@@ -8,6 +8,7 @@ coverage/
 
 # ── Configuración sensible (nunca se sube) ───────────────────────────────────
 # La config real de cada máquina vive en %APPDATA% / ~/.config/vtuber-overlay/
+.env
 *.env
 config.json
 .march7th/

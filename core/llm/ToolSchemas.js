@@ -85,7 +85,7 @@ const TOOL_SCHEMAS = [
   {
     name: 'browser',
     description:
-      'Navega a una URL y obtiene el contenido de la página. Usa el navegador headless del asistente.',
+      'Navega a una URL y obtiene el contenido de la página. Usa el navegador headless del asistente. IMPORTANTE: solo usá URLs que aparecieron en la conversación — nunca inventes URLs.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -130,7 +130,7 @@ const TOOL_SCHEMAS = [
   {
     name: 'webfetch',
     description:
-      'Obtiene el contenido de una URL como texto plano (sin navegador). Úsala para leer documentación, noticias o APIs de texto; para JS pesado usa browser',
+      'Obtiene el contenido de una URL como texto plano (sin navegador). Úsala para leer documentación, noticias o APIs de texto; para JS pesado usa browser. IMPORTANTE: solo usá URLs que aparecieron en la conversación — nunca inventes URLs.',
     inputSchema: {
       type: 'object',
       properties: {

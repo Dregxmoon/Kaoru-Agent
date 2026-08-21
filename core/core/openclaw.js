@@ -117,14 +117,14 @@ function startOpenClaw(workspacePath) {
   const auditPath = path.join(auditDir, 'openclaw.jsonl');
 
   try {
+    const { safeChildEnv } = require('../utils/childEnv.js');
     state.openclawProcess = cp.fork(serverPath, [], {
       stdio: 'pipe',
-      env: {
-        ...process.env,
+      env: safeChildEnv({
         OPENCLAW_API_KEY: apiKey,
         OPENCLAW_ALLOWED_PATH: allowedPath,
         OPENCLAW_AUDIT_PATH: auditPath,
-      },
+      }),
     });
 
     // No dejar la API key en el env del proceso padre
