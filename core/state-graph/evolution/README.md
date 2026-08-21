@@ -1,146 +1,146 @@
-# Evolutionary Memory System
+# Sistema de Memoria Evolutiva
 
-## Overview
+## Descripción general
 
-The Evolutionary Memory System adds a hidden behavioral/emotional inference layer to the existing StateGraph + SQLite architecture. It tracks user communication patterns, emotional states, and topic momentum to adapt responses dynamically.
+El Sistema de Memoria Evolutiva añade una capa oculta de inferencias comportamentales/emocionales a la arquitectura existente de StateGraph + SQLite. Rastrea patrones de comunicación del usuario, estados emocionales y momentum de temas para adaptar respuestas dinámicamente.
 
-## Architecture
+## Arquitectura
 
-### New Components (core/state-graph/evolution/)
+### Componentes nuevos (core/state-graph/evolution/)
 
-1. **EvolutionStore.js** - Persistent storage for communication profiles and topic momentum
-   - `communication_profiles` table: EMA-based style metrics
-   - `topic_momentum` table: Topic frequency tracking with momentum scoring
+1. **EvolutionStore.js** - Almacenamiento persistente para perfiles de comunicación y momentum de temas
+   - Tabla `communication_profiles`: métricas de estilo basadas en EMA
+   - Tabla `topic_momentum`: seguimiento de frecuencia de temas con scoring de momentum
 
-2. **TraitLearner.js** - Deterministic behavioral inference (per-turn)
-   - Emotional pattern detection (frustration, enthusiasm, confusion, etc.)
-   - Communication style measurement (length, formality, technical density)
-   - No LLM calls - pure regex/stats
+2. **TraitLearner.js** - Inferencia comportamental determinística (por turno)
+   - Detección de patrones emocionales (frustración, entusiasmo, confusión, etc.)
+   - Medición de estilo de comunicación (longitud, formalidad, densidad técnica)
+   - Sin llamadas al LLM - regex/estadísticas puras
 
-3. **CommunicationStyleProfiler.js** - EMA-based style adaptation
-   - Tracks user preferences over time
-   - Generates system prompt hints for response adaptation
+3. **CommunicationStyleProfiler.js** - Adaptación de estilo basada en EMA
+   - Rastrea preferencias del usuario a lo largo del tiempo
+   - Genera hints para el system prompt de adaptación de respuestas
 
-4. **TopicMomentumTracker.js** - Hot/cold topic detection
-   - Sliding window (7 days) momentum scoring
-   - Extracts topics from user messages
-   - Provides context for proactive triggers
+4. **TopicMomentumTracker.js** - Detección de temas calientes/fríos
+   - Scoring de momentum con ventana deslizante (7 días)
+   - Extrae temas de los mensajes del usuario
+   - Proporciona contexto para triggers proactivos
 
-5. **AdaptiveResponseEngine.js** - Combines all insights
-   - Builds complete adaptation profile
-   - Applies emotional adjustments
-   - Serializes for system prompt injection
+5. **AdaptiveResponseEngine.js** - Combina todos los insights
+   - Construye perfil de adaptación completo
+   - Aplica ajustes emocionales
+   - Serializa para inyección en el system prompt
 
-## Integration Points
+## Puntos de integración
 
-### Modified Files
+### Archivos modificados
 
 1. **StateGraph.js**
-   - Added imports for evolution components
-   - Added `_initStores()` initialization
-   - Added schema creation for evolution tables
-   - Added public accessors for evolution components
+   - Imports de componentes de evolution
+   - Inicialización en `_initStores()`
+   - Creación de schema para tablas de evolution
+   - Accesores públicos para componentes de evolution
 
 2. **SessionManager.js**
-   - Modified `addTurn()` to call TraitLearner and TopicMomentumTracker per user message
+   - `addTurn()` llama a TraitLearner y TopicMomentumTracker por cada mensaje del usuario
 
 3. **BehaviorModel.js**
-   - Modified `evaluate()` to accept adaptation profile
-   - Applies style adaptations when confidence > 0.2
+   - `evaluate()` acepta perfil de adaptación
+   - Aplica adaptaciones de estilo cuando la confianza > 0.2
 
 4. **ContextAssembler.js**
-   - Added communication style hint to context package
+   - Añade hint de estilo de comunicación al paquete de contexto
 
 5. **GroqSerializer.js**
-   - Added `_buildCommStyleSection()` for system prompt injection
-   - Modified `serialize()` to include commStyleHint
+   - Función `_buildCommStyleSection()` para inyección en el system prompt
+   - `serialize()` incluye commStyleHint
 
 6. **curiosity.js mixin**
-   - Added topic_cold candidates for proactive triggers
-   - Registered signal profile for topic_cold
+   - Candidatos topic_cold para triggers proactivos
+   - Perfil de señal registrado para topic_cold
 
 7. **config.js**
-   - Added topic_cold to CURIOSITY_TYPES
-   - Added topic_cold cooldown (4 hours)
-   - Added topic_cold proposal hint
+   - topic_cold en CURIOSITY_TYPES
+   - Cooldown de topic_cold (4 horas)
+   - Proposal hint para topic_cold
 
 8. **context.js**
-   - Added Adaptation section to truncation priority
+   - Sección Adaptation en prioridad de truncado
 
-## Data Flow
+## Flujo de datos
 
 ```
-User Message
+Mensaje del usuario
     ↓
 SessionManager.addTurn()
     ↓
 ┌─────────────────────────────────────────┐
 │ TraitLearner.analyzeTurn()              │
-│   - Detect emotions                     │
-│   - Measure style metrics               │
-│   - Update EvolutionStore profiles      │
+│   - Detecta emociones                   │
+│   - Mide métricas de estilo             │
+│   - Actualiza perfiles en EvolutionStore│
 └─────────────────────────────────────────┘
     ↓
 ┌─────────────────────────────────────────┐
 │ TopicMomentumTracker.analyzeTurn()      │
-│   - Extract topics                      │
-│   - Record in EvolutionStore            │
-│   - Update momentum scores              │
+│   - Extrae topics                       │
+│   - Registra en EvolutionStore          │
+│   - Actualiza scores de momentum        │
 └─────────────────────────────────────────┘
     ↓
-Context Assembly (per-turn)
+Ensamblaje de contexto (por turno)
     ↓
 ┌─────────────────────────────────────────┐
 │ AdaptiveResponseEngine                  │
 │   .buildAdaptationProfile()             │
-│   - Get emotional state                 │
-│   - Get style preferences               │
-│   - Get topic momentum                  │
-│   - Apply emotional adjustments         │
+│   - Obtiene estado emocional            │
+│   - Obtiene preferencias de estilo      │
+│   - Obtiene momentum de topics          │
+│   - Aplica ajustes emocionales          │
 └─────────────────────────────────────────┘
     ↓
 ┌─────────────────────────────────────────┐
 │ BehaviorModel.evaluate()                │
-│   - Apply adaptation profile            │
-│   - Adjust response length              │
-│   - Add style hints to notes            │
+│   - Aplica perfil de adaptación         │
+│   - Ajusta longitud de respuesta        │
+│   - Añade hints de estilo a notes       │
 └─────────────────────────────────────────┘
     ↓
 ┌─────────────────────────────────────────┐
 │ GroqSerializer.serialize()              │
-│   - Build commStyleHint section         │
-│   - Inject into system prompt           │
+│   - Construye sección commStyleHint     │
+│   - Inyecta en system prompt            │
 └─────────────────────────────────────────┘
     ↓
-LLM Response (adapted to user style)
+Respuesta del LLM (adaptada al estilo del usuario)
 ```
 
-## Graceful Degradation
+## Degradación graceful
 
-- All components work without LLM (deterministic)
-- EvolutionStore gracefully handles database errors
-- TraitLearner and TopicMomentumTracker never block main flow
-- Adaptation hints only injected when confidence > 0.2
-- System degrades to default behavior if evolution components unavailable
+- Todos los componentes funcionan sin LLM (determinístico)
+- EvolutionStore maneja errores de base de datos gracefully
+- TraitLearner y TopicMomentumTracker nunca bloquean el flujo principal
+- Los hints de adaptación solo se inyectan cuando la confianza > 0.2
+- El sistema degrada a comportamiento por defecto si los componentes de evolution no están disponibles
 
-## Performance
+## Rendimiento
 
-- EMA updates: O(1) per metric
-- Topic tracking: O(1) per mention, bounded to 50 topics
-- Emotional analysis: O(1) per turn (regex matching)
-- No impact on main thread (all operations are fast)
+- Actualizaciones EMA: O(1) por métrica
+- Seguimiento de topics: O(1) por mención, limitado a 50 topics
+- Análisis emocional: O(1) por turno (matching de regex)
+- Sin impacto en el hilo principal (todas las operaciones son rápidas)
 
-## Testing
+## Tests
 
-Run tests with:
+Ejecutar tests con:
 ```bash
-node tests/test_evolutionary_memory.js
+ELECTRON_RUN_AS_NODE=1 node tests/test_evolutionary_memory.js
 ```
 
-Tests verify:
-- Module loading
-- Topic extraction
-- Emotion detection
-- Style metrics
-- Thresholds and constants
-- Integration with StateGraph and SessionManager
+Los tests verifican:
+- Carga de módulos
+- Extracción de topics
+- Detección de emociones
+- Métricas de estilo
+- Umbrales y constantes
+- Integración con StateGraph y SessionManager
