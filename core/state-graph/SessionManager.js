@@ -133,8 +133,10 @@ class SessionManager {
       try {
         const traitLearner = this._graph.getTraitLearner?.();
         const topicTracker = this._graph.getTopicTracker?.();
+        const feedbackScorer = this._graph.getFeedbackScorer?.();
         if (traitLearner) traitLearner.analyzeTurn(content);
         if (topicTracker) topicTracker.analyzeTurn(content);
+        if (feedbackScorer) feedbackScorer.recordUserTurn(content);
       } catch (e) {
         // Evolutionary memory never blocks the main flow
       }

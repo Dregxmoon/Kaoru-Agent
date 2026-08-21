@@ -109,7 +109,7 @@ flowchart TD
 3. `AgentLoop` (modo agente) ejecuta el bucle **LLM → herramienta → resultado → LLM** con un tope de iteraciones; o `complete()`/`completeWithTools()` para respuestas directas.
 4. La respuesta se renderiza en el chat (markdown sanitizado) y se persiste la sesión incrementalmente.
 
-### Flujo proactivo (motor de decisión Fase F)
+### Flujo proactivo 
 
 ```mermaid
 flowchart LR

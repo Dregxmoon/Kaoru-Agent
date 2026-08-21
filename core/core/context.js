@@ -175,7 +175,20 @@ async function buildContext(sessionHistory, activeProvider, options = {}) {
           logger.warn('context', '[core] error getting adaptation profile:', e.message);
         }
       }
-      behaviorCtx = state.behavior.evaluate(userText, osCtx, sessionHistory, adaptationProfile);
+
+      // Get emotional context from LLMEotionDetector
+      let emotionalCtx = null;
+      if (state.graph && typeof state.graph.getLLMEotionDetector === 'function') {
+        try {
+          const detector = state.graph.getLLMEotionDetector();
+          if (detector) {
+            emotionalCtx = await detector.detect(userText, { history: sessionHistory });
+          }
+        } catch (e) {
+          logger.debug('context', '[core] error getting emotional context:', e.message);
+        }
+      }
+      behaviorCtx = state.behavior.evaluate(userText, osCtx, sessionHistory, adaptationProfile, emotionalCtx);
       state.bus.emit('behavior:evaluated', behaviorCtx);
     } catch (e) {
       logger.warn('context', '[core] error en BehaviorModel:', e.message);

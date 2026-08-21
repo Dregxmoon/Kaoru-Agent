@@ -156,6 +156,10 @@ ${memory}`;
     // acogida, el mensaje lo reconoce en vez de repetir a ciegas.
     const bookend = this._buildBookend(trigger);
 
+    // Contexto emocional y de momentum de topics (nuevos componentes evolutivos)
+    const emotionalCtx = await this._buildEmotionalContext(trigger);
+    const topicCtx = this._buildTopicContext(trigger);
+
     const userPrompt = `Son las ${timeStr} (${now.toLocaleDateString('es-MX', { weekday: 'long', day: 'numeric', month: 'long' })}). Esta es la hora y fecha REAL en este momento, confía en este dato por encima de cualquier otra cosa.
 Contexto del trigger: ${trigger.context}
 ${osCtx?.openWindowsSummary ? `El usuario tiene abierto: ${osCtx.openWindowsSummary}` : ''}
@@ -169,6 +173,8 @@ ${curiosity}
 ${antiRepeat}
 ${bookend}
 ${situationFrame}
+${emotionalCtx}
+${topicCtx}
 ${productionMode}
 
 INSTRUCCIÓN CRÍTICA:

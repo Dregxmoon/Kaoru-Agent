@@ -28,6 +28,8 @@ const { ConsolidatorStore } = require('./stores/ConsolidatorStore.js');
 const { FactReasonerStore } = require('./stores/FactReasonerStore.js');
 const { IntentionsStore } = require('./stores/IntentionsStore.js');
 const { EvolutionStore } = require('./evolution/EvolutionStore.js');
+const { FeedbackScorer } = require('./evolution/FeedbackScorer.js');
+const { LLMEotionDetector } = require('./evolution/LLMEotionDetector.js');
 const { TraitLearner } = require('./evolution/TraitLearner.js');
 const { CommunicationStyleProfiler } = require('./evolution/CommunicationStyleProfiler.js');
 const { TopicMomentumTracker } = require('./evolution/TopicMomentumTracker.js');
@@ -466,7 +468,9 @@ class StateGraph {
     this._traitLearner = new TraitLearner(this._evolution);
     this._commStyleProfiler = new CommunicationStyleProfiler(this._evolution);
     this._topicTracker = new TopicMomentumTracker(this._evolution);
-    this._adaptiveEngine = new AdaptiveResponseEngine(this._traitLearner, this._commStyleProfiler, this._topicTracker);
+    this._adaptiveEngine = new AdaptiveResponseEngine(this._traitLearner, this._commStyleProfiler, this._topicTracker, this._feedbackScorer);
+    this._feedbackScorer = new FeedbackScorer(this._evolution);
+    this._llmEmotionDetector = null; // se inicializa cuando el LLM esté disponible
   }
 
   // Schema
@@ -997,6 +1001,26 @@ class StateGraph {
 
   getEvolutionStore() {
     return this._evolution;
+  }
+
+  getFeedbackScorer() {
+    return this._feedbackScorer;
+  }
+
+  getLLMEotionDetector() {
+    return this._llmEmotionDetector;
+  }
+
+  /**
+   * Inicializa el detector de emociones con el LLM provider.
+   * Llamado después de que el LLM está listo.
+   * @param {Object} llmProvider
+   */
+  initEmotionDetector(llmProvider) {
+    if (llmProvider && !this._llmEmotionDetector) {
+      this._llmEmotionDetector = new LLMEotionDetector(llmProvider, { timeoutMs: 2000 });
+      logger.info('StateGraph', 'LLM emotion detector inicializado');
+    }
   }
 
 

@@ -51,11 +51,13 @@ class AdaptiveResponseEngine {
    * @param {import('./TraitLearner.js').TraitLearner} traitLearner
    * @param {import('./CommunicationStyleProfiler.js').CommunicationStyleProfiler} styleProfiler
    * @param {import('./TopicMomentumTracker.js').TopicMomentumTracker} topicTracker
+   * @param {import('./FeedbackScorer.js').FeedbackScorer} [feedbackScorer]
    */
-  constructor(traitLearner, styleProfiler, topicTracker) {
+  constructor(traitLearner, styleProfiler, topicTracker, feedbackScorer = null) {
     this._traitLearner = traitLearner;
     this._styleProfiler = styleProfiler;
     this._topicTracker = topicTracker;
+    this._feedbackScorer = feedbackScorer;
   }
 
   /**
@@ -144,6 +146,28 @@ class AdaptiveResponseEngine {
     }
 
     return adjusted;
+  }
+
+  /**
+   * Check if a specific adaptation type should be applied based on feedback history.
+   * If an adaptation has been ineffective (<40% success rate), it won't be applied.
+   * @param {string} adaptationType  'responseLength' | 'formality' | 'technicalLevel' | 'emotionalContext'
+   * @returns {boolean} true if adaptation should be applied
+   */
+  shouldAdapt(adaptationType) {
+    if (!this._feedbackScorer) return true; // default: adapt
+    return this._feedbackScorer.getEffectiveness(adaptationType) >= 0.4;
+  }
+
+  /**
+   * Record that an adaptation was applied (for feedback tracking).
+   * @param {string} adaptationType
+   * @param {string} hint
+   */
+  recordAdaptation(adaptationType, hint) {
+    if (this._feedbackScorer) {
+      this._feedbackScorer.recordAdaptation(adaptationType, hint);
+    }
   }
 
   /**

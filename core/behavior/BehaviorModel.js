@@ -34,7 +34,7 @@ class BehaviorModel {
     this._lastToneCount = 0;
   }
 
-  evaluate(userMessage = '', osContext = null, history = [], adaptationProfile = null) {
+  evaluate(userMessage = '', osContext = null, history = [], adaptationProfile = null, emotionalCtx = null) {
     const text = userMessage.trim();
 
     const tone = this._detectTone(text, osContext, history);
@@ -51,16 +51,36 @@ class BehaviorModel {
       }
     }
 
+    // Apply emotional context from LLMEotionDetector
+    if (emotionalCtx) {
+      if (emotionalCtx.frustration > 0.6) {
+        notes.push('El usuario está frustrado. Sé breve y empática.');
+        if (responseLength === 'detailed') responseLength = 'normal';
+      }
+      if (emotionalCtx.enthusiasm > 0.6) {
+        notes.push('El usuario está entusiasmado. Celebra con él.');
+      }
+      if (emotionalCtx.confusion > 0.5) {
+        notes.push('El usuario está confundido. Explica con ejemplos.');
+        if (responseLength === 'brief') responseLength = 'normal';
+      }
+      if (emotionalCtx.urgency > 0.6) {
+        responseLength = 'brief';
+        notes.push('Hay urgencia. Ve al grano.');
+      }
+    }
+
     this._lastTone = tone;
     this._lastToneCount++;
 
-    const ctx = { tone, responseLength, urgency, notes, proactiveScore, adaptationProfile };
+    const ctx = { tone, responseLength, urgency, notes, proactiveScore, adaptationProfile, emotionalCtx };
 
     logger.info(
       'BehaviorModel',
       `[behavior] tone=${tone} length=${responseLength}` +
         ` urgency=${urgency} proactive=${proactiveScore.toFixed(2)}` +
-        ` adaptation=${adaptationProfile?.confidence?.toFixed(2) ?? 'none'}`
+        ` adaptation=${adaptationProfile?.confidence?.toFixed(2) ?? 'none'}` +
+        ` emotion=${emotionalCtx?.tone ?? 'none'}`
     );
 
     return ctx;

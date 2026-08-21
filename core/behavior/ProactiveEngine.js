@@ -84,6 +84,7 @@ const gate = require('./proactive/mixins/gate.js');
 const proposals = require('./proactive/mixins/proposals.js');
 const messageGen = require('./proactive/mixins/message-gen.js');
 const testing = require('./proactive/mixins/testing.js');
+const adaptiveIntegration = require('./proactive/mixins/adaptive-integration.js');
 
 // ── ProactiveEngine ───────────────────────────────────────────────────────────
 
@@ -189,5 +190,6 @@ Object.assign(ProactiveEngine.prototype, gate);
 Object.assign(ProactiveEngine.prototype, proposals);
 Object.assign(ProactiveEngine.prototype, messageGen);
 Object.assign(ProactiveEngine.prototype, testing);
+Object.assign(ProactiveEngine.prototype, adaptiveIntegration);
 
 module.exports = { ProactiveEngine };
