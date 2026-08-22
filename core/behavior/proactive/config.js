@@ -40,41 +40,6 @@ const CURIOSITY_TYPES = new Set([
   'intention_stale',
   'topic_cold',
 ]);
-const CURIOSITY_TYPES = new Set([
-  'memory_stale',
-  'pattern_uncertain',
-  'memory_tension',
-  'intention_stale',
-  'topic_cold',
-]);
-const CURIOSITY_TYPES = new Set([
-  'memory_stale',
-  'pattern_uncertain',
-  'memory_tension',
-  'intention_stale',
-  'topic_cold',
-]);
-const CURIOSITY_TYPES = new Set([
-  'memory_stale',
-  'pattern_uncertain',
-  'memory_tension',
-  'intention_stale',
-  'topic_cold',
-]);
-const CURIOSITY_TYPES = new Set([
-  'memory_stale',
-  'pattern_uncertain',
-  'memory_tension',
-  'intention_stale',
-  'topic_cold',
-]);
-const CURIOSITY_TYPES = new Set([
-  'memory_stale',
-  'pattern_uncertain',
-  'memory_tension',
-  'intention_stale',
-  'topic_cold',
-]);
 
 // Una intención activa con `last_progress_at` más viejo que esto (días) se
 // considera ABANDONADA y genera un candidato de curiosidad con el texto REAL
