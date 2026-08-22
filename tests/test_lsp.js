@@ -53,13 +53,21 @@ function testLSPToolSchemas() {
   const registry = getToolRegistry();
 
   const lspTools = registry._getLSPTools();
-  assertEqual(lspTools.length, 4, '4 tools LSP registradas');
+  assertEqual(lspTools.length, 7, '7 tools LSP registradas');
 
   const names = lspTools.map((t) => t.name).sort();
-  assertEqual(names[0], 'find_references', 'tool LSP: find_references');
-  assertEqual(names[1], 'get_diagnostics', 'tool LSP: get_diagnostics');
-  assertEqual(names[2], 'get_symbols', 'tool LSP: get_symbols');
-  assertEqual(names[3], 'go_to_definition', 'tool LSP: go_to_definition');
+  const expected = [
+    'code_actions',
+    'find_references',
+    'get_diagnostics',
+    'get_symbols',
+    'go_to_definition',
+    'hover',
+    'rename',
+  ];
+  for (let i = 0; i < expected.length; i++) {
+    assertEqual(names[i], expected[i], `tool LSP: ${expected[i]}`);
+  }
 
   // Verificar que cada LSP tool tiene source='lsp'
   for (const t of lspTools) {
@@ -75,7 +83,15 @@ function testLSPNativeSchemas() {
   const { getToolSchemas } = require('../core/llm/ToolSchemas.js');
   const schemas = getToolSchemas();
 
-  const lspNames = ['get_diagnostics', 'go_to_definition', 'find_references', 'get_symbols'];
+  const lspNames = [
+    'get_diagnostics',
+    'go_to_definition',
+    'find_references',
+    'get_symbols',
+    'hover',
+    'rename',
+    'code_actions',
+  ];
   for (const name of lspNames) {
     const schema = schemas.find((s) => s.name === name);
     assert(schema !== undefined, `${name}: schema definido en ToolSchemas.js`);
@@ -104,12 +120,15 @@ async function testLSPInToolResolver() {
   assert(result.promptCatalog.includes('go_to_definition'), 'catálogo incluye go_to_definition');
   assert(result.promptCatalog.includes('find_references'), 'catálogo incluye find_references');
   assert(result.promptCatalog.includes('get_symbols'), 'catálogo incluye get_symbols');
+  assert(result.promptCatalog.includes('hover'), 'catálogo incluye hover');
+  assert(result.promptCatalog.includes('rename'), 'catálogo incluye rename');
+  assert(result.promptCatalog.includes('code_actions'), 'catálogo incluye code_actions');
   assert(result.promptCatalog.includes('Herramientas LSP'), 'catálogo tiene sección LSP');
 
   const lspSchemas = result.nativeToolSchemas.filter((s) =>
-    ['get_diagnostics', 'go_to_definition', 'find_references', 'get_symbols'].includes(s.name)
+    ['get_diagnostics', 'go_to_definition', 'find_references', 'get_symbols', 'hover', 'rename', 'code_actions'].includes(s.name)
   );
-  assertEqual(lspSchemas.length, 4, '4 LSP tools en nativeToolSchemas');
+  assertEqual(lspSchemas.length, 7, '7 LSP tools en nativeToolSchemas');
 }
 
 // ── Test 5: JSON-RPC message encoding/decoding ────────────────────────────

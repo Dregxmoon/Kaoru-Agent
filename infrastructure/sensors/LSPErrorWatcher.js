@@ -36,6 +36,7 @@ const { dirSet } = require('../../core/utils/ignoreDirs.js');
 
 const { getEventBus } = require('../../infrastructure/event-bus/EventBus.js');
 const { BasePollingWatcher } = require('./BasePollingWatcher.js');
+const { loadServersTable } = require('../../core/lsp/LSPManager.js');
 
 const DEFAULT_POLL_MS = 30 * 1000;
 const DEFAULT_MAX_SCAN = 6; // archivos diagnosticados por poll
@@ -249,15 +250,49 @@ class LSPErrorWatcher extends BasePollingWatcher {
     return this._isSupported(first) ? first : null;
   }
 
-  // Lenguaje del archivo para el payload de la señal: el tsserver sirve JS y
-  // TS, y los errores `implicit any` (checkJs) "parecen TS" — pero el archivo
-  // es lo que es. El LLM necesita esto para no anotar sintaxis TS en un .js.
+  // Lenguaje del archivo para el payload de la señal. Primero se consulta el
+  // mapa dinámico ext→languageId derivado de los servidores LSP ACTIVOS
+  // (servers.json): así un .py se reporta como 'python' cuando pyright corre,
+  // en vez de caer al fallback TS/JS hardcodeado.
   _languageFor(abs) {
+    const dynamic = this._activeExtMap();
+    if (dynamic.size) {
+      const lang = dynamic.get(path.extname(abs).toLowerCase());
+      if (lang) return lang;
+    }
     const ext = path.extname(abs).toLowerCase();
     if (ext === '.ts' || ext === '.tsx' || ext === '.mts' || ext === '.cts') return 'typescript';
     if (ext === '.js' || ext === '.jsx' || ext === '.mjs' || ext === '.cjs') return 'javascript';
     if (this._lsp?._serverConfig?.languageId) return this._lsp._serverConfig.languageId;
     return 'plaintext';
+  }
+
+  /**
+   * Mapa ext→languageId construido desde los servidores LSP activos del
+   * workspace. Vacío si no hay instancias corriendo (el caller decide el
+   * fallback). Evita el hardcodeo JS/TS que excluía a Python/Go/etc.
+   * @returns {Map<string, string>}
+   */
+  _activeExtMap() {
+    if (this._extMapAt && Date.now() - this._extMapAt < INDEX_TTL_MS && this._extMap) {
+      return this._extMap;
+    }
+    const map = new Map();
+    try {
+      for (const inst of this._lsp?._instances?.values() || []) {
+        // Solo servidores realmente corriendo: diagnosticar contra una
+        // instancia zombie cuesta un timeout de pull por archivo.
+        if (!inst?.isRunning) continue;
+        const cfg = inst._serverConfig;
+        if (!cfg) continue;
+        for (const pat of cfg.filePatterns || []) map.set(String(pat).toLowerCase(), cfg.languageId);
+      }
+    } catch (_) {
+      /* nunca romper el scan por esto */
+    }
+    this._extMap = map;
+    this._extMapAt = Date.now();
+    return map;
   }
 
   _filesFor(ws) {
@@ -300,6 +335,10 @@ class LSPErrorWatcher extends BasePollingWatcher {
 
   _isSupported(base) {
     const ext = path.extname(base).toLowerCase();
+    // Prioridad: extensiones de servidores LSP ACTIVOS (multi-lenguaje real).
+    const active = this._activeExtMap();
+    if (active.size) return active.has(ext);
+    // Sin instancias corriendo (o lsp mockeado en tests): fallback clásico.
     return this._supportedExts.includes(ext);
   }
 

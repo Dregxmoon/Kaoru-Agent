@@ -262,6 +262,9 @@ function isHighImpact(tool, params) {
   if (tool === 'git_push') return true;
   if (tool === 'git_stash') return params?.action !== 'list';
   if (tool === 'git_add') return true;
+
+  // ── LSP: rename muta múltiples archivos vía WorkspaceEdit ────────────────
+  if (tool === 'rename' && params?.newName) return true;
   if (tool === 'github_issue_create') return true;
   if (tool === 'github_issue_comment') return true;
   if (tool === 'github_issue_close') return true;

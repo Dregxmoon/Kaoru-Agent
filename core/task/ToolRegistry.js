@@ -331,6 +331,55 @@ const TOOL_SCHEMAS = [
     params: [{ name: 'filePath', type: 'string', description: 'Ruta del archivo', required: true }],
     highImpact: false,
   },
+  {
+    id: 'lsp.hover',
+    name: 'hover',
+    domain: ['code', 'lsp'],
+    source: 'lsp',
+    description:
+      'Información de tipo y documentación de un símbolo en una posición específica (como el hover del editor)',
+    params: [
+      { name: 'filePath', type: 'string', description: 'Ruta del archivo', required: true },
+      { name: 'line', type: 'number', description: 'Línea (0-indexed)', required: true },
+      { name: 'character', type: 'number', description: 'Columna (0-indexed)', required: true },
+    ],
+    highImpact: false,
+  },
+  {
+    id: 'lsp.rename',
+    name: 'rename',
+    domain: ['code', 'lsp'],
+    source: 'lsp',
+    description:
+      'Renombra un símbolo en todo el proyecto de forma segura vía LSP (actualiza todas las referencias)',
+    params: [
+      { name: 'filePath', type: 'string', description: 'Ruta del archivo', required: true },
+      { name: 'line', type: 'number', description: 'Línea (0-indexed)', required: true },
+      { name: 'character', type: 'number', description: 'Columna (0-indexed)', required: true },
+      { name: 'newName', type: 'string', description: 'Nuevo nombre del símbolo', required: true },
+    ],
+    highImpact: true,
+  },
+  {
+    id: 'lsp.code_actions',
+    name: 'code_actions',
+    domain: ['code', 'lsp'],
+    source: 'lsp',
+    description:
+      'Consulta acciones rápidas disponibles en una posición (quickfix, refactor, imports faltantes)',
+    params: [
+      { name: 'filePath', type: 'string', description: 'Ruta del archivo', required: true },
+      { name: 'line', type: 'number', description: 'Línea (0-indexed)', required: true },
+      { name: 'character', type: 'number', description: 'Columna (0-indexed)', required: true },
+      {
+        name: 'context',
+        type: 'string',
+        description: 'Filtro opcional (ej: "quickfix", "refactor", "source")',
+        required: false,
+      },
+    ],
+    highImpact: false,
+  },
   // ── Git nativo (§10) ───────────────────────────────────────────────────────
   {
     id: 'git.git_status',

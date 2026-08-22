@@ -263,6 +263,54 @@ const TOOL_SCHEMAS = [
       required: ['filePath'],
     },
   },
+  {
+    name: 'hover',
+    description:
+      'Obtiene información de tipo y documentación de un símbolo (como el hover del editor) a través del LSP',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        filePath: { type: 'string', description: 'Ruta del archivo donde está el símbolo' },
+        line: { type: 'number', description: 'Línea (0-indexed) del símbolo' },
+        character: { type: 'number', description: 'Columna (0-indexed) del símbolo' },
+      },
+      required: ['filePath', 'line', 'character'],
+    },
+  },
+  {
+    name: 'rename',
+    description:
+      'Renombra un símbolo en todo el proyecto de forma segura vía LSP (actualiza todas las referencias)',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        filePath: { type: 'string', description: 'Ruta del archivo donde está el símbolo' },
+        line: { type: 'number', description: 'Línea (0-indexed) del símbolo' },
+        character: { type: 'number', description: 'Columna (0-indexed) del símbolo' },
+        newName: { type: 'string', description: 'Nuevo nombre para el símbolo' },
+      },
+      required: ['filePath', 'line', 'character', 'newName'],
+    },
+  },
+  {
+    name: 'code_actions',
+    description:
+      'Consulta acciones rápidas disponibles en una posición (quickfix de errores, refactor, imports faltantes) vía LSP',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        filePath: { type: 'string', description: 'Ruta del archivo' },
+        line: { type: 'number', description: 'Línea (0-indexed)' },
+        character: { type: 'number', description: 'Columna (0-indexed)' },
+        context: {
+          type: 'string',
+          description:
+            'Filtro opcional sobre la acción buscada (ej: "quickfix", "refactor", "source")',
+        },
+      },
+      required: ['filePath', 'line', 'character'],
+    },
+  },
   // ── Git nativo (§10) ─────────────────────────────────────────────────────
   {
     name: 'git_status',
