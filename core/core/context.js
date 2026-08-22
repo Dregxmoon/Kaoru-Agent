@@ -189,13 +189,25 @@ async function buildContext(sessionHistory, activeProvider, options = {}) {
         }
       }
 
+      // Record emotional trend for this turn
+      if (emotionalCtx && state.graph && typeof state.graph.getEmotionalTrendTracker === 'function') {
+        try {
+          const trendTracker = state.graph.getEmotionalTrendTracker();
+          if (trendTracker && state.session?._sessionId) {
+            trendTracker.recordTurn(state.session._sessionId, emotionalCtx, userText);
+          }
+        } catch (e) {
+          logger.debug('context', '[core] error recording emotional trend:', e.message);
+        }
+      }
+
       // Get enforcement rules from PromptEnforcer
       let enforcementRules = null;
       if (state.graph && typeof state.graph.getPromptEnforcer === 'function') {
         try {
           const enforcer = state.graph.getPromptEnforcer();
           if (enforcer) {
-            enforcementRules = enforcer.enforce(emotionalCtx, null, null);
+            enforcementRules = enforcer.enforce(emotionalCtx, null, null, state.session?._sessionId);
           }
         } catch (e) {
           logger.debug('context', '[core] error getting enforcement rules:', e.message);

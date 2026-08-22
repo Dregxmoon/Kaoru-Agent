@@ -114,9 +114,11 @@ const TOPIC_RULES = {
 class PromptEnforcer {
   /**
    * @param {import('../state-graph/evolution/FeedbackScorer.js').FeedbackScorer} feedbackScorer
+   * @param {import('../state-graph/evolution/EmotionalTrendTracker.js').EmotionalTrendTracker} [trendTracker]
    */
-  constructor(feedbackScorer) {
+  constructor(feedbackScorer, trendTracker = null) {
     this._feedbackScorer = feedbackScorer;
+    this._trendTracker = trendTracker;
   }
 
   /**
@@ -124,9 +126,10 @@ class PromptEnforcer {
    * @param {Object} emotionalCtx  resultado de LLMEotionDetector.detect()
    * @param {Object} topicCtx      resultado de TopicMomentumTracker
    * @param {string} adaptationType  tipo de adaptación aplicada
+   * @param {string} [sessionId]  ID de la sesión actual (para tendencias)
    * @returns {{ rules: string[], forbidden: string[], maxTokens: number, reason: string }}
    */
-  enforce(emotionalCtx, topicCtx = null, adaptationType = null) {
+  enforce(emotionalCtx, topicCtx = null, adaptationType = null, sessionId = null) {
     const rules = [];
     const forbidden = [];
     let maxTokens = 150; // default
@@ -144,7 +147,14 @@ class PromptEnforcer {
       }
     }
 
-    // 2. Reglas de efectividad (si hay historial)
+    // 2. Reglas de tendencia emocional (si hay tracker y sesión)
+    if (this._trendTracker && sessionId) {
+      const trendRules = this._buildTrendRules(sessionId);
+      rules.push(...trendRules.rules);
+      reasons.push(...trendRules.reasons);
+    }
+
+    // 3. Reglas de efectividad (si hay historial)
     if (adaptationType && this._feedbackScorer) {
       const effectiveness = this._feedbackScorer.getEffectiveness(adaptationType);
       if (effectiveness < 0.4) {
@@ -203,6 +213,62 @@ class PromptEnforcer {
     lines.push(`\nExtensión máxima: ~${enforcement.maxTokens} tokens`);
 
     return lines.join('\n');
+  }
+
+  /**
+   * Genera reglas basadas en tendencias emocionales de la sesión.
+   * @param {string} sessionId
+   * @returns {{ rules: string[], reasons: string[] }}
+   */
+  _buildTrendRules(sessionId) {
+    const rules = [];
+    const reasons = [];
+
+    try {
+      const trends = this._trendTracker.getAllTrends(sessionId);
+
+      // Frustración creciente
+      if (trends.frustration.trend === 'rising' && trends.frustration.velocity > 0.1) {
+        rules.push('La frustración del usuario está AUMENTANDO. Sé más concisa y directa.');
+        reasons.push('frustración creciente');
+      }
+
+      // Frustración descendente
+      if (trends.frustration.trend === 'falling' && trends.frustration.velocity < -0.1) {
+        rules.push('La frustración está bajando. Puedes relajar un poco el tono.');
+        reasons.push('frustración descendente');
+      }
+
+      // Recuperación
+      const recovery = this._trendTracker.detectRecovery(sessionId);
+      if (recovery.recovered) {
+        rules.push(`El usuario se recuperó de estar ${recovery.from}. Puedes ser más detallada.`);
+        reasons.push('recuperación detectada');
+      }
+
+      // Escalación
+      const escalation = this._trendTracker.detectEscalation(sessionId);
+      if (escalation.escalated) {
+        rules.push(`ALERTA: ${escalation.emotion} está ESCALANDO. Reduce tensión inmediatamente.`);
+        reasons.push(`escalación de ${escalation.emotion}`);
+      }
+
+      // Volatilidad
+      if (trends.frustration.trend === 'volatile') {
+        rules.push('El estado emocional es inestable. Sé flexible y adaptable.');
+        reasons.push('volatilidad emocional');
+      }
+
+      // Entusiasmo creciente
+      if (trends.enthusiasm.trend === 'rising' && trends.enthusiasm.velocity > 0.1) {
+        rules.push('El entusiasmo está subiendo. Matchea la energía positiva.');
+        reasons.push('entusiasmo creciente');
+      }
+    } catch (e) {
+      // Trends never block the main flow
+    }
+
+    return { rules, reasons };
   }
 
   /**

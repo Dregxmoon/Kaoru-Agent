@@ -34,6 +34,7 @@ const { TraitLearner } = require('./evolution/TraitLearner.js');
 const { CommunicationStyleProfiler } = require('./evolution/CommunicationStyleProfiler.js');
 const { TopicMomentumTracker } = require('./evolution/TopicMomentumTracker.js');
 const { AdaptiveResponseEngine } = require('./evolution/AdaptiveResponseEngine.js');
+const { EmotionalTrendTracker } = require('./evolution/EmotionalTrendTracker.js');
 const { PromptEnforcer } = require('../behavior/proactive/PromptEnforcer.js');
 const { ResponseEvaluator } = require('../behavior/proactive/ResponseEvaluator.js');
 const { UserModelBuilder } = require('./UserModelBuilder.js');
@@ -472,6 +473,7 @@ class StateGraph {
     this._topicTracker = new TopicMomentumTracker(this._evolution);
     this._feedbackScorer = new FeedbackScorer(this._evolution);
     this._adaptiveEngine = new AdaptiveResponseEngine(this._traitLearner, this._commStyleProfiler, this._topicTracker, this._feedbackScorer);
+    this._emotionalTrendTracker = new EmotionalTrendTracker(this._evolution);
     this._llmEmotionDetector = null; // se inicializa cuando el LLM esté disponible
     this._promptEnforcer = null; // se inicializa después
     this._responseEvaluator = null; // se inicializa después
@@ -1015,6 +1017,10 @@ class StateGraph {
     return this._llmEmotionDetector;
   }
 
+  getEmotionalTrendTracker() {
+    return this._emotionalTrendTracker;
+  }
+
   getPromptEnforcer() {
     return this._promptEnforcer;
   }
@@ -1035,7 +1041,7 @@ class StateGraph {
     }
     // Inicializar PromptEnforcer y ResponseEvaluator cuando el LLM esté disponible
     if (!this._promptEnforcer) {
-      this._promptEnforcer = new PromptEnforcer(this._feedbackScorer);
+      this._promptEnforcer = new PromptEnforcer(this._feedbackScorer, this._emotionalTrendTracker);
       logger.info('StateGraph', 'PromptEnforcer inicializado');
     }
     if (!this._responseEvaluator) {
