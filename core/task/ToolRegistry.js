@@ -665,6 +665,44 @@ const TOOL_SCHEMAS = [
     ],
     highImpact: false,
   },
+  // ── Memory tools ───────────────────────────────────────────────────────────
+  {
+    id: 'memory.memory_search',
+    name: 'memory_search',
+    domain: ['memory', 'data'],
+    source: 'memory',
+    description: 'Busca en la memoria de Kaoru (nodos de conocimiento, episodios, preferencias, interacciones)',
+    params: [
+      { name: 'query', type: 'string', description: 'Texto de búsqueda semántica', required: true },
+      { name: 'type', type: 'string', description: 'Tipo de nodo: User, Episode, Belief, Preference, Project, Emotion, Interaction, Pattern, Relation', required: false },
+      { name: 'limit', type: 'number', description: 'Número máximo de resultados', default: 10, required: false },
+    ],
+    examples: [
+      { cmd: '¿Qué sé sobre el usuario?', desc: 'Buscar todo el conocimiento del usuario' },
+      { cmd: 'proyectos del usuario', desc: 'Buscar proyectos conocidos' },
+      { cmd: 'preferencias musicales', desc: 'Buscar preferencias musicales' },
+      { cmd: 'historial de interacciones', desc: 'Buscar interacciones pasadas' },
+    ],
+    highImpact: false,
+  },
+  {
+    id: 'memory.memory_log_interaction',
+    name: 'memory_log_interaction',
+    domain: ['memory', 'data'],
+    source: 'memory',
+    description: 'Registra una interacción del usuario en la memoria',
+    params: [
+      { name: 'type', type: 'string', description: 'Tipo de interacción: liked, disliked, followed_suggestion, ignored_suggestion, asked_question, provided_info', required: true },
+      { name: 'content', type: 'string', description: 'Contenido de la interacción', required: true },
+      { name: 'metadata', type: 'object', description: 'Metadata adicional (opcional)', required: false },
+    ],
+    examples: [
+      { cmd: ' liked_response', desc: 'Registrar que al usuario le gustó una respuesta' },
+      { cmd: ' disliked_response', desc: 'Registrar que al usuario no le gustó una respuesta' },
+      { cmd: ' followed_suggestion', desc: 'Registrar que el usuario siguió una sugerencia' },
+    ],
+    highImpact: false,
+  },
 ];
 
 class ToolRegistry {

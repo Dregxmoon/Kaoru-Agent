@@ -159,8 +159,8 @@ class NodeStore {
     return results;
   }
 
-  getWorldModel() {
-    const results = this._db
+  getWorldModel(context = null) {
+    let results = this._db
       .prepare(
         `
       SELECT * FROM nodes
@@ -168,7 +168,7 @@ class NodeStore {
         AND archived=0
         AND inferred=0
       ORDER BY importance DESC
-      LIMIT 30
+      LIMIT 50
     `
       )
       .all();
@@ -205,7 +205,55 @@ class NodeStore {
       logger.warn('NodeStore', '[state-graph] no se pudo computar edad en world model:', e.message);
     }
 
-    return results;
+    // Contextual boosting: si hay contexto actual, boostear nodos relevantes
+    if (context && typeof context === 'object') {
+      const boostTerms = this._extractContextTerms(context);
+      if (boostTerms.length > 0) {
+        results = results.map((node) => {
+          const nodeText = `${node.label} ${node.content}`.toLowerCase();
+          let boost = 0;
+          for (const term of boostTerms) {
+            if (nodeText.includes(term.toLowerCase())) {
+              boost += 0.2; // 20% boost por término relevante
+            }
+          }
+          return { ...node, importance: Math.min(1, node.importance + boost) };
+        });
+        // Re-ordenar por importancia ajustada
+        results.sort((a, b) => b.importance - a.importance);
+      }
+    }
+
+    // Retornar solo los 30 más importantes después del boosting
+    return results.slice(0, 30);
+  }
+
+  /**
+   * Extrae términos relevantes del contexto actual para boosting.
+   * @param {object} context
+   * @returns {string[]}
+   */
+  _extractContextTerms(context) {
+    const terms = [];
+    // App activa
+    if (context.activeApp) {
+      terms.push(context.activeApp);
+    }
+    // Título de ventana
+    if (context.windowTitle) {
+      // Extraer palabras significativas (>3 caracteres)
+      const words = context.windowTitle.split(/\s+/).filter((w) => w.length > 3);
+      terms.push(...words.slice(0, 5));
+    }
+    // Topic actual
+    if (context.currentTopic) {
+      terms.push(context.currentTopic);
+    }
+    // Emoción dominante
+    if (context.dominantEmotion) {
+      terms.push(context.dominantEmotion);
+    }
+    return [...new Set(terms)]; // Deduplicar
   }
 
   upsertNode({

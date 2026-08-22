@@ -82,7 +82,52 @@ class EmotionalTrendTracker {
   startSession(sessionId) {
     this._currentSessionId = sessionId;
     this._turnIndex = 0;
-    this._sessionHistory.set(sessionId, []);
+    
+    // Cargar historial existente de SQLite si la sesión ya tiene datos
+    const existingHistory = this._loadSessionHistory(sessionId);
+    this._sessionHistory.set(sessionId, existingHistory);
+    
+    // Actualizar turnIndex basado en el historial existente
+    if (existingHistory.length > 0) {
+      this._turnIndex = existingHistory[existingHistory.length - 1].turnIndex + 1;
+    }
+  }
+
+  /**
+   * Carga el historial de emociones de una sesión desde SQLite.
+   * @param {string} sessionId
+   * @returns {Array}
+   */
+  _loadSessionHistory(sessionId) {
+    try {
+      const rows = this._db.prepare(`
+        SELECT turn_index, frustration, enthusiasm, confusion, calm, urgency, playfulness, 
+               tone, energy, implicit_intent, message_preview, created_at
+        FROM emotional_history 
+        WHERE session_id = ?
+        ORDER BY turn_index ASC
+      `).all(sessionId);
+      
+      return rows.map(row => ({
+        turnIndex: row.turn_index,
+        emotions: {
+          frustration: row.frustration,
+          enthusiasm: row.enthusiasm,
+          confusion: row.confusion,
+          calm: row.calm,
+          urgency: row.urgency,
+          playfulness: row.playfulness,
+          tone: row.tone,
+          energy: row.energy,
+          implicitIntent: row.implicit_intent,
+        },
+        timestamp: row.created_at,
+        messagePreview: row.message_preview || '',
+      }));
+    } catch (e) {
+      logger.debug('EmotionalTrendTracker', `Error cargando historial: ${e.message}`);
+      return [];
+    }
   }
 
   /**

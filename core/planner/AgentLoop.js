@@ -1317,6 +1317,12 @@ class AgentLoop {
             result = await this._executePlugin(action);
           } else if (action._needsInstructionResolve) {
             result = await this._executeResolvedEdit(action);
+          } else if (action.tool === 'memory_search') {
+            // Memory tool: search in Kaoru's memory
+            result = await this._executeMemorySearch(action);
+          } else if (action.tool === 'memory_log_interaction') {
+            // Memory tool: log user interaction
+            result = await this._executeMemoryLogInteraction(action);
           } else if (action.tool === 'read') {
             // Caché por-run de read: mismo archivo + encoding devuelve el
             // mismo resultado mientras no se mute ese archivo (la
@@ -1900,6 +1906,138 @@ class AgentLoop {
         result: null,
         error: e.message,
         tool: `plugin:${toolId}`,
+        elapsed: Date.now() - t0,
+      };
+    }
+  }
+
+  // ── Memory Tools ──────────────────────────────────────────────────────────
+
+  /**
+   * Execute memory_search tool.
+   * @param {object} action
+   * @returns {Promise<object>}
+   */
+  async _executeMemorySearch(action) {
+    const t0 = Date.now();
+    const params = action.params || {};
+    const { query, type, limit = 10 } = params;
+
+    if (!query) {
+      return {
+        ok: false,
+        result: null,
+        error: 'memory_search requiere query',
+        tool: 'memory_search',
+        elapsed: Date.now() - t0,
+      };
+    }
+
+    if (!this._graph) {
+      return {
+        ok: false,
+        result: null,
+        error: 'StateGraph no disponible',
+        tool: 'memory_search',
+        elapsed: Date.now() - t0,
+      };
+    }
+
+    try {
+      let results = [];
+
+      // Search by type if specified
+      if (type) {
+        results = this._graph.getNodesByType({ type, limit, minImportance: 0 });
+      } else {
+        // Semantic search
+        try {
+          results = await this._graph.queryNodesSemantic(query, { limit });
+        } catch (e) {
+          // Fallback to keyword search
+          results = this._graph.queryNodes({ search: query, limit });
+        }
+      }
+
+      // Format results
+      const formatted = results.map((node) => ({
+        id: node.id,
+        type: node.type,
+        label: node.label,
+        content: node.content,
+        importance: node.importance,
+        tags: JSON.parse(node.tags || '[]'),
+      }));
+
+      return {
+        ok: true,
+        result: formatted,
+        error: null,
+        tool: 'memory_search',
+        elapsed: Date.now() - t0,
+      };
+    } catch (e) {
+      return {
+        ok: false,
+        result: null,
+        error: e.message,
+        tool: 'memory_search',
+        elapsed: Date.now() - t0,
+      };
+    }
+  }
+
+  /**
+   * Execute memory_log_interaction tool.
+   * @param {object} action
+   * @returns {Promise<object>}
+   */
+  async _executeMemoryLogInteraction(action) {
+    const t0 = Date.now();
+    const params = action.params || {};
+    const { type, content, metadata = {} } = params;
+
+    if (!type || !content) {
+      return {
+        ok: false,
+        result: null,
+        error: 'memory_log_interaction requiere type y content',
+        tool: 'memory_log_interaction',
+        elapsed: Date.now() - t0,
+      };
+    }
+
+    if (!this._graph) {
+      return {
+        ok: false,
+        result: null,
+        error: 'StateGraph no disponible',
+        tool: 'memory_log_interaction',
+        elapsed: Date.now() - t0,
+      };
+    }
+
+    try {
+      const interactionId = this._graph.logInteraction({
+        type,
+        content,
+        metadata,
+        sessionId: this._sessionId || null,
+      });
+
+      return {
+        ok: interactionId !== null,
+        result: { id: interactionId },
+        error: interactionId === null ? 'Error al registrar interacción' : null,
+        tool: 'memory_log_interaction',
+        elapsed: Date.now() - t0,
+      };
+    } catch (e) {
+      return {
+        ok: false,
+        result: null,
+        error: e.message,
+        tool: 'memory_log_interaction',
         elapsed: Date.now() - t0,
       };
     }

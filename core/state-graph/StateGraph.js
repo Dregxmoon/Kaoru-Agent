@@ -519,7 +519,7 @@ class StateGraph {
     this._db.exec(`
       CREATE TABLE IF NOT EXISTS nodes (
         id               INTEGER PRIMARY KEY AUTOINCREMENT,
-        type             TEXT    NOT NULL CHECK(type IN ('User','Episode','Belief','Preference','Project')),
+        type             TEXT    NOT NULL CHECK(type IN ('User','Episode','Belief','Preference','Project','Emotion','Interaction','Pattern','Relation')),
         label            TEXT    NOT NULL,
         content          TEXT    NOT NULL,
         importance       REAL    NOT NULL DEFAULT 1.0,
@@ -589,6 +589,18 @@ class StateGraph {
       );
 
       CREATE INDEX IF NOT EXISTS idx_intentions_active ON intentions(status, updated_at DESC);
+
+      CREATE TABLE IF NOT EXISTS interaction_log (
+        id            INTEGER PRIMARY KEY AUTOINCREMENT,
+        session_id    TEXT,
+        interaction_type TEXT NOT NULL,
+        content       TEXT,
+        metadata      TEXT DEFAULT '{}',
+        created_at    INTEGER NOT NULL DEFAULT (strftime('%s','now') * 1000)
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_interaction_log_type ON interaction_log(interaction_type);
+      CREATE INDEX IF NOT EXISTS idx_interaction_log_session ON interaction_log(session_id);
     `);
     
     // Evolutionary memory tables
@@ -783,8 +795,8 @@ class StateGraph {
   getRecentEpisodes(limit) {
     return this._nodes.getRecentEpisodes(limit);
   }
-  getWorldModel() {
-    return this._nodes.getWorldModel();
+  getWorldModel(context = null) {
+    return this._nodes.getWorldModel(context);
   }
 
   /**
@@ -866,6 +878,98 @@ class StateGraph {
    */
   getTensions() {
     return this._resolver ? this._resolver.getTensions() : [];
+  }
+
+  // ── Dynamic Node Creation ──────────────────────────────────────────────────
+
+  /**
+   * Crea un nodo dinámicamente si no existe uno similar.
+   * @param {{ type: string, label: string, content: string, importance?: number, tags?: string[] }} opts
+   * @returns {number|null} ID del nodo creado o existente
+   */
+  createDynamicNode({ type, label, content, importance = 1.0, tags = [] }) {
+    if (!this.isReady) return null;
+    try {
+      // Buscar nodo existente por label y tipo
+      const existing = this._db
+        .prepare('SELECT id FROM nodes WHERE type=? AND label=? AND archived=0')
+        .get(type, label);
+      if (existing) {
+        // Actualizar contenido si es diferente
+        const node = this._db.prepare('SELECT content FROM nodes WHERE id=?').get(existing.id);
+        if (node && node.content !== content) {
+          this._nodes.updateNode(existing.id, { content, importance });
+        }
+        return existing.id;
+      }
+      // Crear nuevo nodo
+      return this._nodes.createNode({ type, label, content, importance, tags });
+    } catch (e) {
+      logger.warn('StateGraph', '[state-graph] error en createDynamicNode:', e.message);
+      return null;
+    }
+  }
+
+  /**
+   * Registra una interacción del usuario.
+   * @param {{ type: string, content: string, metadata?: object, sessionId?: string }} opts
+   * @returns {number|null}
+   */
+  logInteraction({ type, content, metadata = {}, sessionId = null }) {
+    if (!this.isReady) return null;
+    try {
+      const result = this._db
+        .prepare(
+          'INSERT INTO interaction_log (session_id, interaction_type, content, metadata) VALUES (?, ?, ?, ?)'
+        )
+        .run(sessionId, type, content, JSON.stringify(metadata));
+      return result.lastInsertRowid;
+    } catch (e) {
+      logger.warn('StateGraph', '[state-graph] error en logInteraction:', e.message);
+      return null;
+    }
+  }
+
+  /**
+   * Obtiene interacciones recientes por tipo.
+   * @param {{ type?: string, limit?: number }} opts
+   * @returns {Array<object>}
+   */
+  getInteractions({ type = null, limit = 20 } = {}) {
+    if (!this.isReady) return [];
+    try {
+      let sql = 'SELECT * FROM interaction_log WHERE 1=1';
+      const args = [];
+      if (type) {
+        sql += ' AND interaction_type=?';
+        args.push(type);
+      }
+      sql += ' ORDER BY created_at DESC LIMIT ?';
+      args.push(limit);
+      return this._db.prepare(sql).all(...args);
+    } catch (e) {
+      logger.warn('StateGraph', '[state-graph] error en getInteractions:', e.message);
+      return [];
+    }
+  }
+
+  /**
+   * Obtiene nodos por tipo con opciones de filtrado.
+   * @param {{ type: string, limit?: number, minImportance?: number }} opts
+   * @returns {Array<object>}
+   */
+  getNodesByType({ type, limit = 20, minImportance = 0 } = {}) {
+    if (!this.isReady) return [];
+    try {
+      return this._db
+        .prepare(
+          'SELECT * FROM nodes WHERE type=? AND archived=0 AND importance>=? ORDER BY importance DESC LIMIT ?'
+        )
+        .all(type, minImportance, limit);
+    } catch (e) {
+      logger.warn('StateGraph', '[state-graph] error en getNodesByType:', e.message);
+      return [];
+    }
   }
 
   startSession() {

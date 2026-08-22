@@ -242,7 +242,13 @@ class RetrievalPlanner {
     // (User/Project/Preference/Belief por importancia). Antes solo entraban
     // 5 nodos User — el resto de la foto estable del usuario (creencias,
     // preferencias, proyectos) quedaba fuera del contexto del chat.
-    addAll(this._graph.getWorldModel());
+    // Fase 3: passing context for contextual boosting
+    const context = {
+      activeApp: this._osSensor?.getCurrentContext()?.app || null,
+      windowTitle: this._osSensor?.getCurrentContext()?.title || null,
+      currentTopic: this._extractKeywords(userMessage).slice(0, 3).join(' ') || null,
+    };
+    addAll(this._graph.getWorldModel(context));
 
     // 2. Detectar intención semántica para StateGraph y traer nodos específicos
     const intents = this._detectGraphIntents(userMessage);
