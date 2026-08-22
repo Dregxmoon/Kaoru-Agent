@@ -268,4 +268,93 @@ module.exports = {
       return true;
     }
   },
+
+  /**
+   * Genera reglas de comportamiento forzadas para el system prompt.
+   * @param {Object} emotionalCtx
+   * @param {Object} topicCtx
+   * @param {string} adaptationType
+   * @returns {Promise<{ rules: string[], forbidden: string[], maxTokens: number, reason: string }>}
+   */
+  async _buildEnforcementRules(emotionalCtx, topicCtx = null, adaptationType = null) {
+    try {
+      const graph = this._graph;
+      if (!graph?._promptEnforcer) {
+        return { rules: [], forbidden: [], maxTokens: 150, reason: 'no enforcer' };
+      }
+      return graph._promptEnforcer.enforce(emotionalCtx, topicCtx, adaptationType);
+    } catch (e) {
+      logger.debug('adaptive-integration', `Error building enforcement: ${e.message}`);
+      return { rules: [], forbidden: [], maxTokens: 150, reason: 'error' };
+    }
+  },
+
+  /**
+   * Serializa las reglas de enforcement para el system prompt.
+   * @param {Object} enforcement
+   * @returns {string}
+   */
+  _serializeEnforcement(enforcement) {
+    try {
+      const graph = this._graph;
+      if (!graph?._promptEnforcer) return '';
+      return graph._promptEnforcer.serialize(enforcement);
+    } catch {
+      return '';
+    }
+  },
+
+  /**
+   * Registra una respuesta de Kaoru para evaluación.
+   * @param {string} kaoruResponse
+   * @param {Object} enforcement
+   * @param {Object} emotionalCtx
+   * @param {string} adaptationType
+   */
+  _recordKaoruResponse(kaoruResponse, enforcement, emotionalCtx, adaptationType) {
+    try {
+      const graph = this._graph;
+      if (!graph?._responseEvaluator) return;
+      graph._responseEvaluator.recordResponse(kaoruResponse, enforcement, emotionalCtx, adaptationType);
+    } catch (e) {
+      logger.debug('adaptive-integration', `Error recording Kaoru response: ${e.message}`);
+    }
+  },
+
+  /**
+   * Evalúa la calidad de la respuesta y actualiza el FeedbackScorer.
+   * @param {number} userEngagement
+   * @returns {{ quality: number, feedbackApplied: boolean, violations: string[] }}
+   */
+  _evaluateKaoruResponse(userEngagement) {
+    try {
+      const graph = this._graph;
+      if (!graph?._responseEvaluator) {
+        return { quality: 0.5, feedbackApplied: false, violations: [] };
+      }
+      return graph._responseEvaluator.evaluate(userEngagement);
+    } catch (e) {
+      logger.debug('adaptive-integration', `Error evaluating response: ${e.message}`);
+      return { quality: 0.5, feedbackApplied: false, violations: [] };
+    }
+  },
+
+  /**
+   * Evalúa una respuesta sin actualizar (dry-run).
+   * @param {string} kaoruResponse
+   * @param {Object} enforcement
+   * @param {Object} emotionalCtx
+   * @returns {{ score: number, violations: string[], passed: boolean }}
+   */
+  _evaluateDryRun(kaoruResponse, enforcement, emotionalCtx) {
+    try {
+      const graph = this._graph;
+      if (!graph?._responseEvaluator) {
+        return { score: 0.5, violations: [], passed: true };
+      }
+      return graph._responseEvaluator.evaluateDryRun(kaoruResponse, enforcement, emotionalCtx);
+    } catch {
+      return { score: 0.5, violations: [], passed: true };
+    }
+  },
 };

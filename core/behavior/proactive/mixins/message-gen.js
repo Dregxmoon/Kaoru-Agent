@@ -102,6 +102,8 @@ RESPALDADO por la memoria que aparece abajo en este prompt. Nunca inventes, comp
 personales que no estén ahí (nombres, cumpleaños, horarios, detalles de su vida). Si solo tienes una pista
 vaga, pregunta con curiosidad en vez de afirmar. Un "no sé" o un "NO" es siempre mejor que inventar.
 
+${enforcementPrompt}
+
 ${memory}`;
 
     // Fase D: anti-repetición real. En vez de solo el último mensaje, se pasa
@@ -159,6 +161,10 @@ ${memory}`;
     // Contexto emocional y de momentum de topics (nuevos componentes evolutivos)
     const emotionalCtx = await this._buildEmotionalContext(trigger);
     const topicCtx = this._buildTopicContext(trigger);
+
+    // Reglas de enforcement forzadas (basadas en emociones y efectividad)
+    const enforcement = await this._buildEnforcementRules(emotionalCtx, topicCtx, null);
+    const enforcementPrompt = this._serializeEnforcement(enforcement);
 
     const userPrompt = `Son las ${timeStr} (${now.toLocaleDateString('es-MX', { weekday: 'long', day: 'numeric', month: 'long' })}). Esta es la hora y fecha REAL en este momento, confía en este dato por encima de cualquier otra cosa.
 Contexto del trigger: ${trigger.context}

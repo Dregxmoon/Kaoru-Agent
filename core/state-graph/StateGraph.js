@@ -34,6 +34,8 @@ const { TraitLearner } = require('./evolution/TraitLearner.js');
 const { CommunicationStyleProfiler } = require('./evolution/CommunicationStyleProfiler.js');
 const { TopicMomentumTracker } = require('./evolution/TopicMomentumTracker.js');
 const { AdaptiveResponseEngine } = require('./evolution/AdaptiveResponseEngine.js');
+const { PromptEnforcer } = require('../behavior/proactive/PromptEnforcer.js');
+const { ResponseEvaluator } = require('../behavior/proactive/ResponseEvaluator.js');
 const { UserModelBuilder } = require('./UserModelBuilder.js');
 const { ContradictionResolver } = require('./ContradictionResolver.js');
 const { NODE_TYPES, DECAY_RATES } = require('./stores/constants.js');
@@ -468,9 +470,11 @@ class StateGraph {
     this._traitLearner = new TraitLearner(this._evolution);
     this._commStyleProfiler = new CommunicationStyleProfiler(this._evolution);
     this._topicTracker = new TopicMomentumTracker(this._evolution);
-    this._adaptiveEngine = new AdaptiveResponseEngine(this._traitLearner, this._commStyleProfiler, this._topicTracker, this._feedbackScorer);
     this._feedbackScorer = new FeedbackScorer(this._evolution);
+    this._adaptiveEngine = new AdaptiveResponseEngine(this._traitLearner, this._commStyleProfiler, this._topicTracker, this._feedbackScorer);
     this._llmEmotionDetector = null; // se inicializa cuando el LLM esté disponible
+    this._promptEnforcer = null; // se inicializa después
+    this._responseEvaluator = null; // se inicializa después
   }
 
   // Schema
@@ -1020,6 +1024,15 @@ class StateGraph {
     if (llmProvider && !this._llmEmotionDetector) {
       this._llmEmotionDetector = new LLMEotionDetector(llmProvider, { timeoutMs: 2000 });
       logger.info('StateGraph', 'LLM emotion detector inicializado');
+    }
+    // Inicializar PromptEnforcer y ResponseEvaluator cuando el LLM esté disponible
+    if (!this._promptEnforcer) {
+      this._promptEnforcer = new PromptEnforcer(this._feedbackScorer);
+      logger.info('StateGraph', 'PromptEnforcer inicializado');
+    }
+    if (!this._responseEvaluator) {
+      this._responseEvaluator = new ResponseEvaluator(this._feedbackScorer);
+      logger.info('StateGraph', 'ResponseEvaluator inicializado');
     }
   }
 
