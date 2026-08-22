@@ -4,6 +4,7 @@ const logger = require('../observability/Logger.js');
 
 const { spawn } = require('child_process');
 const { EventEmitter } = require('events');
+const os = require('os');
 const path = require('path');
 const fs = require('fs');
 
@@ -86,6 +87,24 @@ class _LSPInstance {
     return this._serverConfig.languageId || this._languageKey;
   }
 
+  /**
+   * Suscripción a eventos internos ('crashed'). Delega en el emitter privado:
+   * la clase NO extiende EventEmitter (antes `inst.on(...)` lanzaba TypeError
+   * y abortaba LSPManager.start() completo en repos multi-lenguaje).
+   * @param {string} event
+   * @param {(...args: unknown[]) => void} fn
+   * @returns {this}
+   */
+  on(event, fn) {
+    this._emitter.on(event, fn);
+    return this;
+  }
+
+  off(event, fn) {
+    this._emitter.off(event, fn);
+    return this;
+  }
+
   start(workspacePath) {
     const config = this._serverConfig;
     this._workspacePath = path.resolve(workspacePath);
@@ -98,7 +117,87 @@ class _LSPInstance {
     // LSP.2: si el binario no existe y la config lo habilita (autoInstall),
     // se ejecuta installCmd y se reintenta UNA vez antes de fallar.
     const retriesLeft = config.autoInstall && config.installCmd ? 1 : 0;
-    return this._doStart(this._workspacePath, { retriesLeft });
+    return this._resolveTsserverFallback()
+      .catch((e) => {
+        logger.warn('LSPManager', `[lsp:${this._languageKey}] fallback de tsserver falló: ${e.message}`);
+        return null;
+      })
+      .then((fallbackLib) => {
+        if (fallbackLib) {
+          // tls ≥6 quitó --tsserver-path de la CLI; la ruta va por
+          // initializationOptions.tsserver.fallbackPath.
+          this._initializationOptions = {
+            ...(this._initializationOptions || {}),
+            tsserver: {
+              ...((this._initializationOptions || {}).tsserver || {}),
+              fallbackPath: fallbackLib,
+            },
+          };
+        }
+        return this._doStart(this._workspacePath, { retriesLeft });
+      });
+  }
+
+  /**
+   * TypeScript ≥7 (nativo) ya no distribuye `tsserver.js`, que
+   * typescript-language-server necesita. Si el TS del workspace no lo trae,
+   * se instala typescript@5 en un directorio de caché compartido y se devuelve
+   * su ruta `lib/` (el caller la inyecta en initializationOptions).
+   * @returns {Promise<string|null>} directorio lib/ del TS de respaldo, o null
+   */
+  _resolveTsserverFallback() {
+    if (!/typescript-language-server/.test((this._serverConfig.args || []).join(' '))) {
+      return Promise.resolve(null);
+    }
+    const wsTsserver = path.join(
+      this._workspacePath,
+      'node_modules',
+      'typescript',
+      'lib',
+      'tsserver.js'
+    );
+    if (fs.existsSync(wsTsserver)) return Promise.resolve(null);
+
+    const fallbackDir = path.join(
+      process.env.HOME || os.homedir(),
+      '.cache',
+      'kaoru-lsp',
+      'typescript5'
+    );
+    const fallbackLib = path.join(fallbackDir, 'node_modules', 'typescript', 'lib');
+    if (fs.existsSync(path.join(fallbackLib, 'tsserver.js'))) {
+      logger.info('LSPManager', `[lsp:${this._languageKey}] usando tsserver de caché (${fallbackDir})`);
+      return Promise.resolve(fallbackLib);
+    }
+
+    logger.info(
+      'LSPManager',
+      `[lsp:${this._languageKey}] workspace con TypeScript sin tsserver — instalando typescript@5 en caché...`
+    );
+    fs.mkdirSync(fallbackDir, { recursive: true });
+    return new Promise((resolve, reject) => {
+      const child = spawn('npm', ['install', '--prefix', fallbackDir, 'typescript@5'], {
+        cwd: fallbackDir,
+        stdio: 'ignore',
+        shell: process.platform === 'win32',
+      });
+      const timer = setTimeout(() => {
+        child.kill();
+        reject(new Error('timeout instalando typescript@5 de respaldo'));
+      }, 120000);
+      child.on('exit', (code) => {
+        clearTimeout(timer);
+        if (code === 0 && fs.existsSync(path.join(fallbackLib, 'tsserver.js'))) {
+          resolve(fallbackLib);
+        } else {
+          reject(new Error(`npm install typescript@5 salió con código ${code}`));
+        }
+      });
+      child.on('error', (e) => {
+        clearTimeout(timer);
+        reject(e);
+      });
+    });
   }
 
   _doStart(workspacePath, { retriesLeft }) {
@@ -960,7 +1059,14 @@ class LSPManager {
       }
     }
 
-    await primary.start(resolved);
+    try {
+      await primary.start(resolved);
+    } catch (e) {
+      // Sin cleanup la instancia muerta quedaba en el mapa y tools/watcher
+      // pagaban timeouts de 5-20s contra un proceso que nunca arrancó.
+      this._instances.delete(primaryKey);
+      throw e;
+    }
     return primaryKey;
   }
 
