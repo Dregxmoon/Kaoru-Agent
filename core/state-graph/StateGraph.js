@@ -468,6 +468,10 @@ class StateGraph {
     this._resolver = new ContradictionResolver(this);
     this._userModel = new UserModelBuilder(this._db, this);
     this._evolution = new EvolutionStore(this._db);
+    // Las tablas evolutivas (communication_profiles/topic_momentum/emotional_
+    // history) se crean AQUÍ: _createSchema() corre antes de que exista
+    // this._evolution y el guard interno nunca se ejecutaba en DBs preexistentes.
+    this._evolution.createSchema();
     this._traitLearner = new TraitLearner(this._evolution);
     this._commStyleProfiler = new CommunicationStyleProfiler(this._evolution);
     this._topicTracker = new TopicMomentumTracker(this._evolution);

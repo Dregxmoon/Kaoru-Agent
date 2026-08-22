@@ -154,7 +154,7 @@ class ProviderQueue {
         this._cooldownUntil = Math.max(this._cooldownUntil, Date.now() + waitMs);
         this._lastRateLimitError = e;
       }
-      task.reject(err);
+      task.reject(e);
     } finally {
       this._stats.execMs += Date.now() - t0;
     }

@@ -180,6 +180,7 @@ async function buildContext(sessionHistory, activeProvider, options = {}) {
 
   // BehaviorModel
   let behaviorCtx = null;
+  let enforcementRules = null;
   if (state.behavior) {
     try {
       // Get adaptation profile from evolutionary memory
@@ -236,7 +237,6 @@ async function buildContext(sessionHistory, activeProvider, options = {}) {
       }
 
       // Get enforcement rules from PromptEnforcer
-      let enforcementRules = null;
       if (state.graph && typeof state.graph.getPromptEnforcer === 'function') {
         try {
           const enforcer = state.graph.getPromptEnforcer();
