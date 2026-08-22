@@ -149,10 +149,29 @@ const CODE_VERACITY_RULE = `# VERACIDAD DEL CÓDIGO
 
 // ── Context ───────────────────────────────────────────────────────────────────
 
+// Estado para feedback loop: almacena el contexto del turno anterior
+const _prevTurnContext = { enforcement: null, emotionalCtx: null, adaptationType: null };
+
 async function buildContext(sessionHistory, activeProvider, options = {}) {
   const provider = activeProvider || LLMProvider.getActiveProvider() || 'groq';
   const mode = options.mode || 'chat'; // 'plan' | 'execute' | 'chat'
   const approvedPlan = options.plan || null;
+
+  // Evaluar la respuesta del turno anterior (feedback loop)
+  if (_prevTurnContext.enforcement && state.graph) {
+    try {
+      const evaluator = state.graph.getResponseEvaluator?.();
+      if (evaluator) {
+        // Calcular engagement del último turno del usuario
+        const lastUserMsg = [...sessionHistory].reverse().find((m) => m.role === 'user');
+        const prevUserMsg = sessionHistory.length >= 2 ? sessionHistory[sessionHistory.length - 2] : null;
+        const engagement = prevUserMsg ? Math.min(1, (prevUserMsg.content?.length || 0) / 100 + 0.3) : 0.5;
+        evaluator.evaluate(engagement);
+      }
+    } catch (e) {
+      logger.debug('context', '[core] error evaluando respuesta anterior:', e.message);
+    }
+  }
 
   const lastUserMsg = [...sessionHistory].reverse().find((m) => m.role === 'user');
   const userText = lastUserMsg?.content || '';
@@ -170,6 +189,21 @@ async function buildContext(sessionHistory, activeProvider, options = {}) {
           const adaptiveEngine = state.graph.getAdaptiveEngine();
           if (adaptiveEngine) {
             adaptationProfile = adaptiveEngine.buildAdaptationProfile();
+            // Registrar adaptación para feedback loop
+            if (adaptationProfile && adaptationProfile.confidence > 0.2) {
+              const feedbackScorer = state.graph.getFeedbackScorer?.();
+              if (feedbackScorer) {
+                feedbackScorer.recordAdaptation('responseLength', adaptationProfile.styleHint || '');
+              }
+            }
+            // Serializar perfil para inyectar al LLM
+            if (adaptationProfile && adaptationProfile.confidence > 0.1) {
+              const { AdaptiveResponseEngine } = require('../state-graph/evolution/AdaptiveResponseEngine.js');
+              const adaptationHint = AdaptiveResponseEngine.serialize(adaptationProfile);
+              if (adaptationHint) {
+                behaviorCtx = { ...behaviorCtx, adaptationHint };
+              }
+            }
           }
         } catch (e) {
           logger.warn('context', '[core] error getting adaptation profile:', e.message);
@@ -213,6 +247,26 @@ async function buildContext(sessionHistory, activeProvider, options = {}) {
           logger.debug('context', '[core] error getting enforcement rules:', e.message);
         }
       }
+
+      // Agregar tendencias emocionales al enforcement
+      if (state.session?._sessionId && state.graph && enforcementRules) {
+        try {
+          const trendTracker = state.graph.getEmotionalTrendTracker?.();
+          if (trendTracker) {
+            const trendHint = trendTracker.buildTrendHint(state.session._sessionId);
+            if (trendHint && enforcementRules.rules) {
+              enforcementRules.rules.push(trendHint);
+            }
+          }
+        } catch (e) {
+          logger.debug('context', '[core] error getting trend hint:', e.message);
+        }
+      }
+
+      // Almacenar contexto para evaluación en el próximo turno
+      _prevTurnContext.enforcement = enforcementRules;
+      _prevTurnContext.emotionalCtx = emotionalCtx;
+      _prevTurnContext.adaptationType = null;
 
       behaviorCtx = state.behavior.evaluate(userText, osCtx, sessionHistory, adaptationProfile, emotionalCtx);
       state.bus.emit('behavior:evaluated', behaviorCtx);
@@ -629,4 +683,5 @@ module.exports = {
   buildWorkspaceStackSection,
   CODE_VERACITY_RULE,
   truncateSystemPrompt,
+  _prevTurnContext,
 };

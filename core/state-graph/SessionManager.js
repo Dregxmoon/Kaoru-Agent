@@ -85,6 +85,16 @@ class SessionManager {
     this._turnCount = 0;
     logger.info('SessionManager', `[session] sesión ${this._sessionId} iniciada`);
 
+    // Iniciar tracking de tendencias emocionales para esta sesión
+    try {
+      const trendTracker = this._graph.getEmotionalTrendTracker?.();
+      if (trendTracker) {
+        trendTracker.startSession(this._sessionId);
+      }
+    } catch (e) {
+      // Emotional trend tracking never blocks the main flow
+    }
+
     this._resolver.deduplicateNodes();
     this._updater.cleanupMemoryArtifacts();
 

@@ -314,6 +314,25 @@ async function runAgent(userMessage, opts = {}) {
     loopOpts
   );
 
+  // Registrar la respuesta de Kaoru para evaluación (feedback loop)
+  if (result.response && state.graph) {
+    try {
+      const evaluator = state.graph.getResponseEvaluator?.();
+      if (evaluator) {
+        // Importar _prevTurnContext de context.js
+        const { _prevTurnContext } = require('./context.js');
+        evaluator.recordResponse(
+          result.response,
+          _prevTurnContext.enforcement,
+          _prevTurnContext.emotionalCtx,
+          _prevTurnContext.adaptationType
+        );
+      }
+    } catch (e) {
+      logger.debug('agent', '[core] error registrando respuesta para evaluación:', e.message);
+    }
+  }
+
   // ── Checkpoint de la tarea: si hubo mutaciones, se ofrece deshacer SOLO los
   //    cambios de este run (ver core/git/WorkspaceCheckpoint.js y el comando
   //    /revertir-tarea). Se adjunta metadata al resultado y un hint al texto.

@@ -132,9 +132,9 @@ module.exports = {
   _buildTopicContext(trigger) {
     try {
       const graph = this._graph;
-      if (!graph?._ready || !graph._topicMomentum) return '';
+      if (!graph?._ready || !graph._topicTracker) return '';
 
-      const tracker = graph._topicMomentum;
+      const tracker = graph._topicTracker;
       const hotTopics = tracker.getHotTopics(5);
       const coldTopics = tracker.getColdTopics(3);
 
