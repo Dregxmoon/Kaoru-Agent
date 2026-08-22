@@ -24,7 +24,7 @@ const { ConfigManager } = require('./core/config/ConfigManager.js');
 const { initUpdater } = require('./updater.js');
 
 const { createSharedState } = require('./ipc/state.js');
-const logger = require('./core/utils/logger');
+const logger = require('./core/observability/Logger.js');
 
 app.setName('vtuber-overlay');
 
