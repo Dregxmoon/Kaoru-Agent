@@ -85,6 +85,14 @@ module.exports = {
     const timeStr = now.toLocaleTimeString('es-MX', { hour: '2-digit', minute: '2-digit' });
     const identity = _safeGetIdentity();
 
+    // Contexto emocional y de momentum de topics (nuevos componentes evolutivos)
+    const emotionalCtx = await this._buildEmotionalContext(trigger);
+    const topicCtx = this._buildTopicContext(trigger);
+
+    // Reglas de enforcement forzadas (basadas en emociones y efectividad)
+    const enforcement = await this._buildEnforcementRules(emotionalCtx, topicCtx, null);
+    const enforcementPrompt = this._serializeEnforcement(enforcement);
+
     const systemPrompt = `${identity.core || 'Eres la asistente personal de esta computadora.'}
 
 Tienes carácter propio, humor seco, y eres genuinamente cercana a la persona con quien hablas.
@@ -158,14 +166,6 @@ ${memory}`;
     // acogida, el mensaje lo reconoce en vez de repetir a ciegas.
     const bookend = this._buildBookend(trigger);
 
-    // Contexto emocional y de momentum de topics (nuevos componentes evolutivos)
-    const emotionalCtx = await this._buildEmotionalContext(trigger);
-    const topicCtx = this._buildTopicContext(trigger);
-
-    // Reglas de enforcement forzadas (basadas en emociones y efectividad)
-    const enforcement = await this._buildEnforcementRules(emotionalCtx, topicCtx, null);
-    const enforcementPrompt = this._serializeEnforcement(enforcement);
-
     const userPrompt = `Son las ${timeStr} (${now.toLocaleDateString('es-MX', { weekday: 'long', day: 'numeric', month: 'long' })}). Esta es la hora y fecha REAL en este momento, confía en este dato por encima de cualquier otra cosa.
 Contexto del trigger: ${trigger.context}
 ${osCtx?.openWindowsSummary ? `El usuario tiene abierto: ${osCtx.openWindowsSummary}` : ''}
@@ -220,6 +220,9 @@ No expliques por qué escribes. No anuncies que eres proactiva. NO muestres tu r
         );
         return null;
       }
+
+      // Registrar la respuesta de Kaoru para evaluación posterior (feedback loop)
+      this._recordKaoruResponse(trimmed, enforcement, emotionalCtx, null);
 
       return trimmed;
     } catch (e) {

@@ -1015,6 +1015,14 @@ class StateGraph {
     return this._llmEmotionDetector;
   }
 
+  getPromptEnforcer() {
+    return this._promptEnforcer;
+  }
+
+  getResponseEvaluator() {
+    return this._responseEvaluator;
+  }
+
   /**
    * Inicializa el detector de emociones con el LLM provider.
    * Llamado después de que el LLM está listo.

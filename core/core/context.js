@@ -188,6 +188,20 @@ async function buildContext(sessionHistory, activeProvider, options = {}) {
           logger.debug('context', '[core] error getting emotional context:', e.message);
         }
       }
+
+      // Get enforcement rules from PromptEnforcer
+      let enforcementRules = null;
+      if (state.graph && typeof state.graph.getPromptEnforcer === 'function') {
+        try {
+          const enforcer = state.graph.getPromptEnforcer();
+          if (enforcer) {
+            enforcementRules = enforcer.enforce(emotionalCtx, null, null);
+          }
+        } catch (e) {
+          logger.debug('context', '[core] error getting enforcement rules:', e.message);
+        }
+      }
+
       behaviorCtx = state.behavior.evaluate(userText, osCtx, sessionHistory, adaptationProfile, emotionalCtx);
       state.bus.emit('behavior:evaluated', behaviorCtx);
     } catch (e) {
@@ -434,6 +448,17 @@ async function buildContext(sessionHistory, activeProvider, options = {}) {
       const mcpTools = state.mcp.listAllTools();
       if (mcpTools.length) {
         result.systemPrompt += buildMCPCatalogPrompt(mcpTools);
+      }
+    }
+  }
+
+  // Enforcement rules (memoria evolutiva)
+  if (enforcementRules && enforcementRules.rules.length) {
+    const enforcer = state.graph?.getPromptEnforcer?.();
+    if (enforcer) {
+      const enforcementSection = enforcer.serialize(enforcementRules);
+      if (enforcementSection) {
+        result.systemPrompt = result.systemPrompt + '\n\n' + enforcementSection;
       }
     }
   }

@@ -121,6 +121,9 @@ function init(app) {
   state.session = new SessionManager(state.graph, state.grounding);
   state.updater = new StateUpdater(state.graph);
 
+  // Inicializar detector de emociones y enforcement (evolutionary memory)
+  state.graph.initEmotionDetector(LLMProvider);
+
   const SensorClass =
     process.platform === 'win32' ? OSSensor : process.platform === 'linux' ? LinuxOSSensor : null;
 

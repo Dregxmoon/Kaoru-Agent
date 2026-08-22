@@ -151,6 +151,10 @@ module.exports = {
     });
     this._audit.push({ type, proposalId, outcome: decision, reason, at: Date.now() });
 
+    // Evaluar la calidad de la respuesta de Kaoru (feedback loop)
+    const engagementScore = decision === 'accepted' ? 0.8 : 0.3;
+    this._evaluateKaoruResponse(engagementScore);
+
     // Hilo relacional: marca el desenlace en el registro de mensajes previos
     // (el bookend y el registro adaptativo leen estos outcomes).
     for (const e of this._relationLog) {
