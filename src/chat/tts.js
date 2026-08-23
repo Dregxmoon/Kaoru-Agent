@@ -1,9 +1,27 @@
 // @ts-nocheck
 // Input
-let _ttsMuted = false;
+// El estado de mudo PERSISTE entre sesiones (localStorage): antes era una
+// variable volátil que volvía a false en cada reinicio y el usuario tenía
+// que re-silenciar cada vez.
+const _TTS_MUTED_KEY = 'kaoru_tts_muted';
+
+function _loadMuted() {
+  try {
+    return localStorage.getItem(_TTS_MUTED_KEY) === '1';
+  } catch {
+    return false;
+  }
+}
+
+let _ttsMuted = _loadMuted();
 
 function setTtsMuted(value) {
   _ttsMuted = !!value;
+  try {
+    localStorage.setItem(_TTS_MUTED_KEY, _ttsMuted ? '1' : '0');
+  } catch {
+    /* localStorage puede fallar en contextos restringidos — la sesión igual funciona */
+  }
 }
 
 function isTtsMuted() {
