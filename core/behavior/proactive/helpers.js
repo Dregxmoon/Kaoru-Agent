@@ -432,6 +432,21 @@ function _extractPatch(response) {
     .replace(/```\s*$/, '')
     .trim();
 
+  // Último recurso ANTES del fallback de llaves: buscar TODOS los bloques
+  // fenced ```json ... ``` en cualquier posición (prosa antes/después con
+  // llaves sueltas no debe confundir el parseo).
+  const fenced = String(response).match(/```(?:json)?\s*([\s\S]*?)```/gi) || [];
+  for (const block of fenced) {
+    const inner = block.replace(/^```(?:json)?\s*/i, '').replace(/```\s*$/, '').trim();
+    if (!inner) continue;
+    try {
+      const parsed = JSON.parse(inner);
+      if (parsed && typeof parsed === 'object') return parsed;
+    } catch (_) {
+      /* siguiente bloque */
+    }
+  }
+
   try {
     const parsed = JSON.parse(text);
     return parsed && typeof parsed === 'object' ? parsed : null;

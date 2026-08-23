@@ -1010,7 +1010,10 @@ async function callOpenAI(providerId, messages, systemPrompt, mode = 'fast', opt
 
   const safeMode = _resolveMode(mode);
   const model = _resolveModel(providerId, safeMode);
-  const maxTokens = MAX_OUTPUT[safeMode];
+  // opts.maxTokens: override puntual (p.ej. generación de parches con modelos
+  // de reasoning que gastan el presupuesto del modo en <think>).
+  const maxTokens =
+    Number(opts?.maxTokens) > 0 ? Number(opts.maxTokens) : MAX_OUTPUT[safeMode];
   const timeoutMs = def.timeoutMs?.[safeMode] ?? TIMEOUT_MS[safeMode] ?? TIMEOUT_MS.fast;
   const history = _trimHistoryForMode(messages, safeMode);
   const msgs = [{ role: 'system', content: systemPrompt }, ...history];

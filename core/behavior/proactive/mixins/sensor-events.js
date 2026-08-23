@@ -165,9 +165,13 @@ ${symbolsCtx}
 Genera el parche JSON.`;
 
     try {
+      // maxTokens alto: los modelos de reasoning (nemotron, qwen) queman el
+      // presupuesto del modo fast en <think> y el JSON del parche queda
+      // truncado ("We need to output JSON..." sin JSON).
       const response = await LLMProvider.complete(
         [{ role: 'user', content: userPrompt }],
-        systemPrompt
+        systemPrompt,
+        { maxTokens: 4096, timeoutMs: 45_000 }
       );
       const parsed = _extractPatch(response);
       if (!parsed || !Array.isArray(parsed.changes) || !parsed.changes.length) {
