@@ -384,6 +384,61 @@ function _providerCatalog(providerId) {
   return Array.isArray(def.catalog) ? def.catalog : [];
 }
 
+// ── Auto-recuperación ante modelos descontinuados ─────────────────────────────
+// Los providers retiran modelos (Groq deprecó llama-3.1-70b-versatile sin
+// aviso). Ante error model_decommissioned/model_not_found: se marca el modelo
+// como muerto, se consulta el catálogo vivo del provider y se elige reemplazo
+// en memoria (persistir en config.json queda para el usuario/UI).
+
+/** @type {Set<string>} claves "provider:model" confirmadas como no disponibles */
+const _deadModels = new Set();
+
+function _isModelUnavailableError(msg) {
+  return /model_decommissioned|model_not_found|decommissioned|does not exist|not a valid model/i.test(
+    String(msg)
+  );
+}
+
+/**
+ * Reemplaza en memoria un modelo muerto por uno vivo del mismo provider.
+ * @param {string} providerId
+ * @param {string} mode 'fast' | 'smart'
+ * @returns {Promise<boolean>} true si encontró reemplazo
+ */
+async function _recoverDecommissionedModel(providerId, mode) {
+  const dead = _resolveModel(providerId, mode);
+  if (!dead || _deadModels.has(`${providerId}:${dead}`)) return false;
+  let live = [];
+  try {
+    live = await refreshProviderModels(providerId);
+  } catch {
+    /* catálogo estático como fallback */
+  }
+  const candidates = (Array.isArray(live) ? live : []).filter(
+    (m) => m && m !== dead && !_deadModels.has(`${providerId}:${m}`)
+  );
+  if (candidates.length === 0) {
+    logger.warn(
+      'LLMProvider',
+      `[llm] ${dead} (${providerId}) no está disponible y no hay catálogo vivo para elegir reemplazo`
+    );
+    return false;
+  }
+  // Heurística de tier: smart prefiere el modelo más grande, fast uno chico.
+  const prefer = /smart/i.test(mode) ? /120b|70b|large|405b/i : /mini|8b|20b|small|instant|flash/i;
+  const pick = candidates.find((m) => prefer.test(m)) || candidates[0];
+  _deadModels.add(`${providerId}:${dead}`);
+  if (!_config.providers[providerId]) _config.providers[providerId] = {};
+  if (!_config.providers[providerId].model) _config.providers[providerId].model = {};
+  _config.providers[providerId].model[mode] = pick;
+  logger.warn(
+    'LLMProvider',
+    `[llm] modelo ${dead} de ${providerId} fue retirado — reemplazo automático: ${pick} (${mode}). ` +
+      'El cambio es en memoria: actualizá config.json o la UI para hacerlo permanente.'
+  );
+  return true;
+}
+
 // Fase Q: lista "todos los modelos disponibles" de un provider. Es la vía
 // que usan el selector de credenciales y /model para ofrecer modelos que no
 // son los dos por defecto (fast/smart). Incluye el modelo activo aunque no
@@ -1699,7 +1754,20 @@ async function _callWithFallback(messages, systemPrompt, mode = 'fast', opts = {
             _markProviderDegraded(providerName, 'rate-limit', waitMs);
           }
         }
-        if (!retryable || attempt === MAX_RETRIES_PER_PROVIDER) {
+        // Modelo retirado por el provider: elegir reemplazo vivo y reintentar
+        // en el próximo attempt (fn resuelve el modelo por llamada vía
+        // _resolveModel, así que el override en memoria alcanza).
+        let modelRecovered = false;
+        if (_isModelUnavailableError(e.message)) {
+          try {
+            modelRecovered = await _recoverDecommissionedModel(providerName, mode);
+          } catch (_) {
+            /* recuperación best-effort */
+          }
+        }
+        // Si hubo reemplazo NO cortamos aunque el error sea "no reintentable":
+        // el attempt siguiente ya usa el modelo nuevo.
+        if ((!retryable && !modelRecovered) || attempt === MAX_RETRIES_PER_PROVIDER) {
           tried.push(providerName);
           break;
         }
@@ -1782,7 +1850,16 @@ async function _callWithFallbackTools(messages, systemPrompt, mode = 'smart', to
             _markProviderDegraded(providerName, 'rate-limit (tool-calling)', waitMs);
           }
         }
-        if (!retryable || attempt === MAX_RETRIES_PER_PROVIDER) {
+        // Modelo retirado: reemplazo vivo + reintento (igual que path de texto).
+        let modelRecovered = false;
+        if (_isModelUnavailableError(e.message)) {
+          try {
+            modelRecovered = await _recoverDecommissionedModel(providerName, mode);
+          } catch (_) {
+            /* recuperación best-effort */
+          }
+        }
+        if ((!retryable && !modelRecovered) || attempt === MAX_RETRIES_PER_PROVIDER) {
           tried.push(providerName);
           break;
         }

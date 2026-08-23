@@ -1277,7 +1277,67 @@ class LSPManager {
       if (cfg && (cfg.manifests || []).some(has)) languages.push(key);
     }
 
+    // Detección por extensión: workspaces reales suelen tener scripts sueltos
+    // sin manifiesto (un deepseek.py en una subcarpeta, un deploy.sh). Si hay
+    // suficientes archivos de un lenguaje SIN server detectado, arrancarlo
+    // igual — el LSP vale más que el manifiesto. Bounded: máx 2 niveles de
+    // profundidad, carpetas ruido ignoradas.
+    for (const key of ['python', 'go', 'rust', 'ruby', 'php', 'java']) {
+      if (languages.includes(key)) continue;
+      const cfg = loadServersTable()[key];
+      const patterns = (cfg?.filePatterns || []).map((p) => String(p).toLowerCase());
+      if (!patterns.length) continue;
+      if (LSPManager._countFilesByExts(root, patterns) >= 2) {
+        languages.push(key);
+      }
+    }
+
     return languages;
+  }
+
+  /**
+   * Cuenta archivos con las extensiones dadas hasta 2 niveles de profundidad,
+   * ignorando node_modules/.git/etc. Corta apenas llega a `threshold`.
+   * @param {string} root
+   * @param {string[]} exts
+   * @param {number} [threshold]
+   * @returns {number}
+   */
+  static _countFilesByExts(root, exts, threshold = 2) {
+    const SKIP = new Set([
+      'node_modules',
+      '.git',
+      'dist',
+      'out',
+      'build',
+      'coverage',
+      'vendor',
+      '.venv',
+      'venv',
+      '__pycache__',
+    ]);
+    let count = 0;
+    const walk = (dir, depth) => {
+      if (depth > 2 || count >= threshold) return;
+      let entries = [];
+      try {
+        entries = fs.readdirSync(dir, { withFileTypes: true });
+      } catch {
+        return;
+      }
+      for (const e of entries) {
+        if (count >= threshold) return;
+        const full = path.join(dir, e.name);
+        if (e.isDirectory()) {
+          if (!SKIP.has(e.name)) walk(full, depth + 1);
+        } else if (e.isFile() && exts.includes(path.extname(e.name).toLowerCase())) {
+          count++;
+          if (count >= threshold) return;
+        }
+      }
+    };
+    walk(root, 0);
+    return count;
   }
 
   /** Compat: primario de detectLanguagesForWorkspace (o 'javascript'). */
