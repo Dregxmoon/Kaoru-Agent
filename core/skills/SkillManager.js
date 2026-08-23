@@ -15,6 +15,32 @@ const DEFAULT_TOP_K = 3;
 const VECTOR_DIMS = 384;
 const SKILL_CATALOG = [];
 
+// ── Presupuesto de contexto (BUG auditoría: buildInjection inyectaba sin límite) ──
+// El system prompt tiene MAX_SYSTEM_CHARS=14K (chat) / 30K (agente). Una skill
+// gigante podía comerse ese presupuesto entera y sin dejar rastro en logs.
+const SKILL_MAX_CHARS = 4_000; // cap por skill individual
+const SKILLS_TOTAL_SOFT_CAP = 12_000; // aviso si la inyección total lo supera
+
+/**
+ * Trunca el contenido de una skill al cap, cortando en el último salto de
+ * línea útil y avisando explícitamente en el prompt (patrón de compactación
+ * del AgentLoop: el LLM SABE que está viendo texto cortado).
+ * @param {string} content
+ * @param {string} name
+ * @returns {{ text: string, truncated: boolean }}
+ */
+function _capSkillContent(content, name) {
+  const text = String(content || '');
+  if (text.length <= SKILL_MAX_CHARS) return { text, truncated: false };
+  const capped = text.slice(0, SKILL_MAX_CHARS);
+  const cut = capped.lastIndexOf('\n');
+  const out = cut > SKILL_MAX_CHARS * 0.6 ? capped.slice(0, cut) : capped;
+  return {
+    text: `${out}\n\n[⚠ Skill "${name}" TRUNCADA: ${text.length} → ${out.length} caracteres para respetar el presupuesto de contexto. Si necesitás el resto, pedilo explícitamente.]`,
+    truncated: true,
+  };
+}
+
 let _embedder = null; // lazy singleton shared with IntentDetector
 let _pipelineModule = null;
 
@@ -250,11 +276,35 @@ class SkillManager {
     const matches = await this.match(userMessage, db);
     if (matches.length === 0) return null;
 
+    // Presupuesto: cap por skill + telemetría del peso total. Sin esto no hay
+    // forma de saber cuánto contexto comen las skills en un turno dado.
+    let truncatedCount = 0;
     const blocks = matches.map((skill) => {
-      return `## Skill: ${skill.name}\n${skill.description}\n\n${skill.content}`;
+      const { text, truncated } = _capSkillContent(skill.content, skill.name);
+      if (truncated) truncatedCount++;
+      const block = `## Skill: ${skill.name}\n${skill.description}\n\n${text}`;
+      logger.info(
+        'SkillManager',
+        `[skills] "${skill.name}": ${block.length} chars${truncated ? ' ⚠ TRUNCADA' : ''}`
+      );
+      return block;
     });
 
-    return ['---', '**Skills activas para esta tarea:**', ...blocks, '---'].join('\n\n');
+    const injection = ['---', '**Skills activas para esta tarea:**', ...blocks, '---'].join(
+      '\n\n'
+    );
+
+    // ~4 chars/token: estimación gruesa pero suficiente para dimensionar.
+    const approxTokens = Math.round(injection.length / 4);
+    logger.info(
+      'SkillManager',
+      `[skills] inyección total: ${matches.length} skill(s) · ${injection.length} chars ` +
+        `(~${approxTokens} tokens)` +
+        (truncatedCount ? ` · ${truncatedCount} truncada(s)` : '') +
+        (injection.length > SKILLS_TOTAL_SOFT_CAP ? ' · ⚠ supera soft-cap recomendado' : '')
+    );
+
+    return injection;
   }
 
   // ── Get skill content by name ────────────────────────────────────────
