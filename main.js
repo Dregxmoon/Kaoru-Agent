@@ -453,6 +453,17 @@ function sendToChat(channel, payload) {
   S.chatWindow.webContents.send(channel, payload);
 }
 
+// ── Gestos espontáneos (módulo independiente) ────────────────────────────────
+// Traduce eventos del sistema a moods y los difunde a AMBAS ventanas
+// (overlay + mini-avatar del chat) para que Kaoru reaccione viva en las dos.
+const { GestureEvents } = require('./core/behavior/GestureEvents.js');
+const gestureEvents = new GestureEvents({
+  send: (mood, meta = {}) => {
+    sendOverlayGesture(mood, meta);
+    sendToChat('gesture', { mood, source: meta.source || 'system' });
+  },
+});
+
 ipcMain.handle('gesture-config', () => savedConfig.gestures || null);
 
 // Contexto compartido para los handlers
@@ -494,6 +505,7 @@ const ctx = {
   setClickThrough,
   sendSpeak,
   sendToChat,
+  gestureEvents,
   sendOverlayGesture,
   keySource: () => _keySource,
   keySourcesByProvider: () => _keySourcesByProvider,
@@ -1052,7 +1064,10 @@ app.whenReady().then(() => {
   });
 
   Core.onInitiative((payload) => {
-    sendOverlayGesture('excited', { source: 'initiative' });
+    // Mood según tipo de iniciativa: un error LSP sorprende, lo demás entusiasma.
+    gestureEvents.emit(payload.reason === 'lsp_error' ? 'lsp-error' : 'proactive', {
+      reason: payload.reason,
+    });
     const chatVisible = S.chatWindow && !S.chatWindow.isDestroyed() && S.chatWindow.isVisible();
     if (chatVisible) {
       sendToChat('initiative', payload);
@@ -1136,7 +1151,7 @@ app.whenReady().then(() => {
   });
 
   Core.onProposalResult((payload) => {
-    sendOverlayGesture(payload.ok ? 'happy' : 'sad', { source: 'proposal-result' });
+    gestureEvents.emit(payload.ok ? 'proposal-accepted' : 'proposal-rejected', { ok: payload.ok });
     sendToChat('proposal-result', payload);
   });
 

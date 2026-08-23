@@ -191,9 +191,11 @@ function getGestureConfig() {
 async function initGestureEngine() {
   if (chatGestureEngine) return chatGestureEngine;
   const cfg = (await getGestureConfig()) || {};
-  chatGestureConfig = cfg;
+  // Animaciones espontáneas SIEMPRE en el mini-avatar del chat: aunque el
+  // usuario no haya configurado nada, Kaoru gesticula sola periódicamente.
+  chatGestureConfig = { ...cfg, ambient: cfg.ambient !== false };
   await initCoreModules();
-  chatGestureEngine = new GestureEngine({ config: cfg });
+  chatGestureEngine = new GestureEngine({ config: chatGestureConfig });
   return chatGestureEngine;
 }
 

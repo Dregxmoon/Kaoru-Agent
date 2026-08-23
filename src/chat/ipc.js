@@ -198,6 +198,21 @@ ipcRenderer.on('agent-approval-expired', (e, { actionId }) => {
   _expireApprovalCard(actionId);
 });
 
+// Gestos espontáneos difundidos desde main (generación, tareas agénticas,
+// proactividad, errores LSP…): el mini-avatar reacciona igual que el overlay.
+ipcRenderer.on('gesture', (e, payload = {}) => {
+  if (!payload || typeof payload.mood !== 'string') return;
+  if (chatGestureEngine) {
+    chatGestureEngine.play(payload.mood);
+    return;
+  }
+  // Motor aún no inicializado: inicializarlo lazy y reproducir.
+  import('./core.js')
+    .then((m) => m.initGestureEngine())
+    .then((eng) => eng.play(payload.mood))
+    .catch(() => {});
+});
+
 ipcRenderer.on('initiative', (e, payload) => {
   if (!payload || typeof payload.suggestion !== 'string' || !payload.suggestion) return;
   if (chatGestureEngine) chatGestureEngine.onEvent('initiative');

@@ -242,9 +242,13 @@ class GestureEngine {
     if (mood) this.setEmotion(mood);
   }
 
-  // Análisis de emociones en mensajes del usuario (pasa el detector del renderer).
+  // Análisis de emociones sobre mensajes. 'user' → detecta del texto crudo;
+  // 'assistant' → espeja la emoción de lo que Kaoru acaba de decir (la UI
+  // llama esto cuando termina una respuesta para que el avatar "sienta" lo
+  // que dice en vez de quedarse mudo gestualmente).
   onChat(role, text, analyzer) {
-    if (role !== 'user' || !text || typeof analyzer !== 'function') return;
+    if (!text || typeof analyzer !== 'function') return;
+    if (role !== 'user' && role !== 'assistant') return;
     let mood;
     try {
       mood = analyzer(text);

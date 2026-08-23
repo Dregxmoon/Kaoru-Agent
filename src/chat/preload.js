@@ -127,6 +127,7 @@ const ON_ALLOWLIST = new Set([
   'agent-subagent-progress',
   'agent-token',
   'chat-message',
+  'gesture',
   'init-theme',
   'initiative',
   'memory-status',

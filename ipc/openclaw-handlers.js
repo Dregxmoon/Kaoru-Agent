@@ -73,6 +73,8 @@ function register(ctx) {
 
     const abort = new AbortController();
     activeAbort = abort;
+    // Gesto: Kaoru "piensa" mientras la tarea agéntica corre.
+    ctx.gestureEvents?.emit('task-start');
     try {
       const result = await Core.runAgent(text, {
         signal: abort.signal,
@@ -152,6 +154,9 @@ function register(ctx) {
 
         onProgress: (progress) => {
           sendToChat('agent-progress', progress);
+          // Gesto espontáneo según fase de la tarea (think al trabajar,
+          // happy/sad al terminar).
+          ctx.gestureEvents?.emit('agent-progress', { status: progress?.status });
         },
 
         // Plan explícito (HUD del chat): cada cambio de progreso del plan se
@@ -167,6 +172,9 @@ function register(ctx) {
         },
       });
 
+      const taskOk = !result.error && !result.truncated && !result.cancelled;
+      ctx.gestureEvents?.emit('task-result', { ok: taskOk, error: result.error });
+
       return {
         response: result.response,
         iterations: result.iterations,
@@ -177,6 +185,7 @@ function register(ctx) {
       };
     } catch (e) {
       logger.error('openclaw-handlers', '[main] error en agent-run:', e.message);
+      ctx.gestureEvents?.emit('task-result', { ok: false, error: e.message });
       return { response: null, iterations: 0, toolResults: [], error: e.message };
     } finally {
       if (activeAbort === abort) activeAbort = null;
