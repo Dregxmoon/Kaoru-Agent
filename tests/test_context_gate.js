@@ -189,6 +189,40 @@ function testEvaluate() {
     { ...baseCtx, osApp: 'Alacritty', osCategory: 'terminal' }
   );
   assert(inTerminal.admit === false && inTerminal.queue === true, 'lsp_error en terminal → QUEUE');
+
+  // ── Viendo contenido (YouTube/stream) → curiosidad se DIFIERE ──────────────
+  const mediaCtx = {
+    ...baseCtx,
+    osApp: 'firefox',
+    osCategory: 'browser',
+    osTitle: 'G2 vs ENVY — VCT Americas Stage 2 — YouTube',
+  };
+  const topicCold = evaluate(
+    { tipo: 'topic_cold', kind: 'default', score: 0.7, isCritical: false, payload: {} },
+    mediaCtx
+  );
+  assert(topicCold.admit === false && topicCold.queue === true, 'topic_cold viendo YouTube → QUEUE');
+  assert(
+    topicCold.decision.reason === 'user_watching_media',
+    'reason = user_watching_media',
+    topicCold.decision.reason
+  );
+
+  // intention_stale también se difiere (conversación en medio del video molesta).
+  const intentMedia = evaluate(
+    { tipo: 'intention_stale', kind: 'default', score: 0.7, isCritical: false, payload: {} },
+    mediaCtx
+  );
+  assert(intentMedia.admit === false && intentMedia.queue === true, 'intention_stale viendo video → QUEUE');
+
+  // Fuera del video (mismo browser, otra pestaña/documentación) → pasa normal.
+  const notVideo = evaluate(
+    { tipo: 'topic_cold', kind: 'default', score: 0.7, isCritical: false, payload: {} },
+    { ...baseCtx, chatOpen: true, lastUserMsg: baseCtx.now - 30 * 1000 }
+  );
+  // sin editor y chateando hace poco → igual bloqueado por otras reglas; lo que
+  // importa es que el motivo NO sea user_watching_media.
+  assert(notVideo.decision.reason !== 'user_watching_media', 'sin video → el guard de media no interviene');
   // Fallback por keyword del nombre de app (categoría 'other').
   const unknownCategory = evaluate(
     { tipo: 'lsp_error', kind: 'default', score: 0.91, isCritical: false, payload: { focused: true } },

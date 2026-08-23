@@ -194,6 +194,39 @@ function evaluate(candidate, context = {}, policy = DEFAULT_GATE_POLICY) {
   // el flow (el cooldown de 6h por tipo y el cupo diario son los que evitan el
   // acoso). Un extraño "dato conocido" NO es ruido a silenciar por score: es
   // contenido a explorar → bypass del piso (mismo trato que los selfGated).
+  const editorFocused = _isEditorFocused(context);
+
+  // Entretenimiento en curso (YouTube/Twitch/película): la persona está
+  // consumiendo contenido — NO interrumpir con conversación de curiosidad.
+  // Se difiere (QUEUE): cuando cierre el video, el replay por os:app-changed
+  // lo entrega. Las señales de trabajo (lsp_error) ya exigen editor enfocado,
+  // así que no se ven afectadas por este guardia. Declarado acá arriba porque
+  // el guard de curiosidad (línea siguiente) lo usa.
+  const MEDIA_TITLE_RE =
+    /youtube|youtu\.be|twitch|netflix|prime video|max:|hbo|crunchyroll|vimeo|kick\.com|disney|star\+|filmin|mubi|- youtube/i;
+  const mediaFocused =
+    String(context.osTitle || '').match(MEDIA_TITLE_RE) !== null ||
+    (context.osCategory === 'browser' &&
+      /youtube|twitch/i.test(String(context.osApp || '') + ' ' + String(context.osTitle || '')));
+
+  // Viendo contenido (video/stream): la curiosidad y las conversaciones
+  // espontáneas se DIFIEREN. Nadie quiere un "¿seguís con X?" en medio de
+  // un partido/película. El replay por os:app-changed lo entrega después.
+  if ((curiosityType || candidate.tipo === 'intention_stale') && mediaFocused && !candidate.isCritical) {
+    return {
+      admit: false,
+      queue: true,
+      decision: {
+        verdict: 'QUEUE',
+        reason: 'user_watching_media',
+        relevance: candidate.score ?? 0,
+        flow: flow.level,
+      },
+      flow: flow.level,
+      budgetLimit,
+    };
+  }
+
   const selfValidated = candidate.selfGated || curiosityType;
   if (selfValidated) {
     if (!withinBudget) {
@@ -259,8 +292,6 @@ function evaluate(candidate, context = {}, policy = DEFAULT_GATE_POLICY) {
   // el MENSAJE solo tiene sentido si el usuario está en su editor AHORA. Sin
   // editor enfocado → QUEUE (se difiere y re-intenta: al abrir VSCode el
   // replay por os:app-changed lo entrega justo en el momento correcto).
-  const editorFocused = _isEditorFocused(context);
-
   // 4) Relevancia desde el vector de señal del candidato (F-1).
   const relevance = candidate.score ?? 0;
   if (

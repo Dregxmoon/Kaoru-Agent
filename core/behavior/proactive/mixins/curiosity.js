@@ -260,19 +260,43 @@ module.exports = {
       });
     }
 
-    // 5) Topic momentum: cold topics (declining interest)
+    // 5) Topic momentum: cold topics (declining interest). CON SUSTANCIA:
+    //    solo si el tema tiene memoria real asociada — preguntar "¿seguís con
+    //    X?" sin nada concreto es relleno sin valor (feedback del usuario).
     try {
       const topicTracker = g.getTopicTracker?.();
       if (topicTracker) {
-        const coldTopics = topicTracker.getColdTopics({ limit: 3, maxMomentum: 0.2 });
+        const coldTopics = topicTracker.getColdTopics({ limit: 5, maxMomentum: 0.2 });
         for (const t of coldTopics) {
+          if ((t.mention_count ?? 0) < 3) continue; // tema marginal → ruido
+
+          // Sustancia: buscar nodos de memoria reales que mencionen el tema.
+          const words = String(t.topic || '')
+            .split('_')
+            .filter((w) => w.length >= 4);
+          const related = [];
+          for (const w of words) {
+            try {
+              for (const n of g.queryNodes?.({ search: w, limit: 2 }) || []) {
+                if (n.content && n.content.length > 10 && !related.includes(n)) related.push(n);
+              }
+            } catch {}
+            if (related.length >= 2) break;
+          }
+          if (!related.length) continue; // sin sustancia → NO preguntar nada
+
+          const tema = t.topic.replace(/_/g, ' ');
+          const backing = related[0].content.slice(0, 100);
           candidates.push({
             type: 'topic_cold',
             kind: 'default',
             label: t.topic,
-            content: `El topic "${t.topic.replace(/_/g, ' ')}" tenía actividad pero está decayendo (momentum: ${t.momentum.toFixed(2)}).`,
-            salienceBoost: this._contextBoostFor(t.topic, t.topic.replace(/_/g, ' ')),
-            context: `El usuario hablaba de "${t.topic.replace(/_/g, ' ')}" pero ya no tanto. Pregúntale si sigue interesado.`,
+            content: `El topic "${tema}" tenía actividad pero está decayendo (momentum: ${t.momentum.toFixed(2)}).`,
+            salienceBoost: this._contextBoostFor(t.topic, tema),
+            context:
+              `Ustedes hablaban seguido de "${tema}" y el tema fue perdiendo protagonismo. ` +
+              `De tu memoria real hay esto relacionado: "${backing}". ` +
+              `Retomá el tema DESDE ese dato concreto (no preguntes en vacío si sigue interesado).`,
           });
         }
       }
