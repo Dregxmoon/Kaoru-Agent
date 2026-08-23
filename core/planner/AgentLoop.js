@@ -12,6 +12,7 @@ const LLMProvider = require('../llm/LLMProvider.js');
 const { getToolRegistry } = require('../task/ToolRegistry.js');
 const { getGitManager } = require('../git/GitManager.js');
 const { WorkspaceCheckpoint, MUTATOR_TOOLS } = require('../git/WorkspaceCheckpoint.js');
+const { verifyHtmlFiles } = require('./web-verify.js');
 const { computeDiffPreview } = require('../git/FileDiff.js');
 const { getGitHubManager } = require('../github/GitHubManager.js');
 const { RunMetrics } = require('./run-metrics.js');
@@ -328,6 +329,8 @@ const RESULT_TRUNCATE_LIMIT = 800;
 // feedback vuelve al loop para corregir/continuar. Acotado para no abrir un
 // bucle infinito.
 const SELF_CRITIQUE_MAX_ROUNDS = 2;
+// Web-verify: rondas máximas de corrección para páginas .html generadas.
+const WEB_VERIFY_MAX_ROUNDS = 2;
 
 // Reflexión intermedia (opcional, opts.reflection): cuando en una iteración
 // una herramienta falla y ya se acumularon varias fallas en el run, el loop se
@@ -870,6 +873,11 @@ class AgentLoop {
     // Self-critique (opts.selfCritique): cuántas pasadas de crítica se
     // agotaron en este run — acota el bucle de corrección (no infinito).
     let critiqueRounds = 0;
+    // Web-verify (pipeline de artefactos web): rondas de corrección cuando
+    // una página .html generada/mutada falla la validación en Chromium.
+    let webVerifyRounds = 0;
+    /** @type {Set<string>} rutas absolutas de .html escritos/editados con éxito */
+    const mutatedHtmlFiles = new Set();
     // Reflexión intermedia (opts.reflection): fallas de herramientas
     // acumuladas en este run y rondas de reflexión agotadas.
     let toolFailures = 0;
@@ -1032,6 +1040,45 @@ class AgentLoop {
               'AgentLoop',
               `[agent-loop] auto-crítica ronda ${critiqueRounds}/${SELF_CRITIQUE_MAX_ROUNDS}: tarea incompleta, continuando`
             );
+            continue;
+          }
+        }
+
+        // ── Web-verify (artefactos web generados) ──────────────────────────
+        // Si el run mutó archivos .html, cargarlos en Chromium headless ANTES
+        // de declarar la tarea lista. Con errores de consola/excepción: el
+        // feedback vuelve al loop para que el modelo CORRIJA (máx
+        // WEB_VERIFY_MAX_ROUNDS). Caso Pac-Man: juego injugable entregado
+        // como terminado — esto lo detecta y lo obliga a arreglarlo.
+        if (
+          mutatedHtmlFiles.size > 0 &&
+          webVerifyRounds < WEB_VERIFY_MAX_ROUNDS &&
+          !opts.reportMode &&
+          opts.webVerify !== false &&
+          !(signal && signal.aborted)
+        ) {
+          webVerifyRounds++;
+          const webCheck = await verifyHtmlFiles(Array.from(mutatedHtmlFiles));
+          if (webCheck && webCheck.ok === false) {
+            const failedFile = webCheck.results.find((r) => !r.ok && !r.skipped);
+            const errorLines = (failedFile?.errors || [])
+              .slice(0, 5)
+              .map((e) => `- ${e}`)
+              .join('\n');
+            logger.warn(
+              'AgentLoop',
+              `[agent-loop] web-verify FALLÓ para ${failedFile?.file} — ronda ${webVerifyRounds}/${WEB_VERIFY_MAX_ROUNDS}, pidiendo corrección`
+            );
+            iterationHistory.push({
+              role: 'user',
+              content:
+                `[VERIFICACIÓN AUTOMÁTICA DE LA PÁGINA FALLÓ] ` +
+                `El archivo "${failedFile?.file}" produce errores al abrirse en el navegador:\n` +
+                `${errorLines}\n` +
+                `Leé los archivos involucrados, corregí las causas (edit/write) y volvé a dar tu respuesta final. ` +
+                `No declares que está terminado sin corregir estos errores.`,
+            });
+            // Continúa el loop: el próximo turno del LLM ve el feedback y corrige.
             continue;
           }
         }
@@ -1388,6 +1435,12 @@ class AgentLoop {
           if (MUTATOR_TOOLS.has(action.tool)) {
             this._execCache.clear();
             const p = action.params?.path || action.params?.filePath || '';
+            // Web-verify: rastrear .html mutados para validarlos al cierre.
+            if (/\.html?$/i.test(p)) {
+              try {
+                mutatedHtmlFiles.add(require('path').resolve(p));
+              } catch {}
+            }
             for (const k of Array.from(this._readCache.keys())) {
               if (k.endsWith(`::${p}`)) this._readCache.delete(k);
             }
