@@ -1079,6 +1079,40 @@ app.whenReady().then(() => {
     }
   });
 
+  // Resultado de ejecutar una propuesta aceptada (Fase A/B): sin esto el
+  // outcome era invisible — el executor se negaba (p.ej. archivo abierto en
+  // el editor) o aplicaba el parche y el usuario nunca se enteraba.
+  Core.getEventBus().on('proposal:executed', (payload = {}) => {
+    let text;
+    if (payload.ok && payload.skipped) {
+      text = 'Ese cambio ya estaba aplicado, no toqué nada.';
+    } else if (payload.ok) {
+      text = `Listo, apliqué el cambio${payload.type === 'lsp_error' ? ' — el error debería estar resuelto' : ''}. ✅`;
+    } else {
+      text = `No pude aplicar el cambio automáticamente: ${
+        payload.detail || 'motivo desconocido'
+      }. Si lo resolvés (por ejemplo, cerrando el archivo en tu editor), volvé a aceptar la propuesta.`;
+    }
+    logger.info(
+      'main',
+      `[proactive] propuesta ${payload.type}: ${payload.ok ? 'ejecutada' : 'falló'}${
+        payload.detail ? ` (${payload.detail})` : ''
+      }`
+    );
+    const chatVisible = S.chatWindow && !S.chatWindow.isDestroyed() && S.chatWindow.isVisible();
+    if (chatVisible) {
+      sendToChat('initiative', {
+        reason: payload.type || 'proposal_result',
+        suggestion: text,
+        actionType: 'proactive',
+        canHelp: false,
+        openChat: true,
+      });
+    } else if (S.mainWindow && !S.mainWindow.isDestroyed()) {
+      S.mainWindow.webContents.send('speak', text);
+    }
+  });
+
   Core.onProposalResult((payload) => {
     sendOverlayGesture(payload.ok ? 'happy' : 'sad', { source: 'proposal-result' });
     sendToChat('proposal-result', payload);

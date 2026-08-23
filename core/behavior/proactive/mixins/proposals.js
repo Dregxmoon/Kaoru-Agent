@@ -56,9 +56,13 @@ module.exports = {
             targetErrors: trigger.errors || [],
           },
         };
-      } else {
-        hint = byKind.no_patch || null;
-        if (!hint) return null;
+      } else if (trigger.type === 'lsp_error') {
+        // Diagnóstico: sin esto, una propuesta aceptada no hacía NADA en
+        // silencio (no había acción pendiente que ejecutar).
+        logger.info(
+          'proposals',
+          `[proactive] lsp_error sin parche válido → propuesta informativa (aceptar no ejecutará nada)`
+        );
       }
     } else if (hint.action) {
       // Fase B: la acción se resuelve en el backend (whitelist), nunca confía

@@ -414,6 +414,18 @@ function _extractPatch(response) {
   let text = String(response).trim();
   if (!text) return null;
 
+  // Modelos de reasoning (p.ej. nemotron vía NVIDIA, qwen) envuelven la
+  // respuesta en <think>...</think> — el razonamiento puede contener llaves
+  // que rompen el fallback de "primer { al último }". Se elimina SIEMPRE
+  // antes de parsear.
+  text = text.replace(/<think>[\s\S]*?<\/think>/gi, '').trim();
+  // <think> abierto sin cerrar = output truncado a mitad del razonamiento:
+  // no hay JSON utilizable después de él; se descarta esa cola.
+  const openThink = text.toLowerCase().indexOf('<think>');
+  if (openThink !== -1 && !/<\/think>/i.test(text.slice(openThink))) {
+    text = text.slice(0, openThink).trim();
+  }
+
   // Quitar fences de código.
   text = text
     .replace(/^```(?:json)?\s*/i, '')

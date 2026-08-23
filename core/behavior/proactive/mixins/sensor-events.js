@@ -170,7 +170,15 @@ Genera el parche JSON.`;
         systemPrompt
       );
       const parsed = _extractPatch(response);
-      if (!parsed || !Array.isArray(parsed.changes) || !parsed.changes.length) return null;
+      if (!parsed || !Array.isArray(parsed.changes) || !parsed.changes.length) {
+        logger.info(
+          'sensor-events',
+          `[proactive] parche lsp_error: el LLM no devolvió JSON de cambios utilizable (${String(
+            response || ''
+          ).slice(0, 80)}…)`
+        );
+        return null;
+      }
       const changes = parsed.changes
         .filter((c) => c && typeof c.old === 'string' && c.old.trim() && typeof c.new === 'string')
         .slice(0, 6);
