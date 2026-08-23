@@ -90,7 +90,12 @@ function createMockBridge(projectCwd) {
             const p = params.path;
             const dir = path.dirname(p);
             if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
-            const content = params.content || `Archivo creado: ${path.basename(p)}`;
+            // Default realista: un .json sin content explícito escribe JSON
+            // válido (el verificador de artefactos del loop valida sintaxis
+            // por extensión — igual que haría un LLM real al crear config).
+            const content =
+              params.content ||
+              (p.endsWith('.json') ? '{}\n' : `Archivo creado: ${path.basename(p)}`);
             fs.writeFileSync(p, content, 'utf-8');
             return {
               ok: true,
@@ -103,6 +108,15 @@ function createMockBridge(projectCwd) {
           case 'exec':
           case 'run_command': {
             const cmd = params.command || '';
+            // Simular redirecciones `echo 'x' > file` (los tests de artefactos
+            // las usan para crear archivos con contenido controlado).
+            const redir = cmd.match(/^echo\s+'?([^']*?)'?\s*>\s*(\S+)\s*$/);
+            if (redir) {
+              try {
+                fs.mkdirSync(path.dirname(redir[2]), { recursive: true });
+                fs.writeFileSync(redir[2], redir[1] + '\n');
+              } catch {}
+            }
             return {
               ok: true,
               result: { stdout: `[mock] ${cmd} ejecutado`, stderr: '', exitCode: 0 },
@@ -281,7 +295,13 @@ ACCIÓN: create_file | ARCHIVO: ${path.join(projectCwd, 'nuevo.json')}
     'crea config.json si no existe',
     'Eres un asistente que gestiona archivos.',
     [],
-    { onApprovalNeeded: async () => true }
+    {
+      onApprovalNeeded: async () => true,
+      // Este test ejercita la MECÁNICA de iteraciones (read→create→texto),
+      // no la validación de artefactos: el mock escribe contenido que no es
+      // JSON real y dispararía rondas de corrección ajenas al caso.
+      webVerify: false,
+    }
   );
 
   assert(
@@ -2568,11 +2588,58 @@ async function testReflectUsesPlan() {
 
 // ── Main ──────────────────────────────────────────────────────────────────────
 
+// ── Test: verificación de artefactos (JSON inválido → ronda de corrección) ──
+
+async function testArtifactVerifyCorrection() {
+  console.log(C.bold('\nTest: artifact-verify — JSON inválido dispara ronda de corrección'));
+  const { AgentLoop } = require('../core/planner/AgentLoop.js');
+  const projectCwd = fs.mkdtempSync(path.join(os.tmpdir(), 'agentloop-artifact-'));
+  const target = path.join(projectCwd, 'roto.json');
+
+  // Máquina de fases por contador (el contenido del feedback varía, así que
+  // la secuencia de respuestas es fija):
+  //   #1 escribe JSON inválido · #2 declara listo (verificación falla)
+  //   #3 escribe JSON válido · #4 declara listo (verificación pasa)
+  let calls = 0;
+  const mockLLM = async () => {
+    calls++;
+    if (calls === 1) {
+      return `\`\`\`action
+ACCIÓN: exec | COMANDO: echo '{esto no es json}' > ${target}
+\`\`\``;
+    }
+    if (calls === 2) return 'Listo, creé el archivo.';
+    if (calls === 3) {
+      return `\`\`\`action
+ACCIÓN: exec | COMANDO: echo '{"ok": true}' > ${target}
+\`\`\``;
+    }
+    return 'Corregido y verificado.';
+  };
+
+  const loop = new AgentLoop({
+    maxIterations: 8,
+    llm: mockLLM,
+    bridge: createMockBridge(projectCwd),
+  });
+
+  const result = await loop.run('crea roto.json', 'gestiona archivos.', [], {
+    onApprovalNeeded: async () => true,
+  });
+
+  const final = JSON.parse(fs.readFileSync(target, 'utf-8'));
+  assert(final.ok === true, `el pipeline corrigió el JSON inválido (final=${JSON.stringify(final)})`);
+  assert(result.iterations >= 3, `hubo rondas de corrección (${result.iterations})`);
+  assert(!result.unverifiedEdits, 'sin promesa falsa de ediciones');
+  fs.rmSync(projectCwd, { recursive: true, force: true });
+}
+
 async function main() {
   console.log(C.bold(C.cyan('\n════════════════════════════════════════════════════════')));
   console.log(C.bold(C.cyan('  March 7th — Test Suite: AgentLoop Fase 0')));
   console.log(C.bold(C.cyan('════════════════════════════════════════════════════════')));
   await testTextResponse();
+  await testArtifactVerifyCorrection();
   await testAdaptsToRealResult();
   await testMaxIterations();
   await testApprovalRejected();

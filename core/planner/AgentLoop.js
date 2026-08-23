@@ -13,6 +13,7 @@ const { getToolRegistry } = require('../task/ToolRegistry.js');
 const { getGitManager } = require('../git/GitManager.js');
 const { WorkspaceCheckpoint, MUTATOR_TOOLS } = require('../git/WorkspaceCheckpoint.js');
 const { verifyHtmlFiles } = require('./web-verify.js');
+const { verifySyntax } = require('./syntax-verify.js');
 const { computeDiffPreview } = require('../git/FileDiff.js');
 const { getGitHubManager } = require('../github/GitHubManager.js');
 const { RunMetrics } = require('./run-metrics.js');
@@ -873,11 +874,11 @@ class AgentLoop {
     // Self-critique (opts.selfCritique): cuántas pasadas de crítica se
     // agotaron en este run — acota el bucle de corrección (no infinito).
     let critiqueRounds = 0;
-    // Web-verify (pipeline de artefactos web): rondas de corrección cuando
-    // una página .html generada/mutada falla la validación en Chromium.
+    // Verificación de artefactos (web + sintaxis universal): rondas de
+    // corrección cuando archivos mutados fallan validación al cierre.
     let webVerifyRounds = 0;
-    /** @type {Set<string>} rutas absolutas de .html escritos/editados con éxito */
-    const mutatedHtmlFiles = new Set();
+    /** @type {Set<string>} rutas absolutas de TODOS los archivos mutados con éxito */
+    const mutatedFiles = new Set();
     // Reflexión intermedia (opts.reflection): fallas de herramientas
     // acumuladas en este run y rondas de reflexión agotadas.
     let toolFailures = 0;
@@ -1044,37 +1045,57 @@ class AgentLoop {
           }
         }
 
-        // ── Web-verify (artefactos web generados) ──────────────────────────
-        // Si el run mutó archivos .html, cargarlos en Chromium headless ANTES
-        // de declarar la tarea lista. Con errores de consola/excepción: el
-        // feedback vuelve al loop para que el modelo CORRIJA (máx
-        // WEB_VERIFY_MAX_ROUNDS). Caso Pac-Man: juego injugable entregado
-        // como terminado — esto lo detecta y lo obliga a arreglarlo.
+        // ── Verificación de artefactos (web + sintaxis universal) ──────────
+        // Si el run mutó archivos, se validan ANTES de declarar la tarea
+        // lista: .html en Chromium (web-verify) y el resto por extensión
+        // (syntax-verify: py/json/sh/css/ts/yaml/js). Con fallos → feedback
+        // al loop para que el modelo CORRIJA (máx WEB_VERIFY_MAX_ROUNDS).
+        // Caso Pac-Man: juego injugable entregado como terminado — esto lo
+        // detecta y obliga a arreglarlo. Caso calcular.py roto: igual.
+        const htmlFiles = [];
+        const codeFiles = [];
+        for (const f of mutatedFiles) {
+          if (/\.html?$/i.test(f)) htmlFiles.push(f);
+          else codeFiles.push(f);
+        }
         if (
-          mutatedHtmlFiles.size > 0 &&
+          (htmlFiles.length > 0 || codeFiles.length > 0) &&
           webVerifyRounds < WEB_VERIFY_MAX_ROUNDS &&
           !opts.reportMode &&
           opts.webVerify !== false &&
           !(signal && signal.aborted)
         ) {
           webVerifyRounds++;
-          const webCheck = await verifyHtmlFiles(Array.from(mutatedHtmlFiles));
+          const [webCheck, synCheck] = await Promise.all([
+            htmlFiles.length ? verifyHtmlFiles(htmlFiles) : null,
+            codeFiles.length ? verifySyntax(codeFiles) : null,
+          ]);
+          const failures = [];
           if (webCheck && webCheck.ok === false) {
-            const failedFile = webCheck.results.find((r) => !r.ok && !r.skipped);
-            const errorLines = (failedFile?.errors || [])
-              .slice(0, 5)
-              .map((e) => `- ${e}`)
-              .join('\n');
+            const bad = webCheck.results.find((r) => !r.ok && !r.skipped);
+            if (bad)
+              failures.push(
+                `PÁGINA WEB "${bad.file}" falla al abrirse:\n${(bad.errors || []).slice(0, 5).map((e) => `- ${e}`).join('\n')}`
+              );
+          }
+          if (synCheck && synCheck.ok === false) {
+            for (const r of synCheck.results) {
+              if (!r.ok && !r.skipped)
+                failures.push(
+                  `ARCHIVO "${r.file}" (${r.ext}) tiene errores de sintaxis:\n${(r.errors || []).slice(0, 3).map((e) => `- ${e}`).join('\n')}`
+                );
+            }
+          }
+          if (failures.length > 0) {
             logger.warn(
               'AgentLoop',
-              `[agent-loop] web-verify FALLÓ para ${failedFile?.file} — ronda ${webVerifyRounds}/${WEB_VERIFY_MAX_ROUNDS}, pidiendo corrección`
+              `[agent-loop] verificación de artefactos FALLÓ (${failures.length}) — ronda ${webVerifyRounds}/${WEB_VERIFY_MAX_ROUNDS}, pidiendo corrección`
             );
             iterationHistory.push({
               role: 'user',
               content:
-                `[VERIFICACIÓN AUTOMÁTICA DE LA PÁGINA FALLÓ] ` +
-                `El archivo "${failedFile?.file}" produce errores al abrirse en el navegador:\n` +
-                `${errorLines}\n` +
+                `[VERIFICACIÓN AUTOMÁTICA DE ARCHIVOS FALLÓ]\n` +
+                `${failures.join('\n\n')}\n\n` +
                 `Leé los archivos involucrados, corregí las causas (edit/write) y volvé a dar tu respuesta final. ` +
                 `No declares que está terminado sin corregir estos errores.`,
             });
@@ -1432,13 +1453,31 @@ class AgentLoop {
         // resultado cacheado (read del archivo, git status/log) quedaría
         // viejo. Solo se invalida ante éxito; un fallo no cambia el estado.
         if (result && result.ok) {
+          // Verificación de artefactos: rastrear TODOS los archivos mutados.
+          // Caso exec: los LLMs suelen crear archivos con redirecciones
+          // (`echo '{...}' > config.json`) — se detectan por patrón.
+          if (action.tool === 'exec') {
+            const cmd = String(action.params?.command || '');
+            const redir = cmd.match(/>\s*(\S+\.(html?|json|py|js|mjs|cjs|sh|bash|css|ts|tsx|ya?ml))\b/i);
+            if (redir) {
+              const target = redir[1].replace(/^["']|["']$/g, '');
+              try {
+                mutatedFiles.add(
+                  require('path').isAbsolute(target)
+                    ? require('path').resolve(target)
+                    : require('path').resolve(AP.PROJECT_CWD || process.cwd(), target)
+                );
+              } catch {}
+            }
+          }
           if (MUTATOR_TOOLS.has(action.tool)) {
             this._execCache.clear();
             const p = action.params?.path || action.params?.filePath || '';
-            // Web-verify: rastrear .html mutados para validarlos al cierre.
-            if (/\.html?$/i.test(p)) {
+            // Verificación de artefactos: rastrear TODOS los archivos mutados
+            // (.html → web-verify en Chromium; resto → sintaxis por extensión).
+            if (p) {
               try {
-                mutatedHtmlFiles.add(require('path').resolve(p));
+                mutatedFiles.add(require('path').resolve(p));
               } catch {}
             }
             for (const k of Array.from(this._readCache.keys())) {
