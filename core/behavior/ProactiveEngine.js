@@ -175,6 +175,9 @@ class ProactiveEngine {
     // resetea al cambiar de día.
     this._curiosityDay = null;
     this._curiosityFired = 0;
+    // Cupo propio de señales de trabajo (lsp_error): mismo patrón que curiosidad.
+    this._workDay = null;
+    this._workFired = 0;
     // proposalId → { nodeId } para conectar el outcome de pattern_uncertain
     // con UserModelBuilder.confirmInferred().
     this._proposalRefs = new Map();

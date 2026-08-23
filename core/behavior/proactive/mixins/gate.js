@@ -20,7 +20,34 @@ const {
   TRIGGER_COOLDOWN_MS,
   MAX_IDLE_TO_INTERRUPT,
   CURIOSITY_TYPES,
+  WORK_SIGNAL_TYPES,
 } = require('../config.js');
+
+// ── Cupo propio de señales de trabajo (espejo del de curiosidad) ────────────
+
+/** ¿Cuántas señales de trabajo (lsp_error…) se enviaron HOY? */
+function _workUsedToday() {
+  const day = _localDayString(Date.now());
+  if (this._workDay !== day) return 0;
+  return this._workFired;
+}
+
+/** Registra un envío de señal de trabajo (resetea si cambió el día). */
+function _envelopeWorkFired() {
+  const day = _localDayString(Date.now());
+  if (this._workDay !== day) {
+    this._workDay = day;
+    this._workFired = 0;
+  }
+  this._workFired += 1;
+}
+
+function _localDayString(ts) {
+  const d = new Date(ts);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(
+    d.getDate()
+  ).padStart(2, '0')}`;
+}
 
 module.exports = {
   // ── Fase F: gate de contexto (determinista, sin LLM) ──────────────────────
@@ -105,6 +132,8 @@ module.exports = {
       // Cupo de curiosidad (separado del presupuesto general) — lo consume
       // ContextGate para los tipos memory_stale/pattern_uncertain/memory_tension.
       curiosityUsed: this._curiosityUsedToday(),
+      // Cupo de trabajo (lsp_error): propio, igual que la curiosidad.
+      workUsed: this._workUsedToday(),
       // F-5: tipos degradados por SLO → el gate les sube el umbral de ACT.
       degradedTypes: this._store ? this._degradedTypes() : undefined,
     };
@@ -240,6 +269,9 @@ module.exports = {
       // (y viceversa).
       if (CURIOSITY_TYPES.has(trigger.type)) {
         this._envelopeCuriosityFired();
+      } else if (WORK_SIGNAL_TYPES.has(trigger.type)) {
+        // Señales de trabajo: consumen SOLO su cupo propio, nunca el general.
+        this._envelopeWorkFired();
       } else if (this._store) {
         this._store.incrementDaily();
       }
@@ -288,4 +320,7 @@ module.exports = {
       factor: this._effectiveCooldownMs(type, base) / base,
     };
   },
+
+  _workUsedToday,
+  _envelopeWorkFired,
 };

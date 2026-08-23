@@ -168,6 +168,26 @@ function testEvaluate() {
   });
   assert(otherType.admit === false, 'git_redflag + focused → sin exención');
 
+  // ── Cupo de TRABAJO propio: presupuesto general agotado NO mata lsp_error ──
+  const budgetGone = { ...baseCtx, budgetUsed: 12, budgetLimit: 12 };
+  const lspHigh = evaluate(
+    { tipo: 'lsp_error', kind: 'default', score: 0.91, isCritical: false, payload: {} },
+    { ...budgetGone, workUsed: 0 }
+  );
+  assert(lspHigh.admit === true, 'presupuesto general agotado + lsp_error R=0.91 → ACT (cupo propio)', lspHigh.decision?.reason);
+
+  // Otro tipo con el mismo presupuesto agotado → DROP (comportamiento intacto).
+  const otherDropped = evaluate(cand(0.91), budgetGone);
+  assert(otherDropped.admit === false, 'presupuesto agotado + git_redflag → DROP');
+
+  // Cupo de trabajo agotado (6 envíos hoy) → DROP con razón propia.
+  const lspCapped = evaluate(
+    { tipo: 'lsp_error', kind: 'default', score: 0.91, isCritical: false, payload: {} },
+    { ...baseCtx, workUsed: 6 }
+  );
+  assert(lspCapped.admit === false, 'cupo de trabajo agotado → DROP');
+  assert(lspCapped.decision.reason === 'work_cap_exhausted', 'reason = work_cap_exhausted', lspCapped.decision.reason);
+
   // Flow profundo: histéresis — score 0.65 ya no alcanza para ACT (0.60+0.15).
   const deepCtx = { ...baseCtx, appElapsedSec: 30 * 60 };
   const deep = evaluate(cand(0.65), deepCtx);

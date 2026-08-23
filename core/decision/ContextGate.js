@@ -28,7 +28,9 @@ const { decide, presupuesto, REASON } = require('./DecisionCore.js');
 // curiosidad sobre la memoria (hechos stale, inferencias de confianza media,
 // contradicciones) vive en proactive/config.js — NO hay un tercer lugar de
 // config. Separado del presupuesto general.
-const { CURIOSITY_DAILY_CAP, CURIOSITY_TYPES } = require('../behavior/proactive/config.js');
+const { CURIOSITY_DAILY_CAP, CURIOSITY_TYPES, WORK_SIGNAL_TYPES, WORK_DAILY_CAP } = require(
+  '../behavior/proactive/config.js'
+);
 
 const FLOW = {
   IDLE: 'idle', // AFK o sin actividad reciente → no molestar salvo crítico
@@ -108,7 +110,18 @@ function evaluate(candidate, context = {}, policy = DEFAULT_GATE_POLICY) {
   const curiosityType = CURIOSITY_TYPES.has(candidate.tipo);
   const curiosityCap = policy.curiosityDailyCap ?? CURIOSITY_DAILY_CAP;
   const curiosityUsed = context.curiosityUsed ?? 0;
-  const withinBudget = curiosityType ? curiosityUsed < curiosityCap : budgetUsed < budgetLimit;
+
+  // Cupo de TRABAJO (lsp_error y afines): también propio. Un error real en el
+  // código del usuario NO muere porque se agotara el presupuesto charlando.
+  const workType = WORK_SIGNAL_TYPES.has(candidate.tipo);
+  const workCap = policy.workDailyCap ?? WORK_DAILY_CAP;
+  const workWithinBudget = workType ? (context.workUsed ?? 0) < workCap : true;
+
+  const withinBudget = curiosityType
+    ? curiosityUsed < curiosityCap
+    : workType
+      ? workWithinBudget
+      : budgetUsed < budgetLimit;
 
   // Cupo de curiosidad agotado → DROP determinista aunque sobre presupuesto
   // general (y aunque la relevancia sea alta): es un cupo propio.
@@ -118,6 +131,22 @@ function evaluate(candidate, context = {}, policy = DEFAULT_GATE_POLICY) {
       decision: {
         verdict: 'DROP',
         reason: REASON.DROP_CURIOSITY_CAP,
+        relevance: candidate.score ?? 0,
+        flow: flow.level,
+      },
+      flow: flow.level,
+      budgetLimit,
+    };
+  }
+
+  // Cupo de trabajo agotado → DROP con razón propia (6/día evita acoso, pero
+  // es INDEPENDIENTE del presupuesto general de charla).
+  if (workType && !workWithinBudget) {
+    return {
+      admit: false,
+      decision: {
+        verdict: 'DROP',
+        reason: 'work_cap_exhausted',
         relevance: candidate.score ?? 0,
         flow: flow.level,
       },
@@ -223,7 +252,9 @@ function evaluate(candidate, context = {}, policy = DEFAULT_GATE_POLICY) {
         workExempt || (userPresent && withinBudget && flow.level !== FLOW.IDLE),
       isCritical: !!candidate.isCritical,
       userPresent,
-      budgetUsed,
+      // Señales de trabajo: su cupo propio ya se validó arriba — el
+      // presupuesto general agotado NO las mata (score 0.91 DROP fue el bug).
+      budgetUsed: workType ? 0 : budgetUsed,
       budgetLimit,
       degraded: degradedGate,
     },

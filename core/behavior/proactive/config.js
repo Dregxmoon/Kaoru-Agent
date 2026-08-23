@@ -324,6 +324,12 @@ const TRIGGER_COOLDOWN_MS = {
   topic_cold: 4 * 60 * 60 * 1000,
 };
 
+// Señales de TRABAJO: tienen cupo diario PROPIO (como la curiosidad). Un
+// lsp_error con score 0.9 no puede morir porque el usuario agotó el
+// presupuesto general charlando — son categorías distintas de valor.
+const WORK_SIGNAL_TYPES = new Set(['lsp_error']);
+const WORK_DAILY_CAP = 6;
+
 module.exports = {
   EVAL_INTERVAL_MS,
   GLOBAL_MIN_GAP_MS,
@@ -340,6 +346,8 @@ module.exports = {
   PENDING_LOOKAHEAD_MS,
   CURIOSITY_DAILY_CAP,
   CURIOSITY_TYPES,
+  WORK_SIGNAL_TYPES,
+  WORK_DAILY_CAP,
   INTENTION_STALE_DAYS,
   LOW_VALUE_MSGS,
   FOCUS_RULES,
