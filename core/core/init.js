@@ -146,6 +146,17 @@ function init(app) {
     // el engine consulta (en caliente), ya existen.
     getFocusedFile: () => state.lspErrorWatcher?.getFocusedFile?.() ?? null,
     getSymbols: (file) => state.symbolIndex?.getSymbolsFor?.(file) ?? Promise.resolve([]),
+    // B: últimos turnos del CHAT para que los mensajes proactivos no repitan
+    // lo que ya se habló (antes solo veían mensajes PROACTIVOS previos).
+    getRecentChatTurns: () => {
+      try {
+        return state.session?.getHistory?.().slice(-4) ?? [];
+      } catch {
+        return [];
+      }
+    },
+    // C: sesión activa para leer la emoción del trend tracker sin llamada LLM.
+    getCurrentSessionId: () => state.session?.getSessionId?.() ?? null,
     // P1: quickfixes del LSP como fuente de parche determinista (antes del LLM).
     getCodeActions: async (file, line, character, context = null) => {
       if (!state.lspManager?.isRunning) return null;

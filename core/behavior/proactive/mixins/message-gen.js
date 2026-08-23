@@ -98,6 +98,7 @@ module.exports = {
 Tienes carácter propio, humor seco, y eres genuinamente cercana a la persona con quien hablas.
 Nunca usas frases como "¡Claro!", "¡Por supuesto!", "¿En qué puedo ayudarte?", "Como asistente de IA...".
 Eres concisa y natural (1-3 oraciones). Cuando decides hablar, dices algo que vale la pena decir.
+Respondé SIEMPRE en el mismo idioma en el que habla la persona (español en este entorno) — jamás mezcles inglés.
 
 Tu curiosidad es genuina, no protocolar — si preguntas algo es porque te interesa, no porque "debas" hacer conversación.
 Cuando decidas hablar, debe haber una razón real: un cambio que notaste en la pantalla o en el código, un error, un dato
@@ -149,6 +150,22 @@ ${memory}`;
       tasteCtx = `En tu memoria hay algo relacionado con ese contenido: ${items}. Si encaja naturalmente, conéctalo (p. ej. "ah, ese es de los que te gustan") — pero solo si el dato está realmente respaldado, no lo fuerces.`;
     }
 
+    // B: contexto del CHAT reciente — los mensajes proactivos antes ignoraban
+    // lo que ya se habló en el chat y ofrecían lo mismo. Últimos turnos →
+    // "no repitas esto".
+    let chatCtx = '';
+    try {
+      const turns =
+        typeof this._getRecentChatTurns === 'function' ? this._getRecentChatTurns() : [];
+      const relevant = turns.filter((t) => t?.content?.trim()).slice(-3);
+      if (relevant.length) {
+        const lines = relevant
+          .map((t) => `- ${t.role === 'user' ? 'La persona dijo' : 'Vos respondiste'}: "${String(t.content).slice(0, 140)}"`)
+          .join('\n');
+        chatCtx = `\nConversación reciente en el chat:\n${lines}\nNo repitas nada de eso ni ofrezcas lo mismo que ya se trató.`;
+      }
+    } catch {}
+
     // Fase F: cuando el gate admitió (ACT/ESCALATE), el LLM PRODUCE el mensaje;
     // no decide si intervenir. El criterio ya lo puso el gate determinista.
     // NUNCA se le pasa el score ni el motivo del gate: son datos internos del
@@ -173,6 +190,7 @@ ${osCtx?.app ? `App activa: ${osCtx.friendlyName || osCtx.app}` : ''}
 ${osCtx?.history?.length ? `Resumen del día (apps usadas): ${this._osSensor?.getTodaySummary?.() || ''}` : ''}
 
 Razón para escribir: ${_triggerDescription(trigger)}
+${chatCtx}
 ${codeCtx}
 ${tasteCtx}
 ${curiosity}
@@ -193,6 +211,14 @@ Si sí hay algo, escribe UN mensaje corto (1-3 oraciones máximo) en tu voz natu
 No expliques por qué escribes. No anuncies que eres proactiva. NO muestres tu razonamiento ni proceso de pensamiento: responde SOLO el mensaje final, en una sola línea de texto plano, sin "Here's a thinking process", sin análisis previo ni notas. Solo di lo que dirías.`
 }`;
 
+    // D: anti-relleno con reintento único — si el primer intento sale genérico,
+    // se reintenta UNA vez mostrándole el descarte al modelo. Sin esto el
+    // trigger se consumía y la señal se perdía.
+    const buildRetryPrompt = (discarded) =>
+      `${userPrompt}\n\nINTENTO ANTERIOR DESCARTADO: "${discarded}" — fue relleno genérico. ` +
+      `Nada de saludos, "¿cómo va?", ni frases sin sustancia. Decí algo ESPECÍFICO del contexto de arriba ` +
+      `(el error, el archivo, el dato de memoria concreto) o respondé NO.`;
+
     try {
       const response = await LLMProvider.complete(
         [{ role: 'user', content: userPrompt }],
@@ -204,25 +230,46 @@ No expliques por qué escribes. No anuncies que eres proactiva. NO muestres tu r
       // mensaje final (modelos de razonamiento). Esos bloques llevan datos
       // internos del sistema (scores, umbrales, contexto crudo) que el usuario
       // jamás debe ver: se descartan y solo se conserva el mensaje final.
-      const trimmed = _extractFinalMessage(response);
+      let trimmed = _extractFinalMessage(response);
       if (!trimmed || trimmed.toUpperCase() === 'NO' || trimmed.length < 5) {
         return null;
       }
 
-      // G.1: en modo producción el gate ya admitió la señal; filtrar el relleno
-      // genérico que degrada la experiencia (el LLM a veces "saluda" en vez de
-      // decir algo con sustancia).
+      // G.1 + D: filtrar relleno genérico en producción y reintentar UNA vez.
       if (productionMode && _isLowValueMessage(trimmed)) {
         logger.info(
           'message-gen',
-          '[proactive] mensaje descartado por relleno (producción):',
+          '[proactive] mensaje descartado por relleno (producción), reintentando:',
           JSON.stringify(trimmed)
         );
-        return null;
+        const retryResponse = await LLMProvider.complete(
+          [{ role: 'user', content: buildRetryPrompt(trimmed) }],
+          systemPrompt,
+          { disableThinking: true }
+        );
+        const retryMsg = _extractFinalMessage(retryResponse);
+        if (
+          !retryMsg ||
+          retryMsg.toUpperCase() === 'NO' ||
+          retryMsg.length < 5 ||
+          _isLowValueMessage(retryMsg)
+        ) {
+          logger.info('message-gen', '[proactive] reintento también vacío/relleno → null');
+          return null;
+        }
+        trimmed = retryMsg;
       }
 
+      // F: registrar la adaptación REAL aplicada para cerrar el loop de
+      // efectividad por tipo (antes siempre null → aprendizaje cojo).
+      let adaptationType = null;
+      try {
+        const prof = this._graph?.getAdaptiveEngine?.()?.buildAdaptationProfile?.();
+        if (prof && prof.confidence > 0.3) adaptationType = `style_${prof.responseLength}`;
+      } catch {}
+
       // Registrar la respuesta de Kaoru para evaluación posterior (feedback loop)
-      this._recordKaoruResponse(trimmed, enforcement, emotionalCtx, null);
+      this._recordKaoruResponse(trimmed, enforcement, emotionalCtx, adaptationType);
 
       return trimmed;
     } catch (e) {

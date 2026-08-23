@@ -94,6 +94,25 @@ class EmotionalTrendTracker {
   }
 
   /**
+   * C: emociones MÁS RECIENTES de una sesión, sin llamada LLM. Fuente
+   * primaria para el contexto emocional de mensajes proactivos (el detector
+   * LLM queda como fallback para sesiones sin datos frescos).
+   * @param {string} sessionId
+   * @param {{ maxAgeMs?: number }} [opts]
+   * @returns {Object|null} { emotions, timestamp } o null si no hay dato fresco
+   */
+  getLatestEmotions(sessionId, { maxAgeMs = 5 * 60 * 1000 } = {}) {
+    if (!sessionId) return null;
+    const history =
+      this._sessionHistory.get(sessionId) || this._loadSessionHistory(sessionId);
+    if (!history || !history.length) return null;
+    const last = history[history.length - 1];
+    if (!last?.emotions) return null;
+    if (Date.now() - (last.timestamp || 0) > maxAgeMs) return null;
+    return { emotions: last.emotions, timestamp: last.timestamp };
+  }
+
+  /**
    * Carga el historial de emociones de una sesión desde SQLite.
    * @param {string} sessionId
    * @returns {Array}

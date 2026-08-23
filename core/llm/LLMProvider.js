@@ -186,6 +186,25 @@ const CHAT_TEMPLATE_KWARGS_PROVIDERS = new Set([
   'mistral',
 ]);
 
+/**
+ * Desactiva el modo "thinking" de los modelos de reasoning en el body de la
+ * request. Cada familia usa SU clave de plantilla:
+ *   - Qwen3 / DeepSeek → chat_template_kwargs.enable_thinking = false
+ *   - Nemotron (nvidia) → chat_template_kwargs.thinking = false
+ *     (antes NO matcheaba: nemotron quemaba el presupuesto de max_tokens
+ *     pensando en CADA mensaje y el JSON/texto útil quedaba truncado).
+ * Providers fuera del set (Groq rechaza el campo con HTTP 400) se cubren con
+ * _stripCot sobre el content de la respuesta.
+ */
+function _applyThinkingControl(body, providerId, model, opts) {
+  if (!CHAT_TEMPLATE_KWARGS_PROVIDERS.has(providerId) || opts?.enableThinking) return;
+  if (/nemotron/i.test(model)) {
+    body.chat_template_kwargs = { thinking: false };
+  } else if (/qwen3|deepseek/i.test(model)) {
+    body.chat_template_kwargs = { enable_thinking: false };
+  }
+}
+
 // TTL del catálogo validado contra el endpoint del provider: evitar pegarle a
 // la API en cada invocación de /model <provider> o del selector de modelos.
 // Pasado el TTL, refreshProviderModels() re-valida contra GET /models.
@@ -1033,13 +1052,7 @@ async function callOpenAI(providerId, messages, systemPrompt, mode = 'fast', opt
   // opts.enableThinking. El campo NO lo aceptan todos los providers (Groq lo
   // rechaza con HTTP 400), así que solo se envía a los que lo soportan; el
   // resto se cubre con _stripCot sobre el content de la respuesta.
-  if (
-    CHAT_TEMPLATE_KWARGS_PROVIDERS.has(providerId) &&
-    /qwen3|deepseek/i.test(model) &&
-    !opts.enableThinking
-  ) {
-    body.chat_template_kwargs = { enable_thinking: false };
-  }
+  _applyThinkingControl(body, providerId, model, opts);
 
   const res = opts.onToken
     ? await postStream(
@@ -1447,13 +1460,7 @@ async function callOpenAIWithTools(providerId, messages, systemPrompt, mode, too
   // razonamiento lo pide con opts.enableThinking. El campo NO lo aceptan todos
   // los providers (Groq lo rechaza con HTTP 400) → solo a los que lo soportan;
   // el resto se cubre con _stripCot sobre el content.
-  if (
-    CHAT_TEMPLATE_KWARGS_PROVIDERS.has(providerId) &&
-    /qwen3|deepseek/i.test(model) &&
-    !opts.enableThinking
-  ) {
-    body.chat_template_kwargs = { enable_thinking: false };
-  }
+  _applyThinkingControl(body, providerId, model, opts);
 
   logger.info(
     'LLMProvider',
@@ -2309,6 +2316,7 @@ function resolveModelId(providerId, token) {
 module.exports = {
   configure,
   complete,
+  _applyThinkingControl,
   completeTask,
   completeForMode,
   completeWithTools,

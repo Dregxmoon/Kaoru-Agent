@@ -51,6 +51,21 @@ module.exports = {
       const graph = this._graph;
       if (!graph?._ready) return '';
 
+      // C: fuente primaria SIN llamada LLM — el último registro fresco del
+      // EmotionalTrendTracker (persistido por buildContext en cada turno).
+      // El detector LLM queda como fallback para sesiones sin dato reciente.
+      try {
+        const tracker = graph.getEmotionalTrendTracker?.();
+        const sessionId =
+          typeof this._getCurrentSessionId === 'function'
+            ? this._getCurrentSessionId()
+            : null;
+        const latest = tracker?.getLatestEmotions?.(sessionId);
+        if (latest?.emotions) {
+          return this._formatEmotionalContext(latest.emotions);
+        }
+      } catch {}
+
       // Obtener detector de emociones (LLM o fallback)
       const detector = graph._llmEmotionDetector || null;
 
@@ -66,6 +81,21 @@ module.exports = {
         ? await detector.detect(lastUserMsg.content, { history })
         : await this._detectEmotionsFallback(lastUserMsg.content);
 
+      return this._formatEmotionalContext(emotions);
+    } catch (e) {
+      logger.debug('adaptive-integration', `[emotional-context] ${e.message}`);
+      return '';
+    }
+  },
+
+  /**
+   * C: formatea el objeto de emociones a texto de prompt (extraído para poder
+   * usarlo tanto desde el trend tracker como desde el detector).
+   * @param {Object} emotions
+   * @returns {string}
+   */
+  _formatEmotionalContext(emotions) {
+    try {
       const parts = [];
 
       // Emociones dominantes
