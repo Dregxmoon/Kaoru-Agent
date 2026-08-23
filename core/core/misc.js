@@ -136,6 +136,17 @@ const STRUCTURAL_TAGS = new Set([
   'context-compaction',
 ]);
 
+/**
+ * Tag estructural = no sirve como "tema compartido" para derivar aristas.
+ * Incluye la procedencia MEM-6 (visto:<fecha>): todos los nodos de identidad
+ * la llevan, así que conectaba todo con todo.
+ * @param {string} tag
+ * @returns {boolean}
+ */
+function _isStructuralTag(tag) {
+  return STRUCTURAL_TAGS.has(tag) || /^visto:\d{4}-\d{2}-\d{2}$/.test(String(tag));
+}
+
 // Contenido que no aporta a la "memoria" de Kaoru: placeholders que el
 // extractor usa cuando no pudo sacar un dato real del usuario.
 const PLACEHOLDER_RE =
@@ -690,7 +701,7 @@ function listNodeGraph({ limit = 120 } = {}) {
     for (let i = 0; i < nodes.length; i++) {
       for (let j = i + 1; j < nodes.length; j++) {
         const shared = (nodes[i].tags || []).filter(
-          (t) => nodes[j].tags.includes(t) && !STRUCTURAL_TAGS.has(t)
+          (t) => nodes[j].tags.includes(t) && !_isStructuralTag(t)
         );
         if (shared.length) addEdge(nodes[i].id, nodes[j].id, 'tema');
       }

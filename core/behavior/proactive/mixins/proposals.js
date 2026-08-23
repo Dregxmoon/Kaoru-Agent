@@ -56,13 +56,18 @@ module.exports = {
             targetErrors: trigger.errors || [],
           },
         };
-      } else if (trigger.type === 'lsp_error') {
-        // Diagnóstico: sin esto, una propuesta aceptada no hacía NADA en
-        // silencio (no había acción pendiente que ejecutar).
-        logger.info(
-          'proposals',
-          `[proactive] lsp_error sin parche válido → propuesta informativa (aceptar no ejecutará nada)`
-        );
+      } else {
+        // Sin parche válido → cae a informativa (no_patch). REGRESIÓN fix:
+        // feffdd7 borró sin querer este switch y la propuesta quedaba con
+        // kind='action' + action=null → aceptar no hacía nada.
+        if (trigger.type === 'lsp_error') {
+          logger.info(
+            'proposals',
+            `[proactive] lsp_error sin parche válido → propuesta informativa (aceptar no ejecutará nada)`
+          );
+        }
+        hint = byKind.no_patch || null;
+        if (!hint) return null;
       }
     } else if (hint.action) {
       // Fase B: la acción se resuelve en el backend (whitelist), nunca confía

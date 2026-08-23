@@ -242,7 +242,7 @@ async function testBrowserDispatch() {
   const shortcuts = await Promise.all([
     bridge.exec('pwd'),
     bridge.webSearch('gatos', 3),
-    bridge.navigate('https://y.com'),
+    bridge.navigate('https://x.com'),
     bridge.readFile('/a.txt'),
     bridge.writeFile('/b.txt', 'c'),
   ]);

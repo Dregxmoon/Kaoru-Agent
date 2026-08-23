@@ -404,14 +404,31 @@ async function testApplyPatch() {
     'el archivo quedó como estaba tras el rollback'
   );
 
-  // 3g. Archivo abierto en el editor → execute rechaza, preview sí vale.
+  // 3g. Guard híbrido: archivo abierto + política 'refuseFocused' + enfocado
+  // con input reciente → rechaza; preview sí vale. Con la política default
+  // ('always') aplica — la aceptación explícita es el consentimiento.
   fs.writeFileSync(file, original);
   openFiles.add(file);
   afterDiag = [];
   const open = await executor.execute(goodPatch, { proposalId: 'p-open' });
+  assert(open.ok === true, 'guard híbrido (always): abierto sin foco activo → aplica');
   assert(
-    open.ok === false && open.detail.includes('abierto en el editor'),
-    'guard: no escribe sobre archivo abierto en el editor'
+    open.appliedWhileOpen === true,
+    '…marca appliedWhileOpen para advertir recarga en el chat'
+  );
+  fs.writeFileSync(file, original);
+  const cautious = new ProactiveExecutor({
+    getWorkspace: () => ws,
+    getOpenFiles: () => [file],
+    getFocusedFile: () => file,
+    getIdleSecs: () => 3,
+    openFilePolicy: 'refuseFocused',
+    getDiagnostics: async () => afterDiag,
+  });
+  const refused = await cautious.execute(goodPatch, { proposalId: 'p-open-refuse' });
+  assert(
+    refused.ok === false && refused.refused === 'open_in_editor_active',
+    "política 'refuseFocused' + enfocado + input reciente → rechaza"
   );
   assert(fs.readFileSync(file, 'utf-8') === original, 'el archivo abierto no se tocó');
   const prevOpen = await executor.preview(goodPatch);
@@ -510,7 +527,10 @@ async function testEngineLspError() {
     payload.proposal.diff && payload.proposal.diff.includes('+'),
     'el bubble muestra el diff real'
   );
-  assert(store.dailyCount() === 1, 'el envío consume presupuesto del día');
+  // Cupo propio de trabajo (MEM/lsp_error): el envío consume SOLO su contador
+  // de trabajo, nunca el presupuesto general de charla.
+  assert(engine._workFired === 1, 'el envío consume el cupo de TRABAJO (no el general)');
+  assert(store.dailyCount() === 0, 'el presupuesto general NO se toca para lsp_error');
 
   // 4b. Cooldown por tipo definido.
   assert(engine.getCooldownFor('lsp_error').base > 0, 'lsp_error tiene cooldown propio');
