@@ -169,6 +169,11 @@ class LearningEngine {
       elapsedMs: outcome.elapsedMs ?? null,
       difficulty: outcome.difficulty ?? null,
       goal: String(outcome.goal || '').slice(0, 160),
+      // Loop de feedback de SKILLS: qué skills estaban inyectadas en este run
+      // (correlación skill → outcome que alimenta skillStats()/SkillManager).
+      skills: Array.isArray(outcome.skills)
+        ? outcome.skills.slice(0, 5).map((s) => String(s).slice(0, 60))
+        : [],
     };
     this._data.taskOutcomes.push(entry);
     if (this._data.taskOutcomes.length > MAX_TASK_OUTCOMES) {
@@ -188,6 +193,34 @@ class LearningEngine {
     let list = this._data.taskOutcomes;
     if (mode) list = list.filter((o) => o.mode === mode);
     return list.slice(-limit);
+  }
+
+  /**
+   * Loop de feedback de SKILLS: estadísticas de éxito por skill inyectada,
+   * agregadas sobre taskOutcomes. Es lo que SkillManager usa para ajustar
+   * umbral/ranking — las skills útiles en la práctica entran más fácil y
+   * suben en el ranking, más allá de su cercanía semántica.
+   * @param {{ minUses?: number }} [opts]
+   * @returns {Record<string, { uses: number, successes: number, rate: number }>}
+   */
+  skillStats({ minUses = 1 } = {}) {
+    const tally = new Map();
+    for (const o of this._data.taskOutcomes) {
+      if (!Array.isArray(o.skills)) continue;
+      for (const name of o.skills) {
+        const cur = tally.get(name) || { uses: 0, successes: 0 };
+        cur.uses += 1;
+        if (o.success) cur.successes += 1;
+        tally.set(name, cur);
+      }
+    }
+    /** @type {Record<string, { uses: number, successes: number, rate: number }>} */
+    const out = {};
+    for (const [name, s] of tally) {
+      if (s.uses < minUses) continue;
+      out[name] = { uses: s.uses, successes: s.successes, rate: s.successes / s.uses };
+    }
+    return out;
   }
 
   /**

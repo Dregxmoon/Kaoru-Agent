@@ -249,6 +249,12 @@ function init(app) {
     db: !state.graph.usingFallback && state.graph._db ? state.graph._db : null,
     threshold: 0.35,
     topK: 3,
+    // Loop de feedback de skills: estadísticas de éxito por skill desde
+    // LearningEngine → umbral/ranking adaptativos en match().
+    statsProvider:
+      state.learning && typeof state.learning.skillStats === 'function'
+        ? () => state.learning.skillStats({ minUses: 2 })
+        : null,
   });
   if (!state.graph.usingFallback && state.graph._db) {
     state.skillManager

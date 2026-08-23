@@ -471,6 +471,14 @@ async function runAgent(userMessage, opts = {}) {
       difficulty,
       costUsd,
       goal: effectiveMessage,
+      // Loop de feedback de SKILLS: qué skills estaban inyectadas en ESTE run.
+      // Guard de frescura (15 min) por si una ejecución concurrente pisó el
+      // lastInjection del manager entre la inyección y este punto.
+      skills:
+        state.skillManager?.lastInjection &&
+        Date.now() - state.skillManager.lastInjection.ts < 15 * 60 * 1000
+          ? state.skillManager.lastInjection.names
+          : [],
     };
 
     if (state.learning && typeof state.learning.recordTaskOutcome === 'function') {

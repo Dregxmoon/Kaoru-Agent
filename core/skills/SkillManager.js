@@ -122,6 +122,40 @@ class SkillManager {
     this.topK = options.topK || DEFAULT_TOP_K;
     this._skillsCache = null;
     this._embedder = null;
+    // Loop de feedback: proveedor opcional de estadísticas por skill
+    // ({ name: { uses, successes, rate } }) — lo inyecta init.js desde
+    // LearningEngine.skillStats(). Con esto el matching se adapta a qué
+    // skills fueron ÚTILES en la práctica, no solo semánticamente cercanas.
+    this.statsProvider =
+      typeof options.statsProvider === 'function' ? options.statsProvider : null;
+    // Última inyección (nombres + timestamp) para correlacionar con el
+    // outcome del run en core/core/agent.js.
+    /** @type {{ names: string[], ts: number }|null} */
+    this.lastInjection = null;
+  }
+
+  /**
+   * Umbral de similitud ADAPTATIVO por skill según su historial de outcomes:
+   *   - rate ≥ 0.7 (útil demostrada) → umbral −0.05 (entra más fácil)
+   *   - rate ≤ 0.34 (falló seguido)  → umbral +0.03 (más difícil que dispare)
+   * Requiere ≥2 usos para actuar; sin datos queda el umbral base.
+   * @param {string} skillName
+   * @param {Map<string, {uses: number, successes: number, rate: number}>} [stats]
+   * @returns {{ threshold: number, boost: number }}
+   */
+  _effectiveThresholdFor(skillName, stats) {
+    let threshold = this.threshold;
+    let boost = 1; // multiplicador de ranking
+    const s = stats?.get(skillName);
+    if (!s || s.uses < 2) return { threshold, boost };
+    if (s.rate >= 0.6) {
+      threshold -= 0.05;
+      boost = 0.9 + 0.2 * s.rate; // hasta ~1.02-1.04
+    } else if (s.rate <= 0.34) {
+      threshold += 0.03;
+      boost = 0.9 + 0.2 * s.rate; // hasta ~0.97
+    }
+    return { threshold: Math.max(0.15, Math.min(0.8, threshold)), boost };
   }
 
   // ── Scan: leer skills/ y parsear SKILL.md ───────────────────────────
@@ -249,14 +283,37 @@ class SkillManager {
       return [];
     }
 
-    const merged = rows.filter((r) => distanceToSimilarity(r.distance) >= this.threshold);
+    // Loop de feedback: estadísticas por skill UNA vez para todo el match.
+    let stats = null;
+    if (this.statsProvider) {
+      try {
+        const raw = this.statsProvider();
+        if (raw && typeof raw === 'object') {
+          stats = new Map(
+            Object.entries(raw).map(([name, s]) => [
+              name,
+              { uses: s.uses || 0, successes: s.successes || 0, rate: s.rate ?? 0 },
+            ])
+          );
+        }
+      } catch {}
+    }
+
+    const merged = rows.filter((r) => {
+      const sim = distanceToSimilarity(r.distance);
+      // Umbral adaptativo por skill según outcomes reales.
+      const { threshold } = this._effectiveThresholdFor(r.name, stats);
+      return sim >= threshold;
+    });
 
     if (merged.length === 0) return [];
 
     // Merge replaces_domains from scan cache (not stored in DB)
     const cache = this._skillsCache || [];
-    return merged.map((r) => {
+    const out = merged.map((r) => {
       const cached = cache.find((c) => c.name === r.name);
+      const similarity = distanceToSimilarity(r.distance);
+      const boost = stats ? this._effectiveThresholdFor(r.name, stats).boost : 1;
       return {
         name: r.name,
         description: r.description,
@@ -264,9 +321,12 @@ class SkillManager {
         replaces_domains: cached?.replaces_domains || null,
         content: r.content,
         distance: r.distance,
-        score: distanceToSimilarity(r.distance),
+        score: similarity * boost,
       };
     });
+    // Ranking final por score ajustado (reliability boost puede reordenar).
+    out.sort((a, b) => b.score - a.score);
+    return out;
   }
 
   // ── Build: match + injectar contenido en string de contexto ──────────
@@ -289,6 +349,13 @@ class SkillManager {
       );
       return block;
     });
+
+    // Loop de feedback: registrar QUÉ skills se inyectaron y cuándo, para que
+    // core/core/agent.js correlacione con el outcome del run.
+    this.lastInjection = {
+      names: matches.map((m) => m.name),
+      ts: Date.now(),
+    };
 
     const injection = ['---', '**Skills activas para esta tarea:**', ...blocks, '---'].join(
       '\n\n'
