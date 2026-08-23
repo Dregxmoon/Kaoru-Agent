@@ -1113,6 +1113,14 @@ app.whenReady().then(() => {
         payload.detail ? ` (${payload.detail})` : ''
       }${payload.appliedWhileOpen ? ' [archivo abierto]' : ''}`
     );
+    if (payload.type === 'lsp_error') {
+      logger.info(
+        'main',
+        `[lsp-ciclo] resultado: ${payload.ok ? (payload.fixed === false ? 'aplicado-pero-no-bastó' : 'aplicado-y-verificado') : 'falló'}${
+          payload.attempt ? ` (intento ${payload.attempt})` : ''
+        }${payload.appliedWhileOpen ? ' con-archivo-abierto' : ''}`
+      );
+    }
     const chatVisible = S.chatWindow && !S.chatWindow.isDestroyed() && S.chatWindow.isVisible();
     if (chatVisible) {
       sendToChat('initiative', {

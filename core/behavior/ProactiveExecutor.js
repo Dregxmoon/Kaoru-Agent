@@ -232,6 +232,21 @@ class ProactiveExecutor {
   }
 
   /**
+   * P2: diagnósticos ACTUALES de un archivo (post-parche) para el reintento
+   * informado. Null si no hay LSP.
+   * @param {string} absPath
+   * @returns {Promise<Array|null>}
+   */
+  async getCurrentDiagnostics(absPath) {
+    if (!this._getDiagnostics) return null;
+    try {
+      return (await this._getDiagnostics(absPath)) || null;
+    } catch {
+      return null;
+    }
+  }
+
+  /**
    * Genera la preview/diff de una acción SIN mutar nada (solo lectura).
    * @returns {Promise<{ok: boolean, preview?: string, diff?: string, reason?: string}>}
    */
@@ -532,6 +547,7 @@ class ProactiveExecutor {
           ok: true,
           appliedWhileOpen,
           wasFocused,
+          fixed,
           diff: this._buildUnifiedDiff(original, applied.content, params.file),
           detail: fixed
             ? `Parche aplicado y verificado con el LSP: el/los error(es) ya no aparecen en "${params.file}".`

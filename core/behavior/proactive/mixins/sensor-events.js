@@ -8,6 +8,12 @@ const path = require('path');
 
 const LLMProvider = require('../../../llm/LLMProvider.js');
 const { _extractPatch, _patchLanguageRule } = require('../helpers.js');
+const { TRIGGER_COOLDOWN_MS, WORK_SIGNAL_TYPES } = require('../config.js');
+
+// P3: cooldown corto para re-disparos de lsp_error (el watcher emite por
+// flanco — cada emisión es un error nuevo/distinto).
+const LSP_ERROR_RETRIGGER_COOLDOWN_MS =
+  TRIGGER_COOLDOWN_MS.lsp_error_retrigger ?? 8 * 60 * 1000;
 
 module.exports = {
   _onGitRedflag({ kind, message, branch, count, file } = {}) {
@@ -82,6 +88,11 @@ module.exports = {
   _onLspError({ file, absPath, workspace, errors, focused, symbols, languageId, fileType } = {}) {
     if (!file || !Array.isArray(errors) || !errors.length) return;
     const first = errors[0];
+    // P6 telemetría: inicio del circuito, una línea con lo esencial.
+    logger.info(
+      'sensor-events',
+      `[lsp-ciclo] detectado: ${errors.length} error(es) en ${file}${focused ? ' (enfocado)' : ''} — primero: "${String(first.message || '').slice(0, 60)}"`
+    );
     this._tryTrigger({
       type: 'lsp_error',
       file,
@@ -92,6 +103,9 @@ module.exports = {
       focused,
       languageId,
       fileType,
+      // El watcher emite POR FLANCO (dedup por hash): cada re-disparo es un
+      // error nuevo/distinto → cooldown corto en vez de los 45 min base.
+      cooldownOverrideMs: LSP_ERROR_RETRIGGER_COOLDOWN_MS,
       context: `Hay ${errors.length} error(es) de código en "${file}"${focused ? ' — es el archivo que estás viendo' : ''}. El primero: "${first.message.slice(0, 120)}" (línea ${(first.line ?? 0) + 1}).`,
     }).catch((e) =>
       logger.warn('sensor-events', '[proactive] error en trigger lsp_error:', e.message)
@@ -104,8 +118,153 @@ module.exports = {
    * fragmentos EXACTOS del archivo (única ocurrencia); el executor los valida
    * antes de proponer nada.
    */
+  // ── P1: quickfixes del LSP como fuente de parche determinista ──────────────
+  // pyright/tsserver ya SABEN arreglar ciertos errores (codeActions con edit).
+  // Usarlos es exacto, instantáneo y sin riesgo de alucinación; el LLM queda
+  // como fallback para errores sin quickfix.
+
+  /**
+   * Convierte un WorkspaceEdit del LSP en cambios {old,new} validados contra
+   * el contenido ACTUAL del archivo (cada old debe aparecer EXACTAMENTE una
+   * vez — mismo contrato que el parche del LLM).
+   * @param {string} absPath
+   * @param {{ changes?: Record<string, Array<{range: object, newText: string}>> }} edit
+   * @returns {Array<{old: string, new: string}>|null}
+   */
+  _workspaceEditToChanges(absPath, edit) {
+    const fs = require('fs');
+    const { _fromFileUri } = require('../../../lsp/LSPManager.js');
+    let content;
+    try {
+      content = fs.readFileSync(absPath, 'utf-8');
+    } catch {
+      return null;
+    }
+    const lines = content.split('\n');
+    const all = [];
+    for (const [uri, edits] of Object.entries(edit?.changes || {})) {
+      let p;
+      try {
+        p = _fromFileUri(uri);
+      } catch {
+        continue;
+      }
+      if (path.resolve(p) !== path.resolve(absPath)) continue; // solo el archivo del error
+      for (const e of edits || []) all.push(e);
+    }
+    if (!all.length) return null;
+
+    const sliceRange = (s, en) => {
+      if (
+        typeof s?.line !== 'number' ||
+        typeof en?.line !== 'number' ||
+        s.line < 0 ||
+        en.line >= lines.length ||
+        en.line < s.line
+      ) {
+        return null;
+      }
+      if (s.line === en.line) return String(lines[s.line]).slice(s.character, en.character);
+      const head = String(lines[s.line]).slice(s.character ?? 0);
+      const tail = String(lines[en.line]).slice(0, en.character ?? 0);
+      const middle = lines.slice(s.line + 1, en.line);
+      return [head, ...middle, tail].join('\n');
+    };
+
+    // Ordenar ascendente: los offsets son sobre el contenido ORIGINAL.
+    const sorted = [...all].sort((a, b) => {
+      const pa = a.range?.start || {};
+      const pb = b.range?.start || {};
+      return pa.line - pb.line || (pa.character ?? 0) - (pb.character ?? 0);
+    });
+
+    const changes = [];
+    for (const e of sorted) {
+      const oldText = sliceRange(e.range?.start, e.range?.end);
+      if (oldText == null) return null;
+      changes.push({ old: oldText, new: String(e.newText ?? '') });
+    }
+    // Validar unicidad de cada old (contrato del executor).
+    for (const c of changes) {
+      if (!c.old.trim()) continue;
+      if (content.split(c.old).length - 1 !== 1) return null;
+    }
+    return changes;
+  },
+
+  /**
+   * P1: intenta construir el parche desde quickfixes del LSP (isPreferred o
+   * kind=quickfix con edit). Devuelve null si no hay ninguno aplicable.
+   * @param {object} trigger
+   * @returns {Promise<{changes: Array, source: string}|null>}
+   */
+  async _patchFromQuickFixes(trigger) {
+    if (typeof this._getCodeActions !== 'function' || !trigger?.absPath) return null;
+    const errors = Array.isArray(trigger.errors) ? trigger.errors.slice(0, 3) : [];
+    for (const err of errors) {
+      let actions = [];
+      try {
+        actions =
+          (await this._getCodeActions(
+            trigger.absPath,
+            err.line ?? 0,
+            err.character ?? 0,
+            { diagnostics: trigger.errors }
+          )) || [];
+      } catch {
+        continue;
+      }
+      const fix =
+        actions.find((a) => a.isPreferred && a.edit?.changes) ||
+        actions.find((a) => a.kind === 'quickfix' && a.edit?.changes);
+      if (!fix) continue;
+      const changes = this._workspaceEditToChanges(trigger.absPath, fix.edit);
+      if (changes && changes.length) {
+        logger.info(
+          'sensor-events',
+          `[lsp-ciclo] parche desde QUICKFIX del LSP: "${String(fix.title || '').slice(0, 60)}" (${changes.length} cambio/s)`
+        );
+        return { changes, source: 'lsp_quickfix', fixTitle: fix.title };
+      }
+    }
+    return null;
+  },
+
+  /**
+   * P5: contexto multi-error — ventanas alrededor de cada CLUSTER de errores
+   * (hasta 3 clusters), no solo alrededor del primero.
+   */
+  _buildMultiErrorSlices(lines, errors) {
+    const sorted = [...errors]
+      .map((e) => e.line ?? 0)
+      .sort((a, b) => a - b);
+    const clusters = [];
+    for (const line of sorted) {
+      const last = clusters[clusters.length - 1];
+      if (last && line - last.end <= 15) last.end = Math.max(last.end, line);
+      else clusters.push({ start: line, end: line });
+      if (clusters.length >= 3) break;
+    }
+    return clusters
+      .map(({ start, end }) => {
+        const from = Math.max(0, start - 12);
+        const to = Math.min(lines.length, end + 13);
+        return `--- Fragmento líneas ${from + 1}-${to} ---\n${lines.slice(from, to).join('\n')}`;
+      })
+      .join('\n\n');
+  },
+
   async _generatePatch(trigger) {
     if (!trigger?.absPath) return null;
+
+    // P1: quickfix determinista PRIMERO.
+    try {
+      const qf = await this._patchFromQuickFixes(trigger);
+      if (qf) return qf;
+    } catch (e) {
+      logger.warn('sensor-events', '[proactive] quickfix falló, cayendo a LLM:', e.message);
+    }
+
     const fs = require('fs');
     let content;
     try {
@@ -117,12 +276,17 @@ module.exports = {
     const firstErr = trigger.errors?.[0] || {};
     const errLine = firstErr.line ?? 0;
 
-    // Contexto: el fragmento del archivo alrededor del error (texto EXACTO),
-    // el/los errores y el símbolo (función) donde está.
+    // P5: contexto multi-error por clusters (fallback a ventana simple).
     const lines = content.split('\n');
-    const from = Math.max(0, errLine - 30);
-    const to = Math.min(lines.length, errLine + 40);
-    const slice = lines.slice(from, to).join('\n');
+    const errs = Array.isArray(trigger.errors) && trigger.errors.length ? trigger.errors : [{ line: errLine }];
+    const slice =
+      errs.length > 1
+        ? this._buildMultiErrorSlices(lines, errs)
+        : (() => {
+            const from = Math.max(0, errLine - 30);
+            const to = Math.min(lines.length, errLine + 40);
+            return `--- Fragmento alrededor de la línea ${errLine + 1} ---\n${lines.slice(from, to).join('\n')}`;
+          })();
 
     let symbolsCtx = '';
     if (Array.isArray(trigger.symbols) && trigger.symbols.length) {
@@ -155,8 +319,7 @@ module.exports = {
 ${langRule}`;
 
     const userPrompt = `Archivo: ${trigger.file}${trigger.fileType ? ` (${trigger.fileType})` : ''}
-El contenido REAL del archivo (fragmento alrededor del error, delimitado por ---):
----
+El contenido REAL del archivo (fragmentos alrededor de los errores, delimitados por ---):
 ${slice}
 ---
 Errores a corregir:
@@ -187,7 +350,8 @@ Genera el parche JSON.`;
         .filter((c) => c && typeof c.old === 'string' && c.old.trim() && typeof c.new === 'string')
         .slice(0, 6);
       if (!changes.length) return null;
-      return { changes };
+      logger.info('sensor-events', '[lsp-ciclo] parche desde LLM (sin quickfix disponible)');
+      return { changes, source: 'llm' };
     } catch (e) {
       logger.warn('sensor-events', '[proactive] error generando parche:', e.message);
       return null;

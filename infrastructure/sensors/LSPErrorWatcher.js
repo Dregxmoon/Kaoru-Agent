@@ -132,6 +132,29 @@ class LSPErrorWatcher extends BasePollingWatcher {
     this._signals = new Map(); // absPath → hash del último error emitido
     this._lastErrors = new Map(); // absPath → errores del último scan
     this._emitted = 0;
+    // P4: debounce del scan reactivo + handler de os:app-changed.
+    this._lastForcedScan = 0;
+    this._appChangedHandler = null;
+  }
+
+  /** Arranca el poll + suscripción reactiva al cambio de app/foco. */
+  start() {
+    if (this._running) return;
+    super.start();
+    if (!this._appChangedHandler) {
+      this._appChangedHandler = () => this.scanNow();
+      this._bus.on('os:app-changed', this._appChangedHandler);
+    }
+  }
+
+  stop() {
+    if (this._appChangedHandler) {
+      try {
+        this._bus.off('os:app-changed', this._appChangedHandler);
+      } catch {}
+      this._appChangedHandler = null;
+    }
+    super.stop();
   }
 
   /**
@@ -362,6 +385,20 @@ class LSPErrorWatcher extends BasePollingWatcher {
   /** Errores (severidad 1) del último scan de un archivo — verificación post-parche. */
   getErrorsFor(absPath) {
     return this._lastErrors.get(path.resolve(absPath)) || [];
+  }
+
+  /**
+   * P4: scan inmediato con debounce. Se engancha a `os:app-changed` para que
+   * un cambio de foco dispare la detección en segundos en vez de esperar el
+   * próximo tick de 30s.
+   * @param {{ debounceMs?: number }} [opts]
+   */
+  scanNow({ debounceMs = 3000 } = {}) {
+    const now = Date.now();
+    if (now - this._lastForcedScan < debounceMs) return;
+    this._lastForcedScan = now;
+    if (!this._running || this._polling) return;
+    Promise.resolve(this.poll()).catch(() => {});
   }
 
   /**

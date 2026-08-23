@@ -146,6 +146,15 @@ function init(app) {
     // el engine consulta (en caliente), ya existen.
     getFocusedFile: () => state.lspErrorWatcher?.getFocusedFile?.() ?? null,
     getSymbols: (file) => state.symbolIndex?.getSymbolsFor?.(file) ?? Promise.resolve([]),
+    // P1: quickfixes del LSP como fuente de parche determinista (antes del LLM).
+    getCodeActions: async (file, line, character, context = null) => {
+      if (!state.lspManager?.isRunning) return null;
+      try {
+        return await state.lspManager.codeActions(file, line, character, context);
+      } catch {
+        return null;
+      }
+    },
     executor: (state.proactiveExecutor = new ProactiveExecutor({
       getWorkspace: () => state.activeWorkspace,
       // Fase D: guard de archivos abiertos en el editor + verificación LSP

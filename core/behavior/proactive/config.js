@@ -315,6 +315,11 @@ const TRIGGER_COOLDOWN_MS = {
   upcoming_event: 30 * 60 * 1000,
   pending_recap: 60 * 60 * 1000,
   lsp_error: 45 * 60 * 1000,
+  // El watcher emite lsp_error POR FLANCO (solo cuando el SET de errores
+  // cambia — dedup por hash). Un re-disparo siempre es un error NUEVO o
+  // distinto: esperar los 45 min completos es absurdo. Cooldown corto para
+  // re-ofrecer rápido; el anti-acoso real es el dedup + cupo de trabajo.
+  lsp_error_retrigger: 8 * 60 * 1000,
   // Curiosidad sobre la memoria: cupo bajo (2/día) y cooldown largo por tipo
   // para no repetir la pregunta del mismo tipo varias veces en el día.
   memory_stale: 6 * 60 * 60 * 1000,

@@ -116,12 +116,26 @@ module.exports = {
 
     if (action) {
       // Memoria efímera de acciones pendientes (la ejecución llega en
-      // handleDecision). Se acota para no crecer sin límite.
-      this._pendingActions.set(proposal.id, { action, type: trigger.type, at: Date.now() });
+      // handleDecision). Guarda el trigger para el reintento informado (P2).
+      // Se acota para no crecer sin límite.
+      this._pendingActions.set(proposal.id, {
+        action,
+        type: trigger.type,
+        trigger,
+        at: Date.now(),
+      });
       if (this._pendingActions.size > 50) {
         const oldest = this._pendingActions.keys().next().value;
         this._pendingActions.delete(oldest);
       }
+    }
+
+    // P6 telemetría del circuito lsp_error.
+    if (trigger.type === 'lsp_error') {
+      logger.info(
+        'proposals',
+        `[lsp-ciclo] ofrecida id=${proposal.id} acción=${action ? 'parche' : 'informativa'}`
+      );
     }
 
     return proposal;
@@ -218,17 +232,73 @@ module.exports = {
     }
     try {
       const result = await this._executor.execute(pending.action, { proposalId });
+      // P2: reintento informado — el parche aplicó pero el LSP sigue viendo
+      // el error. UN solo reintento alimentado con los diagnósticos frescos;
+      // después, resultado honesto sin prometer más.
+      if (
+        type === 'lsp_error' &&
+        result.ok &&
+        result.fixed === false &&
+        pending.trigger?.absPath
+      ) {
+        logger.info(
+          'proposals',
+          `[lsp-ciclo] parche no bastó — un reintento informado con diagnósticos post-parche (${proposalId})`
+        );
+        const freshErrors = await this._executor.getCurrentDiagnostics(pending.trigger.absPath);
+        if (Array.isArray(freshErrors) && freshErrors.length) {
+          const retryTrigger = { ...pending.trigger, errors: freshErrors };
+          const patch2 = await this._generatePatch(retryTrigger);
+          if (patch2?.changes?.length) {
+            const res2 = await this._executor.execute(
+              {
+                tool: 'apply_patch',
+                params: {
+                  file: pending.trigger.file,
+                  changes: patch2.changes,
+                  targetErrors: freshErrors,
+                },
+              },
+              { proposalId: `${proposalId}#retry` }
+            );
+            this._bus.emit('proposal:executed', {
+              proposalId,
+              type,
+              ok: !!res2.ok,
+              skipped: !!res2.skipped,
+              attempt: 2,
+              appliedWhileOpen: !!res2.appliedWhileOpen,
+              wasFocused: !!res2.wasFocused,
+              fixed: res2.fixed !== false,
+              diff: res2.diff || null,
+              detail:
+                res2.detail ||
+                (res2.ok ? 'Reintento aplicado.' : 'El reintento no pudo aplicar el parche.'),
+            });
+            return;
+          }
+        }
+        // Sin reintento posible → informar tal cual.
+        this._bus.emit('proposal:executed', {
+          proposalId,
+          type,
+          ok: false,
+          fixed: false,
+          detail: 'Apliqué el parche pero el error persiste y no encontré un segundo fix mejor. Mirá los diagnósticos actuales del archivo.',
+        });
+        return;
+      }
+
       this._bus.emit('proposal:executed', {
         proposalId,
         type,
         ok: !!result.ok,
         skipped: !!result.skipped,
-        detail: result.detail || result.reason || null,
-        // Híbrido: el parche se aplicó con el archivo abierto en el editor →
-        // la UI advierte "recargá antes de guardar" y muestra el diff.
         appliedWhileOpen: !!result.appliedWhileOpen,
         wasFocused: !!result.wasFocused,
+        fixed: result.fixed,
         diff: result.diff || null,
+        detail: result.detail || result.reason || null,
       });
     } catch (e) {
       this._bus.emit('proposal:executed', { proposalId, type, ok: false, detail: e.message });
