@@ -4,6 +4,26 @@ const logger = require('../../observability/Logger.js');
 
 const { DECAY_RATES, NODE_TYPES } = require('./constants');
 
+// MEM-6: tipos cuya memoria vale la pena citar con procedencia.
+const IDENTITY_TYPES = new Set(['User', 'Preference', 'Project', 'Belief']);
+
+/**
+ * Tag `visto:<YYYY-MM-DD>` — cuándo se supo/confirmó el dato por última vez.
+ * Los mensajes proactivos lo usan para citar procedencia ("te lo contó el
+ * 12 de agosto") en vez de soltar el dato sin contexto.
+ * @param {string[]} tags
+ * @param {boolean} replaceExisting - true en updates (deja solo la fecha nueva)
+ * @returns {string[]}
+ */
+function _withProvenanceTag(tags, { replaceExisting = false } = {}) {
+  const day = new Date().toISOString().slice(0, 10);
+  const tag = `visto:${day}`;
+  const clean = Array.isArray(tags) ? tags.filter((t) => !/^visto:\d{4}-\d{2}-\d{2}$/.test(t)) : [];
+  if (!replaceExisting && clean.includes(tag)) return clean;
+  clean.push(tag);
+  return clean;
+}
+
 class NodeStore {
   constructor(db, graph) {
     this._db = db;
@@ -36,7 +56,7 @@ class NodeStore {
         content,
         importance,
         decay_rate ?? DECAY_RATES[type],
-        JSON.stringify(tags),
+        JSON.stringify(IDENTITY_TYPES.has(type) ? _withProvenanceTag(tags) : tags),
         now,
         now,
         now,
@@ -56,7 +76,16 @@ class NodeStore {
     const newImportance = importance ?? node.importance;
     const newContent = content ?? node.content;
     const newLabel = label ?? node.label;
-    const newTags = tags ?? JSON.parse(node.tags || '[]');
+    let newTags = tags ?? JSON.parse(node.tags || '[]');
+    // MEM-6: al confirmar/actualizar un dato de identidad, refrescar la
+    // procedencia (reemplaza visto:<vieja> por la fecha de hoy).
+    if (!tags && IDENTITY_TYPES.has(node.type)) {
+      try {
+        newTags = _withProvenanceTag(JSON.parse(node.tags || '[]'), {
+          replaceExisting: true,
+        });
+      } catch {}
+    }
     const newVerifiedAt = verified_at ?? node.verified_at;
     const newInferred = inferred !== undefined ? (inferred ? 1 : 0) : node.inferred;
     const newConfidence = confidence !== undefined ? confidence : node.confidence;

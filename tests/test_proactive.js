@@ -1440,7 +1440,7 @@ function testStaleGaps() {
   }
 }
 
-function testMemoryTastePriority() {
+async function testMemoryTastePriority() {
   console.log(C.bold('\nTest 21: _buildMemoryContext prioriza gustos y filtra ruido'));
   const engine = makeEngine();
   engine._graph.getWorldModel = () => [
@@ -1485,7 +1485,7 @@ function testMemoryTastePriority() {
       id: 5,
     },
   ];
-  const ctx = engine._buildMemoryContext();
+  const ctx = await engine._buildMemoryContext(null);
   assert(ctx.includes('G2 Shanks'), 'gusto de música entra al prompt');
   assert(ctx.includes('Evangelion'), 'gusto de anime entra al prompt');
   assert(
@@ -2055,7 +2055,7 @@ async function testCuriosityOutcomeLoop() {
   await testConvoActiveWindow();
   testGenericContentFilter();
   testStaleGaps();
-  testMemoryTastePriority();
+  await testMemoryTastePriority();
   testMediaBoostGate();
   await testSituationFrame();
   await testRelationBookend();

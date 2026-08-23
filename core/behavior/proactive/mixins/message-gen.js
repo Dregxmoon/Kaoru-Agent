@@ -69,8 +69,41 @@ function _tastePriority(n) {
 
 // Selecciona hasta `max` preferencias: las de gusto primero, y entre empates
 // las más recientes (el world model llega ordenado por importancia desc).
-function _pickTasteFirst(nodes, max) {
-  return nodes
+/**
+ * Ruido de preferencias: paths de archivos y comandos que el LLM a veces
+ * guarda como "preferencias" — nunca aportan nada en un prompt proactivo.
+ * @param {object} node
+ * @returns {boolean}
+ */
+function _isNoisePreference(node) {
+  if (node.type !== 'Preference') return false;
+  const c = String(node.content || '').trim();
+  return /^[A-Za-z]:\\/.test(c) || /^\/(?!n)/.test(c) || /^(ls|cd|cat|npm|git|node|mkdir)\s/i.test(c);
+}
+
+/**
+ * MEM-6: sufijo de procedencia a partir del tag `visto:<fecha>` que
+ * NodeStore agrega a los nodos de identidad. Permite citar CUÁNDO se supo
+ * el dato ("me lo contaste el 12 de agosto") en vez de soltarlo sin contexto.
+ * @param {object} node
+ * @returns {string}
+ */
+function _provenanceSuffix(node) {
+  try {
+    const tags =
+      typeof node.tags === 'string' ? JSON.parse(node.tags || '[]') : node.tags || [];
+    const visto = tags.find((t) => /^visto:\d{4}-\d{2}-\d{2}$/.test(String(t)));
+    if (!visto) return '';
+    const date = new Date(String(visto).slice(6));
+    if (Number.isNaN(date.getTime())) return '';
+    const s = date.toLocaleDateString('es-MX', { day: 'numeric', month: 'long' });
+    return ` (te lo contó el ${s})`;
+  } catch {
+    return '';
+  }
+}
+
+function _pickTasteFirst(nodes, max) {  return nodes
     .map((n, i) => ({ n, score: _tastePriority(n), i }))
     .sort((a, b) => b.score - a.score || b.i - a.i)
     .slice(0, max)
@@ -80,7 +113,7 @@ function _pickTasteFirst(nodes, max) {
 module.exports = {
   async _generateMessage(trigger) {
     const osCtx = this._osSensor?.getCurrentContext() ?? null;
-    const memory = this._buildMemoryContext();
+    const memory = await this._buildMemoryContext(trigger);
     const now = new Date();
     const timeStr = now.toLocaleTimeString('es-MX', { hour: '2-digit', minute: '2-digit' });
     const identity = _safeGetIdentity();
@@ -278,43 +311,93 @@ No expliques por qué escribes. No anuncies que eres proactiva. NO muestres tu r
     }
   },
 
-  _buildMemoryContext() {
+  async _buildMemoryContext(trigger) {
     if (!this._graph?._ready) return '';
 
     const lines = [];
     try {
-      const worldModel = this._graph.getWorldModel?.() ?? [];
-      if (worldModel.length) {
-        const byType = { User: [], Project: [], Preference: [], Belief: [] };
-        for (const node of worldModel) {
-          // Solo memoria real: placeholders, workspaces auto-init, preferencias
-          // del sistema y boilerplate del LLM no son datos sobre el usuario.
-          if (byType[node.type] && isRealIdentityNode(node)) byType[node.type].push(node);
-        }
+      // MEM-1: world model CON contexto — la memoria que entra al prompt es la
+      // relevante a lo que el usuario hace AHORA, no un top genérico. Reusa el
+      // boosting contextual que ya existía para el chat.
+      const osCtx = this._osSensor?.getCurrentContext?.() ?? null;
+      const memCtx = osCtx
+        ? { activeApp: osCtx.friendlyName || osCtx.app || '', windowTitle: osCtx.title || '' }
+        : null;
+      const worldModel = this._graph.getWorldModel?.(memCtx) ?? [];
 
-        // Límite por tipo para no saturar el prompt del LLM
-        const MAX_PER_TYPE = 3;
-        if (byType.User.length) {
-          lines.push('Lo que sabes del usuario:');
-          byType.User.slice(-MAX_PER_TYPE).forEach((n) => lines.push(`- ${n.content}`));
+      // MEM-2: recall semántico por trigger — nodos enterrados relacionados
+      // con el disparador actual que el world model no trajo.
+      let semanticHits = [];
+      if (trigger?.context && typeof this._graph.queryNodesSemantic === 'function') {
+        try {
+          semanticHits =
+            (await this._graph.queryNodesSemantic(trigger.context, { limit: 6 })) ?? [];
+        } catch {}
+      }
+
+      // MEM-4: presupuesto inteligente — ranking global por
+      // importancia × recencia × match con el foco actual, en vez de
+      // slice fijo de 3 por tipo que cortaba datos clave.
+      const seenIds = new Set();
+      const candidates = [];
+      const nowMs = Date.now();
+      const HALF_LIFE_MS = 14 * 24 * 60 * 60 * 1000;
+      const focusText = `${memCtx?.activeApp || ''} ${memCtx?.windowTitle || ''}`.toLowerCase();
+
+      for (const node of [...worldModel, ...semanticHits]) {
+        if (!node?.id || seenIds.has(node.id)) continue;
+        if (!isRealIdentityNode(node)) continue;
+        if (_isNoisePreference(node)) continue;
+        seenIds.add(node.id);
+        const ageMs = Math.max(0, nowMs - (node.updated_at || nowMs));
+        const recency = Math.exp((-Math.LN2 * ageMs) / HALF_LIFE_MS);
+        let score = (node.importance || 0.5) * (0.5 + 0.5 * recency);
+        if (
+          focusText &&
+          `${node.label} ${node.content}`.toLowerCase().length > 0 &&
+          focusText
+            .split(/\s+/)
+            .some((w) => w.length > 3 && `${node.label} ${node.content}`.toLowerCase().includes(w))
+        ) {
+          score += 0.5;
         }
-        if (byType.Project.length) {
-          lines.push('Proyectos activos:');
-          byType.Project.slice(-MAX_PER_TYPE).forEach((n) => lines.push(`- ${n.content}`));
-        }
-        if (byType.Preference.length) {
-          lines.push('Preferencias observadas:');
-          // Las preferencias de gusto (música/anime/comida/juego...) se muestran
-          // primero: conectan con contenido en pantalla. El resto entra si hay
-          // hueco, priorizando las más recientes/importantes.
-          _pickTasteFirst(byType.Preference, MAX_PER_TYPE).forEach((n) =>
-            lines.push(`- ${n.content}`)
-          );
-        }
-        if (byType.Belief.length) {
-          lines.push('Cosas que crees sobre el usuario:');
-          byType.Belief.slice(-MAX_PER_TYPE).forEach((n) => lines.push(`- ${n.content}`));
-        }
+        candidates.push({ node, score });
+      }
+      candidates.sort((a, b) => b.score - a.score);
+
+      const MAX_MEMORY_LINES = 12;
+      const picked = candidates.slice(0, MAX_MEMORY_LINES);
+      const pickedIds = new Set(picked.map((p) => p.node.id));
+      const semanticOnly = picked.filter(
+        (p) => !worldModel.some((w) => w.id === p.node.id)
+      );
+
+      // Salida agrupada por tipo para legibilidad del LLM.
+      const byType = { User: [], Project: [], Preference: [], Belief: [] };
+      for (const { node } of picked) {
+        if (byType[node.type]) byType[node.type].push(node);
+      }
+      if (byType.User.length) {
+        lines.push('Lo que sabes del usuario:');
+        byType.User.forEach((n) => lines.push(`- ${n.content}${_provenanceSuffix(n)}`));
+      }
+      if (byType.Project.length) {
+        lines.push('Proyectos activos:');
+        byType.Project.forEach((n) => lines.push(`- ${n.content}${_provenanceSuffix(n)}`));
+      }
+      if (byType.Preference.length) {
+        lines.push('Preferencias observadas:');
+        _pickTasteFirst(byType.Preference, byType.Preference.length).forEach((n) =>
+          lines.push(`- ${n.content}${_provenanceSuffix(n)}`)
+        );
+      }
+      if (byType.Belief.length) {
+        lines.push('Cosas que crees sobre el usuario:');
+        byType.Belief.forEach((n) => lines.push(`- ${n.content}${_provenanceSuffix(n)}`));
+      }
+      if (semanticOnly.length) {
+        lines.push('Esto se conecta DIRECTAMENTE con lo que está pasando ahora:');
+        semanticOnly.forEach(({ node }) => lines.push(`- ${node.content}${_provenanceSuffix(node)}`));
       }
 
       const episodes = this._graph.getRecentEpisodes?.(5) ?? [];
@@ -344,9 +427,37 @@ No expliques por qué escribes. No anuncies que eres proactiva. NO muestres tu r
       if (gaps.length) {
         lines.push('Aún no sabes de la persona:');
         gaps.forEach((g) =>
-          lines.push(`- ${g.trait} (no lo sabes; puedes preguntarlo con curiosidad natural)`)
+          lines.push(
+            `- ${g.trait} (no lo sabes; si lo mencionás, ANCLÁ la pregunta a algo de "Lo que sabes" de arriba — nunca preguntes en vacío tipo encuesta)`
+          )
         );
       }
+
+      // MEM-5: gaps DINÁMICOS — topics con momentum real que el usuario
+      // mencionó pero que no tienen nodo de memoria asociado.
+      try {
+        const tracker = this._graph.getTopicTracker?.();
+        const hot = tracker?.getHotTopics?.({ limit: 10, minMomentum: 0.25 }) ?? [];
+        const knownText = picked.map((p) => `${p.node.label} ${p.node.content}`).join(' ').toLowerCase();
+        const dynGaps = [];
+        for (const t of hot) {
+          const words = String(t.topic_key || '')
+            .split('_')
+            .filter((w) => w.length >= 4);
+          if (!words.length) continue;
+          const covered = words.every((w) => knownText.includes(w));
+          if (!covered && !dynGaps.some((d) => d.includes(words[0]))) {
+            dynGaps.push(words.join(' '));
+          }
+          if (dynGaps.length >= 3) break;
+        }
+        if (dynGaps.length) {
+          lines.push('Temas que menciona seguido pero de los que no sabés nada:');
+          dynGaps.forEach((t) =>
+            lines.push(`- "${t}" — podés preguntar algo específico sobre eso con curiosidad genuina`)
+          );
+        }
+      } catch {}
     } catch (e) {
       logger.warn('message-gen', '[proactive] error leyendo memoria:', e.message);
     }
@@ -388,8 +499,17 @@ No expliques por qué escribes. No anuncies que eres proactiva. NO muestres tu r
         const n = gaps.length;
         const start = this._curiosityCursor % n;
         const count = Math.min(2, n);
+        // MEM-3: anclar cada pregunta a un dato conocido — la curiosidad parte
+        // de lo que ya se sabe, no de encuesta vacía.
+        let anchor = '';
+        try {
+          const known = this._graph.getWorldModel?.() ?? [];
+          const real = known.filter((x) => isRealIdentityNode(x));
+          const pick = real[real.length - 1];
+          if (pick?.content) anchor = ` — podés anclarla a que ya sabes: "${String(pick.content).slice(0, 80)}"`;
+        } catch {}
         for (let i = 0; i < count; i++) {
-          bits.push(`- aún no sabes ${gaps[(start + i) % n].trait}`);
+          bits.push(`- aún no sabes ${gaps[(start + i) % n].trait}${anchor}`);
         }
         this._curiosityCursor = (start + count) % n;
       }
