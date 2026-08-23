@@ -106,7 +106,11 @@ const TOOL_SCHEMAS = [
   {
     id: 'openclaw.apply_patch',
     name: 'apply_patch',
-    domain: ['filesystem', 'code'],
+    // 'patch' (no 'filesystem'): el server MCP filesystem NO reemplaza
+    // apply_patch (multi-bloque, multi-archivo) y la exclusión por dominio lo
+    // sacaba del set cuando ese MCP está activo → el agente perdía el parche
+    // nativo y quedaba solo con edit_file por bloques.
+    domain: ['patch', 'code'],
     source: 'openclaw',
     description: 'Aplica parches multi-bloque a uno o más archivos',
     params: [

@@ -1155,11 +1155,21 @@ app.whenReady().then(() => {
 
   _autoInitProject();
 
-  const shortcutOk = globalShortcut.register('CommandOrControl+Shift+Q', () => app.quit());
+  // Atajo global de salida con fallback: si Ctrl/Cmd+Shift+Q está tomado por
+  // otra app, se intenta Alt+Shift+Q antes de rendirse (el usuario siempre
+  // necesita una vía de teclado para cerrar todo).
+  let registeredShortcut = 'Ctrl/Cmd+Shift+Q';
+  let shortcutOk = globalShortcut.register('CommandOrControl+Shift+Q', () => app.quit());
   if (!shortcutOk) {
+    shortcutOk = globalShortcut.register('Alt+Shift+Q', () => app.quit());
+    if (shortcutOk) registeredShortcut = 'Alt+Shift+Q';
+  }
+  if (shortcutOk) {
+    logger.info('main', `[main] atajo global de salida registrado: ${registeredShortcut}`);
+  } else {
     logger.warn(
       'main',
-      'no se pudo registrar el atajo global de salida (Ctrl/Cmd+Shift+Q) — probablemente ya lo usa otra app.'
+      'ningún atajo global de salida disponible (Ctrl/Cmd+Shift+Q y Alt+Shift+Q ocupados) — usá el menú del overlay ("Cerrar todo").'
     );
   }
 

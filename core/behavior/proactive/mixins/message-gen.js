@@ -299,7 +299,9 @@ No expliques por qué escribes. No anuncies que eres proactiva. NO muestres tu r
       try {
         const prof = this._graph?.getAdaptiveEngine?.()?.buildAdaptationProfile?.();
         if (prof && prof.confidence > 0.3) adaptationType = `style_${prof.responseLength}`;
-      } catch {}
+      } catch (e) {
+        logger.debug('message-gen', `[adaptation-type] ${e.message}`);
+      }
 
       // Registrar la respuesta de Kaoru para evaluación posterior (feedback loop)
       this._recordKaoruResponse(trimmed, enforcement, emotionalCtx, adaptationType);
@@ -332,7 +334,9 @@ No expliques por qué escribes. No anuncies que eres proactiva. NO muestres tu r
         try {
           semanticHits =
             (await this._graph.queryNodesSemantic(trigger.context, { limit: 6 })) ?? [];
-        } catch {}
+        } catch (e) {
+          logger.debug('message-gen', `[memoria] recall semántico falló: ${e.message}`);
+        }
       }
 
       // MEM-4: presupuesto inteligente — ranking global por

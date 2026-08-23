@@ -148,8 +148,32 @@ function _fnv1a(str) {
 }
 
 /** Clave estable de una llamada: `tool#hash(params)`. */
-function _toolCallKey(tool, params) {
-  let json;
+/**
+ * BUG-1 (auditoría): detecta respuestas que PROMETEN ediciones sin que haya
+ * ocurrido ninguna mutación exitosa en el run. Caso real: el modelo dijo
+ * "¡Listo, ya está! 🌟" tras solo cat+ls. Determinista — sin LLM.
+ * @param {string} responseText
+ * @param {Array<{ok?: boolean, tool?: string, _action?: {tool?: string}}>} toolResults
+ * @returns {string|null} resumen del claim, o null si no hay problema
+ */
+function _detectUnverifiedEditClaims(responseText, toolResults) {
+  const hadSuccessfulMutation = (toolResults || []).some(
+    (r) => r?.ok && MUTATOR_TOOLS.has(r?._action?.tool || r?.tool || '')
+  );
+  if (hadSuccessfulMutation) return null;
+  const text = String(responseText || '');
+  if (!text.trim()) return null;
+  const CLAIM_RE =
+    /\b(apliqu[ée]|aplicados|modifiqu[ée]|edit[ée]|cambi[ée]|cre[ée]|creado|escrib[ée]|actualic[ée]|correg[ée]|arregl[ée]|parche aplicado|ya est[aá]|listo[,!]?\s*ya)\b/i;
+  const CODE_CTX_RE = /\b(archivo|c[oó]digo|parche|[a-z]\.(py|js|ts|json|md)|funci[oó]n)\b/i;
+  const m = text.match(CLAIM_RE);
+  if (m && CODE_CTX_RE.test(text)) {
+    return `afirma "${m[0]}"`;
+  }
+  return null;
+}
+
+function _toolCallKey(tool, params) {  let json;
   try {
     json = JSON.stringify(params || {});
   } catch {
@@ -1026,11 +1050,26 @@ class AgentLoop {
         if (verify && verify.status === 'failed' && !opts.reportMode) {
           responseText += buildVerifyFailureNotice(verify);
         }
+        // Auditoría BUG-1: verificación determinista de promesas vs realidad —
+        // si el texto final afirma ediciones pero CERO mutaciones tuvieron
+        // éxito en el run, se marca y se advierte al usuario (el caso
+        // "¡Listo! 🌟" sin haber editado nada).
+        const falseClaim = _detectUnverifiedEditClaims(responseText, toolResults);
+        let response = this._withExpiredApprovalNotice(responseText);
+        if (falseClaim) {
+          logger.warn(
+            'AgentLoop',
+            `[agent-loop] ⚠ respuesta promete ediciones (${falseClaim}) sin NINGUNA mutación exitosa en el run`
+          );
+          response +=
+            '\n\n[NOTA DEL SISTEMA: esta respuesta afirma cambios que NO se ejecutaron — verificado por el pipeline. Pedí que lo haga de nuevo o revisá manualmente.]';
+        }
         return {
-          response: this._withExpiredApprovalNotice(responseText),
+          response,
           iterations: i + 1,
           toolResults,
           verify,
+          unverifiedEdits: falseClaim || undefined,
           error: null,
         };
       }
