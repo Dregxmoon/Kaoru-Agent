@@ -86,7 +86,9 @@ function fakeGraph(extra = {}) {
 
 function fakeSensor() {
   return {
-    getCurrentContext: () => ({ category: null, elapsed: 0, idleSecs: 0 }),
+    // Escenario por defecto: usuario en su editor — los tests de lsp_error
+    // ejercitan el pipeline completo (el gate ahora difiere sin editor).
+    getCurrentContext: () => ({ app: 'code-oss', category: 'code', elapsed: 0, idleSecs: 0 }),
     getTodaySummary: () => '',
   };
 }

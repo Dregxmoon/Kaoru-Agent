@@ -32,8 +32,32 @@ const { CURIOSITY_DAILY_CAP, CURIOSITY_TYPES, WORK_SIGNAL_TYPES, WORK_DAILY_CAP 
   '../behavior/proactive/config.js'
 );
 
-const FLOW = {
-  IDLE: 'idle', // AFK o sin actividad reciente → no molestar salvo crítico
+// ── Detección de editor enfocado (para señales de trabajo) ──────────────────
+// Patrones de apps de edición de código: primero se confía en la categoría
+// del OS sensor ('code' de APP_CATEGORIES); como fallback, keywords sobre el
+// nombre de la app (cubre code-oss, VSCodium, forks y editores no listados).
+const EDITOR_APP_RE =
+  /(code|vscode|vscodium|studio|sublime|jetbrains|intellij|pycharm|webstorm|goland|rider|vim|neovim|emacs|zed|notepad\+\+|textmate|kdevelop|builder|nano)/i;
+
+/**
+ * ¿El usuario tiene un editor de código/texto enfocado AHORA? Fuente: el
+ * contexto vivo del OS sensor (no el cache del watcher, que puede llevar
+ * hasta 30s de retraso).
+ * @param {object} context - ctx del gate (_buildGateContext)
+ * @returns {boolean}
+ */
+function _isEditorFocused(context = {}) {
+  if ((context.osCategory || '').toLowerCase() === 'code') return true;
+  const app = String(context.osApp || '');
+  if (!app) return false;
+  if (EDITOR_APP_RE.test(app)) return true;
+  // Fallback por título solo con patrones MUY específicos (evita falsos
+  // positivos tipo pestaña de browser con documentación de VSCode).
+  const title = String(context.osTitle || '');
+  return / - (Visual Studio Code|Code - OSS)\b/.test(title);
+}
+
+const FLOW = {  IDLE: 'idle', // AFK o sin actividad reciente → no molestar salvo crítico
   ACTIVE: 'active', // trabajando normalmente → se puede proponer si el score lo justifica
   DEEP: 'deep', // inmerso (app actual > N min, sin thrashing) → barra alta
 };
@@ -231,8 +255,32 @@ function evaluate(candidate, context = {}, policy = DEFAULT_GATE_POLICY) {
     candidate.tipo === 'lsp_error' &&
     (candidate.focused === true || candidate.payload?.focused === true);
 
+  // Ajuste lsp_error (feedback de uso real): el error se DETECTA siempre, pero
+  // el MENSAJE solo tiene sentido si el usuario está en su editor AHORA. Sin
+  // editor enfocado → QUEUE (se difiere y re-intenta: al abrir VSCode el
+  // replay por os:app-changed lo entrega justo en el momento correcto).
+  const editorFocused = _isEditorFocused(context);
+
   // 4) Relevancia desde el vector de señal del candidato (F-1).
   const relevance = candidate.score ?? 0;
+  if (
+    candidate.tipo === 'lsp_error' &&
+    !editorFocused &&
+    !candidate.isCritical
+  ) {
+    return {
+      admit: false,
+      queue: true,
+      decision: {
+        verdict: 'QUEUE',
+        reason: 'lsp_editor_not_focused',
+        relevance,
+        flow: flow.level,
+      },
+      flow: flow.level,
+      budgetLimit,
+    };
+  }
   if (relevance < policy.floorRelevance) {
     return {
       admit: false,
@@ -249,7 +297,8 @@ function evaluate(candidate, context = {}, policy = DEFAULT_GATE_POLICY) {
     {
       relevance,
       goodMoment:
-        workExempt || (userPresent && withinBudget && flow.level !== FLOW.IDLE),
+        (workExempt && editorFocused) ||
+        (userPresent && withinBudget && flow.level !== FLOW.IDLE),
       isCritical: !!candidate.isCritical,
       userPresent,
       // Señales de trabajo: su cupo propio ya se validó arriba — el

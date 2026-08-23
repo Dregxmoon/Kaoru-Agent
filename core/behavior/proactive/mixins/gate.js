@@ -122,6 +122,11 @@ module.exports = {
       now,
       chatOpen: this._chatOpen,
       lastUserMsg: this._lastUserMsg || 0,
+      // Ajuste lsp_error: app/categoría enfocada AHORA — el gate decide si el
+      // usuario está en su editor antes de dejar pasar un error de código.
+      osApp: osCtx.app || osCtx.friendlyName || '',
+      osTitle: osCtx.title || '',
+      osCategory: osCtx.category || '',
       idleSecs: osCtx.idleSecs ?? 0,
       appElapsedSec: this._categoryStreakStart
         ? Math.round((now - this._categoryStreakStart) / 1000)

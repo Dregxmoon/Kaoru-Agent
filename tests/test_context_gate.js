@@ -58,6 +58,10 @@ const baseCtx = {
   recentSwitches: [],
   budgetUsed: 0,
   receptivity: 0,
+  // Escenario por defecto: usuario en su editor (los tests de lsp_error
+  // asumen que está programando; el caso SIN editor tiene test propio).
+  osApp: 'code-oss',
+  osCategory: 'code',
 };
 
 // ── Test 1: detectFlow ───────────────────────────────────────────────────────
@@ -167,6 +171,30 @@ function testEvaluate() {
     lastUserMsg: baseCtx.now - 3 * 60 * 1000,
   });
   assert(otherType.admit === false, 'git_redflag + focused → sin exención');
+
+  // ── Ajuste de momento: lsp_error SIN editor enfocado → QUEUE ────────────────
+  const notInEditor = evaluate(
+    { tipo: 'lsp_error', kind: 'default', score: 0.91, isCritical: false, payload: { focused: true } },
+    { ...baseCtx, osApp: 'firefox', osCategory: 'browser' }
+  );
+  assert(notInEditor.admit === false && notInEditor.queue === true, 'lsp_error sin editor enfocado → QUEUE (momento incorrecto)');
+  assert(
+    notInEditor.decision.reason === 'lsp_editor_not_focused',
+    'reason = lsp_editor_not_focused',
+    notInEditor.decision.reason
+  );
+  // Terminal no es editor → tampoco pasa.
+  const inTerminal = evaluate(
+    { tipo: 'lsp_error', kind: 'default', score: 0.91, isCritical: false, payload: { focused: true } },
+    { ...baseCtx, osApp: 'Alacritty', osCategory: 'terminal' }
+  );
+  assert(inTerminal.admit === false && inTerminal.queue === true, 'lsp_error en terminal → QUEUE');
+  // Fallback por keyword del nombre de app (categoría 'other').
+  const unknownCategory = evaluate(
+    { tipo: 'lsp_error', kind: 'default', score: 0.91, isCritical: false, payload: { focused: true } },
+    { ...baseCtx, osApp: 'code-oss', osCategory: 'other' }
+  );
+  assert(unknownCategory.admit === true, "osCategory 'other' pero app code-oss → editor detectado por keyword");
 
   // ── Cupo de TRABAJO propio: presupuesto general agotado NO mata lsp_error ──
   const budgetGone = { ...baseCtx, budgetUsed: 12, budgetLimit: 12 };

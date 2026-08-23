@@ -237,6 +237,51 @@ module.exports = {
     }
     try {
       const result = await this._executor.execute(pending.action, { proposalId });
+      // Parche VIEJO: el archivo cambió entre la detección y el aceptar
+      // ('no es único en el archivo (0 coincidencias)'). En vez de fallar en
+      // seco, regenerar el parche desde el contenido ACTUAL y aplicar una vez.
+      const STALE_PATCH_RE = /(no es [úu]nico|coincidencias|el archivo cambi[oó]|ambiguo)/i;
+      if (
+        type === 'lsp_error' &&
+        result.ok === false &&
+        !result.rolledBack &&
+        pending.trigger?.absPath &&
+        STALE_PATCH_RE.test(String(result.detail || ''))
+      ) {
+        logger.info(
+          'proposals',
+          `[lsp-ciclo] parche viejo (archivo cambió) — regenerando desde contenido actual (${proposalId})`
+        );
+        const patchFresh = await this._generatePatch(pending.trigger);
+        if (patchFresh?.changes?.length) {
+          const res2 = await this._executor.execute(
+            {
+              tool: 'apply_patch',
+              params: {
+                file: pending.trigger.file,
+                changes: patchFresh.changes,
+                targetErrors: pending.trigger.errors || [],
+              },
+            },
+            { proposalId: `${proposalId}#regen` }
+          );
+          this._bus.emit('proposal:executed', {
+            proposalId,
+            type,
+            ok: !!res2.ok,
+            skipped: !!res2.skipped,
+            attempt: 2,
+            appliedWhileOpen: !!res2.appliedWhileOpen,
+            wasFocused: !!res2.wasFocused,
+            fixed: res2.fixed,
+            diff: res2.diff || null,
+            detail:
+              res2.detail ||
+              (res2.ok ? 'Parche regenerado y aplicado sobre el contenido actual.' : null),
+          });
+          return;
+        }
+      }
       // P2: reintento informado — el parche aplicó pero el LSP sigue viendo
       // el error. UN solo reintento alimentado con los diagnósticos frescos;
       // después, resultado honesto sin prometer más.
