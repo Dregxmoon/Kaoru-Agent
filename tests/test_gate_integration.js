@@ -178,11 +178,13 @@ async function testQueueDefer() {
     },
   });
 
-  // Chat abierto → la señal (media relevancia) va a QUEUE, no se consulta LLM.
+  // Usuario chateando AHORA (chat abierto + mensaje reciente) → la señal
+  // (media relevancia) va a QUEUE, no se consulta LLM.
   const engine = new ProactiveEngine(fakeGraph());
   engine.setOSSensor(fakeSensor());
   engine.start();
   engine.setChatOpen(true);
+  engine.onUserMessage();
 
   const res = await engine._tryTrigger({
     type: 'git_redflag',
@@ -200,7 +202,8 @@ async function testQueueDefer() {
   assert(llmCalls === 0, '…sin consultar al LLM', `llmCalls=${llmCalls}`);
   assert(engine._queue.size() === 1, '…y queda en la cola', `size=${engine._queue.size()}`);
 
-  // El usuario cierra el chat → se reintenta la cola automáticamente.
+  // El usuario deja de hablar (pausa larga) y cierra el chat → replay de cola.
+  engine._lastUserMsg = Date.now() - 6 * 60 * 1000;
   engine.setChatOpen(false);
   // _generateMessage es async (con awaits internos de contexto) — dejar que la
   // cola de microtasks complete antes de verificar la llamada al LLM.

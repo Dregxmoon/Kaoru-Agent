@@ -52,6 +52,11 @@ const DEFAULT_GATE_POLICY = {
   deepFlowRBonus: 0.15,
   // Si el usuario acaba de hablar (ms), no interrumpir nunca.
   recentChatMs: 2 * 60 * 1000,
+  // Chat ABIERTO pero sin actividad del usuario por más de esto (ms) → deja
+  // de contar como "conversación activa" y se puede proponer. El chat abierto
+  // solo bloquea mientras el usuario está chateando de verdad; un chat
+  // dormido es el canal natural de los mensajes proactivos.
+  chatIdleMs: 5 * 60 * 1000,
   // Candidatos con score menor a esto nunca se envían (piso de silencio).
   floorRelevance: 0.4,
   // Cupo diario de curiosidad (preguntas sobre memoria). Vale el de
@@ -177,9 +182,25 @@ function evaluate(candidate, context = {}, policy = DEFAULT_GATE_POLICY) {
     };
   }
 
+  // "Usuario presente" = no está chateando AHORA. El chat ABIERTO por sí solo
+  // NO bloquea (es el canal donde se muestran las propuestas — ver comentario
+  // en gate.js): bloquea mientras haya actividad reciente (recentChatMs) o si
+  // el chat está abierto con menos de chatIdleMs de silencio.
+  const chatQuiet =
+    !context.chatOpen ||
+    (context.lastUserMsg != null && now - context.lastUserMsg > policy.chatIdleMs);
   const userPresent =
-    !context.chatOpen &&
+    chatQuiet &&
     (context.lastUserMsg == null || now - context.lastUserMsg > policy.recentChatMs);
+
+  // Exención de trabajo: un error LSP en el archivo ENFOCADO se reporta sin
+  // importar el estado del chat — es exactamente el momento en que la ayuda
+  // vale (estás programando, el error está en tu cara). Mantiene presupuesto,
+  // cooldown del tipo y SLO; solo anula el bloqueo por estado de chat.
+  // `focused` viaja dentro del payload del candidato (candidateFromTrigger).
+  const workExempt =
+    candidate.tipo === 'lsp_error' &&
+    (candidate.focused === true || candidate.payload?.focused === true);
 
   // 4) Relevancia desde el vector de señal del candidato (F-1).
   const relevance = candidate.score ?? 0;
@@ -198,7 +219,8 @@ function evaluate(candidate, context = {}, policy = DEFAULT_GATE_POLICY) {
   const decision = decide(
     {
       relevance,
-      goodMoment: userPresent && withinBudget && flow.level !== FLOW.IDLE,
+      goodMoment:
+        workExempt || (userPresent && withinBudget && flow.level !== FLOW.IDLE),
       isCritical: !!candidate.isCritical,
       userPresent,
       budgetUsed,

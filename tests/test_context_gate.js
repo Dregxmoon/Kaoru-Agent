@@ -123,6 +123,51 @@ function testEvaluate() {
   const mid = evaluate(cand(0.5), { ...baseCtx, chatOpen: true });
   assert(mid.admit === false && mid.queue === true, 'score 0.5 + chat abierto → QUEUE');
 
+  // ── Chat idle (Parte 1): chat abierto ≠ chateando ──────────────────────────
+  // Chat abierto pero dormido > chatIdleMs (5 min) + score alto → ACT.
+  const chatIdle = evaluate(cand(0.9), {
+    ...baseCtx,
+    chatOpen: true,
+    lastUserMsg: baseCtx.now - 10 * 60 * 1000,
+  });
+  assert(chatIdle.admit === true, 'chat abierto dormido 10 min + R alta → ACT', chatIdle.decision.reason);
+
+  // Chat abierto con mensaje reciente (>recentChatMs=2min pero <chatIdleMs) →
+  // sigue bloqueado: el usuario estuvo hablando hace poco.
+  const chatHalfIdle = evaluate(cand(0.9), {
+    ...baseCtx,
+    chatOpen: true,
+    lastUserMsg: baseCtx.now - 3 * 60 * 1000,
+  });
+  assert(
+    chatHalfIdle.admit === false && chatHalfIdle.queue === true,
+    'chat abierto + mensaje hace 3 min → QUEUE'
+  );
+
+  // ── Exención de trabajo (Parte 2): lsp_error enfocado ──────────────────────
+  // Error LSP en archivo enfocado + chat activo → ACT igual ("sin importar nada").
+  const workExempt = evaluate(
+    { tipo: 'lsp_error', kind: 'default', score: 0.9, isCritical: false, payload: { focused: true } },
+    { ...baseCtx, chatOpen: true, lastUserMsg: baseCtx.now - 30 * 1000 }
+  );
+  assert(workExempt.admit === true, 'lsp_error enfocado + chat activo → ACT (exención)', workExempt.decision.reason);
+  assert(workExempt.decision.verdict === 'ACT', 'verdict = ACT', workExempt.decision.verdict);
+
+  // Sin focused en el payload → sin exención (bloqueo normal).
+  const notFocused = evaluate(
+    { tipo: 'lsp_error', kind: 'default', score: 0.9, isCritical: false, payload: { focused: false } },
+    { ...baseCtx, chatOpen: true, lastUserMsg: baseCtx.now - 3 * 60 * 1000 }
+  );
+  assert(notFocused.admit === false, 'lsp_error NO enfocado → sin exención');
+
+  // Otro tipo de candidato NO obtiene la exención aunque tenga focused.
+  const otherType = evaluate(cand(0.9, { payload: { focused: true } }), {
+    ...baseCtx,
+    chatOpen: true,
+    lastUserMsg: baseCtx.now - 3 * 60 * 1000,
+  });
+  assert(otherType.admit === false, 'git_redflag + focused → sin exención');
+
   // Flow profundo: histéresis — score 0.65 ya no alcanza para ACT (0.60+0.15).
   const deepCtx = { ...baseCtx, appElapsedSec: 30 * 60 };
   const deep = evaluate(cand(0.65), deepCtx);
@@ -148,11 +193,14 @@ function testEvaluate() {
     'crítica → ESCALATE sin presupuesto'
   );
 
-  // Crítica + usuario ausente (no ha hablado + chat cerrado NO = presente real,
-  // pero el gate usa `chatOpen` como proxy de presencia; lo crítico exige
-  // presentarse — aquí chat abierto → QUEUE).
-  const critAway = evaluate(cand(0.95, { isCritical: true }), { ...baseCtx, chatOpen: true });
-  assert(critAway.admit === false && critAway.queue === true, 'crítica + chat abierto → QUEUE');
+  // Crítica + usuario ausente (chateando AHORA: mensaje hace 30s →
+  // userPresent=false) → el gate difiere aunque sea crítica.
+  const critAway = evaluate(cand(0.95, { isCritical: true }), {
+    ...baseCtx,
+    chatOpen: true,
+    lastUserMsg: baseCtx.now - 30 * 1000,
+  });
+  assert(critAway.admit === false && critAway.queue === true, 'crítica + chateando ahora → QUEUE');
 
   // Usuario habló hace < 2 min → nunca interrumpir, aunque sea crítico.
   const recent = evaluate(cand(0.95, { isCritical: true }), {
@@ -174,8 +222,14 @@ function testQueue() {
   assert(q.push(cand(0.6)) === false, 'duplicado (mismo tipo+kind) → no vuelve');
   assert(q.size() === 1, 'tamaño 1');
 
-  // Poll con mal contexto → no reintenta aún.
-  const bad = q.poll({ ...baseCtx, chatOpen: true, now: 1000000 });
+  // Poll con mal contexto → no reintenta aún. El "mal momento" ahora se
+  // simula con mensaje de chat reciente (chatOpen dormido ya no bloquea).
+  const bad = q.poll({
+    ...baseCtx,
+    chatOpen: true,
+    lastUserMsg: baseCtx.now - 30 * 1000,
+    now: 1000000,
+  });
   assert(bad.length === 0, 'contexto malo → nada listo');
   assert(q.size() === 1, 'sigue en cola (sin quemar reintento)', `size=${q.size()}`);
 

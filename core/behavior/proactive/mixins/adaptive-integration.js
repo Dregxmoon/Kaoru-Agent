@@ -216,18 +216,12 @@ module.exports = {
   },
 
   /**
-   * Registra un turno del usuario y calcula engagement.
-   * @param {string} message
+   * NOTA: esta mixin ANTES pisaba `_recordUserTurn` (solo alimentaba al
+   * FeedbackScorer) y rompía silenciosamente el guardia de "chat reciente"
+   * del gate: `_lastUserMsg` dejaba de actualizarse. El FeedbackScorer ya
+   * recibe sus turnos directamente desde SessionManager.addTurn, así que el
+   * override se eliminó para restaurar el comportamiento del lifecycle.
    */
-  _recordUserTurn(message) {
-    try {
-      const graph = this._graph;
-      if (!graph?._feedbackScorer) return;
-      graph._feedbackScorer.recordUserTurn(message);
-    } catch (e) {
-      logger.debug('adaptive-integration', `Error recording user turn: ${e.message}`);
-    }
-  },
 
   /**
    * Procesa el feedback post-adaptación.
