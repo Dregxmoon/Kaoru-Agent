@@ -224,6 +224,10 @@ module.exports = {
         ok: !!result.ok,
         skipped: !!result.skipped,
         detail: result.detail || result.reason || null,
+        // Híbrido: el parche se aplicó con el archivo abierto en el editor →
+        // la UI advierte "recargá antes de guardar" y muestra el diff.
+        appliedWhileOpen: !!result.appliedWhileOpen,
+        diff: result.diff || null,
       });
     } catch (e) {
       this._bus.emit('proposal:executed', { proposalId, type, ok: false, detail: e.message });

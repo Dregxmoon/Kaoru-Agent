@@ -183,6 +183,8 @@ class ProactiveExecutor {
     getWorkspace,
     exec = _defaultExec,
     getOpenFiles = () => [],
+    getFocusedFile = () => null,
+    getIdleSecs = () => null,
     getDiagnostics = null,
     notifyChanged = null,
     waitForDiagnostics = null,
@@ -192,6 +194,8 @@ class ProactiveExecutor {
     this._getWorkspace = getWorkspace || (() => null);
     this._exec = exec;
     this._getOpenFiles = getOpenFiles || (() => []);
+    this._getFocusedFile = getFocusedFile;
+    this._getIdleSecs = getIdleSecs;
     this._getDiagnostics = getDiagnostics || null;
     this._notifyChanged = notifyChanged || null;
     this._waitForDiagnostics = waitForDiagnostics || null;
@@ -415,16 +419,29 @@ class ProactiveExecutor {
     const abs = this._patchAbsPath(params);
     if (!abs) return { ok: false, detail: 'el archivo no existe o está fuera del workspace' };
 
-    // Guard Fase D (#18): jamás escribir sobre un archivo abierto en el editor.
-    // El diff sí se mostró en la propuesta; aplicar el parche es decisión del
-    // usuario en el editor.
+    // Guard HÍBRIDO de archivos abiertos (reemplaza la negación absoluta):
+    //   - Abierto + enfocado AHORA + input reciente (<60s) = el usuario está
+    //     EDITANDO ese archivo en este momento → se niega (riesgo real de
+    //     pisar un dirty buffer).
+    //   - Abierto pero quieto (no enfocado, o sin actividad) → APLICA igual:
+    //     VS Code recarga buffers limpios con cambios externos; el outcome se
+    //       reporta con `appliedWhileOpen` para advertir "recargá antes de guardar".
     const open = (this._getOpenFiles() || []).map((f) => path.resolve(f));
+    let appliedWhileOpen = false;
     if (open.includes(abs)) {
-      return {
-        ok: false,
-        detail:
-          'el archivo está abierto en el editor — solo propongo el parche, aplícalo tú (o ciérralo y vuelve a aceptar).',
-      };
+      const focusedNow = this._getFocusedFile?.() === abs;
+      const idleSecs = this._getIdleSecs?.();
+      const activelyEditing =
+        focusedNow && (typeof idleSecs !== 'number' || idleSecs < 60);
+      if (activelyEditing) {
+        return {
+          ok: false,
+          refused: 'open_in_editor_active',
+          detail:
+            'estás editando ese archivo ahora mismo — no voy a pisar tus cambios sin guardar. Guardá/cerralo y volvé a aceptar.',
+        };
+      }
+      appliedWhileOpen = true;
     }
 
     const original = fs.readFileSync(abs, 'utf-8');
@@ -503,6 +520,8 @@ class ProactiveExecutor {
         if (proposalId) this.markDone(proposalId);
         return {
           ok: true,
+          appliedWhileOpen,
+          diff: this._buildUnifiedDiff(original, applied.content, params.file),
           detail: fixed
             ? `Parche aplicado y verificado con el LSP: el/los error(es) ya no aparecen en "${params.file}".`
             : `Parche aplicado en "${params.file}" (el LSP aún reporta el error — el fix no bastó o el diagnóstico tarda en actualizarse).`,
@@ -515,6 +534,8 @@ class ProactiveExecutor {
     if (proposalId) this.markDone(proposalId);
     return {
       ok: true,
+      appliedWhileOpen,
+      diff: this._buildUnifiedDiff(original, applied.content, params.file),
       detail: `Parche aplicado en "${params.file}" (sin verificación LSP disponible).`,
     };
   }

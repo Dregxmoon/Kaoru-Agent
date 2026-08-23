@@ -151,6 +151,10 @@ function init(app) {
       // Fase D: guard de archivos abiertos en el editor + verificación LSP
       // post-parche (pull real al LSPManager).
       getOpenFiles: () => state.lspErrorWatcher?.getOpenFiles() ?? [],
+      // Guard híbrido: distinguir "abierto y quieto" (aplica) de "editando
+      // activamente" (se niega). Focused del watcher + idle del OS sensor.
+      getFocusedFile: () => state.lspErrorWatcher?.getFocusedFile?.() ?? null,
+      getIdleSecs: () => state.osSensor?.getCurrentContext?.()?.idleSecs ?? null,
       getDiagnostics: async (absPath) => {
         if (!state.lspManager?.isRunning) return null;
         try {

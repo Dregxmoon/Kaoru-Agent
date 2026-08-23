@@ -1086,18 +1086,29 @@ app.whenReady().then(() => {
     let text;
     if (payload.ok && payload.skipped) {
       text = 'Ese cambio ya estaba aplicado, no toqué nada.';
+    } else if (payload.ok && payload.appliedWhileOpen) {
+      const diffNote =
+        payload.diff && payload.diff.length < 1200
+          ? `\n\n\`\`\`diff\n${payload.diff.trim()}\n\`\`\``
+          : '';
+      text =
+        `Listo, apliqué el cambio en tu archivo${payload.type === 'lsp_error' ? ' — el error debería estar resuelto' : ''}. ✅\n\n` +
+        `⚠️ **El archivo está abierto en tu editor**: recargalo ANTES de guardar, si no vas a pisar el parche con la versión vieja.` +
+        diffNote;
     } else if (payload.ok) {
-      text = `Listo, apliqué el cambio${payload.type === 'lsp_error' ? ' — el error debería estar resuelto' : ''}. ✅`;
+      text = `Listo, apliqué el cambio${
+        payload.type === 'lsp_error' ? ' — el error debería estar resuelto' : ''
+      }. ✅`;
     } else {
       text = `No pude aplicar el cambio automáticamente: ${
         payload.detail || 'motivo desconocido'
-      }. Si lo resolvés (por ejemplo, cerrando el archivo en tu editor), volvé a aceptar la propuesta.`;
+      }.`;
     }
     logger.info(
       'main',
       `[proactive] propuesta ${payload.type}: ${payload.ok ? 'ejecutada' : 'falló'}${
         payload.detail ? ` (${payload.detail})` : ''
-      }`
+      }${payload.appliedWhileOpen ? ' [archivo abierto]' : ''}`
     );
     const chatVisible = S.chatWindow && !S.chatWindow.isDestroyed() && S.chatWindow.isVisible();
     if (chatVisible) {

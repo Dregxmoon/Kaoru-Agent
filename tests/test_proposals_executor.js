@@ -431,6 +431,81 @@ async function testEngineIntegration() {
   noExec.stop();
 }
 
+// ── Test 7: guard híbrido de archivos abiertos ────────────────────────────────
+
+async function testHybridOpenFileGuard() {
+  console.log(C.bold('\nTest 7: guard híbrido — abierto quieto aplica, editando activo se niega'));
+
+  const ws = await makeRepo('t7');
+  const file = path.join(ws, 'script.js');
+  fs.writeFileSync(file, 'function suma(a, b) {\n  return a - b;\n}\nmodule.exports = { suma };\n');
+
+  const patchAction = {
+    tool: 'apply_patch',
+    params: {
+      file: 'script.js',
+      changes: [{ old: 'return a - b;', new: 'return a + b;' }],
+      targetErrors: [],
+    },
+  };
+
+  // Caso A: abierto pero NO enfocado → aplica igual, con appliedWhileOpen.
+  const execA = makeExecutor(ws, {
+    getOpenFiles: () => [file],
+    getFocusedFile: () => null,
+    getIdleSecs: () => 2,
+    getDiagnostics: null,
+  });
+  const resA = await execA.execute(patchAction, { proposalId: 't7-a' });
+  assert(resA.ok === true, 'abierto NO enfocado → aplica', resA.detail);
+  assert(resA.appliedWhileOpen === true, '…y marca appliedWhileOpen');
+  assert(
+    fs.readFileSync(file, 'utf-8').includes('return a + b;'),
+    'el parche quedó escrito en disco'
+  );
+  assert(typeof resA.diff === 'string' && /\+.*return a \+ b;/.test(resA.diff), 'incluye diff del cambio');
+
+  // Caso B: enfocado AHORA + input reciente (<60s) → se niega.
+  fs.writeFileSync(file, 'function suma(a, b) {\n  return a - b;\n}\nmodule.exports = { suma };\n');
+  const execB = makeExecutor(ws, {
+    getOpenFiles: () => [file],
+    getFocusedFile: () => file,
+    getIdleSecs: () => 5,
+    getDiagnostics: null,
+  });
+  const resB = await execB.execute(patchAction, { proposalId: 't7-b' });
+  assert(resB.ok === false, 'enfocado + input reciente → se niega');
+  assert(resB.refused === 'open_in_editor_active', 'refused = open_in_editor_active', resB.refused);
+  assert(
+    fs.readFileSync(file, 'utf-8').includes('return a - b;'),
+    'el archivo NO fue tocado'
+  );
+
+  // Caso C: enfocado pero AFK (idle ≥ 60s) → aplica (no hay edición activa).
+  const execC = makeExecutor(ws, {
+    getOpenFiles: () => [file],
+    getFocusedFile: () => file,
+    getIdleSecs: () => 120,
+    getDiagnostics: null,
+  });
+  const resC = await execC.execute(patchAction, { proposalId: 't7-c' });
+  assert(resC.ok === true, 'enfocado + AFK → aplica', resC.detail);
+  assert(resC.appliedWhileOpen === true, '…con appliedWhileOpen');
+
+  // Caso D: sin señal de idle (null) y enfocado → conservador: se niega.
+  fs.writeFileSync(file, 'function suma(a, b) {\n  return a - b;\n}\nmodule.exports = { suma };\n');
+  const execD = makeExecutor(ws, {
+    getOpenFiles: () => [file],
+    getFocusedFile: () => file,
+    getIdleSecs: () => null,
+    getDiagnostics: null,
+  });
+  const resD = await execD.execute(patchAction, { proposalId: 't7-d' });
+  assert(resD.ok === false && resD.refused === 'open_in_editor_active', 'sin datos de idle + enfocado → se niega');
+
+  fs.rmSync(ws, { recursive: true, force: true });
+}
+
 // ── Runner ────────────────────────────────────────────────────────────────────
 
 (async () => {
@@ -448,6 +523,7 @@ async function testEngineIntegration() {
   await testInvalidWorkspace();
   await testCwdAndLock();
   await testEngineIntegration();
+  await testHybridOpenFileGuard();
 
   console.log('');
   console.log(C.bold(`Resultado: ${C.green(passed + ' ✓')} / ${C.red(failed + ' ✗')}`));
