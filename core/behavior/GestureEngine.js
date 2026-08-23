@@ -75,6 +75,18 @@ class GestureEngine {
     return this;
   }
 
+  /**
+   * Reemplaza los mappings mood→gesto EN VIVO (sin re-attach del modelo).
+   * Lo invoca la UI cuando /gestos mapa persiste un mapping nuevo.
+   * @param {Record<string, string>} mappings
+   */
+  setMappings(mappings) {
+    if (mappings && typeof mappings === 'object') {
+      this._mappings = { ...this._mappings, ...mappings };
+    }
+    return this;
+  }
+
   async play(mood, { priority = 'auto', duration } = {}, _forcedFallback = false) {
     if (!this._enabled) return { ok: false, reason: 'disabled' };
     if (!this._model) return { ok: false, reason: 'sin modelo' };

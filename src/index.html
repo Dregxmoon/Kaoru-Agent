@@ -544,6 +544,16 @@ ipcRenderer.on('gesture', (e, payload) => {
   gestureEngine.play(payload.mood);
 });
 
+// /gestos mapa persistió mappings → aplicarlos en vivo sin recargar.
+ipcRenderer.on('gesture-mappings', (e, mappings) => {
+  if (gestureEngine && mappings && typeof mappings === 'object') {
+    gestureEngine.setMappings(mappings);
+  }
+  if (typeof gestureConfig === 'object' && gestureConfig) {
+    gestureConfig.mappings = { ...(gestureConfig.mappings || {}), ...mappings };
+  }
+});
+
 ipcRenderer.on('model-changed', (e, info) => {
   if (info && info.model3Path) _modelInfo = info;
   reloadModel();

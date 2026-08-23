@@ -110,9 +110,83 @@ module.exports = function registerCommands(register) {
     name: 'gestos',
     description:
       'Muestra los gestos (expresiones y animaciones) disponibles del modelo Live2D activo y permite probarlos',
-    usage: '/gestos [test <gesto|emocion> | <emocion>]',
+    usage: '/gestos [test <gesto|emocion> | mapa [mood <gesto>|off] | <emocion>]',
     handler: async (args, ctx) => {
       if (!ctx.ipcRenderer) return 'IPC no disponible.';
+
+      // ── /gestos mapa — mappings manuales persistentes ──────────────────
+      if ((args[0] || '').toLowerCase() === 'mapa') {
+        const Lexicon = require('../behavior/GestureLexicon.js');
+        const rest = args.slice(1);
+
+        // Sin argumentos: listar mappings actuales + moods disponibles.
+        if (rest.length === 0) {
+          let current = {};
+          try {
+            current = (await ctx.ipcRenderer.invoke('gesture-mappings-get')) || {};
+          } catch {}
+          const moods = Lexicon.MOODS.join(', ');
+          const lines = ['**Mappings manuales** (prioridad máxima sobre el léxico):', ''];
+          const entries = Object.entries(current.mappings || current);
+          if (entries.length) {
+            for (const [mood, gesto] of entries) {
+              lines.push(`- \`${mood}\` → **${gesto}**  (quitar: \`/gestos mapa ${mood} off\`)`);
+            }
+          } else {
+            lines.push('(ninguno — todo se resuelve por léxico automático)');
+          }
+          lines.push('', `Moods disponibles: ${moods}`);
+          lines.push('Guardar/quitar: `/gestos mapa <mood> <gesto>` · `/gestos mapa <mood> off`');
+          return lines.join('\n');
+        }
+
+        const mood = (rest[0] || '').trim().toLowerCase();
+        if (!Lexicon.hasMood(mood)) {
+          return `Mood inválido: \`${mood}\`. Moods válidos: ${Lexicon.MOODS.join(', ')}`;
+        }
+
+        const gesto = (rest[1] || '').trim();
+
+        // /gestos mapa <mood> off → quitar el mapping.
+        if (gesto.toLowerCase() === 'off') {
+          const res = await ctx.ipcRenderer.invoke('gesture-mappings-remove', { mood });
+          return res?.ok
+            ? `Mapping de \`${mood}\` eliminado — vuelve a resolverse por léxico automático.`
+            : `Error: ${res?.error || 'no se pudo eliminar'}`;
+        }
+
+        if (!gesto) {
+          return `Uso: \`/gestos mapa ${mood} <nombre-del-gesto>\` (o \`off\` para quitar).`;
+        }
+
+        // Validar que el gesto exista en el modelo activo (aviso, no bloqueo:
+        // el usuario puede querer mapear nombres raros a propósito).
+        let exists = null;
+        try {
+          const info = await ctx.ipcRenderer.invoke('get-model-info');
+          if (info && info.model3Path) {
+            const ModelAugmenter = require('../behavior/ModelAugmenter.js');
+            const gset = ModelAugmenter.listGestures(info.model3Path);
+            exists = [...gset.expressions, ...gset.motions].find(
+              (g) => g.name.toLowerCase() === gesto.toLowerCase()
+            );
+          }
+        } catch {}
+
+        const res = await ctx.ipcRenderer.invoke('gesture-mappings-set', { mood, gesture: exists ? exists.name : gesto });
+        if (!res?.ok) return `Error: ${res?.error || 'no se pudo guardar'}`;
+
+        // Probar el mapping inmediatamente para feedback visual instantáneo.
+        if (ctx.gestureEngine && exists) {
+          await ctx.gestureEngine.play(exists.name, { priority: 'force' }).catch(() => {});
+        }
+
+        return (
+          `Mapping guardado: \`${mood}\` → **${exists ? exists.name : gesto}**` +
+          (exists ? '' : ' ⚠️ *ese nombre no existe en el modelo actual — verificalo con `/gestos`*') +
+          `. Aplicado en overlay y chat, persistido en config.`
+        );
+      }
       const ModelAugmenter = require('../behavior/ModelAugmenter.js');
       const GestureHeuristic = require('../behavior/GestureHeuristic.js');
       const mappings = (ctx.gestureConfig || {}).mappings || {};

@@ -19,6 +19,9 @@ const { contextBridge, ipcRenderer } = require('electron');
 const INVOKE_ALLOWLIST = new Set([
   // Config del modelo / vistas (canales existentes del overlay)
   'gesture-config',
+  'gesture-mappings-get',
+  'gesture-mappings-set',
+  'gesture-mappings-remove',
   'get-python-bin',
   'get-model-info',
   'views-get',
@@ -38,7 +41,7 @@ const SEND_ALLOWLIST = new Set([
   'view-changed',
 ]);
 
-const ON_ALLOWLIST = new Set(['gesture', 'model-changed', 'set-view', 'speak', 'views-changed']);
+const ON_ALLOWLIST = new Set(['gesture', 'gesture-mappings', 'model-changed', 'set-view', 'speak', 'views-changed']);
 
 function assertAllowed(kind, channel) {
   const list =

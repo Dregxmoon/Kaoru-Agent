@@ -466,6 +466,42 @@ const gestureEvents = new GestureEvents({
 
 ipcMain.handle('gesture-config', () => savedConfig.gestures || null);
 
+// /gestos mapa: persistir mapping mood → gesto y aplicarlo en vivo en
+// ambas ventanas (overlay + mini-avatar del chat).
+ipcMain.handle('gesture-mappings-get', () => savedConfig.gestures?.mappings || {});
+ipcMain.handle('gesture-mappings-set', (_e, { mood, gesture } = {}) => {
+  const { hasMood } = require('./core/behavior/GestureLexicon.js');
+  const m = String(mood || '').trim();
+  const g = String(gesture || '').trim();
+  if (!hasMood(m)) return { ok: false, error: `mood inválido: "${m}". Ver moods con /gestos mapa` };
+  if (!g) return { ok: false, error: 'falta el nombre del gesto' };
+
+  const current = savedConfig.gestures || {};
+  const mappings = { ...(current.mappings || {}), [m]: g };
+  saveConfig({ gestures: { ...current, mappings } });
+  savedConfig.gestures = { ...current, mappings };
+
+  // Aplicación en vivo (los engines tienen setMappings()).
+  if (S.mainWindow && !S.mainWindow.isDestroyed()) {
+    S.mainWindow.webContents.send('gesture-mappings', mappings);
+  }
+  sendToChat('gesture-mappings', mappings);
+  logger.info('main', `[gestos] mapping persistido: ${m} → ${g}`);
+  return { ok: true, mood: m, gesture: g };
+});
+ipcMain.handle('gesture-mappings-remove', (_e, { mood } = {}) => {
+  const current = savedConfig.gestures || {};
+  const mappings = { ...(current.mappings || {}) };
+  delete mappings[String(mood || '')];
+  saveConfig({ gestures: { ...current, mappings } });
+  savedConfig.gestures = { ...current, mappings };
+  if (S.mainWindow && !S.mainWindow.isDestroyed()) {
+    S.mainWindow.webContents.send('gesture-mappings', mappings);
+  }
+  sendToChat('gesture-mappings', mappings);
+  return { ok: true };
+});
+
 // Contexto compartido para los handlers
 const serializeResult = (result) => {
   const IPC_RESULT_LIMIT = 512 * 1024;

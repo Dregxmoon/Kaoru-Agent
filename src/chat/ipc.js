@@ -213,6 +213,15 @@ ipcRenderer.on('gesture', (e, payload = {}) => {
     .catch(() => {});
 });
 
+// /gestos mapa persistió mappings → aplicarlos en vivo en el mini-avatar.
+ipcRenderer.on('gesture-mappings', (e, mappings) => {
+  if (!mappings || typeof mappings !== 'object') return;
+  if (chatGestureConfig) {
+    chatGestureConfig.mappings = { ...(chatGestureConfig.mappings || {}), ...mappings };
+  }
+  if (chatGestureEngine) chatGestureEngine.setMappings(mappings);
+});
+
 ipcRenderer.on('initiative', (e, payload) => {
   if (!payload || typeof payload.suggestion !== 'string' || !payload.suggestion) return;
   if (chatGestureEngine) chatGestureEngine.onEvent('initiative');

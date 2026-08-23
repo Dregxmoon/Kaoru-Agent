@@ -52,6 +52,9 @@ const INVOKE_ALLOWLIST = new Set([
   'views-get',
   'views-set',
   'gesture-config',
+  'gesture-mappings-get',
+  'gesture-mappings-set',
+  'gesture-mappings-remove',
   // Python / skills
   'get-python-bin',
   'list-skills',
@@ -128,6 +131,7 @@ const ON_ALLOWLIST = new Set([
   'agent-token',
   'chat-message',
   'gesture',
+  'gesture-mappings',
   'init-theme',
   'initiative',
   'memory-status',
