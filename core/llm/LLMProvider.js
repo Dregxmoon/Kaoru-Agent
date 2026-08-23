@@ -129,21 +129,46 @@ const RETRY_BASE_MS = 2000;
 // final le avisa al usuario cuánto esperar o que cambie de proveedor.
 const MAX_RETRY_WAIT_MS = 30_000;
 
-// ── Filtro de forbidden phrases (defensa en profundidad) ─────────────────────
+// ── Filtro de forbidden phrases + emojis (defensa en profundidad) ────────────
 // El system prompt ya incluye las forbidden_phrases de identity.json como
 // instrucción (IdentitySerializer), pero el LLM puede ignorarlas bajo presión
 // de contexto. Esta función actúa como red de seguridad: si la respuesta
 // contiene una frase prohibida textual, se elimina antes de llegar al usuario.
 // Es regex sobre texto plano — no reemplaza la instrucción en el prompt.
+//
+// Feedback real del usuario: los modelos sueltan DEMASIADOS emojis. Se filtran
+// SIEMPRE (salvo opt-out explícito) y se recomienda markdown para formato.
+let _noEmojis = true;
+
+/** Emojis: pictográficos + secuencias ZWJ + banderas + tonos de piel + keycaps. */
+const EMOJI_RE = new RegExp(
+  '(?:[\\u{1F1E6}-\\u{1F1FF}]{2})' +
+    '|(?:[\\u{1F3FB}-\\u{1F3FF}])' +
+    '|(?:\\u{00A9}|\\u{00AE}|\\u{203C}|\\u{2049})\\uFE0F?' +
+    '|\\p{Extended_Pictographic}(?:\\uFE0F|\\u200D|\\p{Extended_Pictographic})*\\uFE0F?' +
+    '|[\\u{20E3}\\uFE0F]',
+  'gu'
+);
+
+/** Activa/desactiva el filtrado de emojis (persona config / tests). */
+function setNoEmojis(v) {
+  _noEmojis = !!v;
+}
+
+function _stripEmojis(text) {
+  if (!_noEmojis || !text) return text;
+  return String(text).replace(EMOJI_RE, '').replace(/[ \t]{2,}/g, ' ').trim();
+}
+
 function _stripForbiddenPhrases(text) {
   if (!text) return text;
-  let identity;
+  let identity = null;
   try {
     identity = require('../identity/IdentityStore.js').getIdentity();
   } catch {
-    return text;
+    /* sin identity: solo se aplican emojis + limpieza */
   }
-  const forbidden = identity?.voice?.forbidden_phrases || [];
+  const forbidden = (identity && identity.voice && identity.voice.forbidden_phrases) || [];
   let cleaned = text;
   for (const phrase of forbidden) {
     if (!phrase) continue;
@@ -153,7 +178,9 @@ function _stripForbiddenPhrases(text) {
       cleaned = cleaned.replace(re, '');
     }
   }
-  return cleaned.replace(/[ \t]{2,}/g, ' ').replace(/\n{3,}/g, '\n\n').trim();
+  return _stripEmojis(
+    cleaned.replace(/[ \t]{2,}/g, ' ').replace(/\n{3,}/g, '\n\n').trim()
+  );
 }
 
 // ── Anti-fabricación para funciones sin tools por diseño ──────────────────────
@@ -2372,6 +2399,7 @@ module.exports = {
   _debug_degradedProviders: _degradedProviders,
   _debug_callWithFallbackTools: _callWithFallbackTools,
   _debug_stripForbiddenPhrases: _stripForbiddenPhrases,
+  setNoEmojis,
   _debug_setToolCaller(providerId, fn) {
     if (typeof fn !== 'function') {
       _injectedToolCallers.delete(providerId);

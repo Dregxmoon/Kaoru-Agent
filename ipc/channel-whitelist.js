@@ -46,6 +46,9 @@ const INVOKE_ALLOWLIST = new Set([
   'views-get',
   'views-set',
   'gesture-config',
+  'gesture-mappings-get',
+  'gesture-mappings-set',
+  'gesture-mappings-remove',
   // Python / TTS
   'get-python-bin',
   // Overlay sandbox:true (Fase 2, ítem 6) — capacidades del overlay vía main
@@ -142,6 +145,7 @@ const ON_ALLOWLIST = new Set([
   'agent-token',
   'chat-message',
   'gesture',
+  'gesture-mappings',
   'init-theme',
   'initiative',
   'memory-status',

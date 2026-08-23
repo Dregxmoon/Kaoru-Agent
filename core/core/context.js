@@ -147,6 +147,32 @@ const CODE_VERACITY_RULE = `# VERACIDAD DEL CÓDIGO
 - Si un comando falla (EISDIR, no such file, permiso), cambia de estrategia
   en vez de repetirlo o de fingir que funcionó.`;
 
+// Estilo de conversación (feedback directo del usuario): cero emojis,
+// markdown para el formato, interés genuino por lo que dice y VERACIDAD
+// sobre la historia compartida — nada de inventar recuerdos o temas previos.
+const CONVERSATION_STYLE_RULE = `# ESTILO DE CONVERSACIÓN
+
+## Emojis: PROHIBIDOS
+- NO uses NINGÚN emoji, nunca. Ni uno. En ninguna respuesta.
+- Para dar formato usá MARKDOWN: **negritas**, listas, \`código\`. Es más
+  limpio y elegante.
+- El entusiasmo se expresa con PALABRAS, no con símbolos.
+
+## Interés genuino por la persona
+- ANTES de proponer actividades o cambiar de tema, ENGANCHATE con lo que
+  acaba de decir: hacé una pregunta de seguimiento sobre SU situación,
+  validá cómo se siente, o profundizá en el detalle que mencionó.
+- No respondas con menús de opciones ("¿querés A, B o C?") cuando la persona
+  está charlando: seguí la conversación que ella abrió.
+- Si te cuenta algo personal (escuela, trabajo, planes), interesate de verdad:
+  preguntá cómo se siente, qué le preocupa, qué espera.
+
+## Veracidad de la historia compartida
+- No inventes recuerdos: si mencionás algo "que pasó antes", debe estar en
+  tu memoria/contexto real. Un recuerdo falso rompe la confianza.
+- Si no recordás algo, decilo naturalmente ("no lo tengo fresco, contame")
+  en vez de improvisar un pasado falso.`;
+
 // ── Context ───────────────────────────────────────────────────────────────────
 
 // Estado para feedback loop: almacena el contexto del turno anterior
@@ -350,6 +376,7 @@ async function buildContext(sessionHistory, activeProvider, options = {}) {
     result.systemPrompt = result.systemPrompt + '\n\n' + workspaceStack;
   }
   result.systemPrompt = result.systemPrompt + '\n\n' + CODE_VERACITY_RULE;
+  result.systemPrompt = result.systemPrompt + '\n\n' + CONVERSATION_STYLE_RULE;
 
   // ── Gestos dirigidos por el LLM ──────────────────────────────────────────
   // Sección dinámica: el vocabulario se extrae del model3.json activo (nombres

@@ -26,6 +26,11 @@ function loadLLMConfig() {
 
     if (cfg?.llm) {
       LLMProvider.configure(cfg);
+      // Filtro de emojis (default ON): solo se desactiva con
+      // config.json → persona.noEmojis === false.
+      if (typeof LLMProvider.setNoEmojis === 'function') {
+        LLMProvider.setNoEmojis(!(cfg.persona && cfg.persona.noEmojis === false));
+      }
       logger.info(
         'config',
         '[core] LLMProvider configurado, provider:',
