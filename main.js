@@ -1091,10 +1091,13 @@ app.whenReady().then(() => {
         payload.diff && payload.diff.length < 1200
           ? `\n\n\`\`\`diff\n${payload.diff.trim()}\n\`\`\``
           : '';
+      const focusWarning = payload.wasFocused
+        ? `⚠️ **Tenías el archivo ENFOCADO en tu editor**: recargalo ANTES de guardar, si no vas a pisar el parche con la versión vieja (y si tenés cambios sin guardar, resolvé el conflicto que te va a ofrecer).`
+        : `⚠️ El archivo está abierto en tu editor: recargalo antes de guardar.`;
       text =
-        `Listo, apliqué el cambio en tu archivo${payload.type === 'lsp_error' ? ' — el error debería estar resuelto' : ''}. ✅\n\n` +
-        `⚠️ **El archivo está abierto en tu editor**: recargalo ANTES de guardar, si no vas a pisar el parche con la versión vieja.` +
-        diffNote;
+        `Listo, apliqué el cambio en tu archivo${
+          payload.type === 'lsp_error' ? ' — el error debería estar resuelto' : ''
+        }. ✅\n\n${focusWarning}${diffNote}`;
     } else if (payload.ok) {
       text = `Listo, apliqué el cambio${
         payload.type === 'lsp_error' ? ' — el error debería estar resuelto' : ''

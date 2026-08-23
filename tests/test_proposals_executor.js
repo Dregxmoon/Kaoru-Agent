@@ -459,13 +459,15 @@ async function testHybridOpenFileGuard() {
   const resA = await execA.execute(patchAction, { proposalId: 't7-a' });
   assert(resA.ok === true, 'abierto NO enfocado → aplica', resA.detail);
   assert(resA.appliedWhileOpen === true, '…y marca appliedWhileOpen');
+  assert(resA.wasFocused === false, '…sin wasFocused');
   assert(
     fs.readFileSync(file, 'utf-8').includes('return a + b;'),
     'el parche quedó escrito en disco'
   );
   assert(typeof resA.diff === 'string' && /\+.*return a \+ b;/.test(resA.diff), 'incluye diff del cambio');
 
-  // Caso B: enfocado AHORA + input reciente (<60s) → se niega.
+  // Caso B: enfocado AHORA + input reciente + política default 'always' →
+  // APLICA igual: la aceptación explícita del usuario es el consentimiento.
   fs.writeFileSync(file, 'function suma(a, b) {\n  return a - b;\n}\nmodule.exports = { suma };\n');
   const execB = makeExecutor(ws, {
     getOpenFiles: () => [file],
@@ -474,34 +476,34 @@ async function testHybridOpenFileGuard() {
     getDiagnostics: null,
   });
   const resB = await execB.execute(patchAction, { proposalId: 't7-b' });
-  assert(resB.ok === false, 'enfocado + input reciente → se niega');
-  assert(resB.refused === 'open_in_editor_active', 'refused = open_in_editor_active', resB.refused);
-  assert(
-    fs.readFileSync(file, 'utf-8').includes('return a - b;'),
-    'el archivo NO fue tocado'
-  );
+  assert(resB.ok === true, "política 'always': enfocado + input reciente → aplica", resB.detail);
+  assert(resB.appliedWhileOpen === true && resB.wasFocused === true, '…con appliedWhileOpen + wasFocused');
 
-  // Caso C: enfocado pero AFK (idle ≥ 60s) → aplica (no hay edición activa).
+  // Caso C: política 'refuseFocused' + enfocado + input reciente → se niega.
+  fs.writeFileSync(file, 'function suma(a, b) {\n  return a - b;\n}\nmodule.exports = { suma };\n');
   const execC = makeExecutor(ws, {
     getOpenFiles: () => [file],
     getFocusedFile: () => file,
-    getIdleSecs: () => 120,
+    getIdleSecs: () => 5,
+    openFilePolicy: 'refuseFocused',
     getDiagnostics: null,
   });
   const resC = await execC.execute(patchAction, { proposalId: 't7-c' });
-  assert(resC.ok === true, 'enfocado + AFK → aplica', resC.detail);
-  assert(resC.appliedWhileOpen === true, '…con appliedWhileOpen');
+  assert(resC.ok === false, "'refuseFocused' + enfocado + reciente → se niega");
+  assert(resC.refused === 'open_in_editor_active', 'refused = open_in_editor_active', resC.refused);
+  assert(fs.readFileSync(file, 'utf-8').includes('return a - b;'), 'el archivo NO fue tocado');
 
-  // Caso D: sin señal de idle (null) y enfocado → conservador: se niega.
-  fs.writeFileSync(file, 'function suma(a, b) {\n  return a - b;\n}\nmodule.exports = { suma };\n');
+  // Caso D: política 'refuseFocused' + enfocado pero AFK (idle ≥60s) → aplica.
   const execD = makeExecutor(ws, {
     getOpenFiles: () => [file],
     getFocusedFile: () => file,
-    getIdleSecs: () => null,
+    getIdleSecs: () => 120,
+    openFilePolicy: 'refuseFocused',
     getDiagnostics: null,
   });
   const resD = await execD.execute(patchAction, { proposalId: 't7-d' });
-  assert(resD.ok === false && resD.refused === 'open_in_editor_active', 'sin datos de idle + enfocado → se niega');
+  assert(resD.ok === true, "'refuseFocused' + AFK → aplica", resD.detail);
+  assert(resD.appliedWhileOpen === true && resD.wasFocused === true, '…con flags correctos');
 
   fs.rmSync(ws, { recursive: true, force: true });
 }

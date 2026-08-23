@@ -227,6 +227,7 @@ module.exports = {
         // Híbrido: el parche se aplicó con el archivo abierto en el editor →
         // la UI advierte "recargá antes de guardar" y muestra el diff.
         appliedWhileOpen: !!result.appliedWhileOpen,
+        wasFocused: !!result.wasFocused,
         diff: result.diff || null,
       });
     } catch (e) {
