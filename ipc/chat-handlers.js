@@ -37,6 +37,7 @@ const LLMProvider = require('../core/llm/LLMProvider.js');
 const CommandRegistry = require('../core/commands/CommandRegistry.js');
 const FileResolver = require('../core/commands/FileResolver.js');
 const PathGuard = require('../core/security/PathGuard.js');
+const { getMCPManager } = require('../core/mcp/MCPManager.js');
 const AgentManager = require('../core/agents/AgentManager.js');
 const ModelAugmenter = require('../core/behavior/ModelAugmenter.js');
 const AsrClient = require('../core/voice/AsrClient.js');
@@ -222,6 +223,14 @@ function register(_ctx) {
         _uiCall('setTtsMuted', [!!next]);
       },
       isTtsMuted: () => !!pageData.ttsMuted,
+      // /mcp: estado de servidores MCP sin ir a los logs.
+      mcpServers: () => {
+        try {
+          return getMCPManager().listServers();
+        } catch {
+          return [];
+        }
+      },
       gestureConfig: pageData.gestureConfig || null,
       gestureEngine: pageData.gestureAvailable
         ? { play: (mood, opts) => _uiCall('gesture-play', [mood, opts || {}]) }
