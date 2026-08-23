@@ -364,6 +364,40 @@ class LSPErrorWatcher extends BasePollingWatcher {
     return this._lastErrors.get(path.resolve(absPath)) || [];
   }
 
+  /**
+   * Errores recientes del workspace (último scan), priorizando el archivo
+   * enfocado y los archivos abiertos en el editor. Para la sección de
+   * diagnósticos del system prompt — lectura barata: cache del watcher,
+   * sin pulls LSP.
+   * @param {{ limit?: number }} [opts]
+   * @returns {Array<{ filePath: string, language: string, line: number, character: number, message: string, source: string|null }>}
+   */
+  getRecentErrors({ limit = 5 } = {}) {
+    const out = [];
+    const priority = [
+      ...(this._focusedFile ? [this._focusedFile] : []),
+      ...this.getOpenFiles(),
+    ];
+    const files = [...new Set(priority)].filter((f) => this._lastErrors.has(f));
+    if (files.length === 0) {
+      for (const f of this._lastErrors.keys()) files.push(f);
+    }
+    for (const f of files) {
+      for (const err of this._lastErrors.get(f) || []) {
+        if (out.length >= limit) return out;
+        out.push({
+          filePath: f,
+          language: this._languageFor(f),
+          line: err.range?.start?.line ?? -1,
+          character: err.range?.start?.character ?? -1,
+          message: String(err.message || '').slice(0, 160),
+          source: err.source || null,
+        });
+      }
+    }
+    return out;
+  }
+
   getStats() {
     return {
       running: this._running,

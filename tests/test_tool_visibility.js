@@ -58,10 +58,10 @@ function testAgentModeAlwaysResolvesTools() {
   assert(resolveToolsetCount >= 1, 'resolveToolset se llama en buildContext');
 
   // Verificar que el gate de toolIntent?.detected para OpenClaw ya no existe
-  // en el modo chat. La ventana se amplió a 2600 chars para acomodar la
-  // sección "# LO APRENDIDO (FEEDBACK)" que Fase 3 ítem 2 anexa al final del
-  // modo chat justo antes del truncado inteligente.
-  const chatSection = src.match(/mode === 'chat'[\s\S]{0,2600}(?=\n {2}\/\/ Truncado inteligente)/);
+  // en el modo chat. La ventana se amplió (2600 → 4200) para acomodar las
+  // secciones anexadas antes del truncado: "# LO APRENDIDO (FEEDBACK)" (Fase 3
+  // ítem 2) y "## Errores detectados en el workspace (LSP)".
+  const chatSection = src.match(/mode === 'chat'[\s\S]{0,4200}(?=\n {2}\/\/ Truncado inteligente)/);
   if (chatSection) {
     const hasIntentGate = chatSection[0].includes('toolIntent?.detected');
     const hasBridgeCheck = chatSection[0].includes('state.bridge?.getStats()?.available');

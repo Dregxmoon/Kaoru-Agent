@@ -529,6 +529,29 @@ async function buildContext(sessionHistory, activeProvider, options = {}) {
     }
   }
 
+  // ── Diagnósticos LSP recientes (solo modo agente/tarea) ───────────────────
+  // Lectura barata: cache del watcher (poll cada 30s), cero pulls LSP. Le da
+  // al agente conciencia de qué está roto sin tener que pedirlo. Presupuesto
+  // acotado: máx 5 errores, ~1200 chars — el truncado lo elimina temprano si
+  // hay presión de tokens.
+  if ((mode === 'agent' || mode === 'execute') && state.lspErrorWatcher) {
+    try {
+      const errors = state.lspErrorWatcher.getRecentErrors?.({ limit: 5 }) || [];
+      if (errors.length > 0) {
+        const ws = state.activeWorkspace || state.openclawWorkspace || '';
+        const lines = errors.map((e) => {
+          const rel = ws && e.filePath.startsWith(ws) ? e.filePath.slice(ws.length + 1) : e.filePath;
+          return `- ${rel}:${e.line + 1} [${e.language}] ${e.message}${e.source ? ` (${e.source})` : ''}`;
+        });
+        let section = `\n\n## Errores detectados en el workspace (LSP)\nEl usuario tiene estos errores SIN resolver ahora mismo — considera ofrecer ayuda:\n${lines.join('\n')}`;
+        if (section.length > 1400) section = section.slice(0, 1400) + '\n…';
+        result.systemPrompt += section;
+      }
+    } catch (e) {
+      logger.debug('context', '[core] error armando sección de diagnósticos LSP:', e.message);
+    }
+  }
+
   // ── Fase 3 ítem 2: lo aprendido (chat) ────────────────────────────────────
   // Se anexa al final (lo MENOS importante) para que el truncado inteligente
   // lo elimine primero bajo presión de presupuesto, sin tocar el resto.

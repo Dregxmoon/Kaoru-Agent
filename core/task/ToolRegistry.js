@@ -332,6 +332,23 @@ const TOOL_SCHEMAS = [
     highImpact: false,
   },
   {
+    id: 'lsp.workspace_symbols',
+    name: 'workspace_symbols',
+    domain: ['code', 'lsp'],
+    source: 'lsp',
+    description:
+      'Busca símbolos por nombre en todo el proyecto (útil para localizar un símbolo sin saber su archivo)',
+    params: [
+      {
+        name: 'query',
+        type: 'string',
+        description: 'Nombre o parte del nombre del símbolo (ej: "buildContext")',
+        required: true,
+      },
+    ],
+    highImpact: false,
+  },
+  {
     id: 'lsp.hover',
     name: 'hover',
     domain: ['code', 'lsp'],

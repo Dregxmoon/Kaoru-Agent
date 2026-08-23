@@ -264,6 +264,21 @@ const TOOL_SCHEMAS = [
     },
   },
   {
+    name: 'workspace_symbols',
+    description:
+      'Busca símbolos (funciones, clases, variables) por nombre en TODO el proyecto vía LSP — útil para localizar dónde vive un símbolo sin saber el archivo',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        query: {
+          type: 'string',
+          description: 'Nombre o parte del nombre del símbolo a buscar (ej: "buildContext")',
+        },
+      },
+      required: ['query'],
+    },
+  },
+  {
     name: 'hover',
     description:
       'Obtiene información de tipo y documentación de un símbolo (como el hover del editor) a través del LSP',

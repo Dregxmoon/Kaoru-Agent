@@ -42,6 +42,11 @@ const REQUEST_TIMEOUT_MS = 20_000;
 // del server está ocupado (pyright puede colgarse analizando ciertos archivos),
 // no queremos bloquear la tool `diagnostics` 20s; caemos a la cache push.
 const DIAGNOSTIC_PULL_TIMEOUT_MS = 5_000;
+// Cold-start: el primer request tras initialize dispara la indexación del
+// proyecto en servers como tsserver (repos grandes pueden tardar >60s en el
+// primer documentSymbol con caché fría). Configurable por server vía
+// `coldStartTimeoutMs` en servers.json.
+const COLD_START_TIMEOUT_MS = 120_000;
 
 // ── Instancia individual (un proceso LSP por lenguaje) ─────────────────────
 // G.1: antes LSPManager tenía UN solo _process. Ahora cada lenguaje vive en su
@@ -77,6 +82,10 @@ class _LSPInstance {
     this._baseRestartDelayMs = serverConfig.restartDelayMs ?? 2000;
     this._maxRestartDelayMs = serverConfig.maxRestartDelayMs ?? 16000;
     this._stableMs = serverConfig.restartStableMs ?? 10000;
+    // F2: cold-start adaptativo (primer request data con timeout largo) y
+    // memoria de soporte pull de diagnósticos (null=desconocido, false=no).
+    this._firstDataRequestDone = false;
+    this._pullSupported = null;
   }
 
   get isRunning() {
@@ -339,21 +348,36 @@ class _LSPInstance {
           this._notify('initialized', {});
           this._started = true;
           this._startedAt = Date.now();
+          // El request `initialize` ya consumió el flag de cold-start:
+          // resetearlo para que el PRIMER request data (post-init) sea el que
+          // reciba el timeout largo mientras el server indexa el proyecto.
+          this._firstDataRequestDone = false;
+          // Warmup en background: un workspace/symbol vacío fuerza al server
+          // a cargar/indexar el proyecto YA, sin bloquear nada. Así el primer
+          // request real del agente encuentra al server caliente en vez de
+          // absorber toda la latencia de carga fría.
+          const warmup = this._request('workspace/symbol', { query: '' });
+          warmup.catch(() => {}).finally(() => {
+            logger.debug?.('LSPManager', `[lsp:${this._languageKey}] warmup completado`);
+          });
+          void warmup;
           if (!started) {
             started = true;
+            clearTimeout(initTimer);
             resolve();
           }
         })
         .catch((err) => {
           if (!started) {
             started = true;
+            clearTimeout(initTimer);
             reject(err);
           }
         });
 
       // Timeout safety (LSP.0: por-server — java/heavy necesita más de 15s)
       const initTimeoutMs = this._initTimeoutMs;
-      setTimeout(() => {
+      const initTimer = setTimeout(() => {
         if (!started) {
           started = true;
           reject(new Error(`LSP server did not initialize within ${initTimeoutMs / 1000}s`));
@@ -391,7 +415,11 @@ class _LSPInstance {
     this._process = null;
     this._started = false;
     this._rejectAllPending(`LSP server exited with code ${code}`);
-    if (code !== 0 && code !== null && !this._stopping) {
+    // Antes solo se reiniciaba con código != 0/null: un OOM (SIGKILL → code
+    // null) o una salida limpia inesperada dejaban el LSP muerto hasta cambiar
+    // de workspace. Ahora CUALQUIER salida no solicitada reinicia — el backoff
+    // exponencial + _maxRestartAttempts frenan crash-loops.
+    if (!this._stopping) {
       this._scheduleRestart();
     }
   }
@@ -539,7 +567,16 @@ class _LSPInstance {
       };
       this._emitter.on('diagnostics', onDiagnostics);
       // Timeout de seguridad: nunca colgarse esperando un push que no llega.
-      setTimeout(() => finish(this._diagnostics.get(uri) || []), timeoutMs);
+      // El resultado lleva `stale: true` — es la cache push posiblemente
+      // DESACTUALIZADA (el server aún no procesó el cambio), no un conjunto
+      // fresco. Los consumidores (feedback post-edit) lo reportan como tal.
+      setTimeout(() => {
+        const cached = this._diagnostics.get(uri) || [];
+        try {
+          Object.defineProperty(cached, 'stale', { value: true, enumerable: false });
+        } catch (_) {}
+        finish(cached);
+      }, timeoutMs);
     });
   }
 
@@ -552,20 +589,26 @@ class _LSPInstance {
 
     // Pull first (LSP 3.17 textDocument/diagnostic). Aunque el server no lo
     // anuncie en capabilities (pyright no declara diagnosticProvider), la
-    // mayoría lo soporta; si responde MethodNotFound, caemos a la cache push.
-    try {
-      const result = await this._request(
-        'textDocument/diagnostic',
-        {
-          textDocument: { uri },
-        },
-        DIAGNOSTIC_PULL_TIMEOUT_MS
-      );
-      if (result && Array.isArray(result.items)) {
-        return result.items;
+    // mayoría lo soporta; si responde MethodNotFound o se agota el timeout,
+    // se memoriza y los pulls siguientes van directo a la cache push — sin
+    // repetir 5s de latencia muerta por archivo en servers sin pull.
+    if (this._pullSupported !== false) {
+      try {
+        const result = await this._request(
+          'textDocument/diagnostic',
+          {
+            textDocument: { uri },
+          },
+          DIAGNOSTIC_PULL_TIMEOUT_MS
+        );
+        this._pullSupported = true;
+        if (result && Array.isArray(result.items)) {
+          return result.items;
+        }
+      } catch (_) {
+        // Timeout o MethodNotFound: marcar y confiar en push.
+        if (this._pullSupported !== true) this._pullSupported = false;
       }
-    } catch (_) {
-      /* fallback a push cache */
     }
 
     // Push diagnostics: track from textDocument/publishDiagnostics notifications
@@ -729,13 +772,39 @@ class _LSPInstance {
 
   // ── JSON-RPC internals ───────────────────────────────────────────────
 
-  _request(method, params, timeoutMs = REQUEST_TIMEOUT_MS) {
+  _request(method, params, timeoutMs = REQUEST_TIMEOUT_MS, _isRetry = false) {
+    // Cold-start adaptativo: el primer request data-request (post-initialize)
+    // usa timeout largo — tsserver indexa el proyecto completo en la primera
+    // documentSymbol/workspaceSymbols. Solo aplica al default; un timeout
+    // explícito (pull de diagnósticos, shutdown) se respeta.
+    let effectiveTimeout = timeoutMs;
+    if (!_isRetry && !this._firstDataRequestDone && timeoutMs === REQUEST_TIMEOUT_MS) {
+      effectiveTimeout = this._serverConfig?.coldStartTimeoutMs || COLD_START_TIMEOUT_MS;
+      this._firstDataRequestDone = true;
+    }
     return new Promise((resolve, reject) => {
       const id = this._requestId++;
       const timer = setTimeout(() => {
         this._pending.delete(id);
-        reject(new Error(`LSP request "${method}" timed out after ${timeoutMs}ms`));
-      }, timeoutMs);
+        // Reintento único ante timeout con server vivo: durante la carga fría
+        // de proyectos grandes tsserver puede dejar pasar el primer request
+        // pero responde al instante al siguiente (verificado E2E). Todos los
+        // requests LSP son de solo lectura — reintentar es seguro.
+        if (
+          !_isRetry &&
+          this.isRunning &&
+          method !== 'initialize' &&
+          method !== 'shutdown'
+        ) {
+          logger.info(
+            'LSPManager',
+            `[lsp:${this._languageKey}] ${method} excedió ${effectiveTimeout}ms — reintentando una vez...`
+          );
+          resolve(this._request(method, params, REQUEST_TIMEOUT_MS, true));
+          return;
+        }
+        reject(new Error(`LSP request "${method}" timed out after ${effectiveTimeout}ms`));
+      }, effectiveTimeout);
       this._pending.set(id, { resolve, reject, method, timer });
       this._send({ jsonrpc: '2.0', id, method, params });
     });

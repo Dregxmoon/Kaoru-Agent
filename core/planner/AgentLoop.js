@@ -33,6 +33,7 @@ const LSP_TOOLS = new Set([
   'go_to_definition',
   'find_references',
   'get_symbols',
+  'workspace_symbols',
   'hover',
   'rename',
   'code_actions',
@@ -1431,6 +1432,14 @@ class AgentLoop {
           if (lspFeedback && lspFeedback.diagnostics && lspFeedback.diagnostics.length > 0) {
             resultSummary +=
               '\n\n' + this._formatDiagnostics(lspFeedback.filePath, lspFeedback.diagnostics);
+            if (lspFeedback.stale) {
+              resultSummary +=
+                '\n[NOTA: el LSP aún no terminó de analizar el cambio — estos diagnósticos pueden estar desactualizados.]';
+            }
+          } else if (lspFeedback && lspFeedback.stale) {
+            // Cache vacía + timeout = "aún sin datos", NO "sin errores".
+            resultSummary +=
+              '\n[LSP: el análisis post-edición no llegó a tiempo — no asumas que el archivo está libre de errores; verifica con get_diagnostics si es crítico.]';
           }
           if (syntaxError) {
             resultSummary += '\n\n' + syntaxError;
@@ -1597,7 +1606,8 @@ class AgentLoop {
       const content = fs.readFileSync(abs, 'utf-8');
       await this._lsp.changeDocument(abs, content);
       const diagnostics = await this._lsp.waitForDiagnostics(abs);
-      return { filePath: abs, diagnostics: Array.isArray(diagnostics) ? diagnostics : [] };
+      const stale = Array.isArray(diagnostics) && diagnostics.stale === true;
+      return { filePath: abs, diagnostics: Array.isArray(diagnostics) ? diagnostics : [], stale };
     } catch (e) {
       logger.warn('AgentLoop', `[agent-loop] feedback LSP post-edit falló: ${e.message}`);
       return null;
@@ -1703,6 +1713,57 @@ class AgentLoop {
    *   - Lenguaje no soportado por los servers activos → error explícito
    *     (en vez de caer al primario y devolver [] del server equivocado).
    */
+
+  /**
+   * Aplica los edits de un WorkspaceEdit del LSP (rename) a disco vía bridge.
+   * Los edits por archivo se ordenan por posición DESCENDENTE para que las
+   * sustituciones no desplacen los offsets de las siguientes.
+   * @param {Array<{ filePath: string, edits: Array<{ range: object, newText: string }> }>} fileEdits
+   * @returns {Promise<string[]>} archivos escritos
+   */
+  async _applyWorkspaceEdits(fileEdits) {
+    const written = [];
+    for (const fe of fileEdits || []) {
+      if (!fe?.filePath || !Array.isArray(fe.edits) || fe.edits.length === 0) continue;
+      const abs = path.resolve(fe.filePath);
+      if (!fs.existsSync(abs)) continue;
+      const readRes = await this._bridge.execute('read', { path: abs });
+      if (!readRes?.ok || typeof readRes.result !== 'string') continue;
+
+      const sorted = [...fe.edits].sort((a, b) => {
+        const pa = a.range?.start || {};
+        const pb = b.range?.start || {};
+        return (pb.line - pa.line) || ((pb.character ?? 0) - (pa.character ?? 0));
+      });
+
+      const lines = readRes.result.split('\n');
+      for (const edit of sorted) {
+        const sLine = edit.range?.start?.line;
+        const eLine = edit.range?.end?.line;
+        if (
+          typeof sLine !== 'number' ||
+          typeof eLine !== 'number' ||
+          sLine < 0 ||
+          eLine >= lines.length
+        ) {
+          continue;
+        }
+        const startCh = edit.range.start.character ?? 0;
+        const endCh = edit.range.end.character ?? lines[eLine].length;
+        const head = String(lines[sLine]).slice(0, startCh);
+        const tail = String(lines[eLine]).slice(endCh);
+        const replacement = String(edit.newText ?? '').split('\n');
+        replacement[0] = head + replacement[0];
+        replacement[replacement.length - 1] =
+          replacement[replacement.length - 1] + tail;
+        lines.splice(sLine, eLine - sLine + 1, ...replacement);
+      }
+
+      const writeRes = await this._bridge.execute('write', { path: abs, content: lines.join('\n') });
+      if (writeRes?.ok) written.push(abs);
+    }
+    return written;
+  }
   async _executeLSPTool(action) {
     const t0 = Date.now();
     const params = action.params || {};
@@ -1717,6 +1778,21 @@ class AgentLoop {
     if (!this._lsp.isRunning) {
       return failShape('LSP no activo — ningún servidor LSP corriendo para este workspace.');
     }
+
+    // workspace_symbols busca en TODO el proyecto: sin filePath ni filtro por
+    // extensión (usa el índice del server primario).
+    if (action.tool === 'workspace_symbols') {
+      const query = params.query || params.symbol || raw.query || '';
+      if (!query || !String(query).trim()) {
+        return failShape('workspace_symbols requiere query (nombre o parte del símbolo a buscar).');
+      }
+      try {
+        return okShape(await this._lsp.getWorkspaceSymbols(String(query)));
+      } catch (e) {
+        return failShape(e.message);
+      }
+    }
+
     if (!filePath) {
       return failShape(`Falta el archivo (filePath) para la tool ${action.tool}.`);
     }
@@ -1742,10 +1818,26 @@ class AgentLoop {
           return okShape(await this._lsp.findReferences(filePath, params.line, params.character));
         case 'hover':
           return okShape(await this._lsp.hover(filePath, params.line, params.character));
-        case 'rename':
-          return okShape(
-            await this._lsp.rename(filePath, params.line, params.character, params.newName)
+        case 'rename': {
+          const edits = await this._lsp.rename(
+            filePath,
+            params.line,
+            params.character,
+            params.newName
           );
+          // LSP.3: por defecto rename SOLO calcula los edits (el agente los
+          // revisa). Con apply:true los escribe vía bridge — la aprobación de
+          // alto impacto ya se pidió antes del dispatch (ActionParser).
+          if (params.apply === true && Array.isArray(edits) && edits.length > 0) {
+            const applied = await this._applyWorkspaceEdits(edits);
+            return okShape({ applied: true, files: applied, edits });
+          }
+          return okShape({
+            applied: false,
+            hint: 'Edits calculados SIN aplicar. Revisa el resultado y vuelve a llamar con apply:true para escribirlos.',
+            edits,
+          });
+        }
         case 'code_actions':
           return okShape(
             await this._lsp.codeActions(filePath, params.line, params.character, params.context)
