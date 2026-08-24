@@ -30,7 +30,8 @@ function _loadChromium() {
   _chromiumTried = true;
   for (const id of ['playwright', 'playwright-core']) {
     try {
-      // eslint-disable-next-line import/no-dynamic-require
+      // require dinámico intencional: playwright es opcional y se resuelve en
+      // runtime con fallback a playwright-core; el catch de abajo lo cubre.
       const pw = require(id);
       if (pw?.chromium) {
         _chromium = pw.chromium;
