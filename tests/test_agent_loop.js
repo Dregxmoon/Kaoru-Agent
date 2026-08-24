@@ -2459,6 +2459,31 @@ async function testShouldPlanGates() {
     !loop._shouldPlan(hard, null, { planning: true, activeIntentions: [{}] }),
     'intención activa previa → sin plan (ya hay plan persistido)'
   );
+
+  // ── Incertidumbre de localización (difficulty.js) ─────────────────────────
+  // Mensaje sin señales sintácticas de código, pero donde la persona NO sabe
+  // dónde está el problema ni puede reproducirlo de forma estable → exige
+  // investigación exploratoria → debe superar PLANNING_DIFFICULTY_THRESHOLD.
+  const {
+    estimateDifficulty,
+  } = require('../core/learning/difficulty.js');
+  const uncertain =
+    'revisá por qué el login falla a veces, no sé dónde está el bug';
+  const dUncertain = estimateDifficulty({ message: uncertain, taskIntent: null, messageCount: 0 });
+  assert(
+    dUncertain >= 0.5,
+    `incertidumbre de localización supera el umbral (${dUncertain})`
+  );
+  assert(
+    loop._shouldPlan(uncertain, null, { planning: true }),
+    'mensaje con incertidumbre → dispara _shouldPlan()'
+  );
+  // Sin las frases de incertidumbre, el mismo mensaje NO llega al umbral solo:
+  const plain = 'revisá el login del sistema, está en la carpeta auth';
+  assert(
+    estimateDifficulty({ message: plain, taskIntent: null, messageCount: 0 }) < 0.5,
+    'sin señales de incertidumbre → dificultad normal'
+  );
 }
 
 async function testPlanGeneratedAndInjected() {

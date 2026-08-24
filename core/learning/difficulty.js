@@ -31,6 +31,29 @@ const COMPLEXITY_PATTERNS = [
 ];
 
 /**
+ * Señales de INCERTIDUMBRE DE LOCALIZACIÓN: la persona no sabe DÓNDE está el
+ * problema ni puede REPRODUCIRLO de forma estable ("falla a veces"). Estas
+ * tareas exigen investigación exploratoria antes de tocar nada — son más
+ * difíciles de lo que su sintaxis sugiere. Cada FACET presente suma +0.2
+ * INDEPENDIENTE de las señales de código/longitud de arriba.
+ */
+const UNCERTAINTY_FACETS = [
+  {
+    // Localización: no sabe dónde mirar.
+    patterns: [/no\s+s[ée]\s+d[oó]nde/i, /no\s+encuentro/i, /d[oó]nde\s+est[aá]\s+el?\s*(bug|error|problema)/i],
+  },
+  {
+    // Reproducibilidad intermitente o investigación abierta.
+    patterns: [
+      /a\s+veces\s+(falla|pasa|ocurre)|falla\s+a\s+veces/i,
+      /intermitente/i,
+      /(?:investig[áa]|revis[áa]|mir[áa])\s+por\s+qu[ée]/i,
+      /no\s+s[ée]\s+por\s+qu[ée]/i,
+    ],
+  },
+];
+
+/**
  * @param {object} [opts]
  * @param {string} [opts.message]          Mensaje de la tarea.
  * @param {TaskIntentLike|null} [opts.taskIntent] Intención detectada ({ domain, ... }).
@@ -50,6 +73,12 @@ function estimateDifficulty({ message = '', taskIntent = null, messageCount = 0 
       d += 0.15;
       break;
     }
+  }
+
+  // Incertidumbre de localización: +0.2 por FACET presente (localización y/o
+  // reproducibilidad intermitente), independiente de las señales de arriba.
+  for (const facet of UNCERTAINTY_FACETS) {
+    if (facet.patterns.some((re) => re.test(text))) d += 0.2;
   }
 
   if (taskIntent && taskIntent.domain && taskIntent.domain !== 'general') d += 0.15;
