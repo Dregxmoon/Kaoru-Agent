@@ -1,4 +1,4 @@
-const LLM = require('/home/panfilo/Projects/kaoru-agent/core/llm/LLMProvider.js');
+const LLM = require('../core/llm/LLMProvider.js');
 const strip = (t) => LLM._debug_stripForbiddenPhrases(t);
 const assert = (c, m) => { if (!c) { console.error('✗', m); process.exitCode = 1; } else console.log('✓', m); };
 
