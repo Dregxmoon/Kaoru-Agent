@@ -337,6 +337,7 @@ de `@electron/rebuild` (sin depender de `npx` en el PATH). Localmente: `bash scr
 - Node.js ≥ 18 y npm
 - Python 3 con `edge-tts` (solo si se usa síntesis de voz)
 - Sistema operativo: Windows (sensor nativo) o Linux/Hyprland (sensor Wayland)
+- **Sandbox de proceso (bwrap): solo Linux.** En Windows y macOS, los comandos ejecutados por el agente corren SIN aislamiento de proceso adicional del sistema operativo (se degrada automáticamente).
 
 ### Instalación
 
@@ -529,6 +530,7 @@ npm run coverage:check    # además valida umbrales (guard de regresión)
 | Agente de código profundo (LSP)             | ✅ Operativo |
 | Plugins y skills                            | ✅ Operativo |
 | Modelo de confianza del agente              | ✅ Operativo |
+| Sandbox de proceso (bwrap)                  | ⚠️ Solo Linux — en Windows y macOS, los comandos ejecutados por el agente corren SIN aislamiento de proceso adicional del sistema operativo (se degrada automáticamente). |
 
 El proyecto se desarrolla por fases y se entrega de forma incremental (ver el historial de `git log` para la estrategia completa y las siguientes entregas).
 
