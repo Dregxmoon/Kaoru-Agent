@@ -347,6 +347,55 @@ cp config.example.json ~/.config/vtuber-overlay/config.json   # Linux
 # o: %APPDATA%/vtuber-overlay/config.json                      # Windows
 ```
 
+#### Verificación post-instalación (recomendada)
+
+Confirmá que **onnxruntime-node** carga su binding nativo antes de arrancar
+por primera vez:
+
+```bash
+ELECTRON_RUN_AS_NODE=1 ./node_modules/electron/dist/electron \
+  -e "require('onnxruntime-node'); console.log('onnxruntime-node OK')"
+```
+
+Si ves `Module did not self-register` u otro error de binding, la remediación
+es la que el propio asistente reporta (`EmbedService.BINDING_REMEDIATION`):
+
+> `[embeddings] onnxruntime-node no cargó su binding nativo. Es un módulo NAPI
+> (ABI estable), NO uses electron-rebuild: eso corrompería el prebuild. Si es
+> la primera carga del proceso, repáralo reinstalando el paquete
+> (npm install onnxruntime-node o npm ci). Si es una recarga (worker
+> recreado), es el límite single-load de NAPI — el worker debe ser persistente,
+> no se puede cargar dos veces.`
+
+#### Redes sin acceso a GitHub releases
+
+Si tu red bloquea o corta descargas de `github.com/*/releases/*`, tanto el
+binario de Electron como los prebuilds de better-sqlite3 pueden llegar
+corruptos o ausentes (síntomas: `tar` falla con "not in gzip format",
+`prebuild-install || node-gyp rebuild` aborta el `npm install`). Ruta de
+recuperación verificada:
+
+```bash
+npm install --ignore-scripts   # deja el árbol sin ejecutar gyp/downloads
+node fix-electron.js           # Electron desde caché local + rebuild nativos
+```
+
+El `~/.cache/electron/` conserva el zip íntegro de instalaciones previas y
+`fix-electron.js` lo usa si la descarga directa falla.
+
+<!-- 
+EVIDENCIA DE REPRODUCCIÓN (hallazgo 'Module did not self-register', cerrado
+como AMBIENTAL — agosto 2026): se reprodujo el flujo completo en máquina
+limpia con red abierta (rm -rf node_modules → npm install → npm run rebuild →
+init_vectors.js → suites skills/intent-detection) SIN que el error reapareciera.
+Evidencia: sha256 del binding onnxruntime linux/x64 IDÉNTICO antes y después del
+reinstall (8fda025e…), init_vectors OK (220 frases), 94 tests verdes. Causa
+raíz del fallo original: descarga parcial/cortada del prebuild en esa sesión
+(esta misma red devolvía "Not Found" para assets de GitHub releases ese día).
+-->
+
+### Configuración
+
 El `postinstall` también instala el comando **`asistente`** en tu PATH global
 (symlink `~/.local/bin/asistente` en Linux/macOS, shims `asistente.cmd` en
 Windows) — lánzalo desde cualquier carpeta para abrir/retomar el asistente en
