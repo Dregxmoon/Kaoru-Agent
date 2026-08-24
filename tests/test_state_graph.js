@@ -948,7 +948,7 @@ async function testFallbackMemoryMode() {
   require.cache[bsqKey] = { exports: null };
   try {
     const { StateGraph: SG2 } = require('../core/state-graph/StateGraph.js');
-    const sg = new SG2('/tmp/opencode/never.db').init();
+    const sg = new SG2(path.join(os.tmpdir(), 'never-' + Date.now() + '.db')).init();
     assert(sg.usingFallback === true, 'sin better-sqlite3 → usingFallback=true');
     const id = sg.createNode({
       type: 'User',

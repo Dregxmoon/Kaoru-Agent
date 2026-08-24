@@ -110,7 +110,7 @@ function testReadOnlyMCPWithBadTargetApproval() {
     AP.isHighImpact('mcp', {
       server: 'filesystem',
       tool: 'read_file',
-      args: { path: '/tmp/opencode/lejano.txt' },
+      args: { path: path.join(os.tmpdir(), 'lejano-fuera-del-workspace.txt') },
     }),
     'read_file fuera del workspace pide aprobación'
   );

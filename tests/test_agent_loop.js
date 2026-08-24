@@ -1738,7 +1738,7 @@ function testMCPConditionalApproval() {
     AP.isHighImpact('mcp', {
       server: 'filesystem',
       tool: 'read_file',
-      args: { path: '/tmp/opencode/lejano.txt' },
+      args: { path: path.join(os.tmpdir(), 'lejano-fuera-del-workspace.txt') },
     }),
     'mcp read_file fuera del workspace pide aprobación'
   );
@@ -1785,7 +1785,7 @@ function testMCPConditionalApproval() {
     AP.isHighImpact('mcp', {
       server: 'filesystem',
       tool: 'get_file_info',
-      args: { path: '/tmp/opencode/lejano.txt' },
+      args: { path: path.join(os.tmpdir(), 'lejano-fuera-del-workspace.txt') },
     }),
     'mcp get_file_info fuera del workspace pide aprobación'
   );
