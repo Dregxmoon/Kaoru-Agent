@@ -51,23 +51,74 @@ const TOPIC_EMA_ALPHA = 0.2; // Topic momentum smoothing factor
 const TOPIC_WINDOW_MS = 7 * 24 * 60 * 60 * 1000; // 7-day sliding window
 const MAX_TRACKED_TOPICS = 50; // Bounded topic history
 
+/**
+ * Subconjunto de la API de better-sqlite3 que usa esta clase.
+ * (typedef local: el paquete no publica declaraciones y un
+ * import('better-sqlite3') genera TS7016 bajo checkJs estricto.)
+ * @typedef {{
+ *   prepare(sql: string): {
+ *     get(...args: any[]): any;
+ *     all(...args: any[]): any[];
+ *     run(...args: any[]): unknown;
+ *   };
+ *   exec(sql: string): void;
+ * }} MinimalDatabase
+ */
+
+/** Fila de communication_profiles tal como viene de SQLite.
+ * @typedef {{
+ *   metric_key: string,
+ *   ema_value: number,
+ *   sample_count: number,
+ *   last_updated_at?: number,
+ *   created_at?: number
+ * }} ProfileRow
+ */
+
+/** Registro resumido de un perfil de comunicación.
+ * @typedef {{
+ *   ema_value: number,
+ *   sample_count: number
+ * }} ProfileRecord
+ */
+
+/** Fila de topic_momentum con score/menciones dentro de la ventana.
+ * @typedef {{
+ *   topic_key?: string,
+ *   id?: number,
+ *   momentum_score: number,
+ *   mention_count: number
+ * }} TopicRecord
+ */
+
+/** Resumen de diagnóstico de la evolución.
+ * @typedef {{
+ *   profiles: number,
+ *   topics: number,
+ *   hotTopics: number,
+ *   coldTopics: number
+ * }} EvolutionStats
+ */
+
 class EvolutionStore {
   /**
-   * @param {import('better-sqlite3').Database} db
+   * @param {MinimalDatabase} db
    */
   constructor(db) {
+    /** @type {MinimalDatabase} */
     this._db = db;
   }
 
   /**
    * Initialize schema (idempotent). Called during StateGraph._createSchema().
+   * @returns {void}
    */
   createSchema() {
     try {
       this._db.exec(COMMUNICATION_PROFILES_SCHEMA);
       this._db.exec(TOPIC_MOMENTUM_SCHEMA);
     } catch (e) {
-      logger.warn('EvolutionStore', '[evolution] schema creation failed:', e.message);
+      logger.warn('EvolutionStore', '[evolution] schema creation failed:', (/** @type {Error} */ (e)).message);
     }
   }
 
@@ -76,7 +127,7 @@ class EvolutionStore {
   /**
    * Get a communication profile metric by key.
    * @param {string} metricKey
-   * @returns {{ ema_value: number, sample_count: number, last_updated_at: number } | null}
+   * @returns {ProfileRecord & { last_updated_at: number } | null}
    */
   getProfile(metricKey) {
     try {
@@ -84,7 +135,7 @@ class EvolutionStore {
         .prepare('SELECT ema_value, sample_count, last_updated_at FROM communication_profiles WHERE metric_key=?')
         .get(metricKey) || null;
     } catch (e) {
-      logger.warn('EvolutionStore', '[evolution] getProfile error:', e.message);
+      logger.warn('EvolutionStore', '[evolution] getProfile error:', (/** @type {Error} */ (e)).message);
       return null;
     }
   }
@@ -111,13 +162,13 @@ class EvolutionStore {
           .run(metricKey, newValue, now, now);
       }
     } catch (e) {
-      logger.warn('EvolutionStore', '[evolution] updateProfile error:', e.message);
+      logger.warn('EvolutionStore', '[evolution] updateProfile error:', (/** @type {Error} */ (e)).message);
     }
   }
 
   /**
    * Get all communication profiles as a map.
-   * @returns {Map<string, { ema_value: number, sample_count: number }>}
+   * @returns {Map<string, ProfileRecord>}
    */
   getAllProfiles() {
     const profiles = new Map();
@@ -132,7 +183,7 @@ class EvolutionStore {
         });
       }
     } catch (e) {
-      logger.warn('EvolutionStore', '[evolution] getAllProfiles error:', e.message);
+      logger.warn('EvolutionStore', '[evolution] getAllProfiles error:', (/** @type {Error} */ (e)).message);
     }
     return profiles;
   }
@@ -177,14 +228,14 @@ class EvolutionStore {
       // Enforce bounded history
       this._pruneOldTopics();
     } catch (e) {
-      logger.warn('EvolutionStore', '[evolution] recordTopicMention error:', e.message);
+      logger.warn('EvolutionStore', '[evolution] recordTopicMention error:', (/** @type {Error} */ (e)).message);
     }
   }
 
   /**
    * Get hot topics (high momentum) for proactive triggers.
    * @param {{ limit?: number, minMomentum?: number }} [opts]
-   * @returns {Array<{ topic_key: string, momentum_score: number, mention_count: number }>}
+   * @returns {TopicRecord[]}
    */
   getHotTopics({ limit = 5, minMomentum = 0.3 } = {}) {
     try {
@@ -194,7 +245,7 @@ class EvolutionStore {
         )
         .all(minMomentum, limit);
     } catch (e) {
-      logger.warn('EvolutionStore', '[evolution] getHotTopics error:', e.message);
+      logger.warn('EvolutionStore', '[evolution] getHotTopics error:', (/** @type {Error} */ (e)).message);
       return [];
     }
   }
@@ -202,7 +253,7 @@ class EvolutionStore {
   /**
    * Get cold topics (low momentum, declining interest).
    * @param {{ limit?: number, maxMomentum?: number }} [opts]
-   * @returns {Array<{ topic_key: string, momentum_score: number, mention_count: number }>}
+   * @returns {TopicRecord[]}
    */
   getColdTopics({ limit = 5, maxMomentum = 0.2 } = {}) {
     try {
@@ -212,7 +263,7 @@ class EvolutionStore {
         )
         .all(maxMomentum, limit);
     } catch (e) {
-      logger.warn('EvolutionStore', '[evolution] getColdTopics error:', e.message);
+      logger.warn('EvolutionStore', '[evolution] getColdTopics error:', (/** @type {Error} */ (e)).message);
       return [];
     }
   }
@@ -220,7 +271,7 @@ class EvolutionStore {
   /**
    * Get topic momentum for a specific topic.
    * @param {string} topicKey
-   * @returns {{ momentum_score: number, mention_count: number } | null}
+   * @returns {TopicRecord | null}
    */
   getTopicMomentum(topicKey) {
     try {
@@ -232,7 +283,7 @@ class EvolutionStore {
         )
         .get(topicKey, windowStart) || null;
     } catch (e) {
-      logger.warn('EvolutionStore', '[evolution] getTopicMomentum error:', e.message);
+      logger.warn('EvolutionStore', '[evolution] getTopicMomentum error:', (/** @type {Error} */ (e)).message);
       return null;
     }
   }
@@ -266,13 +317,13 @@ class EvolutionStore {
           .run(MAX_TRACKED_TOPICS);
       }
     } catch (e) {
-      logger.warn('EvolutionStore', '[evolution] pruneOldTopics error:', e.message);
+      logger.warn('EvolutionStore', '[evolution] pruneOldTopics error:', (/** @type {Error} */ (e)).message);
     }
   }
 
   /**
    * Get evolution statistics for diagnostics.
-   * @returns {{ profiles: number, topics: number, hotTopics: number, coldTopics: number }}
+   * @returns {EvolutionStats}
    */
   getStats() {
     try {
@@ -296,4 +347,10 @@ class EvolutionStore {
   }
 }
 
-module.exports = { EvolutionStore, EMA_ALPHA, TOPIC_EMA_ALPHA, TOPIC_WINDOW_MS, MAX_TRACKED_TOPICS };
+// Named exports explícitos: los queries de tipo import() en JSDoc de otros
+// módulos siguen semántica ESM y solo ven miembros nombrados así.
+exports.EvolutionStore = EvolutionStore;
+exports.EMA_ALPHA = EMA_ALPHA;
+exports.TOPIC_EMA_ALPHA = TOPIC_EMA_ALPHA;
+exports.TOPIC_WINDOW_MS = TOPIC_WINDOW_MS;
+exports.MAX_TRACKED_TOPICS = MAX_TRACKED_TOPICS;
