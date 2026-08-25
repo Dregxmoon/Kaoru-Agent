@@ -458,6 +458,8 @@ async function processMessage(text, files = []) {
   bubble.querySelectorAll('.mermaid').forEach((el) => _renderMermaid(el));
   _scrollMessagesToBottom();
   setAgentState('done', 'Listo');
+  // Chips de resultado (skills usadas / verificación de artefactos).
+  if (typeof _renderResultChips === 'function') _renderResultChips(_takeResultMeta());
   speak(response);
 }
 

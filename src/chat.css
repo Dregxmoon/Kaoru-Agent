@@ -3518,3 +3518,65 @@ body {
   border-radius: 0 !important;
   box-shadow: none !important;
 }
+
+/* ── Chips de resultado del run agéntico (skills + verificación) ── */
+.result-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 4px 12px 10px 12px;
+}
+.result-chips .chip {
+  font-family: var(--font-mono, monospace);
+  font-size: 9px;
+  padding: 2px 8px;
+  border: 1px solid var(--border-accent, #555);
+  border-radius: 10px;
+  color: var(--accent, #8ab);
+  opacity: 0.85;
+}
+
+/* ── Card de validación de config al arranque ── */
+.startup-card {
+  position: relative;
+  margin: 10px 12px;
+  padding: 12px 30px 12px 14px;
+  border: 1px solid var(--accent, #888);
+  border-left-width: 3px;
+  border-radius: 6px;
+  background: rgba(0, 0, 0, 0.25);
+  font-size: 13px;
+}
+.startup-card-body code {
+  font-family: var(--font-mono, monospace);
+  font-size: 11px;
+}
+.startup-card-actions {
+  margin-top: 8px;
+}
+.startup-card-actions button {
+  font-size: 11px;
+  padding: 4px 10px;
+  cursor: pointer;
+  background: transparent;
+  color: var(--accent, #8ab);
+  border: 1px solid var(--accent, #666);
+  border-radius: 4px;
+}
+.startup-card-actions button:hover {
+  background: rgba(255, 255, 255, 0.06);
+}
+.startup-card-close {
+  position: absolute;
+  top: 4px;
+  right: 6px;
+  background: none;
+  border: none;
+  color: inherit;
+  font-size: 16px;
+  cursor: pointer;
+  opacity: 0.5;
+}
+.startup-card-close:hover {
+  opacity: 1;
+}

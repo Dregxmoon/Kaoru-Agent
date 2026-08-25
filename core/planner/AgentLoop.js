@@ -770,6 +770,11 @@ class AgentLoop {
         const skillBlock = await skillManager.buildInjection(userMessage, opts.skillDb || null);
         if (skillBlock) {
           agentPrompt = agentPrompt + '\n\n' + skillBlock;
+          // Nombres para los chips de resultado (skillManager.lastInjection
+          // lo setea buildInjection justo arriba).
+          if (Array.isArray(skillManager.lastInjection?.names)) {
+            injectedSkills.push(...skillManager.lastInjection.names);
+          }
           logger.info('AgentLoop', `[agent-loop] skills activas inyectadas en el prompt`);
         }
       } catch (e) {
@@ -874,6 +879,9 @@ class AgentLoop {
     // Self-critique (opts.selfCritique): cuántas pasadas de crítica se
     // agotaron en este run — acota el bucle de corrección (no infinito).
     let critiqueRounds = 0;
+    // Skills inyectadas en este run (para chips visuales en la respuesta).
+    /** @type {string[]} */
+    const injectedSkills = [];
     // Verificación de artefactos (web + sintaxis universal): rondas de
     // corrección cuando archivos mutados fallan validación al cierre.
     let webVerifyRounds = 0;
@@ -1138,6 +1146,8 @@ class AgentLoop {
           toolResults,
           verify,
           unverifiedEdits: falseClaim || undefined,
+          skillsUsed: injectedSkills.slice(0, 5),
+          artifactRounds: webVerifyRounds,
           error: null,
         };
       }

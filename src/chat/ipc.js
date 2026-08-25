@@ -213,12 +213,67 @@ ipcRenderer.on('gesture', (e, payload = {}) => {
     .catch(() => {});
 });
 
-// Validación temprana de config.json: issues visibles como burbuja del
-// asistente (solo visual — NO entra al sessionHistory que consume el LLM).
+// Chips de resultado del run agéntico: skills usadas + verificación de
+// artefactos. Se encolan acá y process.js las pinta bajo la burbuja cuando
+// termina el revelado del texto.
+let _resultMeta = null;
+ipcRenderer.on('agent-result-meta', (e, meta = {}) => {
+  _resultMeta = meta && (meta.skills?.length || meta.artifactRounds || meta.verified) ? meta : null;
+});
+function _takeResultMeta() {
+  const m = _resultMeta;
+  _resultMeta = null;
+  return m;
+}
+function _renderResultChips(meta) {
+  if (!meta) return;
+  const chips = [];
+  for (const s of meta.skills || []) chips.push(`⚡ ${s}`);
+  if (meta.verified === 'passed') chips.push('✓ verificado');
+  if (meta.artifactRounds > 0) chips.push(`auto-corregido (${meta.artifactRounds})`);
+  if (meta.verified === 'unverified') chips.push('⚠ sin verificar');
+  if (!chips.length) return;
+  try {
+    const row = document.createElement('div');
+    row.className = 'result-chips';
+    row.innerHTML = chips.map((c) => `<span class="chip">${c}</span>`).join('');
+    messagesEl.appendChild(row);
+    _scrollMessagesToBottom();
+  } catch (_) {}
+}
+
+// Validación temprana de config.json: issues como CARD con acción (solo
+// visual — NO entra al sessionHistory que consume el LLM).
 ipcRenderer.on('startup-notice', (e, payload = {}) => {
   if (!payload || typeof payload.message !== 'string' || !payload.message.trim()) return;
   try {
-    addMessage('assistant', '**[Configuración]** ' + payload.message);
+    const isNoKeys = /selector de modelos/.test(payload.message);
+    const wrap = document.createElement('div');
+    wrap.className = 'startup-card';
+    const close = document.createElement('button');
+    close.className = 'startup-card-close';
+    close.textContent = '×';
+    close.title = 'Descartar';
+    close.addEventListener('click', () => wrap.remove());
+    const body = document.createElement('div');
+    body.className = 'startup-card-body';
+    body.innerHTML = renderMarkdown('**[Configuración]** ' + payload.message);
+    body.querySelectorAll('.mermaid').forEach((el) => _renderMermaid(el));
+    wrap.appendChild(body);
+    if (isNoKeys) {
+      const actions = document.createElement('div');
+      actions.className = 'startup-card-actions';
+      const openPicker = document.createElement('button');
+      openPicker.textContent = 'Abrir selector de modelos';
+      openPicker.addEventListener('click', () => {
+        wrap.remove();
+        processMessage('/model');
+      });
+      actions.appendChild(openPicker);
+      wrap.appendChild(actions);
+    }
+    wrap.appendChild(close);
+    messagesEl.appendChild(wrap);
     _scrollMessagesToBottom();
   } catch (_) {
     /* la UI nunca debe romperse por un aviso */

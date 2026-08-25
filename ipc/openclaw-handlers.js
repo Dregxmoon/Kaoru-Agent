@@ -175,6 +175,21 @@ function register(ctx) {
       const taskOk = !result.error && !result.truncated && !result.cancelled;
       ctx.gestureEvents?.emit('task-result', { ok: taskOk, error: result.error });
 
+      // Chips de resultado para la UI: skills usadas + verificación de
+      // artefactos. El renderer los pinta como fila bajo la respuesta.
+      sendToChat('agent-result-meta', {
+        ok: taskOk,
+        cancelled: result.cancelled || false,
+        skills: Array.isArray(result.skillsUsed) ? result.skillsUsed : [],
+        artifactRounds: result.artifactRounds || 0,
+        verified:
+          result.verify && result.verify.status
+            ? result.verify.status
+            : result.unverifiedEdits
+              ? 'unverified'
+              : null,
+      });
+
       return {
         response: result.response,
         iterations: result.iterations,

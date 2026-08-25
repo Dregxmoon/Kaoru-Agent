@@ -38,6 +38,7 @@ const CommandRegistry = require('../core/commands/CommandRegistry.js');
 const FileResolver = require('../core/commands/FileResolver.js');
 const PathGuard = require('../core/security/PathGuard.js');
 const { getMCPManager } = require('../core/mcp/MCPManager.js');
+const state = require('../core/core/state.js');
 const AgentManager = require('../core/agents/AgentManager.js');
 const ModelAugmenter = require('../core/behavior/ModelAugmenter.js');
 const AsrClient = require('../core/voice/AsrClient.js');
@@ -229,6 +230,16 @@ function register(_ctx) {
           return getMCPManager().listServers();
         } catch {
           return [];
+        }
+      },
+      // /gestos mapa: confiabilidad por skill (loop de feedback LearningEngine).
+      getSkillStats: () => {
+        try {
+          return state.learning && typeof state.learning.skillStats === 'function'
+            ? state.learning.skillStats({ minUses: 1 })
+            : {};
+        } catch {
+          return {};
         }
       },
       gestureConfig: pageData.gestureConfig || null,
