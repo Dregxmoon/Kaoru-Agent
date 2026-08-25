@@ -226,6 +226,10 @@ const CHAT_H = 600;
 // validación + cache). loadConfig/saveConfig se mantienen como API hacia
 // el resto del proceso (ipc/config-handlers los usa por su nombre).
 const CONFIG_PATH = path.join(app.getPath('userData'), 'config.json');
+// Issues de validación de config al arranque: se calculan en whenReady (donde
+// el llavero ya está disponible) y se leen en createChatWindow() para mostrar
+// la burbuja en la ventana — scopes distintos, por eso el contenedor compartido.
+const startupConfigState = { issues: [] };
 
 const configManager = new ConfigManager(CONFIG_PATH);
 
@@ -697,6 +701,14 @@ function createChatWindow() {
       reason: usingFallback ? graph.fallbackReason || null : null,
     });
 
+    // Validación temprana de config: mostrar issues EN LA VENTANA (burbuja
+    // visual, fuera del historial que ve el LLM) antes del primer mensaje.
+    for (const issue of startupConfigState.issues) {
+      S.chatWindow.webContents.send('startup-notice', { message: issue.message });
+      if (!S.mainWindow || S.mainWindow.isDestroyed()) continue;
+      S.mainWindow.webContents.send('speak', issue.message.replace(/\*\*/g, '').slice(0, 220));
+    }
+
     sessionPromise
       .then((result) => {
         if (
@@ -1090,6 +1102,36 @@ app.whenReady().then(() => {
   );
 
   Core.init(app);
+
+  // ── Validación temprana de config.json ────────────────────────────────────
+  // ConfigManager.load() degrada en silencio (ausente/corrupto → defaults),
+  // así que sin esto el usuario no se entera hasta que su primer mensaje
+  // falla con un críptico 'Sin API key'. Se calcula acá (keychain ya
+  // conocido) y se entrega en el did-finish-load del chat, antes de que el
+  // usuario pueda escribir.
+  startupConfigState.issues = [];
+  try {
+    const { validateStartupConfig } = require('./core/config/startupCheck.js');
+    const keychainKeys =
+      keychainAvail && typeof KeychainManager.getAllKeys === 'function'
+        ? KeychainManager.getAllKeys(['groq', 'gemini', 'openai', 'nvidia', 'anthropic'])
+        : {};
+    const keychainHasKeys = Object.values(keychainKeys).some((v) => !!v);
+    const check = validateStartupConfig({
+      configPath: CONFIG_PATH,
+      examplePath: path.join(path.dirname(CONFIG_PATH), '..', 'config.example.json'),
+      keychainHasKeys,
+    });
+    startupConfigState.issues = check.issues || [];
+    for (const issue of startupConfigState.issues) {
+      logger.warn('main', `[config] ${issue.type}: ${issue.message.replace(/\n/g, ' ')}`);
+    }
+    if (startupConfigState.issues.length === 0) {
+      logger.info('main', '[config] validación de arranque OK');
+    }
+  } catch (e) {
+    logger.warn('main', `[config] validación temprana falló (no bloquea): ${e.message}`);
+  }
 
   Core.getEventBus().on('openclaw:available', (payload) => {
     sendToChat('openclaw-status', payload);

@@ -153,6 +153,7 @@ const ON_ALLOWLIST = new Set([
   'openclaw-status',
   'proposal-result',
   'resumed-session',
+  'startup-notice',
   'set-view',
   'speak',
   'update-status',

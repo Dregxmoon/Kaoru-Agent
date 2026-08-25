@@ -213,6 +213,18 @@ ipcRenderer.on('gesture', (e, payload = {}) => {
     .catch(() => {});
 });
 
+// Validación temprana de config.json: issues visibles como burbuja del
+// asistente (solo visual — NO entra al sessionHistory que consume el LLM).
+ipcRenderer.on('startup-notice', (e, payload = {}) => {
+  if (!payload || typeof payload.message !== 'string' || !payload.message.trim()) return;
+  try {
+    addMessage('assistant', '**[Configuración]** ' + payload.message);
+    _scrollMessagesToBottom();
+  } catch (_) {
+    /* la UI nunca debe romperse por un aviso */
+  }
+});
+
 // /gestos mapa persistió mappings → aplicarlos en vivo en el mini-avatar.
 ipcRenderer.on('gesture-mappings', (e, mappings) => {
   if (!mappings || typeof mappings !== 'object') return;
