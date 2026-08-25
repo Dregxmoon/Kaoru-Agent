@@ -254,7 +254,12 @@ ipcRenderer.on('startup-notice', (e, payload = {}) => {
     close.className = 'startup-card-close';
     close.textContent = '×';
     close.title = 'Descartar';
-    close.addEventListener('click', () => wrap.remove());
+    close.addEventListener('click', () => {
+      // Salida animada: fade + slide antes de remover (respeta reduced-motion
+      // porque .closing sin transition en esa media query es instantáneo).
+      wrap.classList.add('closing');
+      setTimeout(() => wrap.remove(), 180);
+    });
     const body = document.createElement('div');
     body.className = 'startup-card-body';
     body.innerHTML = renderMarkdown('**[Configuración]** ' + payload.message);

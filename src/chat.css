@@ -3519,7 +3519,12 @@ body {
   box-shadow: none !important;
 }
 
-/* ── Chips de resultado del run agéntico (skills + verificación) ── */
+/* ── Chips de resultado del run agéntico (skills + verificación) ──
+   Entrada discreta escalonada: fade + 4px slide, sin rebotes. */
+@keyframes chipIn {
+  from { opacity: 0; transform: translateY(4px); }
+  to   { opacity: 0.85; transform: translateY(0); }
+}
 .result-chips {
   display: flex;
   flex-wrap: wrap;
@@ -3531,12 +3536,28 @@ body {
   font-size: 9px;
   padding: 2px 8px;
   border: 1px solid var(--border-accent, #555);
-  border-radius: 10px;
   color: var(--accent, #8ab);
-  opacity: 0.85;
+  animation: chipIn 0.28s ease-out backwards;
+}
+.result-chips .chip:nth-child(2) { animation-delay: 70ms; }
+.result-chips .chip:nth-child(3) { animation-delay: 140ms; }
+.result-chips .chip:nth-child(n + 4) { animation-delay: 210ms; }
+.result-chips .chip:hover {
+  color: var(--accent, #8ab);
+  border-color: var(--accent, #8ab);
+  transition: opacity 0.15s ease, border-color 0.15s ease;
 }
 
 /* ── Card de validación de config al arranque ── */
+@keyframes cardIn {
+  from { opacity: 0; transform: translateY(-6px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+.startup-card.closing {
+  opacity: 0;
+  transform: translateY(-4px);
+  transition: opacity 0.16s ease, transform 0.16s ease;
+}
 .startup-card {
   position: relative;
   margin: 10px 12px;
@@ -3546,6 +3567,7 @@ body {
   border-radius: 6px;
   background: rgba(0, 0, 0, 0.25);
   font-size: 13px;
+  animation: cardIn 0.24s ease-out;
 }
 .startup-card-body code {
   font-family: var(--font-mono, monospace);
@@ -3579,4 +3601,14 @@ body {
 }
 .startup-card-close:hover {
   opacity: 1;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .result-chips .chip,
+  .startup-card {
+    animation: none;
+  }
+  .startup-card.closing {
+    transition: none;
+  }
 }
