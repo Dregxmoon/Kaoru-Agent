@@ -137,6 +137,28 @@ module.exports = function registerCommands(register) {
           }
           lines.push('', `Moods disponibles: ${moods}`);
           lines.push('Guardar/quitar: `/gestos mapa <mood> <gesto>` · `/gestos mapa <mood> off`');
+
+          // Confiabilidad de skills (loop de feedback): qué skills demostraron
+          // ser útiles en la práctica y cómo eso afecta al matching.
+          try {
+            const stats =
+              typeof ctx.getSkillStats === 'function' ? ctx.getSkillStats() : {};
+            const rows = Object.entries(stats);
+            if (rows.length) {
+              lines.push('', '**Confiabilidad de skills** (afecta al matching):');
+              for (const [name, s] of rows) {
+                const effect =
+                  s.uses >= 2 && s.rate >= 0.6
+                    ? '→ entra más fácil'
+                    : s.uses >= 2 && s.rate <= 0.34
+                      ? '→ más difícil de disparar'
+                      : '';
+                lines.push(
+                  `- \`${name}\`: ${s.successes}/${s.uses} exitosas (${Math.round(s.rate * 100)}%) ${effect}`
+                );
+              }
+            }
+          } catch {}
           return lines.join('\n');
         }
 
