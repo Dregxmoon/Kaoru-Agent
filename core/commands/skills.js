@@ -7,7 +7,7 @@
 
 const path = require('path');
 const fs = require('fs');
-const SkillHub = require('../../skills/SkillHub.js');
+const SkillHub = require('../skills/SkillHub.js');
 
 function register(register) {
   register({
@@ -45,7 +45,9 @@ function register(register) {
             const lines = [`**Skills instaladas (${list.length}):**`, ''];
             for (const s of list) {
               const doms = s.domains && s.domains.length ? ` — ${s.domains.join(', ')}` : '';
-              lines.push(`- **${s.name}** v${s.version}${doms}\n  ${String(s.description).slice(0, 110)}`);
+              lines.push(
+                `- **${s.name}** v${s.version}${doms}\n  ${String(s.description).slice(0, 110)}`
+              );
             }
             lines.push(
               '',
@@ -77,7 +79,9 @@ function register(register) {
               '',
             ];
             for (const r of results) {
-              lines.push(`- **${r.full_name}** ⭐ ${r.stars}\n  ${r.description || '(sin descripción)'}`);
+              lines.push(
+                `- **${r.full_name}** ⭐ ${r.stars}\n  ${r.description || '(sin descripción)'}`
+              );
             }
             return lines.join('\n');
           }
@@ -94,7 +98,9 @@ function register(register) {
             // Si pidieron un subdir específico, instalar solo esa carpeta.
             let sourceDirs = SkillHub.findSkillDirs(extractDir);
             if (subdir) {
-              const matches = sourceDirs.filter((d) => d.toLowerCase().endsWith(subdir.toLowerCase()));
+              const matches = sourceDirs.filter((d) =>
+                d.toLowerCase().endsWith(subdir.toLowerCase())
+              );
               sourceDirs = matches.length ? matches : sourceDirs;
             }
 
@@ -128,7 +134,9 @@ function register(register) {
               }
             }
             fs.rmSync(extractDir, { recursive: true, force: true });
-            try { fs.unlinkSync(tarPath); } catch {}
+            try {
+              fs.unlinkSync(tarPath);
+            } catch {}
 
             if (installed.length) await sm.index(await sm.scan(true));
 
@@ -160,4 +168,4 @@ function register(register) {
   });
 }
 
-module.exports = { register };
+module.exports = register;

@@ -37,6 +37,7 @@ const CATEGORIES = {
   agent: 'IA / LLM',
   code: 'IA / LLM',
   skill: 'IA / LLM',
+  skills: 'IA / LLM',
   github: 'Cuentas',
   init: 'Desarrollo',
   review: 'Desarrollo',
@@ -116,6 +117,7 @@ require('./general')(register);
 require('./llm')(register);
 require('./dev')(register);
 require('./model')(register);
+require('./skills')(register);
 require('./github')(register);
 require('./proactive')(register);
 
