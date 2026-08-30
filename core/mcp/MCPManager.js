@@ -308,7 +308,6 @@ const POPULAR_SERVERS = [
   },
   { identifier: '@modelcontextprotocol/server-everything', reason: 'Servidor de pruebas completo' },
   { identifier: '@modelcontextprotocol/server-brave-search', reason: 'Búsqueda web privada' },
-  { identifier: '@modelcontextprotocol/server-fetch', reason: 'HTTP fetch y scraping simple' },
   { identifier: '@modelcontextprotocol/server-sqlite', reason: 'Bases de datos SQLite locales' },
   { identifier: '@modelcontextprotocol/server-postgres', reason: 'PostgreSQL remoto/locale' },
   { identifier: '@modelcontextprotocol/server-redis', reason: 'Cache y pub/sub Redis' },
@@ -449,14 +448,6 @@ const FALLBACK_CATALOG = [
     identifier: '@modelcontextprotocol/server-brave-search',
     args: [],
     requiredEnv: ['BRAVE_API_KEY'],
-  },
-  {
-    name: 'fetch',
-    description: 'HTTP fetch y scraping simple de páginas web.',
-    registryType: 'npm',
-    identifier: '@modelcontextprotocol/server-fetch',
-    args: [],
-    requiredEnv: [],
   },
   {
     name: 'sqlite',
