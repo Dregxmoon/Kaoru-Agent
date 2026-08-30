@@ -128,6 +128,7 @@ function _detectCategory(name, description, packages = []) {
         'playwright',
         'puppeteer',
         'search',
+        'google',
       ],
     },
     {
@@ -313,6 +314,9 @@ const POPULAR_SERVERS = [
   { identifier: '@modelcontextprotocol/server-redis', reason: 'Cache y pub/sub Redis' },
   { identifier: '@modelcontextprotocol/server-slack', reason: 'Canales, mensajes, usuarios Slack' },
   { identifier: '@modelcontextprotocol/server-gdrive', reason: 'Google Drive archivos' },
+  { identifier: '@modelcontextprotocol/server-gmail', reason: 'Gmail emails y etiquetas' },
+  { identifier: '@modelcontextprotocol/server-google-calendar', reason: 'Google Calendar eventos' },
+  { identifier: '@modelcontextprotocol/server-google-maps', reason: 'Google Maps places y rutas' },
   { identifier: '@modelcontextprotocol/server-notion', reason: 'Notion páginas, bases de datos' },
   { identifier: '@modelcontextprotocol/server-linear', reason: 'Linear issues y proyectos' },
   { identifier: '@modelcontextprotocol/server-jira', reason: 'Jira issues, sprints, boards' },

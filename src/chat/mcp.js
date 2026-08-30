@@ -586,6 +586,9 @@ function closeMcpModal() {
 const mcpBtn = document.getElementById('mcp-btn');
 if (mcpBtn) mcpBtn.addEventListener('click', openMcpModal);
 
+const mcpCloseBtn = document.getElementById('mcp-close');
+if (mcpCloseBtn) mcpCloseBtn.addEventListener('click', closeMcpModal);
+
 mcpModal.addEventListener('click', (e) => {
   if (e.target === mcpModal) closeMcpModal();
 });
