@@ -308,7 +308,8 @@ class LSPErrorWatcher extends BasePollingWatcher {
         if (!inst?.isRunning) continue;
         const cfg = inst._serverConfig;
         if (!cfg) continue;
-        for (const pat of cfg.filePatterns || []) map.set(String(pat).toLowerCase(), cfg.languageId);
+        for (const pat of cfg.filePatterns || [])
+          map.set(String(pat).toLowerCase(), cfg.languageId);
       }
     } catch (_) {
       /* nunca romper el scan por esto */
@@ -411,10 +412,7 @@ class LSPErrorWatcher extends BasePollingWatcher {
    */
   getRecentErrors({ limit = 5 } = {}) {
     const out = [];
-    const priority = [
-      ...(this._focusedFile ? [this._focusedFile] : []),
-      ...this.getOpenFiles(),
-    ];
+    const priority = [...(this._focusedFile ? [this._focusedFile] : []), ...this.getOpenFiles()];
     const files = [...new Set(priority)].filter((f) => this._lastErrors.has(f));
     if (files.length === 0) {
       for (const f of this._lastErrors.keys()) files.push(f);

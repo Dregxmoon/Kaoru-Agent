@@ -2464,16 +2464,10 @@ async function testShouldPlanGates() {
   // Mensaje sin señales sintácticas de código, pero donde la persona NO sabe
   // dónde está el problema ni puede reproducirlo de forma estable → exige
   // investigación exploratoria → debe superar PLANNING_DIFFICULTY_THRESHOLD.
-  const {
-    estimateDifficulty,
-  } = require('../core/learning/difficulty.js');
-  const uncertain =
-    'revisá por qué el login falla a veces, no sé dónde está el bug';
+  const { estimateDifficulty } = require('../core/learning/difficulty.js');
+  const uncertain = 'revisá por qué el login falla a veces, no sé dónde está el bug';
   const dUncertain = estimateDifficulty({ message: uncertain, taskIntent: null, messageCount: 0 });
-  assert(
-    dUncertain >= 0.5,
-    `incertidumbre de localización supera el umbral (${dUncertain})`
-  );
+  assert(dUncertain >= 0.5, `incertidumbre de localización supera el umbral (${dUncertain})`);
   assert(
     loop._shouldPlan(uncertain, null, { planning: true }),
     'mensaje con incertidumbre → dispara _shouldPlan()'
@@ -2653,7 +2647,10 @@ ACCIÓN: exec | COMANDO: echo '{"ok": true}' > ${target}
   });
 
   const final = JSON.parse(fs.readFileSync(target, 'utf-8'));
-  assert(final.ok === true, `el pipeline corrigió el JSON inválido (final=${JSON.stringify(final)})`);
+  assert(
+    final.ok === true,
+    `el pipeline corrigió el JSON inválido (final=${JSON.stringify(final)})`
+  );
   assert(result.iterations >= 3, `hubo rondas de corrección (${result.iterations})`);
   assert(!result.unverifiedEdits, 'sin promesa falsa de ediciones');
   fs.rmSync(projectCwd, { recursive: true, force: true });

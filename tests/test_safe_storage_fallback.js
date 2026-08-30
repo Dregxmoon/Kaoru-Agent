@@ -57,8 +57,12 @@ function makeMockSafeStorage() {
 function makeUnavailableSafeStorage() {
   return {
     isEncryptionAvailable: () => false,
-    encryptString: () => { throw new Error('not available'); },
-    decryptString: () => { throw new Error('not available'); },
+    encryptString: () => {
+      throw new Error('not available');
+    },
+    decryptString: () => {
+      throw new Error('not available');
+    },
   };
 }
 
@@ -141,10 +145,7 @@ async function main() {
     'la key real NO aparece en el JSON serializado',
     `json: ${configJson.slice(0, 120)}...`
   );
-  assert(
-    configJson.includes('enc:v1:'),
-    'el JSON contiene el prefijo cifrado'
-  );
+  assert(configJson.includes('enc:v1:'), 'el JSON contiene el prefijo cifrado');
 
   // Leer la key de vuelta
   const readBack = SafeStorageCrypto.decrypt(configApiKeys.groq);

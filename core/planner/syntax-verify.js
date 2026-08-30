@@ -76,11 +76,7 @@ async function _getPythonBin() {
 /** .js/.mjs/.cjs → node --check usando el propio runtime del proceso. */
 async function checkJs(file) {
   // Electron como Node: mismo intérprete que ejecuta la app, sin GUI.
-  const r = await _runCmd(
-    process.execPath,
-    [ '--input-type=module', '--eval', '' ],
-    3000
-  );
+  const r = await _runCmd(process.execPath, ['--input-type=module', '--eval', ''], 3000);
   if (r.unavailable) return { ok: true, skipped: 'node no disponible' };
   const env = { ...process.env, ELECTRON_RUN_AS_NODE: '1' };
   return new Promise((resolve) => {
@@ -169,7 +165,12 @@ async function checkCss(file) {
   }
   return depth === 0
     ? { ok: true }
-    : { ok: false, errors: [`CSS desbalanceado: ${depth > 0 ? `faltan ${depth} cierre(s) de }` : `${-depth} } de más`}`] };
+    : {
+        ok: false,
+        errors: [
+          `CSS desbalanceado: ${depth > 0 ? `faltan ${depth} cierre(s) de }` : `${-depth} } de más`}`,
+        ],
+      };
 }
 
 /** .ts/.tsx → transpilar con typescript si está instalado (reporta sintaxis). */
@@ -259,7 +260,12 @@ async function verifySyntax(files, { maxFiles = 6 } = {}) {
     });
     logger.info(
       'syntax-verify',
-      `[syntax-verify] ${path.basename(file)}: ${res.ok ? (res.skipped ? `skip (${res.skipped})` : 'ok ✓') : `INVÁLIDO — ${(res.errors || []).join(' ').slice(0, 100)}`
+      `[syntax-verify] ${path.basename(file)}: ${
+        res.ok
+          ? res.skipped
+            ? `skip (${res.skipped})`
+            : 'ok ✓'
+          : `INVÁLIDO — ${(res.errors || []).join(' ').slice(0, 100)}`
       }`
     );
     if (!res.ok) break; // primer fallo basta para iterar

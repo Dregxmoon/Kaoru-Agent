@@ -118,7 +118,11 @@ class EvolutionStore {
       this._db.exec(COMMUNICATION_PROFILES_SCHEMA);
       this._db.exec(TOPIC_MOMENTUM_SCHEMA);
     } catch (e) {
-      logger.warn('EvolutionStore', '[evolution] schema creation failed:', (/** @type {Error} */ (e)).message);
+      logger.warn(
+        'EvolutionStore',
+        '[evolution] schema creation failed:',
+        /** @type {Error} */ (e).message
+      );
     }
   }
 
@@ -131,11 +135,19 @@ class EvolutionStore {
    */
   getProfile(metricKey) {
     try {
-      return this._db
-        .prepare('SELECT ema_value, sample_count, last_updated_at FROM communication_profiles WHERE metric_key=?')
-        .get(metricKey) || null;
+      return (
+        this._db
+          .prepare(
+            'SELECT ema_value, sample_count, last_updated_at FROM communication_profiles WHERE metric_key=?'
+          )
+          .get(metricKey) || null
+      );
     } catch (e) {
-      logger.warn('EvolutionStore', '[evolution] getProfile error:', (/** @type {Error} */ (e)).message);
+      logger.warn(
+        'EvolutionStore',
+        '[evolution] getProfile error:',
+        /** @type {Error} */ (e).message
+      );
       return null;
     }
   }
@@ -154,15 +166,23 @@ class EvolutionStore {
       if (existing) {
         const newEma = alpha * newValue + (1 - alpha) * existing.ema_value;
         this._db
-          .prepare('UPDATE communication_profiles SET ema_value=?, sample_count=sample_count+1, last_updated_at=? WHERE metric_key=?')
+          .prepare(
+            'UPDATE communication_profiles SET ema_value=?, sample_count=sample_count+1, last_updated_at=? WHERE metric_key=?'
+          )
           .run(newEma, now, metricKey);
       } else {
         this._db
-          .prepare('INSERT INTO communication_profiles (metric_key, ema_value, sample_count, last_updated_at, created_at) VALUES (?, ?, 1, ?, ?)')
+          .prepare(
+            'INSERT INTO communication_profiles (metric_key, ema_value, sample_count, last_updated_at, created_at) VALUES (?, ?, 1, ?, ?)'
+          )
           .run(metricKey, newValue, now, now);
       }
     } catch (e) {
-      logger.warn('EvolutionStore', '[evolution] updateProfile error:', (/** @type {Error} */ (e)).message);
+      logger.warn(
+        'EvolutionStore',
+        '[evolution] updateProfile error:',
+        /** @type {Error} */ (e).message
+      );
     }
   }
 
@@ -183,7 +203,11 @@ class EvolutionStore {
         });
       }
     } catch (e) {
-      logger.warn('EvolutionStore', '[evolution] getAllProfiles error:', (/** @type {Error} */ (e)).message);
+      logger.warn(
+        'EvolutionStore',
+        '[evolution] getAllProfiles error:',
+        /** @type {Error} */ (e).message
+      );
     }
     return profiles;
   }
@@ -200,35 +224,44 @@ class EvolutionStore {
       const windowStart = now - TOPIC_WINDOW_MS;
 
       // Clean old entries outside the window
-      this._db
-        .prepare('DELETE FROM topic_momentum WHERE last_mention_at < ?')
-        .run(windowStart);
+      this._db.prepare('DELETE FROM topic_momentum WHERE last_mention_at < ?').run(windowStart);
 
       // Check if topic exists in current window
       const existing = this._db
-        .prepare('SELECT id, mention_count, momentum_score FROM topic_momentum WHERE topic_key=? AND last_mention_at >= ?')
+        .prepare(
+          'SELECT id, mention_count, momentum_score FROM topic_momentum WHERE topic_key=? AND last_mention_at >= ?'
+        )
         .get(topicKey, windowStart);
 
       if (existing) {
         // Update existing: increment count, update momentum with EMA
         const newCount = existing.mention_count + 1;
         const timeFactor = Math.min(1.0, newCount / 10); // Normalize by expected frequency
-        const newMomentum = TOPIC_EMA_ALPHA * timeFactor + (1 - TOPIC_EMA_ALPHA) * existing.momentum_score;
+        const newMomentum =
+          TOPIC_EMA_ALPHA * timeFactor + (1 - TOPIC_EMA_ALPHA) * existing.momentum_score;
 
         this._db
-          .prepare('UPDATE topic_momentum SET mention_count=?, last_mention_at=?, momentum_score=? WHERE id=?')
+          .prepare(
+            'UPDATE topic_momentum SET mention_count=?, last_mention_at=?, momentum_score=? WHERE id=?'
+          )
           .run(newCount, now, newMomentum, existing.id);
       } else {
         // New topic in window
         this._db
-          .prepare('INSERT INTO topic_momentum (topic_key, mention_count, window_start, last_mention_at, momentum_score, created_at) VALUES (?, 1, ?, ?, 0.1, ?)')
+          .prepare(
+            'INSERT INTO topic_momentum (topic_key, mention_count, window_start, last_mention_at, momentum_score, created_at) VALUES (?, 1, ?, ?, 0.1, ?)'
+          )
           .run(topicKey, windowStart, now, now);
       }
 
       // Enforce bounded history
       this._pruneOldTopics();
     } catch (e) {
-      logger.warn('EvolutionStore', '[evolution] recordTopicMention error:', (/** @type {Error} */ (e)).message);
+      logger.warn(
+        'EvolutionStore',
+        '[evolution] recordTopicMention error:',
+        /** @type {Error} */ (e).message
+      );
     }
   }
 
@@ -245,7 +278,11 @@ class EvolutionStore {
         )
         .all(minMomentum, limit);
     } catch (e) {
-      logger.warn('EvolutionStore', '[evolution] getHotTopics error:', (/** @type {Error} */ (e)).message);
+      logger.warn(
+        'EvolutionStore',
+        '[evolution] getHotTopics error:',
+        /** @type {Error} */ (e).message
+      );
       return [];
     }
   }
@@ -263,7 +300,11 @@ class EvolutionStore {
         )
         .all(maxMomentum, limit);
     } catch (e) {
-      logger.warn('EvolutionStore', '[evolution] getColdTopics error:', (/** @type {Error} */ (e)).message);
+      logger.warn(
+        'EvolutionStore',
+        '[evolution] getColdTopics error:',
+        /** @type {Error} */ (e).message
+      );
       return [];
     }
   }
@@ -277,13 +318,19 @@ class EvolutionStore {
     try {
       const now = Date.now();
       const windowStart = now - TOPIC_WINDOW_MS;
-      return this._db
-        .prepare(
-          'SELECT momentum_score, mention_count FROM topic_momentum WHERE topic_key=? AND last_mention_at >= ?'
-        )
-        .get(topicKey, windowStart) || null;
+      return (
+        this._db
+          .prepare(
+            'SELECT momentum_score, mention_count FROM topic_momentum WHERE topic_key=? AND last_mention_at >= ?'
+          )
+          .get(topicKey, windowStart) || null
+      );
     } catch (e) {
-      logger.warn('EvolutionStore', '[evolution] getTopicMomentum error:', (/** @type {Error} */ (e)).message);
+      logger.warn(
+        'EvolutionStore',
+        '[evolution] getTopicMomentum error:',
+        /** @type {Error} */ (e).message
+      );
       return null;
     }
   }
@@ -298,14 +345,10 @@ class EvolutionStore {
       const windowStart = now - TOPIC_WINDOW_MS;
 
       // Remove old entries
-      this._db
-        .prepare('DELETE FROM topic_momentum WHERE last_mention_at < ?')
-        .run(windowStart);
+      this._db.prepare('DELETE FROM topic_momentum WHERE last_mention_at < ?').run(windowStart);
 
       // Enforce bounded history (keep top MAX_TRACKED_TOPICS by momentum)
-      const count = this._db
-        .prepare('SELECT COUNT(*) as c FROM topic_momentum')
-        .get()?.c ?? 0;
+      const count = this._db.prepare('SELECT COUNT(*) as c FROM topic_momentum').get()?.c ?? 0;
 
       if (count > MAX_TRACKED_TOPICS) {
         this._db
@@ -317,7 +360,11 @@ class EvolutionStore {
           .run(MAX_TRACKED_TOPICS);
       }
     } catch (e) {
-      logger.warn('EvolutionStore', '[evolution] pruneOldTopics error:', (/** @type {Error} */ (e)).message);
+      logger.warn(
+        'EvolutionStore',
+        '[evolution] pruneOldTopics error:',
+        /** @type {Error} */ (e).message
+      );
     }
   }
 
@@ -327,18 +374,19 @@ class EvolutionStore {
    */
   getStats() {
     try {
-      const profiles = this._db
-        .prepare('SELECT COUNT(*) as c FROM communication_profiles')
-        .get()?.c ?? 0;
-      const topics = this._db
-        .prepare('SELECT COUNT(*) as c FROM topic_momentum')
-        .get()?.c ?? 0;
-      const hotTopics = this._db
-        .prepare('SELECT COUNT(*) as c FROM topic_momentum WHERE momentum_score >= 0.3')
-        .get()?.c ?? 0;
-      const coldTopics = this._db
-        .prepare('SELECT COUNT(*) as c FROM topic_momentum WHERE momentum_score <= 0.2 AND mention_count >= 2')
-        .get()?.c ?? 0;
+      const profiles =
+        this._db.prepare('SELECT COUNT(*) as c FROM communication_profiles').get()?.c ?? 0;
+      const topics = this._db.prepare('SELECT COUNT(*) as c FROM topic_momentum').get()?.c ?? 0;
+      const hotTopics =
+        this._db
+          .prepare('SELECT COUNT(*) as c FROM topic_momentum WHERE momentum_score >= 0.3')
+          .get()?.c ?? 0;
+      const coldTopics =
+        this._db
+          .prepare(
+            'SELECT COUNT(*) as c FROM topic_momentum WHERE momentum_score <= 0.2 AND mention_count >= 2'
+          )
+          .get()?.c ?? 0;
 
       return { profiles, topics, hotTopics, coldTopics };
     } catch (e) {

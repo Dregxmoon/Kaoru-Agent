@@ -36,14 +36,18 @@ describe('EmotionalTrendTracker', () => {
     const tracker = new EmotionalTrendTracker(mockStore);
     tracker.startSession('test-session');
 
-    tracker.recordTurn('test-session', {
-      frustration: 0.7,
-      enthusiasm: 0.1,
-      confusion: 0.2,
-      calm: 0.3,
-      urgency: 0.1,
-      playfulness: 0.0,
-    }, 'esto no funciona');
+    tracker.recordTurn(
+      'test-session',
+      {
+        frustration: 0.7,
+        enthusiasm: 0.1,
+        confusion: 0.2,
+        calm: 0.3,
+        urgency: 0.1,
+        playfulness: 0.0,
+      },
+      'esto no funciona'
+    );
 
     const history = tracker._sessionHistory.get('test-session');
     assert.equal(history.length, 1);
@@ -55,14 +59,18 @@ describe('EmotionalTrendTracker', () => {
     tracker.startSession('test-session');
 
     for (let i = 0; i < 5; i++) {
-      tracker.recordTurn('test-session', {
-        frustration: 0.2 + i * 0.15,
-        enthusiasm: 0.1,
-        confusion: 0.1,
-        calm: 0.5 - i * 0.1,
-        urgency: 0.1,
-        playfulness: 0.0,
-      }, 'turno ' + i);
+      tracker.recordTurn(
+        'test-session',
+        {
+          frustration: 0.2 + i * 0.15,
+          enthusiasm: 0.1,
+          confusion: 0.1,
+          calm: 0.5 - i * 0.1,
+          urgency: 0.1,
+          playfulness: 0.0,
+        },
+        'turno ' + i
+      );
     }
 
     const trend = tracker.getEmotionTrend('test-session', 'frustration');
@@ -75,14 +83,18 @@ describe('EmotionalTrendTracker', () => {
     tracker.startSession('test-session');
 
     for (let i = 0; i < 5; i++) {
-      tracker.recordTurn('test-session', {
-        frustration: 0.8 - i * 0.15,
-        enthusiasm: 0.1,
-        confusion: 0.1,
-        calm: 0.3 + i * 0.1,
-        urgency: 0.1,
-        playfulness: 0.0,
-      }, 'turno ' + i);
+      tracker.recordTurn(
+        'test-session',
+        {
+          frustration: 0.8 - i * 0.15,
+          enthusiasm: 0.1,
+          confusion: 0.1,
+          calm: 0.3 + i * 0.1,
+          urgency: 0.1,
+          playfulness: 0.0,
+        },
+        'turno ' + i
+      );
     }
 
     const trend = tracker.getEmotionTrend('test-session', 'frustration');
@@ -95,14 +107,18 @@ describe('EmotionalTrendTracker', () => {
     tracker.startSession('test-session');
 
     for (let i = 0; i < 5; i++) {
-      tracker.recordTurn('test-session', {
-        frustration: 0.5,
-        enthusiasm: 0.1,
-        confusion: 0.1,
-        calm: 0.5,
-        urgency: 0.1,
-        playfulness: 0.0,
-      }, 'turno ' + i);
+      tracker.recordTurn(
+        'test-session',
+        {
+          frustration: 0.5,
+          enthusiasm: 0.1,
+          confusion: 0.1,
+          calm: 0.5,
+          urgency: 0.1,
+          playfulness: 0.0,
+        },
+        'turno ' + i
+      );
     }
 
     const trend = tracker.getEmotionTrend('test-session', 'frustration');
@@ -113,9 +129,42 @@ describe('EmotionalTrendTracker', () => {
     const tracker = new EmotionalTrendTracker(mockStore);
     tracker.startSession('test-session');
 
-    tracker.recordTurn('test-session', { frustration: 0.8, enthusiasm: 0.1, confusion: 0.1, calm: 0.2, urgency: 0.1, playfulness: 0.0 }, 'turno 0');
-    tracker.recordTurn('test-session', { frustration: 0.7, enthusiasm: 0.1, confusion: 0.1, calm: 0.3, urgency: 0.1, playfulness: 0.0 }, 'turno 1');
-    tracker.recordTurn('test-session', { frustration: 0.3, enthusiasm: 0.1, confusion: 0.1, calm: 0.7, urgency: 0.1, playfulness: 0.0 }, 'turno 2');
+    tracker.recordTurn(
+      'test-session',
+      {
+        frustration: 0.8,
+        enthusiasm: 0.1,
+        confusion: 0.1,
+        calm: 0.2,
+        urgency: 0.1,
+        playfulness: 0.0,
+      },
+      'turno 0'
+    );
+    tracker.recordTurn(
+      'test-session',
+      {
+        frustration: 0.7,
+        enthusiasm: 0.1,
+        confusion: 0.1,
+        calm: 0.3,
+        urgency: 0.1,
+        playfulness: 0.0,
+      },
+      'turno 1'
+    );
+    tracker.recordTurn(
+      'test-session',
+      {
+        frustration: 0.3,
+        enthusiasm: 0.1,
+        confusion: 0.1,
+        calm: 0.7,
+        urgency: 0.1,
+        playfulness: 0.0,
+      },
+      'turno 2'
+    );
 
     const recovery = tracker.detectRecovery('test-session');
     assert.equal(recovery.recovered, true, 'recovery detected');
@@ -127,14 +176,18 @@ describe('EmotionalTrendTracker', () => {
     tracker.startSession('test-session');
 
     for (let i = 0; i < 5; i++) {
-      tracker.recordTurn('test-session', {
-        frustration: 0.1 + i * 0.25,
-        enthusiasm: 0.1,
-        confusion: 0.1,
-        calm: 0.5 - i * 0.1,
-        urgency: 0.1,
-        playfulness: 0.0,
-      }, 'turno ' + i);
+      tracker.recordTurn(
+        'test-session',
+        {
+          frustration: 0.1 + i * 0.25,
+          enthusiasm: 0.1,
+          confusion: 0.1,
+          calm: 0.5 - i * 0.1,
+          urgency: 0.1,
+          playfulness: 0.0,
+        },
+        'turno ' + i
+      );
     }
 
     const escalation = tracker.detectEscalation('test-session');
@@ -147,14 +200,18 @@ describe('EmotionalTrendTracker', () => {
     tracker.startSession('test-session');
 
     for (let i = 0; i < 5; i++) {
-      tracker.recordTurn('test-session', {
-        frustration: 0.2 + i * 0.15,
-        enthusiasm: 0.1,
-        confusion: 0.1,
-        calm: 0.5 - i * 0.1,
-        urgency: 0.1,
-        playfulness: 0.0,
-      }, 'turno ' + i);
+      tracker.recordTurn(
+        'test-session',
+        {
+          frustration: 0.2 + i * 0.15,
+          enthusiasm: 0.1,
+          confusion: 0.1,
+          calm: 0.5 - i * 0.1,
+          urgency: 0.1,
+          playfulness: 0.0,
+        },
+        'turno ' + i
+      );
     }
 
     const hint = tracker.buildTrendHint('test-session');
@@ -166,8 +223,30 @@ describe('EmotionalTrendTracker', () => {
     const tracker = new EmotionalTrendTracker(mockStore);
     tracker.startSession('test-session');
 
-    tracker.recordTurn('test-session', { frustration: 0.7, enthusiasm: 0.1, confusion: 0.1, calm: 0.3, urgency: 0.1, playfulness: 0.0 }, 'turno 0');
-    tracker.recordTurn('test-session', { frustration: 0.3, enthusiasm: 0.5, confusion: 0.1, calm: 0.7, urgency: 0.1, playfulness: 0.0 }, 'turno 1');
+    tracker.recordTurn(
+      'test-session',
+      {
+        frustration: 0.7,
+        enthusiasm: 0.1,
+        confusion: 0.1,
+        calm: 0.3,
+        urgency: 0.1,
+        playfulness: 0.0,
+      },
+      'turno 0'
+    );
+    tracker.recordTurn(
+      'test-session',
+      {
+        frustration: 0.3,
+        enthusiasm: 0.5,
+        confusion: 0.1,
+        calm: 0.7,
+        urgency: 0.1,
+        playfulness: 0.0,
+      },
+      'turno 1'
+    );
 
     const stats = tracker.getSessionStats('test-session');
     assert.equal(stats.turns, 2);

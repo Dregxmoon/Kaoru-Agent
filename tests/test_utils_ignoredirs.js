@@ -5,7 +5,11 @@
 
 const assert = require('assert');
 let passed = 0;
-const t = (c, m) => { assert(c, m); passed++; console.log('  ✓', m); };
+const t = (c, m) => {
+  assert(c, m);
+  passed++;
+  console.log('  ✓', m);
+};
 
 const { PROJECT_IGNORE_DIRS, dirSet, dirRegexes } = require('../core/utils/ignoreDirs.js');
 
@@ -34,7 +38,10 @@ function main() {
 
   // ── dirRegexes ──
   const regexes = dirRegexes(['vendor']);
-  t(Array.isArray(regexes) && regexes.length === PROJECT_IGNORE_DIRS.length + 1, 'una regex por carpeta (base+extras)');
+  t(
+    Array.isArray(regexes) && regexes.length === PROJECT_IGNORE_DIRS.length + 1,
+    'una regex por carpeta (base+extras)'
+  );
 
   // Match POSIX y Windows sobre rutas completas.
   const nodeRe = regexes[PROJECT_IGNORE_DIRS.indexOf('node_modules')];
@@ -45,7 +52,10 @@ function main() {
   // Anclaje: match de SEGMENTO completo — "build" no debe pisar "builder/".
   const allRegexes = dirRegexes();
   const builderPath = '/x/builder/file.js';
-  t(!allRegexes.some((r) => r.test(builderPath)), '"builder" no matchea la carpeta "build" (segmento exacto)');
+  t(
+    !allRegexes.some((r) => r.test(builderPath)),
+    '"builder" no matchea la carpeta "build" (segmento exacto)'
+  );
 
   // Extra se respeta también en regex.
   const vendorRe = dirRegexes(['vendor']).find((r) => /vendor/.test(String(r)));
@@ -53,7 +63,10 @@ function main() {
 
   // Borde: raíz del disco no matchea (requiere separador después del nombre).
   t(!nodeRe.test('/node_modules'), "'/node_modules' sin slash final no matchea el segmento");
-  t(dirRegexes().some((r) => r.test('/node_modules/')), "'/node_modules/' sí matchea");
+  t(
+    dirRegexes().some((r) => r.test('/node_modules/')),
+    "'/node_modules/' sí matchea"
+  );
 
   console.log(`\nResultado: ${passed} passed`);
 }

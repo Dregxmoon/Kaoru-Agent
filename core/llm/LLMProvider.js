@@ -157,7 +157,10 @@ function setNoEmojis(v) {
 
 function _stripEmojis(text) {
   if (!_noEmojis || !text) return text;
-  return String(text).replace(EMOJI_RE, '').replace(/[ \t]{2,}/g, ' ').trim();
+  return String(text)
+    .replace(EMOJI_RE, '')
+    .replace(/[ \t]{2,}/g, ' ')
+    .trim();
 }
 
 function _stripForbiddenPhrases(text) {
@@ -179,7 +182,10 @@ function _stripForbiddenPhrases(text) {
     }
   }
   return _stripEmojis(
-    cleaned.replace(/[ \t]{2,}/g, ' ').replace(/\n{3,}/g, '\n\n').trim()
+    cleaned
+      .replace(/[ \t]{2,}/g, ' ')
+      .replace(/\n{3,}/g, '\n\n')
+      .trim()
   );
 }
 
@@ -967,7 +973,9 @@ function postStream(url, headers, body, onToken, timeoutMs = 20_000, signal = nu
         if (out) {
           try {
             onToken && onToken(out);
-          } catch (_) { logger.debug('LLMProvider', 'callback onToken falló'); }
+          } catch (_) {
+            logger.debug('LLMProvider', 'callback onToken falló');
+          }
         }
       };
       const parseDelta = (delta) => {
@@ -1012,7 +1020,9 @@ function postStream(url, headers, body, onToken, timeoutMs = 20_000, signal = nu
         if (cotState.pending && !cotState.inThinking) {
           try {
             onToken && onToken(cotState.pending);
-          } catch (_) { logger.debug('LLMProvider', 'callback onToken (CoT) falló'); }
+          } catch (_) {
+            logger.debug('LLMProvider', 'callback onToken (CoT) falló');
+          }
           cotState.pending = '';
         }
         const toolCallsOut = toolCalls
@@ -1058,8 +1068,7 @@ async function callOpenAI(providerId, messages, systemPrompt, mode = 'fast', opt
   const model = _resolveModel(providerId, safeMode);
   // opts.maxTokens: override puntual (p.ej. generación de parches con modelos
   // de reasoning que gastan el presupuesto del modo en <think>).
-  const maxTokens =
-    Number(opts?.maxTokens) > 0 ? Number(opts.maxTokens) : MAX_OUTPUT[safeMode];
+  const maxTokens = Number(opts?.maxTokens) > 0 ? Number(opts.maxTokens) : MAX_OUTPUT[safeMode];
   const timeoutMs = def.timeoutMs?.[safeMode] ?? TIMEOUT_MS[safeMode] ?? TIMEOUT_MS.fast;
   const history = _trimHistoryForMode(messages, safeMode);
   const msgs = [{ role: 'system', content: systemPrompt }, ...history];
@@ -1177,7 +1186,9 @@ function _parseGeminiSSE(raw, onToken) {
         out += text;
         try {
           onToken && onToken(text);
-        } catch (_) { logger.debug('LLMProvider', 'callback onToken (Gemini) falló'); }
+        } catch (_) {
+          logger.debug('LLMProvider', 'callback onToken (Gemini) falló');
+        }
       }
       if (part.functionCall) {
         toolCalls.push({

@@ -128,7 +128,10 @@ class _LSPInstance {
     const retriesLeft = config.autoInstall && config.installCmd ? 1 : 0;
     return this._resolveTsserverFallback()
       .catch((e) => {
-        logger.warn('LSPManager', `[lsp:${this._languageKey}] fallback de tsserver falló: ${e.message}`);
+        logger.warn(
+          'LSPManager',
+          `[lsp:${this._languageKey}] fallback de tsserver falló: ${e.message}`
+        );
         return null;
       })
       .then((fallbackLib) => {
@@ -175,7 +178,10 @@ class _LSPInstance {
     );
     const fallbackLib = path.join(fallbackDir, 'node_modules', 'typescript', 'lib');
     if (fs.existsSync(path.join(fallbackLib, 'tsserver.js'))) {
-      logger.info('LSPManager', `[lsp:${this._languageKey}] usando tsserver de caché (${fallbackDir})`);
+      logger.info(
+        'LSPManager',
+        `[lsp:${this._languageKey}] usando tsserver de caché (${fallbackDir})`
+      );
       return Promise.resolve(fallbackLib);
     }
 
@@ -357,9 +363,11 @@ class _LSPInstance {
           // request real del agente encuentra al server caliente en vez de
           // absorber toda la latencia de carga fría.
           const warmup = this._request('workspace/symbol', { query: '' });
-          warmup.catch(() => {}).finally(() => {
-            logger.debug?.('LSPManager', `[lsp:${this._languageKey}] warmup completado`);
-          });
+          warmup
+            .catch(() => {})
+            .finally(() => {
+              logger.debug?.('LSPManager', `[lsp:${this._languageKey}] warmup completado`);
+            });
           void warmup;
           if (!started) {
             started = true;
@@ -790,12 +798,7 @@ class _LSPInstance {
         // de proyectos grandes tsserver puede dejar pasar el primer request
         // pero responde al instante al siguiente (verificado E2E). Todos los
         // requests LSP son de solo lectura — reintentar es seguro.
-        if (
-          !_isRetry &&
-          this.isRunning &&
-          method !== 'initialize' &&
-          method !== 'shutdown'
-        ) {
+        if (!_isRetry && this.isRunning && method !== 'initialize' && method !== 'shutdown') {
           logger.info(
             'LSPManager',
             `[lsp:${this._languageKey}] ${method} excedió ${effectiveTimeout}ms — reintentando una vez...`

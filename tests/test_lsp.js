@@ -129,7 +129,16 @@ async function testLSPInToolResolver() {
   assert(result.promptCatalog.includes('Herramientas LSP'), 'catálogo tiene sección LSP');
 
   const lspSchemas = result.nativeToolSchemas.filter((s) =>
-    ['get_diagnostics', 'go_to_definition', 'find_references', 'get_symbols', 'workspace_symbols', 'hover', 'rename', 'code_actions'].includes(s.name)
+    [
+      'get_diagnostics',
+      'go_to_definition',
+      'find_references',
+      'get_symbols',
+      'workspace_symbols',
+      'hover',
+      'rename',
+      'code_actions',
+    ].includes(s.name)
   );
   assertEqual(lspSchemas.length, 8, '8 LSP tools en nativeToolSchemas');
 }

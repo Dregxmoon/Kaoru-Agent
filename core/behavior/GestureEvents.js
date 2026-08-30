@@ -49,8 +49,19 @@ for (const [k, v] of Object.entries(EVENT_MOODS)) {
 
 /** Moods válidos según GestureLexicon (subconjunto seguro para eventos). */
 const SAFE_MOODS = new Set([
-  'happy', 'excited', 'sad', 'angry', 'surprised', 'shy',
-  'tired', 'think', 'gentle', 'default', 'panic', 'nod', 'wave',
+  'happy',
+  'excited',
+  'sad',
+  'angry',
+  'surprised',
+  'shy',
+  'tired',
+  'think',
+  'gentle',
+  'default',
+  'panic',
+  'nod',
+  'wave',
 ]);
 
 class GestureEvents {

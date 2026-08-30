@@ -37,7 +37,9 @@ function descendantPids(rootPid) {
           .trim()
           .split(/\s+/);
         ppid = parseInt(after[1], 10);
-      } catch (_) { /* parseo de ps falla en algunos SOs */ }
+      } catch (_) {
+        /* parseo de ps falla en algunos SOs */
+      }
       if (!children.has(ppid)) children.set(ppid, []);
       children.get(ppid).push(parseInt(entry, 10));
     }

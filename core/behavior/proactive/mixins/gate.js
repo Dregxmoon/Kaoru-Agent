@@ -229,9 +229,7 @@ module.exports = {
       // Cooldown efectivo por tipo — crece si el usuario ha descartado este
       // tipo varias veces seguidas (Fase A: el rechazo enseña).
       const baseCooldown =
-        trigger.cooldownOverrideMs ||
-        TRIGGER_COOLDOWN_MS[trigger.type] ||
-        GLOBAL_MIN_GAP_MS;
+        trigger.cooldownOverrideMs || TRIGGER_COOLDOWN_MS[trigger.type] || GLOBAL_MIN_GAP_MS;
       const cooldown = this._effectiveCooldownMs(trigger.type, baseCooldown);
       const lastAttempt = this._lastAttemptByType[trigger.type] || 0;
       if (now - lastAttempt < cooldown) return { blocked: true };

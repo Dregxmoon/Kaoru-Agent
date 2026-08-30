@@ -364,8 +364,7 @@ async function processMessage(text, files = []) {
         parsed.markers.forEach((g) => _playGesture(g.mood));
         // Espejar la emoción de la respuesta en el avatar (Kaoru "siente" lo
         // que dice) — el detector barato clasifica el texto final.
-        if (chatGestureEngine)
-          chatGestureEngine.onChat('assistant', response, chatDetectEmotion);
+        if (chatGestureEngine) chatGestureEngine.onChat('assistant', response, chatDetectEmotion);
         pushToSession('assistant', response);
         ipcRenderer.send('memory-add-turn', { role: 'assistant', content: response });
         bubble.classList.add('markdown');
@@ -441,8 +440,7 @@ async function processMessage(text, files = []) {
   const parsed = _parseGestureMarkers(response);
   response = parsed.clean;
   // Espejar la emoción de la respuesta final del agente en el avatar.
-  if (chatGestureEngine)
-    chatGestureEngine.onChat('assistant', response, chatDetectEmotion);
+  if (chatGestureEngine) chatGestureEngine.onChat('assistant', response, chatDetectEmotion);
   pushToSession('assistant', response);
   ipcRenderer.send('memory-add-turn', { role: 'assistant', content: response });
   const { bubble } = addMessage('assistant', '');

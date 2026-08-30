@@ -41,7 +41,14 @@ const SEND_ALLOWLIST = new Set([
   'view-changed',
 ]);
 
-const ON_ALLOWLIST = new Set(['gesture', 'gesture-mappings', 'model-changed', 'set-view', 'speak', 'views-changed']);
+const ON_ALLOWLIST = new Set([
+  'gesture',
+  'gesture-mappings',
+  'model-changed',
+  'set-view',
+  'speak',
+  'views-changed',
+]);
 
 function assertAllowed(kind, channel) {
   const list =

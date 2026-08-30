@@ -78,10 +78,22 @@ console.log('\n\x1b[36m─ _formatActionsSummary ──────────�
 
 {
   const tools = [
-    { tool: 'edit', ok: true, _action: { params: { filePath: '/tmp/very-long-path-that-should-be-truncated-because-it-is-really-really-long.js' } } },
+    {
+      tool: 'edit',
+      ok: true,
+      _action: {
+        params: {
+          filePath:
+            '/tmp/very-long-path-that-should-be-truncated-because-it-is-really-really-long.js',
+        },
+      },
+    },
   ];
   const result = loop._formatActionsSummary(tools);
-  assert(!result.includes('very-long-path-that-should-be-truncated-because-it-is-really-really-long.js'), 'params truncated at 60 chars');
+  assert(
+    !result.includes('very-long-path-that-should-be-truncated-because-it-is-really-really-long.js'),
+    'params truncated at 60 chars'
+  );
 }
 
 {
@@ -94,17 +106,13 @@ console.log('\n\x1b[36m─ _formatActionsSummary ──────────�
 }
 
 {
-  const tools = [
-    { tool: 'edit', ok: true, _action: { params: {} } },
-  ];
+  const tools = [{ tool: 'edit', ok: true, _action: { params: {} } }];
   const result = loop._formatActionsSummary(tools, { empty: 'nada' });
   assert(!result.includes('ninguna acción'), 'empty not used when tools exist');
 }
 
 {
-  const tools = [
-    { tool: 'edit', ok: true, _action: { params: { key: 'value' } } },
-  ];
+  const tools = [{ tool: 'edit', ok: true, _action: { params: { key: 'value' } } }];
   const result = loop._formatActionsSummary(tools, {
     format: (t, params, ok) => `[${t.tool}] ${ok}`,
   });

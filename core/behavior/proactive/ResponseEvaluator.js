@@ -31,12 +31,7 @@ const INAPPROPRIATE_PATTERNS = {
     /para entender mejor/i,
     /primero necesito que/i,
   ],
-  confusion: [
-    /es obvio/i,
-    /solo tienes que/i,
-    /es fácil/i,
-    /cualquier persona sabe/i,
-  ],
+  confusion: [/es obvio/i, /solo tienes que/i, /es fácil/i, /cualquier persona sabe/i],
 };
 
 // ── Score de calidad de respuesta ───────────────────────────────────────────
@@ -83,7 +78,9 @@ function _evaluateResponse(kaoruResponse, enforcement, emotionalCtx) {
   if (enforcement.maxTokens) {
     const estimatedTokens = Math.ceil(kaoruResponse.length / 4); // estimación rough
     if (estimatedTokens > enforcement.maxTokens * 1.5) {
-      violations.push(`respuesta muy larga: ~${estimatedTokens} tokens (máx: ${enforcement.maxTokens})`);
+      violations.push(
+        `respuesta muy larga: ~${estimatedTokens} tokens (máx: ${enforcement.maxTokens})`
+      );
       score -= 0.1;
     }
   }

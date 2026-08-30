@@ -292,7 +292,9 @@ async function testChildProcessRecoveryAfterLoad() {
         });
       });
     };
-    c.kill = () => { c._alive = false; };
+    c.kill = () => {
+      c._alive = false;
+    };
     setImmediate(() => {
       if (c._alive) c.emit('message', { type: 'ready' });
     });
@@ -390,10 +392,7 @@ async function testChildProcessRecoveryExhausted() {
       childFactoryCalls >= 3,
       `child process factory invocado ≥3 veces (actual: ${childFactoryCalls})`
     );
-    assert(
-      st.disabled === true,
-      'servicio deshabilitado tras agotar child process recovery'
-    );
+    assert(st.disabled === true, 'servicio deshabilitado tras agotar child process recovery');
 
     // Intento posterior: lanza (degradación permanente).
     let threw = false;
@@ -450,7 +449,9 @@ async function testChildProcessRecoveryResetsState() {
         });
       });
     };
-    c.kill = () => { c._alive = false; };
+    c.kill = () => {
+      c._alive = false;
+    };
     // 'ready' se emite en process.nextTick: después de que _forkChildProcess
     // attachee listeners, pero antes del siguiente I/O.
     process.nextTick(() => {
@@ -484,10 +485,7 @@ async function testChildProcessRecoveryResetsState() {
       EmbedService._debug_getState().workerAlive === false,
       'worker sigue muerto (solo child process está activo)'
     );
-    assert(
-      EmbedService._debug_getState().childAlive === true,
-      'child process sigue vivo'
-    );
+    assert(EmbedService._debug_getState().childAlive === true, 'child process sigue vivo');
     assert(childCallCount === 1, 'solo 1 child process fue necesario');
   } finally {
     IntentDetector.embedText = origEmbed;

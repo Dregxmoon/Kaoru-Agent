@@ -87,7 +87,7 @@ const STYLE_METRICS = {
 
   // Question density (questions per sentence)
   _measureQuestionDensity(text) {
-    const sentences = text.split(/[.!?]+/).filter(s => s.trim().length > 0);
+    const sentences = text.split(/[.!?]+/).filter((s) => s.trim().length > 0);
     const questions = (text.match(/[?¿]/g) || []).length;
     if (sentences.length === 0) return 0;
     return Math.min(1.0, questions / sentences.length);
@@ -95,7 +95,8 @@ const STYLE_METRICS = {
 
   // Emoji/emoticon usage
   _measureEmojiUsage(text) {
-    const emojiPattern = /[\u{1F600}-\u{1F64F}\u{1F300}-\u{1F5FF}\u{1F680}-\u{1F6FF}\u{1F1E0}-\u{1F1FF}\u{2600}-\u{26FF}\u{2700}-\u{27BF}]/gu;
+    const emojiPattern =
+      /[\u{1F600}-\u{1F64F}\u{1F300}-\u{1F5FF}\u{1F680}-\u{1F6FF}\u{1F1E0}-\u{1F1FF}\u{2600}-\u{26FF}\u{2700}-\u{27BF}]/gu;
     const emoticonPattern = /[:;]-?[)D(P/\\|]/g;
     const emojis = (text.match(emojiPattern) || []).length;
     const emoticons = (text.match(emoticonPattern) || []).length;
@@ -106,8 +107,10 @@ const STYLE_METRICS = {
 
   // Formality indicators
   _measureFormality(text) {
-    const informalMarkers = /\b(oye|hey|hola|buenas|qué\s+tal|c[oó]mo\s+est[aá]s|gracias|por\s+fa|xD|lol|jaja|jeje)\b/i;
-    const formalMarkers = /\b(por\s+favor|agradecer[ií]a|ser[ií]a\s+amable|le\s+agradezco|estimado|disculpe)\b/i;
+    const informalMarkers =
+      /\b(oye|hey|hola|buenas|qué\s+tal|c[oó]mo\s+est[aá]s|gracias|por\s+fa|xD|lol|jaja|jeje)\b/i;
+    const formalMarkers =
+      /\b(por\s+favor|agradecer[ií]a|ser[ií]a\s+amable|le\s+agradezco|estimado|disculpe)\b/i;
 
     const informalCount = (text.match(informalMarkers) || []).length;
     const formalCount = (text.match(formalMarkers) || []).length;
@@ -118,11 +121,12 @@ const STYLE_METRICS = {
 
   // Technical vocabulary density
   _measureTechnicalDensity(text) {
-    const techPatterns = /\b(c[oó]digo|funci[oó]n|clase|m[eé]todo|variable|import|export|async|await|const|let|var|git|npm|node|python|api|endpoint|query|database|server|client|deploy|build|test|debug)\b/gi;
+    const techPatterns =
+      /\b(c[oó]digo|funci[oó]n|clase|m[eé]todo|variable|import|export|async|await|const|let|var|git|npm|node|python|api|endpoint|query|database|server|client|deploy|build|test|debug)\b/gi;
     const matches = (text.match(techPatterns) || []).length;
     const words = text.split(/\s+/).length;
     if (words === 0) return 0;
-    return Math.min(1.0, matches / words * 5); // Scale up for visibility
+    return Math.min(1.0, (matches / words) * 5); // Scale up for visibility
   },
 };
 
@@ -203,8 +207,16 @@ class TraitLearner {
    */
   _updateProfiles(emotions, styleMetrics) {
     // Update emotion profiles (binary: present or not)
-    const emotionTraits = ['frustration', 'relief', 'enthusiasm', 'satisfaction',
-      'confusion', 'urgency', 'curiosity', 'gratitude'];
+    const emotionTraits = [
+      'frustration',
+      'relief',
+      'enthusiasm',
+      'satisfaction',
+      'confusion',
+      'urgency',
+      'curiosity',
+      'gratitude',
+    ];
 
     for (const trait of emotionTraits) {
       const value = emotions.includes(trait) ? 1.0 : 0.0;

@@ -41,8 +41,14 @@ function _scanJsonFirstError(raw) {
     i++; // comilla inicial
     while (i < n) {
       const c = raw[i];
-      if (c === '"') { i++; return true; }
-      if (c === '\\') { i += 2; continue; }
+      if (c === '"') {
+        i++;
+        return true;
+      }
+      if (c === '\\') {
+        i += 2;
+        continue;
+      }
       if (c === '\n' || c === '\r') return false; // salto sin escape
       i++;
     }
@@ -54,32 +60,73 @@ function _scanJsonFirstError(raw) {
     skipWs();
     if (i >= n) return false;
     const c = raw[i];
-    if (c === '{') { i++; return parseObject(); }
-    if (c === '[') { i++; return parseArray(); }
+    if (c === '{') {
+      i++;
+      return parseObject();
+    }
+    if (c === '[') {
+      i++;
+      return parseArray();
+    }
     if (c === '"') return parseString();
-    if (raw.startsWith('true', i)) { i += 4; return true; }
-    if (raw.startsWith('false', i)) { i += 5; return true; }
-    if (raw.startsWith('null', i)) { i += 4; return true; }
+    if (raw.startsWith('true', i)) {
+      i += 4;
+      return true;
+    }
+    if (raw.startsWith('false', i)) {
+      i += 5;
+      return true;
+    }
+    if (raw.startsWith('null', i)) {
+      i += 4;
+      return true;
+    }
     const num = /^-?\d+(?:\.\d+)?(?:[eE][+-]?\d+)?/.exec(raw.slice(i));
-    if (num && num[0]) { i += num[0].length; return true; }
+    if (num && num[0]) {
+      i += num[0].length;
+      return true;
+    }
     return false;
   }
 
   function parseObject() {
     depth++;
     skipWs();
-    if (raw[i] === '}') { i++; depth--; return true; }
+    if (raw[i] === '}') {
+      i++;
+      depth--;
+      return true;
+    }
     for (;;) {
       skipWs();
-      if (i >= n || raw[i] !== '"') { depth--; return false; } // clave debe ser string
-      if (!parseString()) { depth--; return false; }
+      if (i >= n || raw[i] !== '"') {
+        depth--;
+        return false;
+      } // clave debe ser string
+      if (!parseString()) {
+        depth--;
+        return false;
+      }
       skipWs();
-      if (raw[i] !== ':') { depth--; return false; }
+      if (raw[i] !== ':') {
+        depth--;
+        return false;
+      }
       i++;
-      if (!expectValue()) { depth--; return false; }
+      if (!expectValue()) {
+        depth--;
+        return false;
+      }
       skipWs();
-      if (raw[i] === ',') { i++; continue; }
-      if (raw[i] === '}') { i++; depth--; return true; }
+      if (raw[i] === ',') {
+        i++;
+        continue;
+      }
+      if (raw[i] === '}') {
+        i++;
+        depth--;
+        return true;
+      }
       depth--;
       return false;
     }
@@ -88,12 +135,31 @@ function _scanJsonFirstError(raw) {
   function parseArray() {
     depth++;
     skipWs();
-    if (raw[i] === ']') { i++; depth--; return true; }
+    if (raw[i] === ']') {
+      i++;
+      depth--;
+      return true;
+    }
     for (;;) {
-      if (!expectValue()) { depth--; return false; }
+      if (!expectValue()) {
+        depth--;
+        return false;
+      }
       skipWs();
-      if (raw[i] === ',') { i++; skipWs(); if (raw[i] === ']') { depth--; return false; } continue; }
-      if (raw[i] === ']') { i++; depth--; return true; }
+      if (raw[i] === ',') {
+        i++;
+        skipWs();
+        if (raw[i] === ']') {
+          depth--;
+          return false;
+        }
+        continue;
+      }
+      if (raw[i] === ']') {
+        i++;
+        depth--;
+        return true;
+      }
       depth--;
       return false;
     }
@@ -203,7 +269,9 @@ function validateStartupConfig({ configPath, examplePath = null, keychainHasKeys
     parsed = JSON.parse(raw);
   } catch (err) {
     const { line, column } = _lineColFromParseError(raw, err);
-    const reason = String((err && err.message) || err).replace(/\s*\n\s*/g, ' ').slice(0, 140);
+    const reason = String((err && err.message) || err)
+      .replace(/\s*\n\s*/g, ' ')
+      .slice(0, 140);
     issues.push({
       type: 'invalid_json',
       message:

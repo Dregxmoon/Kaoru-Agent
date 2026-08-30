@@ -34,7 +34,13 @@ class BehaviorModel {
     this._lastToneCount = 0;
   }
 
-  evaluate(userMessage = '', osContext = null, history = [], adaptationProfile = null, emotionalCtx = null) {
+  evaluate(
+    userMessage = '',
+    osContext = null,
+    history = [],
+    adaptationProfile = null,
+    emotionalCtx = null
+  ) {
     const text = userMessage.trim();
 
     const tone = this._detectTone(text, osContext, history);
@@ -73,7 +79,15 @@ class BehaviorModel {
     this._lastTone = tone;
     this._lastToneCount++;
 
-    const ctx = { tone, responseLength, urgency, notes, proactiveScore, adaptationProfile, emotionalCtx };
+    const ctx = {
+      tone,
+      responseLength,
+      urgency,
+      notes,
+      proactiveScore,
+      adaptationProfile,
+      emotionalCtx,
+    };
 
     logger.info(
       'BehaviorModel',

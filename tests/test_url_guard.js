@@ -23,7 +23,13 @@ function assert(condition, label, detail) {
   }
 }
 
-const { isUrlSafe, setControlApiPort, _isBlockedIPv4, _isBlockedIPv6, _expandIPv6 } = require('../core/security/UrlGuard.js');
+const {
+  isUrlSafe,
+  setControlApiPort,
+  _isBlockedIPv4,
+  _isBlockedIPv6,
+  _expandIPv6,
+} = require('../core/security/UrlGuard.js');
 
 // ── Test 1: IPv4 blocking ────────────────────────────────────────────────
 function testIPv4Blocking() {
@@ -66,7 +72,10 @@ function testIPv6Expansion() {
   assert(_expandIPv6('::1') === '00000000000000000000000000000001', '::1 expanded');
   assert(_expandIPv6('fe80::1') === 'fe800000000000000000000000000001', 'fe80::1 expanded');
   assert(_expandIPv6('2001:db8::1') === '20010db8000000000000000000000001', '2001:db8::1 expanded');
-  assert(_expandIPv6('fe80::1%eth0') === 'fe800000000000000000000000000001', 'fe80::1%eth0 strip zone');
+  assert(
+    _expandIPv6('fe80::1%eth0') === 'fe800000000000000000000000000001',
+    'fe80::1%eth0 strip zone'
+  );
 }
 
 // ── Test 4: URL validation (no DNS needed) ───────────────────────────────

@@ -456,8 +456,7 @@ class ProactiveExecutor {
       wasFocused = this._getFocusedFile?.() === abs;
       if (this._openFilePolicy === 'refuseFocused') {
         const idleSecs = this._getIdleSecs?.();
-        const activelyEditing =
-          wasFocused && (typeof idleSecs !== 'number' || idleSecs < 60);
+        const activelyEditing = wasFocused && (typeof idleSecs !== 'number' || idleSecs < 60);
         if (activelyEditing) {
           return {
             ok: false,

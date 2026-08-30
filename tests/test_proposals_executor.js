@@ -464,7 +464,10 @@ async function testHybridOpenFileGuard() {
     fs.readFileSync(file, 'utf-8').includes('return a + b;'),
     'el parche quedó escrito en disco'
   );
-  assert(typeof resA.diff === 'string' && /\+.*return a \+ b;/.test(resA.diff), 'incluye diff del cambio');
+  assert(
+    typeof resA.diff === 'string' && /\+.*return a \+ b;/.test(resA.diff),
+    'incluye diff del cambio'
+  );
 
   // Caso B: enfocado AHORA + input reciente + política default 'always' →
   // APLICA igual: la aceptación explícita del usuario es el consentimiento.
@@ -477,7 +480,10 @@ async function testHybridOpenFileGuard() {
   });
   const resB = await execB.execute(patchAction, { proposalId: 't7-b' });
   assert(resB.ok === true, "política 'always': enfocado + input reciente → aplica", resB.detail);
-  assert(resB.appliedWhileOpen === true && resB.wasFocused === true, '…con appliedWhileOpen + wasFocused');
+  assert(
+    resB.appliedWhileOpen === true && resB.wasFocused === true,
+    '…con appliedWhileOpen + wasFocused'
+  );
 
   // Caso C: política 'refuseFocused' + enfocado + input reciente → se niega.
   fs.writeFileSync(file, 'function suma(a, b) {\n  return a - b;\n}\nmodule.exports = { suma };\n');

@@ -437,7 +437,10 @@ function _extractPatch(response) {
   // llaves sueltas no debe confundir el parseo).
   const fenced = String(response).match(/```(?:json)?\s*([\s\S]*?)```/gi) || [];
   for (const block of fenced) {
-    const inner = block.replace(/^```(?:json)?\s*/i, '').replace(/```\s*$/, '').trim();
+    const inner = block
+      .replace(/^```(?:json)?\s*/i, '')
+      .replace(/```\s*$/, '')
+      .trim();
     if (!inner) continue;
     try {
       const parsed = JSON.parse(inner);

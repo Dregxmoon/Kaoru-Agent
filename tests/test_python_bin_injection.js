@@ -120,13 +120,16 @@ async function testTtsIgnoresRendererPythonBin() {
 
   // Malicious args from a compromised renderer
   lastSpawnCall = null;
-  await handler({}, {
-    pythonBin: '/bin/sh',
-    voice: 'test',
-    rate: '+0%',
-    pitch: '+0Hz',
-    text: 'echo pwned',
-  });
+  await handler(
+    {},
+    {
+      pythonBin: '/bin/sh',
+      voice: 'test',
+      rate: '+0%',
+      pitch: '+0Hz',
+      text: 'echo pwned',
+    }
+  );
 
   assert(lastSpawnCall !== null, 'cp.spawn fue llamado');
   assert(
@@ -134,10 +137,7 @@ async function testTtsIgnoresRendererPythonBin() {
     'spawn usa ctx.PYTHON_BIN (/usr/bin/python3.11), NO args.pythonBin (/bin/sh)',
     `bin real: ${lastSpawnCall.bin}`
   );
-  assert(
-    lastSpawnCall.bin !== '/bin/sh',
-    'el binario NUNCA es /bin/sh (renderer malicioso)'
-  );
+  assert(lastSpawnCall.bin !== '/bin/sh', 'el binario NUNCA es /bin/sh (renderer malicioso)');
 }
 
 // ── Test 2: chat-tts-stream falla si ctx.PYTHON_BIN es null ─────────────────
@@ -192,11 +192,14 @@ async function testAsrIgnoresRendererPythonBin() {
   const handler = registeredHandlers['chat-asr-stream'];
 
   lastAsrCall = null;
-  await handler({}, {
-    pythonBin: '/bin/sh',
-    wav: Buffer.from('fake'),
-    lang: 'es',
-  });
+  await handler(
+    {},
+    {
+      pythonBin: '/bin/sh',
+      wav: Buffer.from('fake'),
+      lang: 'es',
+    }
+  );
 
   assert(lastAsrCall !== null, 'AsrClient.transcribeWav fue llamado');
   assert(
@@ -241,13 +244,16 @@ async function testOverlayTtsIgnoresRendererPythonBin() {
   assert(typeof handler === 'function', 'handler registrado');
 
   lastSpawnCall = null;
-  await handler({}, {
-    pythonBin: '/bin/sh',
-    voice: 'test',
-    rate: '+0%',
-    pitch: '+0Hz',
-    text: 'test',
-  });
+  await handler(
+    {},
+    {
+      pythonBin: '/bin/sh',
+      voice: 'test',
+      rate: '+0%',
+      pitch: '+0Hz',
+      text: 'test',
+    }
+  );
 
   assert(lastSpawnCall !== null, 'cp.spawn fue llamado');
   assert(
@@ -255,10 +261,7 @@ async function testOverlayTtsIgnoresRendererPythonBin() {
     'spawn usa ctx.PYTHON_BIN, NO args.pythonBin',
     `bin real: ${lastSpawnCall.bin}`
   );
-  assert(
-    lastSpawnCall.bin !== '/bin/sh',
-    'el binario NUNCA es /bin/sh (renderer malicioso)'
-  );
+  assert(lastSpawnCall.bin !== '/bin/sh', 'el binario NUNCA es /bin/sh (renderer malicioso)');
 }
 
 // ── Test 7: overlay-tts-stream falla si ctx.PYTHON_BIN es null ──────────────

@@ -78,7 +78,9 @@ function _tastePriority(n) {
 function _isNoisePreference(node) {
   if (node.type !== 'Preference') return false;
   const c = String(node.content || '').trim();
-  return /^[A-Za-z]:\\/.test(c) || /^\/(?!n)/.test(c) || /^(ls|cd|cat|npm|git|node|mkdir)\s/i.test(c);
+  return (
+    /^[A-Za-z]:\\/.test(c) || /^\/(?!n)/.test(c) || /^(ls|cd|cat|npm|git|node|mkdir)\s/i.test(c)
+  );
 }
 
 /**
@@ -90,8 +92,7 @@ function _isNoisePreference(node) {
  */
 function _provenanceSuffix(node) {
   try {
-    const tags =
-      typeof node.tags === 'string' ? JSON.parse(node.tags || '[]') : node.tags || [];
+    const tags = typeof node.tags === 'string' ? JSON.parse(node.tags || '[]') : node.tags || [];
     const visto = tags.find((t) => /^visto:\d{4}-\d{2}-\d{2}$/.test(String(t)));
     if (!visto) return '';
     const date = new Date(String(visto).slice(6));
@@ -103,7 +104,8 @@ function _provenanceSuffix(node) {
   }
 }
 
-function _pickTasteFirst(nodes, max) {  return nodes
+function _pickTasteFirst(nodes, max) {
+  return nodes
     .map((n, i) => ({ n, score: _tastePriority(n), i }))
     .sort((a, b) => b.score - a.score || b.i - a.i)
     .slice(0, max)
@@ -203,7 +205,10 @@ ${memory}`;
       const relevant = turns.filter((t) => t?.content?.trim()).slice(-3);
       if (relevant.length) {
         const lines = relevant
-          .map((t) => `- ${t.role === 'user' ? 'La persona dijo' : 'Vos respondiste'}: "${String(t.content).slice(0, 140)}"`)
+          .map(
+            (t) =>
+              `- ${t.role === 'user' ? 'La persona dijo' : 'Vos respondiste'}: "${String(t.content).slice(0, 140)}"`
+          )
           .join('\n');
         chatCtx = `\nConversación reciente en el chat:\n${lines}\nNo repitas nada de eso ni ofrezcas lo mismo que ya se trató.`;
       }
@@ -382,9 +387,7 @@ No expliques por qué escribes. No anuncies que eres proactiva. NO muestres tu r
       const MAX_MEMORY_LINES = 12;
       const picked = candidates.slice(0, MAX_MEMORY_LINES);
       const pickedIds = new Set(picked.map((p) => p.node.id));
-      const semanticOnly = picked.filter(
-        (p) => !worldModel.some((w) => w.id === p.node.id)
-      );
+      const semanticOnly = picked.filter((p) => !worldModel.some((w) => w.id === p.node.id));
 
       // Salida agrupada por tipo para legibilidad del LLM.
       const byType = { User: [], Project: [], Preference: [], Belief: [] };
@@ -411,7 +414,9 @@ No expliques por qué escribes. No anuncies que eres proactiva. NO muestres tu r
       }
       if (semanticOnly.length) {
         lines.push('Esto se conecta DIRECTAMENTE con lo que está pasando ahora:');
-        semanticOnly.forEach(({ node }) => lines.push(`- ${node.content}${_provenanceSuffix(node)}`));
+        semanticOnly.forEach(({ node }) =>
+          lines.push(`- ${node.content}${_provenanceSuffix(node)}`)
+        );
       }
 
       const episodes = this._graph.getRecentEpisodes?.(5) ?? [];
@@ -452,7 +457,10 @@ No expliques por qué escribes. No anuncies que eres proactiva. NO muestres tu r
       try {
         const tracker = this._graph.getTopicTracker?.();
         const hot = tracker?.getHotTopics?.({ limit: 10, minMomentum: 0.25 }) ?? [];
-        const knownText = picked.map((p) => `${p.node.label} ${p.node.content}`).join(' ').toLowerCase();
+        const knownText = picked
+          .map((p) => `${p.node.label} ${p.node.content}`)
+          .join(' ')
+          .toLowerCase();
         const dynGaps = [];
         for (const t of hot) {
           const words = String(t.topic_key || '')
@@ -468,7 +476,9 @@ No expliques por qué escribes. No anuncies que eres proactiva. NO muestres tu r
         if (dynGaps.length) {
           lines.push('Temas que menciona seguido pero de los que no sabés nada:');
           dynGaps.forEach((t) =>
-            lines.push(`- "${t}" — podés preguntar algo específico sobre eso con curiosidad genuina`)
+            lines.push(
+              `- "${t}" — podés preguntar algo específico sobre eso con curiosidad genuina`
+            )
           );
         }
       } catch {}
@@ -520,7 +530,8 @@ No expliques por qué escribes. No anuncies que eres proactiva. NO muestres tu r
           const known = this._graph.getWorldModel?.() ?? [];
           const real = known.filter((x) => isRealIdentityNode(x));
           const pick = real[real.length - 1];
-          if (pick?.content) anchor = ` — podés anclarla a que ya sabes: "${String(pick.content).slice(0, 80)}"`;
+          if (pick?.content)
+            anchor = ` — podés anclarla a que ya sabes: "${String(pick.content).slice(0, 80)}"`;
         } catch {}
         for (let i = 0; i < count; i++) {
           bits.push(`- aún no sabes ${gaps[(start + i) % n].trait}${anchor}`);

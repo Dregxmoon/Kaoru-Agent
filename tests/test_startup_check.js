@@ -11,7 +11,11 @@ const { validateStartupConfig, _lineColFromParseError } = require('../core/confi
 
 async function main() {
   let passed = 0;
-  const t = (c, m) => { assert(c, m); passed++; console.log('  ✓', m); };
+  const t = (c, m) => {
+    assert(c, m);
+    passed++;
+    console.log('  ✓', m);
+  };
 
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'startupcheck-'));
   const configPath = path.join(dir, 'config.json');
@@ -22,7 +26,8 @@ async function main() {
   assert(missing.ok === false && missing.issues.length === 1);
   t(missing.issues[0].type === 'missing', 'caso 1: tipo = missing');
   t(
-    /config\.example\.json/.test(missing.issues[0].message) && /cp /.test(missing.issues[0].message),
+    /config\.example\.json/.test(missing.issues[0].message) &&
+      /cp /.test(missing.issues[0].message),
     '…el mensaje dirige a copiar el ejemplo'
   );
 
@@ -33,7 +38,7 @@ async function main() {
   const invalid = validateStartupConfig({ configPath, examplePath, keychainHasKeys: false });
   assert(invalid.ok === false && invalid.issues.length === 1);
   t(invalid.issues[0].type === 'invalid_json', 'caso 2: tipo = invalid_json');
-  t(/línea \d+, columna \d+/.test(invalid.issues[0].message), '…incluye línea/columna numéricas', );
+  t(/línea \d+, columna \d+/.test(invalid.issues[0].message), '…incluye línea/columna numéricas');
   console.log('    ↳ mensaje:', invalid.issues[0].message.match(/línea \d+, columna \d+/)?.[0]);
 
   // _lineColFromParseError directo: precisión en multilinea.
@@ -77,4 +82,7 @@ async function main() {
   console.log(`\nResultado: ${passed} passed`);
 }
 
-main().catch((e) => { console.error(e); process.exit(1); });
+main().catch((e) => {
+  console.error(e);
+  process.exit(1);
+});

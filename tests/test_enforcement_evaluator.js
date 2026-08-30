@@ -18,7 +18,10 @@ describe('PromptEnforcer', () => {
     const enforcement = enforcer.enforce({ frustration: 0.8, enthusiasm: 0.1 });
 
     assert.ok(enforcement.rules.length > 0, 'has rules');
-    assert.ok(enforcement.rules.some((r) => r.includes('preámbulos')), 'has no preambles rule');
+    assert.ok(
+      enforcement.rules.some((r) => r.includes('preámbulos')),
+      'has no preambles rule'
+    );
     assert.ok(enforcement.forbidden.includes('¿En qué puedo ayudarte?'), 'forbidden phrase');
     assert.equal(enforcement.maxTokens, 80, 'maxTokens for frustration');
   });
@@ -27,7 +30,10 @@ describe('PromptEnforcer', () => {
     const enforcer = new PromptEnforcer(null);
     const enforcement = enforcer.enforce({ frustration: 0.1, enthusiasm: 0.8 });
 
-    assert.ok(enforcement.rules.some((r) => r.includes('Celebra')), 'has celebration rule');
+    assert.ok(
+      enforcement.rules.some((r) => r.includes('Celebra')),
+      'has celebration rule'
+    );
     assert.ok(enforcement.maxTokens > 80, 'more tokens for enthusiasm');
   });
 
@@ -35,7 +41,10 @@ describe('PromptEnforcer', () => {
     const enforcer = new PromptEnforcer(null);
     const enforcement = enforcer.enforce({ urgency: 0.9 });
 
-    assert.ok(enforcement.rules.some((r) => r.includes('ULTRA-BREVE')), 'has ultra-brief rule');
+    assert.ok(
+      enforcement.rules.some((r) => r.includes('ULTRA-BREVE')),
+      'has ultra-brief rule'
+    );
     assert.equal(enforcement.maxTokens, 60, 'maxTokens for urgency');
   });
 
@@ -49,12 +58,15 @@ describe('PromptEnforcer', () => {
 
   it('should consider effectiveness history', () => {
     const mockScorer = {
-      getEffectiveness: (type) => type === 'badAdapt' ? 0.3 : 0.7,
+      getEffectiveness: (type) => (type === 'badAdapt' ? 0.3 : 0.7),
     };
     const enforcer = new PromptEnforcer(mockScorer);
     const enforcement = enforcer.enforce({ frustration: 0.8 }, null, 'badAdapt');
 
-    assert.ok(enforcement.rules.some((r) => r.includes('Invierte')), 'has inversion rule');
+    assert.ok(
+      enforcement.rules.some((r) => r.includes('Invierte')),
+      'has inversion rule'
+    );
   });
 
   it('should serialize rules correctly', () => {
@@ -70,7 +82,11 @@ describe('PromptEnforcer', () => {
 
 // ── ResponseEvaluator Tests ─────────────────────────────────────────────────
 
-const { ResponseEvaluator, _evaluateResponse, _computeEngagementDelta } = require('../core/behavior/proactive/ResponseEvaluator.js');
+const {
+  ResponseEvaluator,
+  _evaluateResponse,
+  _computeEngagementDelta,
+} = require('../core/behavior/proactive/ResponseEvaluator.js');
 
 describe('ResponseEvaluator', () => {
   it('should evaluate good response for frustration', () => {
@@ -96,7 +112,10 @@ describe('ResponseEvaluator', () => {
 
     const result = _evaluateResponse('¿En qué puedo ayudarte?', enforcement, emotionalCtx);
     assert.ok(result.score < 0.8, 'lower score for forbidden phrase');
-    assert.ok(result.violations.some((v) => v.includes('frase prohibida')), 'has violation');
+    assert.ok(
+      result.violations.some((v) => v.includes('frase prohibida')),
+      'has violation'
+    );
   });
 
   it('should detect inappropriate pattern for urgency', () => {
@@ -109,7 +128,10 @@ describe('ResponseEvaluator', () => {
 
     const result = _evaluateResponse('Déjame explicarte primero...', enforcement, emotionalCtx);
     assert.ok(result.score < 0.8, 'lower score for inappropriate pattern');
-    assert.ok(result.violations.some((v) => v.includes('inapropiado')), 'has violation');
+    assert.ok(
+      result.violations.some((v) => v.includes('inapropiado')),
+      'has violation'
+    );
   });
 
   it('should detect too long response', () => {
@@ -120,9 +142,13 @@ describe('ResponseEvaluator', () => {
     };
     const emotionalCtx = { urgency: 0.9 };
 
-    const longResponse = 'Esta es una respuesta muy larga que tiene mucho texto y debería ser más corta para el usuario que tiene prisa y necesita una respuesta rápida y concisa sin tanta explicación.';
+    const longResponse =
+      'Esta es una respuesta muy larga que tiene mucho texto y debería ser más corta para el usuario que tiene prisa y necesita una respuesta rápida y concisa sin tanta explicación.';
     const result = _evaluateResponse(longResponse, enforcement, emotionalCtx);
-    assert.ok(result.violations.some((v) => v.includes('muy larga')), 'has length violation');
+    assert.ok(
+      result.violations.some((v) => v.includes('muy larga')),
+      'has length violation'
+    );
   });
 
   it('should compute engagement delta', () => {

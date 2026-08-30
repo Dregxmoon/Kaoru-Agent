@@ -476,7 +476,12 @@ class StateGraph {
     this._commStyleProfiler = new CommunicationStyleProfiler(this._evolution);
     this._topicTracker = new TopicMomentumTracker(this._evolution);
     this._feedbackScorer = new FeedbackScorer(this._evolution);
-    this._adaptiveEngine = new AdaptiveResponseEngine(this._traitLearner, this._commStyleProfiler, this._topicTracker, this._feedbackScorer);
+    this._adaptiveEngine = new AdaptiveResponseEngine(
+      this._traitLearner,
+      this._commStyleProfiler,
+      this._topicTracker,
+      this._feedbackScorer
+    );
     this._emotionalTrendTracker = new EmotionalTrendTracker(this._evolution);
     this._llmEmotionDetector = null; // se inicializa cuando el LLM esté disponible
     this._promptEnforcer = null; // se inicializa después
@@ -606,7 +611,7 @@ class StateGraph {
       CREATE INDEX IF NOT EXISTS idx_interaction_log_type ON interaction_log(interaction_type);
       CREATE INDEX IF NOT EXISTS idx_interaction_log_session ON interaction_log(session_id);
     `);
-    
+
     // Evolutionary memory tables
     if (this._evolution) {
       this._evolution.createSchema();
@@ -1157,7 +1162,6 @@ class StateGraph {
       logger.info('StateGraph', 'ResponseEvaluator inicializado');
     }
   }
-
 
   getStats() {
     try {

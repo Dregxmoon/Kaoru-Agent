@@ -37,11 +37,7 @@ const { getPluginManager } = require('../plugins/PluginManager.js');
 const { PermissionManager } = require('../security/PermissionManager.js');
 const { getIntentDetector } = require('../grounding/IntentDetector.js');
 const LLMProvider = require('../llm/LLMProvider.js');
-const {
-  setUsageTracker,
-  setCatalogCachePath,
-  refreshRemoteCatalog,
-} = LLMProvider;
+const { setUsageTracker, setCatalogCachePath, refreshRemoteCatalog } = LLMProvider;
 const { UsageTracker } = require('../observability/UsageTracker.js');
 const logger = require('../observability/Logger.js');
 

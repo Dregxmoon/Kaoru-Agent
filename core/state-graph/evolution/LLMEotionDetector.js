@@ -70,7 +70,8 @@ const DEFAULT_EMOTIONS = {
  * @returns {Object} emociones
  */
 function _fallbackEmotionDetection(message) {
-  if (!message) return { ...DEFAULT_EMOTIONS, tone: 'casual', energy: 'medium', implicitIntent: 'none' };
+  if (!message)
+    return { ...DEFAULT_EMOTIONS, tone: 'casual', energy: 'medium', implicitIntent: 'none' };
 
   const m = message.toLowerCase();
   const emotions = { ...DEFAULT_EMOTIONS };
@@ -94,17 +95,25 @@ function _fallbackEmotionDetection(message) {
   const hasAny = Object.values(emotions).some((v) => v > 0);
   if (!hasAny) emotions.calm = 0.6;
 
-  const energy = emotions.frustration > 0.5 || emotions.enthusiasm > 0.5 ? 'high'
-    : emotions.calm > 0.5 ? 'low' : 'medium';
+  const energy =
+    emotions.frustration > 0.5 || emotions.enthusiasm > 0.5
+      ? 'high'
+      : emotions.calm > 0.5
+        ? 'low'
+        : 'medium';
 
   return {
     ...emotions,
     tone: 'casual',
     energy,
-    implicitIntent: emotions.frustration > 0.5 ? 'venting'
-      : emotions.enthusiasm > 0.5 ? 'sharing_achievement'
-      : emotions.confusion > 0.5 ? 'seeking_help'
-      : 'none',
+    implicitIntent:
+      emotions.frustration > 0.5
+        ? 'venting'
+        : emotions.enthusiasm > 0.5
+          ? 'sharing_achievement'
+          : emotions.confusion > 0.5
+            ? 'seeking_help'
+            : 'none',
   };
 }
 
@@ -169,7 +178,10 @@ class LLMEotionDetector {
    */
   async _analyzeWithLLM(message, context) {
     const contextStr = context.history?.length
-      ? `\nHistorial reciente: ${context.history.slice(-3).map((h) => `${h.role}: ${h.content.slice(0, 80)}`).join('\n')}`
+      ? `\nHistorial reciente: ${context.history
+          .slice(-3)
+          .map((h) => `${h.role}: ${h.content.slice(0, 80)}`)
+          .join('\n')}`
       : '';
 
     const userPrompt = `Mensaje del usuario: "${message.slice(0, 500)}"${contextStr}
@@ -178,14 +190,11 @@ Analiza las emociones y responde SOLO con el JSON.`;
 
     // Timeout race
     const response = await Promise.race([
-      this._llm.complete(
-        [{ role: 'user', content: userPrompt }],
-        EMOTION_SYSTEM,
-        { disableThinking: true, maxTokens: 200 }
-      ),
-      new Promise((_, reject) =>
-        setTimeout(() => reject(new Error('timeout')), this._timeoutMs)
-      ),
+      this._llm.complete([{ role: 'user', content: userPrompt }], EMOTION_SYSTEM, {
+        disableThinking: true,
+        maxTokens: 200,
+      }),
+      new Promise((_, reject) => setTimeout(() => reject(new Error('timeout')), this._timeoutMs)),
     ]);
 
     return this._parseResponse(response);
@@ -201,7 +210,10 @@ Analiza las emociones y responde SOLO con el JSON.`;
 
     // Limpiar fences de código
     let text = response.trim();
-    text = text.replace(/^```(?:json)?\s*/i, '').replace(/```\s*$/, '').trim();
+    text = text
+      .replace(/^```(?:json)?\s*/i, '')
+      .replace(/```\s*$/, '')
+      .trim();
 
     try {
       const parsed = JSON.parse(text);
@@ -215,11 +227,19 @@ Analiza las emociones y responde SOLO con el JSON.`;
           urgency: Math.max(0, Math.min(1, parsed.emotions.urgency ?? 0)),
           playfulness: Math.max(0, Math.min(1, parsed.emotions.playfulness ?? 0)),
           tone: ['casual', 'serious', 'technical', 'playful', 'emotional'].includes(parsed.tone)
-            ? parsed.tone : 'casual',
-          energy: ['low', 'medium', 'high'].includes(parsed.energy)
-            ? parsed.energy : 'medium',
-          implicitIntent: ['seeking_help', 'venting', 'sharing_achievement', 'casual_chat', 'asking_question', 'none']
-            .includes(parsed.implicitIntent) ? parsed.implicitIntent : 'none',
+            ? parsed.tone
+            : 'casual',
+          energy: ['low', 'medium', 'high'].includes(parsed.energy) ? parsed.energy : 'medium',
+          implicitIntent: [
+            'seeking_help',
+            'venting',
+            'sharing_achievement',
+            'casual_chat',
+            'asking_question',
+            'none',
+          ].includes(parsed.implicitIntent)
+            ? parsed.implicitIntent
+            : 'none',
         };
       }
     } catch {

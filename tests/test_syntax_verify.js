@@ -11,7 +11,11 @@ const { verifySyntax } = require('../core/planner/syntax-verify.js');
 
 async function main() {
   let passed = 0;
-  const t = (c, m) => { assert(c, m); passed++; console.log('  ✓', m); };
+  const t = (c, m) => {
+    assert(c, m);
+    passed++;
+    console.log('  ✓', m);
+  };
 
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'syntaxv-'));
   const write = (name, content) => {
@@ -24,13 +28,19 @@ async function main() {
   const jsOk = await verifySyntax([write('ok.js', 'const a = 1; console.log(a);')]);
   t(jsOk.ok === true, 'JS válido → ok');
   const jsBad = await verifySyntax([write('bad.js', 'const a = ;')]);
-  t(jsBad.ok === false && /sintaxis JS/.test(jsBad.results[0].errors.join(' ')), 'JS roto → detectado');
+  t(
+    jsBad.ok === false && /sintaxis JS/.test(jsBad.results[0].errors.join(' ')),
+    'JS roto → detectado'
+  );
 
   // ── JSON ──
   const jsonOk = await verifySyntax([write('ok.json', '{"a": 1}')]);
   t(jsonOk.ok === true, 'JSON válido → ok');
   const jsonBad = await verifySyntax([write('bad.json', '{"a": 1,,}')]);
-  t(jsonBad.ok === false && /JSON inválido/.test(jsonBad.results[0].errors.join(' ')), 'JSON roto → detectado');
+  t(
+    jsonBad.ok === false && /JSON inválido/.test(jsonBad.results[0].errors.join(' ')),
+    'JSON roto → detectado'
+  );
 
   // ── Python ──
   const pyOk = await verifySyntax([write('ok.py', 'def f(x):\n    return x * 2\n')]);
@@ -41,7 +51,10 @@ async function main() {
   }
   const pyBad = await verifySyntax([write('bad.py', 'def f(:\n    return 1\n')]);
   if (!pyBad.results[0].skipped) {
-    t(pyBad.ok === false && /Python inválida/.test(pyBad.results[0].errors.join(' ')), 'Python roto → detectado');
+    t(
+      pyBad.ok === false && /Python inválida/.test(pyBad.results[0].errors.join(' ')),
+      'Python roto → detectado'
+    );
   }
 
   // ── Shell ──
@@ -61,15 +74,24 @@ async function main() {
   t(ymlRes.results[0].skipped || ymlRes.ok === false || true, 'YAML no crashea (checker o skip)');
 
   // ── Extensión sin checker → ignorada silenciosamente ──
-  const mdOnly = await verifySyntax([write('readme.md', '# notas\n'), write('foto.png', Buffer.from([1,2,3]))]);
+  const mdOnly = await verifySyntax([
+    write('readme.md', '# notas\n'),
+    write('foto.png', Buffer.from([1, 2, 3])),
+  ]);
   t(mdOnly.ok === true && mdOnly.results.length === 0, '.md/.png sin checker → skip silencioso');
 
   // ── Combinado: primer fallo corta pero reporta ──
   const mixed = await verifySyntax([write('m.json', '{roto}'), write('n.js', 'var b = 2;')]);
-  t(mixed.ok === false && mixed.results[0].file.endsWith('m.json'), 'combinado: reporta el archivo roto');
+  t(
+    mixed.ok === false && mixed.results[0].file.endsWith('m.json'),
+    'combinado: reporta el archivo roto'
+  );
 
   fs.rmSync(dir, { recursive: true, force: true });
   console.log(`\nResultado: ${passed} passed`);
 }
 
-main().catch((e) => { console.error(e); process.exit(1); });
+main().catch((e) => {
+  console.error(e);
+  process.exit(1);
+});

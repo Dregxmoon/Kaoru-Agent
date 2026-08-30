@@ -60,7 +60,11 @@ function _computeTurnEngagement(message, isFollowUp) {
   else if (len < 15) score += 0.1; // respuestas muy cortas = bajo engagement
 
   // Emojis
-  if (/[\u{1F600}-\u{1F64F}\u{1F300}-\u{1F5FF}\u{1F680}-\u{1F6FF}\u{1F1E0}-\u{1F1FF}\u{2600}-\u{26FF}\u{2700}-\u{27BF}]/u.test(message)) {
+  if (
+    /[\u{1F600}-\u{1F64F}\u{1F300}-\u{1F5FF}\u{1F680}-\u{1F6FF}\u{1F1E0}-\u{1F1FF}\u{2600}-\u{26FF}\u{2700}-\u{27BF}]/u.test(
+      message
+    )
+  ) {
     score += 0.1;
   }
 
@@ -169,9 +173,12 @@ class FeedbackScorer {
     if (this._postAdaptationEngagement.length < MIN_TURNS_FOR_SIGNAL) return null;
 
     const pre = this._preAdaptationEngagement.length
-      ? this._preAdaptationEngagement.reduce((a, b) => a + b, 0) / this._preAdaptationEngagement.length
+      ? this._preAdaptationEngagement.reduce((a, b) => a + b, 0) /
+        this._preAdaptationEngagement.length
       : 0.5;
-    const post = this._postAdaptationEngagement.reduce((a, b) => a + b, 0) / this._postAdaptationEngagement.length;
+    const post =
+      this._postAdaptationEngagement.reduce((a, b) => a + b, 0) /
+      this._postAdaptationEngagement.length;
     const delta = post - pre;
 
     return {
@@ -191,16 +198,22 @@ class FeedbackScorer {
   updateScore(adaptationType, delta) {
     const key = adaptationType;
     try {
-      const existing = this._db.prepare('SELECT * FROM feedback_scores WHERE adaptation_type = ?').get(key);
+      const existing = this._db
+        .prepare('SELECT * FROM feedback_scores WHERE adaptation_type = ?')
+        .get(key);
       if (existing) {
         const newEma = existing.ema_value * (1 - EMA_ALPHA) + (0.5 + delta * 0.5) * EMA_ALPHA;
-        this._db.prepare(
-          'UPDATE feedback_scores SET ema_value = ?, sample_count = sample_count + 1, last_updated_at = ? WHERE adaptation_type = ?'
-        ).run(Math.max(0, Math.min(1, newEma)), Date.now(), key);
+        this._db
+          .prepare(
+            'UPDATE feedback_scores SET ema_value = ?, sample_count = sample_count + 1, last_updated_at = ? WHERE adaptation_type = ?'
+          )
+          .run(Math.max(0, Math.min(1, newEma)), Date.now(), key);
       } else {
-        this._db.prepare(
-          'INSERT INTO feedback_scores (adaptation_type, metric_key, ema_value, sample_count, last_updated_at) VALUES (?, ?, ?, 1, ?)'
-        ).run(key, key, 0.5 + delta * 0.5, Date.now());
+        this._db
+          .prepare(
+            'INSERT INTO feedback_scores (adaptation_type, metric_key, ema_value, sample_count, last_updated_at) VALUES (?, ?, ?, 1, ?)'
+          )
+          .run(key, key, 0.5 + delta * 0.5, Date.now());
       }
     } catch (e) {
       logger.warn('FeedbackScorer', `Error actualizando score: ${e.message}`);
@@ -214,7 +227,9 @@ class FeedbackScorer {
    */
   getEffectiveness(adaptationType) {
     try {
-      const row = this._db.prepare('SELECT ema_value FROM feedback_scores WHERE adaptation_type = ?').get(adaptationType);
+      const row = this._db
+        .prepare('SELECT ema_value FROM feedback_scores WHERE adaptation_type = ?')
+        .get(adaptationType);
       return row ? row.ema_value : 0.5;
     } catch {
       return 0.5;

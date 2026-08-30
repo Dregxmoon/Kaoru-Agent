@@ -315,7 +315,11 @@ async function testTemporalTriggers() {
   assert(filler === null, 'relleno "¿todo bien?" → null en modo producción', `filler=${filler}`);
   // D: anti-relleno con reintento único → el LLM se consulta DOS veces
   // (intento original + reintento informado del descarte).
-  assert(llmCalls === 2, '…el LLM fue consultado 2 veces (original + retry anti-relleno)', `llmCalls=${llmCalls}`);
+  assert(
+    llmCalls === 2,
+    '…el LLM fue consultado 2 veces (original + retry anti-relleno)',
+    `llmCalls=${llmCalls}`
+  );
   restore();
 
   // Presupuesto agotado → el gate DROP el temporal ANTES del LLM (silencio).

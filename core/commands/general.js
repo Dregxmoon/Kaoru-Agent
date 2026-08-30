@@ -220,8 +220,7 @@ module.exports = function registerCommands(register) {
 
   register({
     name: 'mcp',
-    description:
-      'Lista los servidores MCP (estado y tools que ve el agente) y abre su panel',
+    description: 'Lista los servidores MCP (estado y tools que ve el agente) y abre su panel',
     usage: '/mcp',
     handler: async (args, ctx) => {
       // Listado inline: servidores, estado de conexión y tools expuestas al

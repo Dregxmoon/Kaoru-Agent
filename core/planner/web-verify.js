@@ -63,7 +63,9 @@ async function checkPage(filePath, { timeoutMs = 6000, settleMs = 1200 } = {}) {
     page.on('console', (msg) => {
       if (msg.type() === 'error') errors.push(`consola: ${msg.text().slice(0, 200)}`);
     });
-    page.on('pageerror', (err) => errors.push(`excepción: ${String(err?.message || err).slice(0, 200)}`));
+    page.on('pageerror', (err) =>
+      errors.push(`excepción: ${String(err?.message || err).slice(0, 200)}`)
+    );
 
     await page.goto('file://' + path.resolve(filePath), {
       waitUntil: 'load',

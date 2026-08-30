@@ -58,19 +58,12 @@ const EMOTION_RULES = {
     maxTokens: 60,
   },
   calm: {
-    hard: [
-      'Puedes ser más detallada si es necesario',
-      'Mantén un tono relajado',
-    ],
+    hard: ['Puedes ser más detallada si es necesario', 'Mantén un tono relajado'],
     forbidden: [],
     maxTokens: 150,
   },
   playfulness: {
-    hard: [
-      'Matchea el tono ligero',
-      'Puedes usar humor si es natural',
-      'No seas demasiado seria',
-    ],
+    hard: ['Matchea el tono ligero', 'Puedes usar humor si es natural', 'No seas demasiado seria'],
     forbidden: ['Eso no es apropiado', 'Deberíamos ser serios'],
     maxTokens: 120,
   },
@@ -104,10 +97,7 @@ const TOPIC_RULES = {
     ],
   },
   cold_topic: {
-    hard: [
-      'Si es natural, retoma este topic',
-      'Pregúntale cómo va sin ser intrusiva',
-    ],
+    hard: ['Si es natural, retoma este topic', 'Pregúntale cómo va sin ser intrusiva'],
   },
 };
 

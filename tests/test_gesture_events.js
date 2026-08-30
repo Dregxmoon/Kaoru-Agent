@@ -7,7 +7,11 @@ const { GestureEvents } = require('../core/behavior/GestureEvents.js');
 
 async function main() {
   let passed = 0;
-  const t = (c, m) => { assert(c, m); passed++; console.log('  ✓', m); };
+  const t = (c, m) => {
+    assert(c, m);
+    passed++;
+    console.log('  ✓', m);
+  };
 
   const sent = [];
   const ge = new GestureEvents({ send: (mood, meta) => sent.push({ mood, meta }) });
@@ -46,4 +50,7 @@ async function main() {
   console.log(`\nResultado: ${passed} passed`);
 }
 
-main().catch((e) => { console.error(e); process.exit(1); });
+main().catch((e) => {
+  console.error(e);
+  process.exit(1);
+});

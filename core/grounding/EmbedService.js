@@ -237,7 +237,9 @@ function _forkChildProcess(attempt) {
       `[embeddings] child_process fork falló (intento ${attempt}): ` +
         `${e instanceof Error ? e.message : String(e)}`
     );
-    _finalizeChildRecovery(new Error(`child_process fork falló: ${e instanceof Error ? e.message : String(e)}`));
+    _finalizeChildRecovery(
+      new Error(`child_process fork falló: ${e instanceof Error ? e.message : String(e)}`)
+    );
     return;
   }
 
@@ -247,7 +249,9 @@ function _forkChildProcess(attempt) {
   const loadTimer = setTimeout(() => {
     if (!resolved) {
       resolved = true;
-      try { c.kill(); } catch {}
+      try {
+        c.kill();
+      } catch {}
       _child = null;
       _childStarting = false;
       _finalizeChildRecovery(new Error('child process no cargó el modelo a tiempo'));
@@ -280,7 +284,9 @@ function _forkChildProcess(attempt) {
       if (!resolved) {
         resolved = true;
         clearTimeout(loadTimer);
-        try { c.kill(); } catch {}
+        try {
+          c.kill();
+        } catch {}
         _child = null;
         _childStarting = false;
         _finalizeChildRecovery(new Error(msg.message));
@@ -292,7 +298,9 @@ function _forkChildProcess(attempt) {
     if (!resolved) {
       resolved = true;
       clearTimeout(loadTimer);
-      try { c.kill(); } catch {}
+      try {
+        c.kill();
+      } catch {}
       _child = null;
       _childStarting = false;
       _finalizeChildRecovery(err);
@@ -369,8 +377,14 @@ function _finalizeChildRecovery(err) {
         if (_childPending.delete(id)) p.reject(new Error('embedding timeout (child process)'));
       }, EMBED_TIMEOUT_MS);
       _childPending.set(id, {
-        resolve: (v) => { clearTimeout(timer); p.resolve(v); },
-        reject: (e) => { clearTimeout(timer); p.reject(e); },
+        resolve: (v) => {
+          clearTimeout(timer);
+          p.resolve(v);
+        },
+        reject: (e) => {
+          clearTimeout(timer);
+          p.reject(e);
+        },
       });
       _child.send({ id, text: p._text || '' });
     } else {
@@ -577,8 +591,14 @@ function _requestChild(text) {
       if (_childPending.delete(id)) reject(new Error('embedding timeout (child process)'));
     }, EMBED_TIMEOUT_MS);
     _childPending.set(id, {
-      resolve: (v) => { clearTimeout(timer); resolve(v); },
-      reject: (e) => { clearTimeout(timer); reject(e); },
+      resolve: (v) => {
+        clearTimeout(timer);
+        resolve(v);
+      },
+      reject: (e) => {
+        clearTimeout(timer);
+        reject(e);
+      },
     });
     _child.send({ id, text });
   });

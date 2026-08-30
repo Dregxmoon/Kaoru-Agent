@@ -15,7 +15,11 @@ async function main() {
     return;
   }
   let passed = 0;
-  const t = (c, m) => { assert(c, m); passed++; console.log('  ✓', m); };
+  const t = (c, m) => {
+    assert(c, m);
+    passed++;
+    console.log('  ✓', m);
+  };
 
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'webverify-'));
 
@@ -27,10 +31,16 @@ async function main() {
 
   // 2. Página con excepción JS → detectada con mensaje
   const bad = path.join(dir, 'bad.js.html');
-  fs.writeFileSync(bad, '<!DOCTYPE html><html><body><script>variableInexistente.x();</script></body></html>');
+  fs.writeFileSync(
+    bad,
+    '<!DOCTYPE html><html><body><script>variableInexistente.x();</script></body></html>'
+  );
   const rBad = await verifyHtmlFiles([bad]);
   t(rBad.ok === false, 'página con excepción → NO ok');
-  t(/variableInexistente is not defined/i.test((rBad.results[0].errors || []).join(' ')), 'el error reportado menciona la causa');
+  t(
+    /variableInexistente is not defined/i.test((rBad.results[0].errors || []).join(' ')),
+    'el error reportado menciona la causa'
+  );
 
   // 3. Sin archivos → ok trivial
   t((await verifyHtmlFiles([])).ok === true, 'lista vacía → ok');
@@ -48,4 +58,7 @@ async function main() {
   console.log(`\nResultado: ${passed} passed`);
 }
 
-main().catch((e) => { console.error(e); process.exit(1); });
+main().catch((e) => {
+  console.error(e);
+  process.exit(1);
+});

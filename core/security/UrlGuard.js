@@ -13,7 +13,9 @@ const dns = require('dns');
 
 // ── Control API port (configurable) ──────────────────────────────────────────
 let _controlApiPort = 3131;
-function setControlApiPort(port) { _controlApiPort = port; }
+function setControlApiPort(port) {
+  _controlApiPort = port;
+}
 
 // ── IPv4 range checks ────────────────────────────────────────────────────────
 
@@ -61,8 +63,14 @@ function _isInIPv6Cidr(ipv6, prefix) {
   const expandedRange = _expandIPv6(range);
   if (!expandedIp || !expandedRange) return false;
   // Convert hex to binary string (128 chars) for proper bit-level comparison
-  const ipBin = expandedIp.split('').map((c) => parseInt(c, 16).toString(2).padStart(4, '0')).join('');
-  const rangeBin = expandedRange.split('').map((c) => parseInt(c, 16).toString(2).padStart(4, '0')).join('');
+  const ipBin = expandedIp
+    .split('')
+    .map((c) => parseInt(c, 16).toString(2).padStart(4, '0'))
+    .join('');
+  const rangeBin = expandedRange
+    .split('')
+    .map((c) => parseInt(c, 16).toString(2).padStart(4, '0'))
+    .join('');
   const maskBits = parseInt(bits, 10);
   return ipBin.slice(0, maskBits) === rangeBin.slice(0, maskBits);
 }
@@ -70,15 +78,17 @@ function _isInIPv6Cidr(ipv6, prefix) {
 // ── Blocked ranges ───────────────────────────────────────────────────────────
 
 const BLOCKED_IPV4_CIDRS = [
-  '127.0.0.0/8',     '10.0.0.0/8',      '172.16.0.0/12',
-  '192.168.0.0/16',  '169.254.0.0/16',  '0.0.0.0/8',
-  '100.64.0.0/10',   '224.0.0.0/4',
+  '127.0.0.0/8',
+  '10.0.0.0/8',
+  '172.16.0.0/12',
+  '192.168.0.0/16',
+  '169.254.0.0/16',
+  '0.0.0.0/8',
+  '100.64.0.0/10',
+  '224.0.0.0/4',
 ];
 
-const BLOCKED_IPV6_CIDRS = [
-  '::1/128',       'fc00::/7',      'fe80::/10',
-  '::ffff:0:0/96',
-];
+const BLOCKED_IPV6_CIDRS = ['::1/128', 'fc00::/7', 'fe80::/10', '::ffff:0:0/96'];
 
 const BLOCKED_HOSTNAMES = ['localhost'];
 
@@ -158,7 +168,10 @@ async function isUrlSafe(urlString, opts = {}) {
     }
     // Verificar Control API port
     if (hostname === '127.0.0.1' && String(parsed.port || '80') === String(_controlApiPort)) {
-      return { safe: false, reason: 'Control API local bloqueada (127.0.0.1:' + _controlApiPort + ')' };
+      return {
+        safe: false,
+        reason: 'Control API local bloqueada (127.0.0.1:' + _controlApiPort + ')',
+      };
     }
     return { safe: true };
   }

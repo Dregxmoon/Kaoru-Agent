@@ -76,8 +76,7 @@ class CommunicationStyleProfiler {
     const questions = profiles.get(PROFILE_KEYS.QUESTIONS)?.ema_value ?? 0.3;
 
     // Calculate adaptation confidence based on sample count
-    const totalSamples = Array.from(profiles.values())
-      .reduce((sum, p) => sum + p.sample_count, 0);
+    const totalSamples = Array.from(profiles.values()).reduce((sum, p) => sum + p.sample_count, 0);
     const adaptationConfidence = Math.min(1.0, totalSamples / 20); // Full confidence after 20 observations
 
     return {
@@ -168,7 +167,9 @@ class CommunicationStyleProfiler {
     // Technical adaptation
     switch (profile.technicalLevel) {
       case 'expert':
-        hints.push('El usuario tiene nivel TÉCNICO alto. Usa terminología técnica sin explicar conceptos básicos.');
+        hints.push(
+          'El usuario tiene nivel TÉCNICO alto. Usa terminología técnica sin explicar conceptos básicos.'
+        );
         break;
       case 'layman':
         hints.push('El usuario es NO TÉCNICO. Explica conceptos técnicos en términos simples.');
@@ -197,10 +198,9 @@ class CommunicationStyleProfiler {
    */
   getStats() {
     const profiles = this._store.getAllProfiles();
-    const totalSamples = Array.from(profiles.values())
-      .reduce((sum, p) => sum + p.sample_count, 0);
+    const totalSamples = Array.from(profiles.values()).reduce((sum, p) => sum + p.sample_count, 0);
     const confidence = Math.min(1.0, totalSamples / 20);
-    const keyMetrics = Array.from(profiles.keys()).filter(k => k.startsWith('style_'));
+    const keyMetrics = Array.from(profiles.keys()).filter((k) => k.startsWith('style_'));
 
     return { totalSamples, confidence, keyMetrics };
   }

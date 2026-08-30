@@ -46,7 +46,9 @@ function buildWorkspaceStackSection(cwd) {
     if (fs.existsSync(pkgPath)) {
       try {
         pkg = JSON.parse(fs.readFileSync(pkgPath, 'utf-8'));
-      } catch (_) { logger.debug('context', 'package.json corrupto o no parseable'); }
+      } catch (_) {
+        logger.debug('context', 'package.json corrupto o no parseable');
+      }
     }
     // TypeScript solo si hay fuentes .ts de verdad (un tsconfig puede ser solo
     // para typecheck con JSDoc, como en este mismo repo — no es motivo para
@@ -65,7 +67,9 @@ function buildWorkspaceStackSection(cwd) {
               return false;
             }
           });
-      } catch (_) { logger.debug('context', 'escaneo de tsconfig.json falló'); }
+      } catch (_) {
+        logger.debug('context', 'escaneo de tsconfig.json falló');
+      }
     }
     if (pkg) {
       lang =
@@ -107,7 +111,9 @@ function buildWorkspaceStackSection(cwd) {
     let entries = [];
     try {
       entries = fs.readdirSync(cwd);
-    } catch (_) { logger.debug('context', 'readdir de cwd falló'); }
+    } catch (_) {
+      logger.debug('context', 'readdir de cwd falló');
+    }
     const items = entries
       .filter((e) => !e.startsWith('.') && e !== 'node_modules' && e !== 'dist')
       .slice(0, WORKSPACE_STACK_MAX_ENTRIES);
@@ -118,7 +124,9 @@ function buildWorkspaceStackSection(cwd) {
       const head = fs.readFileSync(path.join(cwd, '.git', 'HEAD'), 'utf-8').trim();
       const m = head.match(/^ref:\s*refs\/heads\/(.+)$/);
       if (m) lines.push(`- Rama git: ${m[1]}`);
-    } catch (_) { logger.debug('context', 'lectura de .git/HEAD falló'); }
+    } catch (_) {
+      logger.debug('context', 'lectura de .git/HEAD falló');
+    }
 
     return lines.join('\n');
   } catch (_) {
@@ -190,8 +198,11 @@ async function buildContext(sessionHistory, activeProvider, options = {}) {
       if (evaluator) {
         // Calcular engagement del último turno del usuario
         const lastUserMsg = [...sessionHistory].reverse().find((m) => m.role === 'user');
-        const prevUserMsg = sessionHistory.length >= 2 ? sessionHistory[sessionHistory.length - 2] : null;
-        const engagement = prevUserMsg ? Math.min(1, (prevUserMsg.content?.length || 0) / 100 + 0.3) : 0.5;
+        const prevUserMsg =
+          sessionHistory.length >= 2 ? sessionHistory[sessionHistory.length - 2] : null;
+        const engagement = prevUserMsg
+          ? Math.min(1, (prevUserMsg.content?.length || 0) / 100 + 0.3)
+          : 0.5;
         evaluator.evaluate(engagement);
       }
     } catch (e) {
@@ -220,12 +231,17 @@ async function buildContext(sessionHistory, activeProvider, options = {}) {
             if (adaptationProfile && adaptationProfile.confidence > 0.2) {
               const feedbackScorer = state.graph.getFeedbackScorer?.();
               if (feedbackScorer) {
-                feedbackScorer.recordAdaptation('responseLength', adaptationProfile.styleHint || '');
+                feedbackScorer.recordAdaptation(
+                  'responseLength',
+                  adaptationProfile.styleHint || ''
+                );
               }
             }
             // Serializar perfil para inyectar al LLM
             if (adaptationProfile && adaptationProfile.confidence > 0.1) {
-              const { AdaptiveResponseEngine } = require('../state-graph/evolution/AdaptiveResponseEngine.js');
+              const {
+                AdaptiveResponseEngine,
+              } = require('../state-graph/evolution/AdaptiveResponseEngine.js');
               const adaptationHint = AdaptiveResponseEngine.serialize(adaptationProfile);
               if (adaptationHint) {
                 behaviorCtx = { ...behaviorCtx, adaptationHint };
@@ -251,7 +267,11 @@ async function buildContext(sessionHistory, activeProvider, options = {}) {
       }
 
       // Record emotional trend for this turn
-      if (emotionalCtx && state.graph && typeof state.graph.getEmotionalTrendTracker === 'function') {
+      if (
+        emotionalCtx &&
+        state.graph &&
+        typeof state.graph.getEmotionalTrendTracker === 'function'
+      ) {
         try {
           const trendTracker = state.graph.getEmotionalTrendTracker();
           if (trendTracker && state.session?._sessionId) {
@@ -267,7 +287,12 @@ async function buildContext(sessionHistory, activeProvider, options = {}) {
         try {
           const enforcer = state.graph.getPromptEnforcer();
           if (enforcer) {
-            enforcementRules = enforcer.enforce(emotionalCtx, null, null, state.session?._sessionId);
+            enforcementRules = enforcer.enforce(
+              emotionalCtx,
+              null,
+              null,
+              state.session?._sessionId
+            );
           }
         } catch (e) {
           logger.debug('context', '[core] error getting enforcement rules:', e.message);
@@ -294,7 +319,13 @@ async function buildContext(sessionHistory, activeProvider, options = {}) {
       _prevTurnContext.emotionalCtx = emotionalCtx;
       _prevTurnContext.adaptationType = null;
 
-      behaviorCtx = state.behavior.evaluate(userText, osCtx, sessionHistory, adaptationProfile, emotionalCtx);
+      behaviorCtx = state.behavior.evaluate(
+        userText,
+        osCtx,
+        sessionHistory,
+        adaptationProfile,
+        emotionalCtx
+      );
       state.bus.emit('behavior:evaluated', behaviorCtx);
     } catch (e) {
       logger.warn('context', '[core] error en BehaviorModel:', e.message);
@@ -567,7 +598,8 @@ async function buildContext(sessionHistory, activeProvider, options = {}) {
       if (errors.length > 0) {
         const ws = state.activeWorkspace || state.openclawWorkspace || '';
         const lines = errors.map((e) => {
-          const rel = ws && e.filePath.startsWith(ws) ? e.filePath.slice(ws.length + 1) : e.filePath;
+          const rel =
+            ws && e.filePath.startsWith(ws) ? e.filePath.slice(ws.length + 1) : e.filePath;
           return `- ${rel}:${e.line + 1} [${e.language}] ${e.message}${e.source ? ` (${e.source})` : ''}`;
         });
         let section = `\n\n## Errores detectados en el workspace (LSP)\nEl usuario tiene estos errores SIN resolver ahora mismo — considera ofrecer ayuda:\n${lines.join('\n')}`;

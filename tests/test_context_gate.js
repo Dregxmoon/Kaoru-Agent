@@ -134,7 +134,11 @@ function testEvaluate() {
     chatOpen: true,
     lastUserMsg: baseCtx.now - 10 * 60 * 1000,
   });
-  assert(chatIdle.admit === true, 'chat abierto dormido 10 min + R alta → ACT', chatIdle.decision.reason);
+  assert(
+    chatIdle.admit === true,
+    'chat abierto dormido 10 min + R alta → ACT',
+    chatIdle.decision.reason
+  );
 
   // Chat abierto con mensaje reciente (>recentChatMs=2min pero <chatIdleMs) →
   // sigue bloqueado: el usuario estuvo hablando hace poco.
@@ -151,15 +155,31 @@ function testEvaluate() {
   // ── Exención de trabajo (Parte 2): lsp_error enfocado ──────────────────────
   // Error LSP en archivo enfocado + chat activo → ACT igual ("sin importar nada").
   const workExempt = evaluate(
-    { tipo: 'lsp_error', kind: 'default', score: 0.9, isCritical: false, payload: { focused: true } },
+    {
+      tipo: 'lsp_error',
+      kind: 'default',
+      score: 0.9,
+      isCritical: false,
+      payload: { focused: true },
+    },
     { ...baseCtx, chatOpen: true, lastUserMsg: baseCtx.now - 30 * 1000 }
   );
-  assert(workExempt.admit === true, 'lsp_error enfocado + chat activo → ACT (exención)', workExempt.decision.reason);
+  assert(
+    workExempt.admit === true,
+    'lsp_error enfocado + chat activo → ACT (exención)',
+    workExempt.decision.reason
+  );
   assert(workExempt.decision.verdict === 'ACT', 'verdict = ACT', workExempt.decision.verdict);
 
   // Sin focused en el payload → sin exención (bloqueo normal).
   const notFocused = evaluate(
-    { tipo: 'lsp_error', kind: 'default', score: 0.9, isCritical: false, payload: { focused: false } },
+    {
+      tipo: 'lsp_error',
+      kind: 'default',
+      score: 0.9,
+      isCritical: false,
+      payload: { focused: false },
+    },
     { ...baseCtx, chatOpen: true, lastUserMsg: baseCtx.now - 3 * 60 * 1000 }
   );
   assert(notFocused.admit === false, 'lsp_error NO enfocado → sin exención');
@@ -174,10 +194,19 @@ function testEvaluate() {
 
   // ── Ajuste de momento: lsp_error SIN editor enfocado → QUEUE ────────────────
   const notInEditor = evaluate(
-    { tipo: 'lsp_error', kind: 'default', score: 0.91, isCritical: false, payload: { focused: true } },
+    {
+      tipo: 'lsp_error',
+      kind: 'default',
+      score: 0.91,
+      isCritical: false,
+      payload: { focused: true },
+    },
     { ...baseCtx, osApp: 'firefox', osCategory: 'browser' }
   );
-  assert(notInEditor.admit === false && notInEditor.queue === true, 'lsp_error sin editor enfocado → QUEUE (momento incorrecto)');
+  assert(
+    notInEditor.admit === false && notInEditor.queue === true,
+    'lsp_error sin editor enfocado → QUEUE (momento incorrecto)'
+  );
   assert(
     notInEditor.decision.reason === 'lsp_editor_not_focused',
     'reason = lsp_editor_not_focused',
@@ -185,7 +214,13 @@ function testEvaluate() {
   );
   // Terminal no es editor → tampoco pasa.
   const inTerminal = evaluate(
-    { tipo: 'lsp_error', kind: 'default', score: 0.91, isCritical: false, payload: { focused: true } },
+    {
+      tipo: 'lsp_error',
+      kind: 'default',
+      score: 0.91,
+      isCritical: false,
+      payload: { focused: true },
+    },
     { ...baseCtx, osApp: 'Alacritty', osCategory: 'terminal' }
   );
   assert(inTerminal.admit === false && inTerminal.queue === true, 'lsp_error en terminal → QUEUE');
@@ -201,7 +236,10 @@ function testEvaluate() {
     { tipo: 'topic_cold', kind: 'default', score: 0.7, isCritical: false, payload: {} },
     mediaCtx
   );
-  assert(topicCold.admit === false && topicCold.queue === true, 'topic_cold viendo YouTube → QUEUE');
+  assert(
+    topicCold.admit === false && topicCold.queue === true,
+    'topic_cold viendo YouTube → QUEUE'
+  );
   assert(
     topicCold.decision.reason === 'user_watching_media',
     'reason = user_watching_media',
@@ -213,7 +251,10 @@ function testEvaluate() {
     { tipo: 'intention_stale', kind: 'default', score: 0.7, isCritical: false, payload: {} },
     mediaCtx
   );
-  assert(intentMedia.admit === false && intentMedia.queue === true, 'intention_stale viendo video → QUEUE');
+  assert(
+    intentMedia.admit === false && intentMedia.queue === true,
+    'intention_stale viendo video → QUEUE'
+  );
 
   // Fuera del video (mismo browser, otra pestaña/documentación) → pasa normal.
   const notVideo = evaluate(
@@ -222,13 +263,25 @@ function testEvaluate() {
   );
   // sin editor y chateando hace poco → igual bloqueado por otras reglas; lo que
   // importa es que el motivo NO sea user_watching_media.
-  assert(notVideo.decision.reason !== 'user_watching_media', 'sin video → el guard de media no interviene');
+  assert(
+    notVideo.decision.reason !== 'user_watching_media',
+    'sin video → el guard de media no interviene'
+  );
   // Fallback por keyword del nombre de app (categoría 'other').
   const unknownCategory = evaluate(
-    { tipo: 'lsp_error', kind: 'default', score: 0.91, isCritical: false, payload: { focused: true } },
+    {
+      tipo: 'lsp_error',
+      kind: 'default',
+      score: 0.91,
+      isCritical: false,
+      payload: { focused: true },
+    },
     { ...baseCtx, osApp: 'code-oss', osCategory: 'other' }
   );
-  assert(unknownCategory.admit === true, "osCategory 'other' pero app code-oss → editor detectado por keyword");
+  assert(
+    unknownCategory.admit === true,
+    "osCategory 'other' pero app code-oss → editor detectado por keyword"
+  );
 
   // ── Cupo de TRABAJO propio: presupuesto general agotado NO mata lsp_error ──
   const budgetGone = { ...baseCtx, budgetUsed: 12, budgetLimit: 12 };
@@ -236,7 +289,11 @@ function testEvaluate() {
     { tipo: 'lsp_error', kind: 'default', score: 0.91, isCritical: false, payload: {} },
     { ...budgetGone, workUsed: 0 }
   );
-  assert(lspHigh.admit === true, 'presupuesto general agotado + lsp_error R=0.91 → ACT (cupo propio)', lspHigh.decision?.reason);
+  assert(
+    lspHigh.admit === true,
+    'presupuesto general agotado + lsp_error R=0.91 → ACT (cupo propio)',
+    lspHigh.decision?.reason
+  );
 
   // Otro tipo con el mismo presupuesto agotado → DROP (comportamiento intacto).
   const otherDropped = evaluate(cand(0.91), budgetGone);
@@ -248,7 +305,11 @@ function testEvaluate() {
     { ...baseCtx, workUsed: 6 }
   );
   assert(lspCapped.admit === false, 'cupo de trabajo agotado → DROP');
-  assert(lspCapped.decision.reason === 'work_cap_exhausted', 'reason = work_cap_exhausted', lspCapped.decision.reason);
+  assert(
+    lspCapped.decision.reason === 'work_cap_exhausted',
+    'reason = work_cap_exhausted',
+    lspCapped.decision.reason
+  );
 
   // Flow profundo: histéresis — score 0.65 ya no alcanza para ACT (0.60+0.15).
   const deepCtx = { ...baseCtx, appElapsedSec: 30 * 60 };

@@ -28,9 +28,12 @@ const { decide, presupuesto, REASON } = require('./DecisionCore.js');
 // curiosidad sobre la memoria (hechos stale, inferencias de confianza media,
 // contradicciones) vive en proactive/config.js — NO hay un tercer lugar de
 // config. Separado del presupuesto general.
-const { CURIOSITY_DAILY_CAP, CURIOSITY_TYPES, WORK_SIGNAL_TYPES, WORK_DAILY_CAP } = require(
-  '../behavior/proactive/config.js'
-);
+const {
+  CURIOSITY_DAILY_CAP,
+  CURIOSITY_TYPES,
+  WORK_SIGNAL_TYPES,
+  WORK_DAILY_CAP,
+} = require('../behavior/proactive/config.js');
 
 // ── Detección de editor enfocado (para señales de trabajo) ──────────────────
 // Patrones de apps de edición de código: primero se confía en la categoría
@@ -57,7 +60,8 @@ function _isEditorFocused(context = {}) {
   return / - (Visual Studio Code|Code - OSS)\b/.test(title);
 }
 
-const FLOW = {  IDLE: 'idle', // AFK o sin actividad reciente → no molestar salvo crítico
+const FLOW = {
+  IDLE: 'idle', // AFK o sin actividad reciente → no molestar salvo crítico
   ACTIVE: 'active', // trabajando normalmente → se puede proponer si el score lo justifica
   DEEP: 'deep', // inmerso (app actual > N min, sin thrashing) → barra alta
 };
@@ -212,7 +216,11 @@ function evaluate(candidate, context = {}, policy = DEFAULT_GATE_POLICY) {
   // Viendo contenido (video/stream): la curiosidad y las conversaciones
   // espontáneas se DIFIEREN. Nadie quiere un "¿seguís con X?" en medio de
   // un partido/película. El replay por os:app-changed lo entrega después.
-  if ((curiosityType || candidate.tipo === 'intention_stale') && mediaFocused && !candidate.isCritical) {
+  if (
+    (curiosityType || candidate.tipo === 'intention_stale') &&
+    mediaFocused &&
+    !candidate.isCritical
+  ) {
     return {
       admit: false,
       queue: true,
@@ -276,8 +284,7 @@ function evaluate(candidate, context = {}, policy = DEFAULT_GATE_POLICY) {
     !context.chatOpen ||
     (context.lastUserMsg != null && now - context.lastUserMsg > policy.chatIdleMs);
   const userPresent =
-    chatQuiet &&
-    (context.lastUserMsg == null || now - context.lastUserMsg > policy.recentChatMs);
+    chatQuiet && (context.lastUserMsg == null || now - context.lastUserMsg > policy.recentChatMs);
 
   // Exención de trabajo: un error LSP en el archivo ENFOCADO se reporta sin
   // importar el estado del chat — es exactamente el momento en que la ayuda
@@ -294,11 +301,7 @@ function evaluate(candidate, context = {}, policy = DEFAULT_GATE_POLICY) {
   // replay por os:app-changed lo entrega justo en el momento correcto).
   // 4) Relevancia desde el vector de señal del candidato (F-1).
   const relevance = candidate.score ?? 0;
-  if (
-    candidate.tipo === 'lsp_error' &&
-    !editorFocused &&
-    !candidate.isCritical
-  ) {
+  if (candidate.tipo === 'lsp_error' && !editorFocused && !candidate.isCritical) {
     return {
       admit: false,
       queue: true,
@@ -328,8 +331,7 @@ function evaluate(candidate, context = {}, policy = DEFAULT_GATE_POLICY) {
     {
       relevance,
       goodMoment:
-        (workExempt && editorFocused) ||
-        (userPresent && withinBudget && flow.level !== FLOW.IDLE),
+        (workExempt && editorFocused) || (userPresent && withinBudget && flow.level !== FLOW.IDLE),
       isCritical: !!candidate.isCritical,
       userPresent,
       // Señales de trabajo: su cupo propio ya se validó arriba — el

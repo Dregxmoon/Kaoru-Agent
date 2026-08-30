@@ -49,7 +49,14 @@ const ESCALATION_THRESHOLD = 0.15; // aumento para considerar escalación
 
 // ── Emociones rastreadas ────────────────────────────────────────────────────
 
-const TRACKED_EMOTIONS = ['frustration', 'enthusiasm', 'confusion', 'calm', 'urgency', 'playfulness'];
+const TRACKED_EMOTIONS = [
+  'frustration',
+  'enthusiasm',
+  'confusion',
+  'calm',
+  'urgency',
+  'playfulness',
+];
 
 class EmotionalTrendTracker {
   /**
@@ -82,11 +89,11 @@ class EmotionalTrendTracker {
   startSession(sessionId) {
     this._currentSessionId = sessionId;
     this._turnIndex = 0;
-    
+
     // Cargar historial existente de SQLite si la sesión ya tiene datos
     const existingHistory = this._loadSessionHistory(sessionId);
     this._sessionHistory.set(sessionId, existingHistory);
-    
+
     // Actualizar turnIndex basado en el historial existente
     if (existingHistory.length > 0) {
       this._turnIndex = existingHistory[existingHistory.length - 1].turnIndex + 1;
@@ -103,8 +110,7 @@ class EmotionalTrendTracker {
    */
   getLatestEmotions(sessionId, { maxAgeMs = 5 * 60 * 1000 } = {}) {
     if (!sessionId) return null;
-    const history =
-      this._sessionHistory.get(sessionId) || this._loadSessionHistory(sessionId);
+    const history = this._sessionHistory.get(sessionId) || this._loadSessionHistory(sessionId);
     if (!history || !history.length) return null;
     const last = history[history.length - 1];
     if (!last?.emotions) return null;
@@ -119,15 +125,19 @@ class EmotionalTrendTracker {
    */
   _loadSessionHistory(sessionId) {
     try {
-      const rows = this._db.prepare(`
+      const rows = this._db
+        .prepare(
+          `
         SELECT turn_index, frustration, enthusiasm, confusion, calm, urgency, playfulness, 
                tone, energy, implicit_intent, message_preview, created_at
         FROM emotional_history 
         WHERE session_id = ?
         ORDER BY turn_index ASC
-      `).all(sessionId);
-      
-      return rows.map(row => ({
+      `
+        )
+        .all(sessionId);
+
+      return rows.map((row) => ({
         turnIndex: row.turn_index,
         emotions: {
           frustration: row.frustration,
@@ -188,23 +198,27 @@ class EmotionalTrendTracker {
    */
   _persistTurn(sessionId, entry) {
     try {
-      this._db.prepare(`
+      this._db
+        .prepare(
+          `
         INSERT INTO emotional_history (session_id, turn_index, frustration, enthusiasm, confusion, calm, urgency, playfulness, tone, energy, implicit_intent, message_preview)
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-      `).run(
-        sessionId,
-        entry.turnIndex,
-        entry.emotions.frustration ?? 0,
-        entry.emotions.enthusiasm ?? 0,
-        entry.emotions.confusion ?? 0,
-        entry.emotions.calm ?? 0.5,
-        entry.emotions.urgency ?? 0,
-        entry.emotions.playfulness ?? 0,
-        entry.emotions.tone ?? 'casual',
-        entry.emotions.energy ?? 'medium',
-        entry.emotions.implicitIntent ?? 'none',
-        entry.messagePreview
-      );
+      `
+        )
+        .run(
+          sessionId,
+          entry.turnIndex,
+          entry.emotions.frustration ?? 0,
+          entry.emotions.enthusiasm ?? 0,
+          entry.emotions.confusion ?? 0,
+          entry.emotions.calm ?? 0.5,
+          entry.emotions.urgency ?? 0,
+          entry.emotions.playfulness ?? 0,
+          entry.emotions.tone ?? 'casual',
+          entry.emotions.energy ?? 'medium',
+          entry.emotions.implicitIntent ?? 'none',
+          entry.messagePreview
+        );
     } catch (e) {
       logger.debug('EmotionalTrendTracker', `Error persistiendo turno: ${e.message}`);
     }
@@ -230,7 +244,10 @@ class EmotionalTrendTracker {
 
     // Calcular velocidad de cambio (pendiente de la regresión lineal simple)
     const n = values.length;
-    let sumX = 0, sumY = 0, sumXY = 0, sumX2 = 0;
+    let sumX = 0,
+      sumY = 0,
+      sumXY = 0,
+      sumX2 = 0;
     for (let i = 0; i < n; i++) {
       sumX += i;
       sumY += values[i];
@@ -322,7 +339,10 @@ class EmotionalTrendTracker {
     const trends = this.getAllTrends(sessionId);
 
     // Verificar frustración creciente
-    if (trends.frustration.trend === 'rising' && trends.frustration.velocity > ESCALATION_THRESHOLD) {
+    if (
+      trends.frustration.trend === 'rising' &&
+      trends.frustration.velocity > ESCALATION_THRESHOLD
+    ) {
       return {
         escalated: true,
         emotion: 'frustration',
@@ -359,11 +379,15 @@ class EmotionalTrendTracker {
     const escalation = this.detectEscalation(sessionId);
 
     if (escalation.escalated) {
-      parts.push(`ALERTA: ${escalation.emotion} está ESCALANDO (velocidad: ${escalation.velocity.toFixed(2)}). Reduce tensión.`);
+      parts.push(
+        `ALERTA: ${escalation.emotion} está ESCALANDO (velocidad: ${escalation.velocity.toFixed(2)}). Reduce tensión.`
+      );
     }
 
     if (recovery.recovered) {
-      parts.push(`El usuario se recuperó de estar ${recovery.from}. Puedes ser más detallada ahora.`);
+      parts.push(
+        `El usuario se recuperó de estar ${recovery.from}. Puedes ser más detallada ahora.`
+      );
     }
 
     if (frustrationTrend.trend === 'falling' && frustrationTrend.samples >= 3) {
@@ -394,8 +418,10 @@ class EmotionalTrendTracker {
     const history = this._sessionHistory.get(sessionId) || [];
     if (!history.length) return { turns: 0 };
 
-    const avgFrustration = history.reduce((s, e) => s + (e.emotions.frustration ?? 0), 0) / history.length;
-    const avgEnthusiasm = history.reduce((s, e) => s + (e.emotions.enthusiasm ?? 0), 0) / history.length;
+    const avgFrustration =
+      history.reduce((s, e) => s + (e.emotions.frustration ?? 0), 0) / history.length;
+    const avgEnthusiasm =
+      history.reduce((s, e) => s + (e.emotions.enthusiasm ?? 0), 0) / history.length;
     const avgCalm = history.reduce((s, e) => s + (e.emotions.calm ?? 0), 0) / history.length;
 
     return {
@@ -403,7 +429,8 @@ class EmotionalTrendTracker {
       avgFrustration,
       avgEnthusiasm,
       avgCalm,
-      dominantEmotion: avgFrustration > 0.5 ? 'frustration' : avgEnthusiasm > 0.5 ? 'enthusiasm' : 'calm',
+      dominantEmotion:
+        avgFrustration > 0.5 ? 'frustration' : avgEnthusiasm > 0.5 ? 'enthusiasm' : 'calm',
     };
   }
 }

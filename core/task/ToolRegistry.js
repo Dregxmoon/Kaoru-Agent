@@ -741,11 +741,24 @@ const TOOL_SCHEMAS = [
     name: 'memory_search',
     domain: ['memory', 'data'],
     source: 'memory',
-    description: 'Busca en la memoria de Kaoru (nodos de conocimiento, episodios, preferencias, interacciones)',
+    description:
+      'Busca en la memoria de Kaoru (nodos de conocimiento, episodios, preferencias, interacciones)',
     params: [
       { name: 'query', type: 'string', description: 'Texto de búsqueda semántica', required: true },
-      { name: 'type', type: 'string', description: 'Tipo de nodo: User, Episode, Belief, Preference, Project, Emotion, Interaction, Pattern, Relation', required: false },
-      { name: 'limit', type: 'number', description: 'Número máximo de resultados', default: 10, required: false },
+      {
+        name: 'type',
+        type: 'string',
+        description:
+          'Tipo de nodo: User, Episode, Belief, Preference, Project, Emotion, Interaction, Pattern, Relation',
+        required: false,
+      },
+      {
+        name: 'limit',
+        type: 'number',
+        description: 'Número máximo de resultados',
+        default: 10,
+        required: false,
+      },
     ],
     examples: [
       { cmd: '¿Qué sé sobre el usuario?', desc: 'Buscar todo el conocimiento del usuario' },
@@ -762,9 +775,25 @@ const TOOL_SCHEMAS = [
     source: 'memory',
     description: 'Registra una interacción del usuario en la memoria',
     params: [
-      { name: 'type', type: 'string', description: 'Tipo de interacción: liked, disliked, followed_suggestion, ignored_suggestion, asked_question, provided_info', required: true },
-      { name: 'content', type: 'string', description: 'Contenido de la interacción', required: true },
-      { name: 'metadata', type: 'object', description: 'Metadata adicional (opcional)', required: false },
+      {
+        name: 'type',
+        type: 'string',
+        description:
+          'Tipo de interacción: liked, disliked, followed_suggestion, ignored_suggestion, asked_question, provided_info',
+        required: true,
+      },
+      {
+        name: 'content',
+        type: 'string',
+        description: 'Contenido de la interacción',
+        required: true,
+      },
+      {
+        name: 'metadata',
+        type: 'object',
+        description: 'Metadata adicional (opcional)',
+        required: false,
+      },
     ],
     examples: [
       { cmd: ' liked_response', desc: 'Registrar que al usuario le gustó una respuesta' },

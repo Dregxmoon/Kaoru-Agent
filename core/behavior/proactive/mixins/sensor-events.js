@@ -12,8 +12,7 @@ const { TRIGGER_COOLDOWN_MS, WORK_SIGNAL_TYPES } = require('../config.js');
 
 // P3: cooldown corto para re-disparos de lsp_error (el watcher emite por
 // flanco — cada emisión es un error nuevo/distinto).
-const LSP_ERROR_RETRIGGER_COOLDOWN_MS =
-  TRIGGER_COOLDOWN_MS.lsp_error_retrigger ?? 8 * 60 * 1000;
+const LSP_ERROR_RETRIGGER_COOLDOWN_MS = TRIGGER_COOLDOWN_MS.lsp_error_retrigger ?? 8 * 60 * 1000;
 
 module.exports = {
   _onGitRedflag({ kind, message, branch, count, file } = {}) {
@@ -205,12 +204,9 @@ module.exports = {
       let actions = [];
       try {
         actions =
-          (await this._getCodeActions(
-            trigger.absPath,
-            err.line ?? 0,
-            err.character ?? 0,
-            { diagnostics: trigger.errors }
-          )) || [];
+          (await this._getCodeActions(trigger.absPath, err.line ?? 0, err.character ?? 0, {
+            diagnostics: trigger.errors,
+          })) || [];
       } catch {
         continue;
       }
@@ -235,9 +231,7 @@ module.exports = {
    * (hasta 3 clusters), no solo alrededor del primero.
    */
   _buildMultiErrorSlices(lines, errors) {
-    const sorted = [...errors]
-      .map((e) => e.line ?? 0)
-      .sort((a, b) => a - b);
+    const sorted = [...errors].map((e) => e.line ?? 0).sort((a, b) => a - b);
     const clusters = [];
     for (const line of sorted) {
       const last = clusters[clusters.length - 1];
@@ -278,7 +272,8 @@ module.exports = {
 
     // P5: contexto multi-error por clusters (fallback a ventana simple).
     const lines = content.split('\n');
-    const errs = Array.isArray(trigger.errors) && trigger.errors.length ? trigger.errors : [{ line: errLine }];
+    const errs =
+      Array.isArray(trigger.errors) && trigger.errors.length ? trigger.errors : [{ line: errLine }];
     const slice =
       errs.length > 1
         ? this._buildMultiErrorSlices(lines, errs)

@@ -40,7 +40,11 @@ const COMPLEXITY_PATTERNS = [
 const UNCERTAINTY_FACETS = [
   {
     // Localización: no sabe dónde mirar.
-    patterns: [/no\s+s[ée]\s+d[oó]nde/i, /no\s+encuentro/i, /d[oó]nde\s+est[aá]\s+el?\s*(bug|error|problema)/i],
+    patterns: [
+      /no\s+s[ée]\s+d[oó]nde/i,
+      /no\s+encuentro/i,
+      /d[oó]nde\s+est[aá]\s+el?\s*(bug|error|problema)/i,
+    ],
   },
   {
     // Reproducibilidad intermitente o investigación abierta.

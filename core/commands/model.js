@@ -141,8 +141,7 @@ module.exports = function registerCommands(register) {
           // Confiabilidad de skills (loop de feedback): qué skills demostraron
           // ser útiles en la práctica y cómo eso afecta al matching.
           try {
-            const stats =
-              typeof ctx.getSkillStats === 'function' ? ctx.getSkillStats() : {};
+            const stats = typeof ctx.getSkillStats === 'function' ? ctx.getSkillStats() : {};
             const rows = Object.entries(stats);
             if (rows.length) {
               lines.push('', '**Confiabilidad de skills** (afecta al matching):');
@@ -195,7 +194,10 @@ module.exports = function registerCommands(register) {
           }
         } catch {}
 
-        const res = await ctx.ipcRenderer.invoke('gesture-mappings-set', { mood, gesture: exists ? exists.name : gesto });
+        const res = await ctx.ipcRenderer.invoke('gesture-mappings-set', {
+          mood,
+          gesture: exists ? exists.name : gesto,
+        });
         if (!res?.ok) return `Error: ${res?.error || 'no se pudo guardar'}`;
 
         // Probar el mapping inmediatamente para feedback visual instantáneo.
@@ -205,7 +207,9 @@ module.exports = function registerCommands(register) {
 
         return (
           `Mapping guardado: \`${mood}\` → **${exists ? exists.name : gesto}**` +
-          (exists ? '' : ' ⚠️ *ese nombre no existe en el modelo actual — verificalo con `/gestos`*') +
+          (exists
+            ? ''
+            : ' ⚠️ *ese nombre no existe en el modelo actual — verificalo con `/gestos`*') +
           `. Aplicado en overlay y chat, persistido en config.`
         );
       }

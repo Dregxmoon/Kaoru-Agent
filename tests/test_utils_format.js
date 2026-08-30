@@ -4,7 +4,11 @@
 
 const assert = require('assert');
 let passed = 0;
-const t = (c, m) => { assert(c, m); passed++; console.log('  ✓', m); };
+const t = (c, m) => {
+  assert(c, m);
+  passed++;
+  console.log('  ✓', m);
+};
 
 const { formatElapsed } = require('../core/utils/format.js');
 
@@ -25,7 +29,10 @@ function main() {
   t(formatElapsed(7320) === '2h 2m', '7320 → "2h 2m"');
 
   // Bordes: valores falsy caen al branch de segundos (comportamiento actual).
-  t(formatElapsed(null) === 'nulls' || formatElapsed(null) === '0s', `null no lanza (${formatElapsed(null)})`);
+  t(
+    formatElapsed(null) === 'nulls' || formatElapsed(null) === '0s',
+    `null no lanza (${formatElapsed(null)})`
+  );
   t(formatElapsed(undefined) !== undefined, 'undefined no lanza');
 
   console.log(`\nResultado: ${passed} passed`);

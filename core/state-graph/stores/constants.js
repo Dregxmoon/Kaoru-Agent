@@ -3,7 +3,17 @@
 
 const { formatElapsed } = require('../../utils/format.js');
 
-const NODE_TYPES = ['User', 'Episode', 'Belief', 'Preference', 'Project', 'Emotion', 'Interaction', 'Pattern', 'Relation'];
+const NODE_TYPES = [
+  'User',
+  'Episode',
+  'Belief',
+  'Preference',
+  'Project',
+  'Emotion',
+  'Interaction',
+  'Pattern',
+  'Relation',
+];
 
 const DECAY_RATES = {
   User: 0.005,

@@ -13,12 +13,18 @@ const assert = require('node:assert/strict');
 
 // ── FeedbackScorer Tests (sin DB) ───────────────────────────────────────────
 
-const { _computeTurnEngagement, _detectFrustration } = require('../core/state-graph/evolution/FeedbackScorer.js');
+const {
+  _computeTurnEngagement,
+  _detectFrustration,
+} = require('../core/state-graph/evolution/FeedbackScorer.js');
 
 describe('FeedbackScorer: engagement & frustration detection', () => {
   it('should compute engagement scores', () => {
     const low = _computeTurnEngagement('ok', false);
-    const medium = _computeTurnEngagement('Sí, me gusta mucho programar en JavaScript y hacer proyectos', false);
+    const medium = _computeTurnEngagement(
+      'Sí, me gusta mucho programar en JavaScript y hacer proyectos',
+      false
+    );
     const high = _computeTurnEngagement('¡¡Waaah!! ¿Cómo lograste hacer eso tan rápido? 🎉', false);
 
     // Low should be less than high
@@ -138,18 +144,20 @@ describe('BehaviorModel: emotional context integration', () => {
     const { BehaviorModel } = require('../core/behavior/BehaviorModel.js');
     const bm = new BehaviorModel();
 
-    const ctx = bm.evaluate(
-      'esto no funciona',
-      null,
-      [],
-      null,
-      { frustration: 0.8, tone: 'casual', energy: 'high', implicitIntent: 'venting' }
-    );
+    const ctx = bm.evaluate('esto no funciona', null, [], null, {
+      frustration: 0.8,
+      tone: 'casual',
+      energy: 'high',
+      implicitIntent: 'venting',
+    });
 
     // Tone is detected by TONE_RULES regex, not emotional context
     // But frustration should add a note and adjust response length
     assert.equal(ctx.responseLength, 'brief'); // frustration → brief
-    assert.ok(ctx.notes.some((n) => n.includes('frustrado')), 'frustration note added');
+    assert.ok(
+      ctx.notes.some((n) => n.includes('frustrado')),
+      'frustration note added'
+    );
   });
 
   it('should handle null emotional context gracefully', () => {
@@ -165,46 +173,52 @@ describe('BehaviorModel: emotional context integration', () => {
     const { BehaviorModel } = require('../core/behavior/BehaviorModel.js');
     const bm = new BehaviorModel();
 
-    const ctx = bm.evaluate(
-      '¡Genial!',
-      null,
-      [],
-      null,
-      { enthusiasm: 0.8, tone: 'casual', energy: 'high', implicitIntent: 'sharing_achievement' }
-    );
+    const ctx = bm.evaluate('¡Genial!', null, [], null, {
+      enthusiasm: 0.8,
+      tone: 'casual',
+      energy: 'high',
+      implicitIntent: 'sharing_achievement',
+    });
 
-    assert.ok(ctx.notes.some((n) => n.includes('entusiasmado')), 'enthusiasm note added');
+    assert.ok(
+      ctx.notes.some((n) => n.includes('entusiasmado')),
+      'enthusiasm note added'
+    );
   });
 
   it('should apply urgency context', () => {
     const { BehaviorModel } = require('../core/behavior/BehaviorModel.js');
     const bm = new BehaviorModel();
 
-    const ctx = bm.evaluate(
-      'NECESITO ESTO AHORA',
-      null,
-      [],
-      null,
-      { urgency: 0.8, tone: 'casual', energy: 'high', implicitIntent: 'none' }
-    );
+    const ctx = bm.evaluate('NECESITO ESTO AHORA', null, [], null, {
+      urgency: 0.8,
+      tone: 'casual',
+      energy: 'high',
+      implicitIntent: 'none',
+    });
 
     assert.equal(ctx.responseLength, 'brief'); // urgency → brief
-    assert.ok(ctx.notes.some((n) => n.includes('urgencia')), 'urgency note added');
+    assert.ok(
+      ctx.notes.some((n) => n.includes('urgencia')),
+      'urgency note added'
+    );
   });
 
   it('should apply confusion context', () => {
     const { BehaviorModel } = require('../core/behavior/BehaviorModel.js');
     const bm = new BehaviorModel();
 
-    const ctx = bm.evaluate(
-      'No entiendo esto',
-      null,
-      [],
-      null,
-      { confusion: 0.8, tone: 'casual', energy: 'medium', implicitIntent: 'seeking_help' }
-    );
+    const ctx = bm.evaluate('No entiendo esto', null, [], null, {
+      confusion: 0.8,
+      tone: 'casual',
+      energy: 'medium',
+      implicitIntent: 'seeking_help',
+    });
 
-    assert.ok(ctx.notes.some((n) => n.includes('confundido')), 'confusion note added');
+    assert.ok(
+      ctx.notes.some((n) => n.includes('confundido')),
+      'confusion note added'
+    );
   });
 });
 
@@ -246,7 +260,9 @@ describe('ProactiveEngine: adaptive-integration mixin', () => {
 
 describe('AdaptiveResponseEngine: shouldAdapt logic', () => {
   it('shouldAdapt returns true when no feedbackScorer', () => {
-    const { AdaptiveResponseEngine } = require('../core/state-graph/evolution/AdaptiveResponseEngine.js');
+    const {
+      AdaptiveResponseEngine,
+    } = require('../core/state-graph/evolution/AdaptiveResponseEngine.js');
     const engine = new AdaptiveResponseEngine(null, null, null, null);
     assert.equal(engine.shouldAdapt('unknownType'), true);
   });
@@ -256,16 +272,20 @@ describe('AdaptiveResponseEngine: shouldAdapt logic', () => {
     const mockScorer = {
       getEffectiveness: () => 0.5, // default effectiveness
     };
-    const { AdaptiveResponseEngine } = require('../core/state-graph/evolution/AdaptiveResponseEngine.js');
+    const {
+      AdaptiveResponseEngine,
+    } = require('../core/state-graph/evolution/AdaptiveResponseEngine.js');
     const engine = new AdaptiveResponseEngine(null, null, null, mockScorer);
     assert.equal(engine.shouldAdapt('unknownType'), true);
   });
 
   it('shouldAdapt rejects ineffective adaptations', () => {
     const mockScorer = {
-      getEffectiveness: (type) => type === 'badAdapt' ? 0.3 : 0.7,
+      getEffectiveness: (type) => (type === 'badAdapt' ? 0.3 : 0.7),
     };
-    const { AdaptiveResponseEngine } = require('../core/state-graph/evolution/AdaptiveResponseEngine.js');
+    const {
+      AdaptiveResponseEngine,
+    } = require('../core/state-graph/evolution/AdaptiveResponseEngine.js');
     const engine = new AdaptiveResponseEngine(null, null, null, mockScorer);
 
     assert.equal(engine.shouldAdapt('goodAdapt'), true);
@@ -275,9 +295,13 @@ describe('AdaptiveResponseEngine: shouldAdapt logic', () => {
   it('recordAdaptation delegates to FeedbackScorer', () => {
     let recorded = null;
     const mockScorer = {
-      recordAdaptation: (type, hint) => { recorded = { type, hint }; },
+      recordAdaptation: (type, hint) => {
+        recorded = { type, hint };
+      },
     };
-    const { AdaptiveResponseEngine } = require('../core/state-graph/evolution/AdaptiveResponseEngine.js');
+    const {
+      AdaptiveResponseEngine,
+    } = require('../core/state-graph/evolution/AdaptiveResponseEngine.js');
     const engine = new AdaptiveResponseEngine(null, null, null, mockScorer);
 
     engine.recordAdaptation('testType', 'test hint');

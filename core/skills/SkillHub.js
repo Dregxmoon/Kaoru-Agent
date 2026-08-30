@@ -115,7 +115,9 @@ async function descargarTarball(repoSpec) {
       file.on('close', resolve);
     });
     req.on('error', (e) => {
-      try { fs.unlinkSync(out); } catch {}
+      try {
+        fs.unlinkSync(out);
+      } catch {}
       reject(e);
     });
   });
@@ -259,4 +261,3 @@ module.exports = {
   _parseRepo,
   _skillMdValida,
 };
-

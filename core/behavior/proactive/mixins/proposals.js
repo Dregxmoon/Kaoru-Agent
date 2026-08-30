@@ -285,12 +285,7 @@ module.exports = {
       // P2: reintento informado — el parche aplicó pero el LSP sigue viendo
       // el error. UN solo reintento alimentado con los diagnósticos frescos;
       // después, resultado honesto sin prometer más.
-      if (
-        type === 'lsp_error' &&
-        result.ok &&
-        result.fixed === false &&
-        pending.trigger?.absPath
-      ) {
+      if (type === 'lsp_error' && result.ok && result.fixed === false && pending.trigger?.absPath) {
         logger.info(
           'proposals',
           `[lsp-ciclo] parche no bastó — un reintento informado con diagnósticos post-parche (${proposalId})`
@@ -334,7 +329,8 @@ module.exports = {
           type,
           ok: false,
           fixed: false,
-          detail: 'Apliqué el parche pero el error persiste y no encontré un segundo fix mejor. Mirá los diagnósticos actuales del archivo.',
+          detail:
+            'Apliqué el parche pero el error persiste y no encontré un segundo fix mejor. Mirá los diagnósticos actuales del archivo.',
         });
         return;
       }

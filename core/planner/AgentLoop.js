@@ -175,7 +175,8 @@ function _detectUnverifiedEditClaims(responseText, toolResults) {
   return null;
 }
 
-function _toolCallKey(tool, params) {  let json;
+function _toolCallKey(tool, params) {
+  let json;
   try {
     json = JSON.stringify(params || {});
   } catch {
@@ -852,7 +853,9 @@ class AgentLoop {
                 done: 0,
                 total: plan.steps.length,
               });
-            } catch (_) { logger.debug('AgentLoop', 'emitión de progress falló'); }
+            } catch (_) {
+              logger.debug('AgentLoop', 'emitión de progress falló');
+            }
           }
         }
       } catch (e) {
@@ -1083,14 +1086,20 @@ class AgentLoop {
             const bad = webCheck.results.find((r) => !r.ok && !r.skipped);
             if (bad)
               failures.push(
-                `PÁGINA WEB "${bad.file}" falla al abrirse:\n${(bad.errors || []).slice(0, 5).map((e) => `- ${e}`).join('\n')}`
+                `PÁGINA WEB "${bad.file}" falla al abrirse:\n${(bad.errors || [])
+                  .slice(0, 5)
+                  .map((e) => `- ${e}`)
+                  .join('\n')}`
               );
           }
           if (synCheck && synCheck.ok === false) {
             for (const r of synCheck.results) {
               if (!r.ok && !r.skipped)
                 failures.push(
-                  `ARCHIVO "${r.file}" (${r.ext}) tiene errores de sintaxis:\n${(r.errors || []).slice(0, 3).map((e) => `- ${e}`).join('\n')}`
+                  `ARCHIVO "${r.file}" (${r.ext}) tiene errores de sintaxis:\n${(r.errors || [])
+                    .slice(0, 3)
+                    .map((e) => `- ${e}`)
+                    .join('\n')}`
                 );
             }
           }
@@ -1468,7 +1477,9 @@ class AgentLoop {
           // (`echo '{...}' > config.json`) — se detectan por patrón.
           if (action.tool === 'exec') {
             const cmd = String(action.params?.command || '');
-            const redir = cmd.match(/>\s*(\S+\.(html?|json|py|js|mjs|cjs|sh|bash|css|ts|tsx|ya?ml))\b/i);
+            const redir = cmd.match(
+              />\s*(\S+\.(html?|json|py|js|mjs|cjs|sh|bash|css|ts|tsx|ya?ml))\b/i
+            );
             if (redir) {
               const target = redir[1].replace(/^["']|["']$/g, '');
               try {
@@ -1874,7 +1885,7 @@ class AgentLoop {
       const sorted = [...fe.edits].sort((a, b) => {
         const pa = a.range?.start || {};
         const pb = b.range?.start || {};
-        return (pb.line - pa.line) || ((pb.character ?? 0) - (pa.character ?? 0));
+        return pb.line - pa.line || (pb.character ?? 0) - (pa.character ?? 0);
       });
 
       const lines = readRes.result.split('\n');
@@ -1895,12 +1906,14 @@ class AgentLoop {
         const tail = String(lines[eLine]).slice(endCh);
         const replacement = String(edit.newText ?? '').split('\n');
         replacement[0] = head + replacement[0];
-        replacement[replacement.length - 1] =
-          replacement[replacement.length - 1] + tail;
+        replacement[replacement.length - 1] = replacement[replacement.length - 1] + tail;
         lines.splice(sLine, eLine - sLine + 1, ...replacement);
       }
 
-      const writeRes = await this._bridge.execute('write', { path: abs, content: lines.join('\n') });
+      const writeRes = await this._bridge.execute('write', {
+        path: abs,
+        content: lines.join('\n'),
+      });
       if (writeRes?.ok) written.push(abs);
     }
     return written;
@@ -3166,8 +3179,7 @@ class AgentLoop {
   _formatActionsSummary(toolResults, opts = {}) {
     const joinSep = opts.join ?? '\n';
     const emptyMsg = opts.empty ?? '  (ninguna acción ejecutada)';
-    const defaultFormat = (t, params, ok) =>
-      `  - ${t.tool}${params ? ' · ' + params : ''} → ${ok}`;
+    const defaultFormat = (t, params, ok) => `  - ${t.tool}${params ? ' · ' + params : ''} → ${ok}`;
     const fmt = opts.format || defaultFormat;
 
     return (

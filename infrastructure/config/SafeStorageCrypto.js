@@ -29,8 +29,10 @@ try {
 function isAvailable() {
   if (!_safeStorage) return false;
   try {
-    return typeof _safeStorage.isEncryptionAvailable === 'function'
-      && _safeStorage.isEncryptionAvailable();
+    return (
+      typeof _safeStorage.isEncryptionAvailable === 'function' &&
+      _safeStorage.isEncryptionAvailable()
+    );
   } catch {
     return false;
   }
@@ -111,5 +113,7 @@ module.exports = {
   decryptAllKeys,
   ENC_PREFIX,
   // Para tests: permitir inyectar un safeStorage falso.
-  _setSafeStorage(ss) { _safeStorage = ss; },
+  _setSafeStorage(ss) {
+    _safeStorage = ss;
+  },
 };

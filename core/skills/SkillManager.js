@@ -126,8 +126,7 @@ class SkillManager {
     // ({ name: { uses, successes, rate } }) — lo inyecta init.js desde
     // LearningEngine.skillStats(). Con esto el matching se adapta a qué
     // skills fueron ÚTILES en la práctica, no solo semánticamente cercanas.
-    this.statsProvider =
-      typeof options.statsProvider === 'function' ? options.statsProvider : null;
+    this.statsProvider = typeof options.statsProvider === 'function' ? options.statsProvider : null;
     // Última inyección (nombres + timestamp) para correlacionar con el
     // outcome del run en core/core/agent.js.
     /** @type {{ names: string[], ts: number }|null} */
@@ -357,9 +356,7 @@ class SkillManager {
       ts: Date.now(),
     };
 
-    const injection = ['---', '**Skills activas para esta tarea:**', ...blocks, '---'].join(
-      '\n\n'
-    );
+    const injection = ['---', '**Skills activas para esta tarea:**', ...blocks, '---'].join('\n\n');
 
     // ~4 chars/token: estimación gruesa pero suficiente para dimensionar.
     const approxTokens = Math.round(injection.length / 4);

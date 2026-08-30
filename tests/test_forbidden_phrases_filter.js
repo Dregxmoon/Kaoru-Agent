@@ -40,7 +40,11 @@ async function main() {
 
   // ── Test 1: identity.json tiene forbidden phrases definidas ──────────────
   console.log(C.cyan('\n── Test 1: identity.json tiene forbidden_phrases ─────'));
-  assert(Array.isArray(forbidden) && forbidden.length > 0, 'forbidden_phrases es array no vacío', `found: ${forbidden.length}`);
+  assert(
+    Array.isArray(forbidden) && forbidden.length > 0,
+    'forbidden_phrases es array no vacío',
+    `found: ${forbidden.length}`
+  );
   assert(forbidden.includes('¡Excelente pregunta!'), '"¡Excelente pregunta!" está en la lista');
 
   // ── Test 2: cada frase prohibida se elimina ─────────────────────────────
@@ -90,7 +94,10 @@ async function main() {
   console.log(C.cyan('\n── Test 6: edge cases ──────────────────────────────────'));
   assert(LLMProvider._debug_stripForbiddenPhrases('') === '', 'string vacío → vacío');
   assert(LLMProvider._debug_stripForbiddenPhrases(null) === null, 'null → null');
-  assert(LLMProvider._debug_stripForbiddenPhrases(undefined) === undefined, 'undefined → undefined');
+  assert(
+    LLMProvider._debug_stripForbiddenPhrases(undefined) === undefined,
+    'undefined → undefined'
+  );
 
   // ── Test 7: dobles espacios se limpian ──────────────────────────────────
   console.log(C.cyan('\n── Test 7: limpieza de espacios dobles ─────────────────'));

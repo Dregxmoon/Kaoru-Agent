@@ -130,7 +130,10 @@ process.on('unhandledRejection', (reason) => logCrash('unhandledRejection', reas
 // Python executable
 function resolvePythonBin() {
   if (process.env.ASISTENTE_PYTHON_BIN && fs.existsSync(process.env.ASISTENTE_PYTHON_BIN)) {
-    logger.info('python', `usando override ASISTENTE_PYTHON_BIN: ${process.env.ASISTENTE_PYTHON_BIN}`);
+    logger.info(
+      'python',
+      `usando override ASISTENTE_PYTHON_BIN: ${process.env.ASISTENTE_PYTHON_BIN}`
+    );
     return process.env.ASISTENTE_PYTHON_BIN;
   }
 
@@ -604,7 +607,10 @@ function createWindow() {
   S.mainWindow.webContents.on('console-message', _createConsoleMessageFilter('overlay'));
   S.mainWindow.loadFile(path.join(__dirname, 'src/index.html'));
   S.mainWindow.webContents.once('did-finish-load', () => {
-    setTimeout(() => S.mainWindow.webContents.send('set-view', S.currentView), OVERLAY_INITIAL_DELAY_MS);
+    setTimeout(
+      () => S.mainWindow.webContents.send('set-view', S.currentView),
+      OVERLAY_INITIAL_DELAY_MS
+    );
   });
   attachCrashWatchdog(S.mainWindow, 'overlay');
 }
@@ -1187,10 +1193,9 @@ app.whenReady().then(() => {
       const focusWarning = payload.wasFocused
         ? `⚠️ **Tenías el archivo ENFOCADO en tu editor**: recargalo ANTES de guardar, si no vas a pisar el parche con la versión vieja (y si tenés cambios sin guardar, resolvé el conflicto que te va a ofrecer).`
         : `⚠️ El archivo está abierto en tu editor: recargalo antes de guardar.`;
-      text =
-        `Listo, apliqué el cambio en tu archivo${
-          payload.type === 'lsp_error' ? ' — el error debería estar resuelto' : ''
-        }. ✅\n\n${focusWarning}${diffNote}`;
+      text = `Listo, apliqué el cambio en tu archivo${
+        payload.type === 'lsp_error' ? ' — el error debería estar resuelto' : ''
+      }. ✅\n\n${focusWarning}${diffNote}`;
     } else if (payload.ok) {
       text = `Listo, apliqué el cambio${
         payload.type === 'lsp_error' ? ' — el error debería estar resuelto' : ''

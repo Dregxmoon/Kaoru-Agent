@@ -6,7 +6,11 @@
 
 const assert = require('assert');
 let passed = 0;
-const t = (c, m) => { assert(c, m); passed++; console.log('  ✓', m); };
+const t = (c, m) => {
+  assert(c, m);
+  passed++;
+  console.log('  ✓', m);
+};
 
 const { safeChildEnv, minimalChildEnv, STRIPPED_ENV_KEY_RE } = require('../core/utils/childEnv.js');
 
@@ -34,7 +38,11 @@ function main() {
   t(STRIPPED_ENV_KEY_RE.test('API_KEY') === true, 'regex: API_KEY');
   t(STRIPPED_ENV_KEY_RE.test('KEY_API') === true, 'regex: KEY_API (prefijo)');
   t(STRIPPED_ENV_KEY_RE.test('MONKEY_BUSINESS') === false, 'regex: MONKEY no falso positivo');
-  t(STRIPPED_ENV_KEY_RE.test('TOKENIZE_MODE') === true || STRIPPED_ENV_KEY_RE.test('TOKENIZE_MODE') === false, 'regex ejecutable');
+  t(
+    STRIPPED_ENV_KEY_RE.test('TOKENIZE_MODE') === true ||
+      STRIPPED_ENV_KEY_RE.test('TOKENIZE_MODE') === false,
+    'regex ejecutable'
+  );
 
   // Borde: extra gana sobre process.env y sobre el stripping.
   const withExtra = safeChildEnv({ MY_API_KEY: 'explicito', EXTRA_VAR: 'x' });
@@ -60,7 +68,10 @@ function main() {
   t(!!mini.PATH, 'incluye PATH');
   t(mini.SOME_RANDOM_VAR === undefined, 'NO hereda variables del proceso');
   t(mini.ANOTHER_TOKEN === undefined, 'nunca arrastra tokens del proceso');
-  t(Object.keys(mini).every((k) => ['PATH', 'HOME'].includes(k)), 'solo PATH/HOME sin extra');
+  t(
+    Object.keys(mini).every((k) => ['PATH', 'HOME'].includes(k)),
+    'solo PATH/HOME sin extra'
+  );
 
   const miniExtra = minimalChildEnv({ MODEL_PATH: '/models/x', EMPTY: undefined });
   t(miniExtra.MODEL_PATH === '/models/x', 'extra explícito incluido');

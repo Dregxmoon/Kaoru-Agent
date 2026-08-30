@@ -20,28 +20,188 @@ const logger = require('../../observability/Logger.js');
 // Common Spanish/English stopwords to filter out
 const STOPWORDS = new Set([
   // Spanish
-  'el', 'la', 'los', 'las', 'un', 'una', 'unos', 'unas', 'de', 'del', 'al',
-  'en', 'con', 'por', 'para', 'sin', 'sobre', 'entre', 'que', 'qué', 'como',
-  'cómo', 'cuando', 'cuándo', 'donde', 'dónde', 'quien', 'quién', 'este',
-  'esta', 'estos', 'estas', 'ese', 'esa', 'esos', 'esas', 'aquel', 'aquella',
-  'yo', 'tu', 'él', 'ella', 'nosotros', 'ustedes', 'ellos', 'ellas', 'me',
-  'te', 'se', 'nos', 'les', 'mi', 'tu', 'su', 'mis', 'tus', 'sus', 'este',
-  'ser', 'estar', 'haber', 'tener', 'hacer', 'poder', 'querer', 'saber',
-  'decir', 'dar', 'ver', 'venir', 'poner', 'salir', 'seguir', 'partir',
-  'bien', 'mal', 'muy', 'mucho', 'poco', 'algo', 'nada', 'todo', 'cada',
-  'otro', 'otra', 'otros', 'otras', 'mismo', 'misma', 'mismos', 'mismas',
+  'el',
+  'la',
+  'los',
+  'las',
+  'un',
+  'una',
+  'unos',
+  'unas',
+  'de',
+  'del',
+  'al',
+  'en',
+  'con',
+  'por',
+  'para',
+  'sin',
+  'sobre',
+  'entre',
+  'que',
+  'qué',
+  'como',
+  'cómo',
+  'cuando',
+  'cuándo',
+  'donde',
+  'dónde',
+  'quien',
+  'quién',
+  'este',
+  'esta',
+  'estos',
+  'estas',
+  'ese',
+  'esa',
+  'esos',
+  'esas',
+  'aquel',
+  'aquella',
+  'yo',
+  'tu',
+  'él',
+  'ella',
+  'nosotros',
+  'ustedes',
+  'ellos',
+  'ellas',
+  'me',
+  'te',
+  'se',
+  'nos',
+  'les',
+  'mi',
+  'tu',
+  'su',
+  'mis',
+  'tus',
+  'sus',
+  'este',
+  'ser',
+  'estar',
+  'haber',
+  'tener',
+  'hacer',
+  'poder',
+  'querer',
+  'saber',
+  'decir',
+  'dar',
+  'ver',
+  'venir',
+  'poner',
+  'salir',
+  'seguir',
+  'partir',
+  'bien',
+  'mal',
+  'muy',
+  'mucho',
+  'poco',
+  'algo',
+  'nada',
+  'todo',
+  'cada',
+  'otro',
+  'otra',
+  'otros',
+  'otras',
+  'mismo',
+  'misma',
+  'mismos',
+  'mismas',
   // English
-  'the', 'a', 'an', 'and', 'or', 'but', 'in', 'on', 'at', 'to', 'for',
-  'of', 'with', 'by', 'from', 'as', 'is', 'was', 'are', 'were', 'be',
-  'been', 'being', 'have', 'has', 'had', 'do', 'does', 'did', 'will',
-  'would', 'could', 'should', 'may', 'might', 'shall', 'can', 'this',
-  'that', 'these', 'those', 'i', 'you', 'he', 'she', 'it', 'we', 'they',
-  'me', 'him', 'her', 'us', 'them', 'my', 'your', 'his', 'its', 'our',
-  'their', 'what', 'which', 'who', 'whom', 'where', 'when', 'why', 'how',
-  'not', 'no', 'nor', 'so', 'if', 'then', 'than', 'too', 'very',
+  'the',
+  'a',
+  'an',
+  'and',
+  'or',
+  'but',
+  'in',
+  'on',
+  'at',
+  'to',
+  'for',
+  'of',
+  'with',
+  'by',
+  'from',
+  'as',
+  'is',
+  'was',
+  'are',
+  'were',
+  'be',
+  'been',
+  'being',
+  'have',
+  'has',
+  'had',
+  'do',
+  'does',
+  'did',
+  'will',
+  'would',
+  'could',
+  'should',
+  'may',
+  'might',
+  'shall',
+  'can',
+  'this',
+  'that',
+  'these',
+  'those',
+  'i',
+  'you',
+  'he',
+  'she',
+  'it',
+  'we',
+  'they',
+  'me',
+  'him',
+  'her',
+  'us',
+  'them',
+  'my',
+  'your',
+  'his',
+  'its',
+  'our',
+  'their',
+  'what',
+  'which',
+  'who',
+  'whom',
+  'where',
+  'when',
+  'why',
+  'how',
+  'not',
+  'no',
+  'nor',
+  'so',
+  'if',
+  'then',
+  'than',
+  'too',
+  'very',
   // Technical/common fillers
-  'thing', 'things', 'stuff', 'way', 'ways', 'just', 'like', 'really',
-  'actually', 'basically', 'literally', 'probably', 'definitely',
+  'thing',
+  'things',
+  'stuff',
+  'way',
+  'ways',
+  'just',
+  'like',
+  'really',
+  'actually',
+  'basically',
+  'literally',
+  'probably',
+  'definitely',
 ]);
 
 // ── Topic Extraction Heuristics ──────────────────────────────────────────────
@@ -65,10 +225,10 @@ function extractTopics(text) {
     .replace(/\s+/g, ' ')
     .trim();
 
-  const words = normalized.split(' ').filter(w => w.length >= 3);
+  const words = normalized.split(' ').filter((w) => w.length >= 3);
 
   // Filter stopwords and short words
-  const meaningful = words.filter(w => !STOPWORDS.has(w) && w.length >= 4);
+  const meaningful = words.filter((w) => !STOPWORDS.has(w) && w.length >= 4);
 
   // Count word frequency to find emphasized terms
   const freq = new Map();
@@ -89,8 +249,7 @@ function extractTopics(text) {
   for (let i = 0; i < words.length - 1; i++) {
     const w1 = words[i];
     const w2 = words[i + 1];
-    if (w1.length >= 3 && w2.length >= 3 &&
-        !STOPWORDS.has(w1) && !STOPWORDS.has(w2)) {
+    if (w1.length >= 3 && w2.length >= 3 && !STOPWORDS.has(w1) && !STOPWORDS.has(w2)) {
       topics.push(`${w1}_${w2}`);
     }
   }
@@ -135,8 +294,8 @@ class TopicMomentumTracker {
 
     return {
       topics,
-      hotTopics: hotTopics.map(t => ({ topic: t.topic_key, momentum: t.momentum_score })),
-      coldTopics: coldTopics.map(t => ({ topic: t.topic_key, momentum: t.momentum_score })),
+      hotTopics: hotTopics.map((t) => ({ topic: t.topic_key, momentum: t.momentum_score })),
+      coldTopics: coldTopics.map((t) => ({ topic: t.topic_key, momentum: t.momentum_score })),
     };
   }
 
@@ -157,7 +316,7 @@ class TopicMomentumTracker {
    * @returns {Array<{ topic: string, momentum: number, mentions: number }>}
    */
   getHotTopics(opts = {}) {
-    return this._store.getHotTopics(opts).map(t => ({
+    return this._store.getHotTopics(opts).map((t) => ({
       topic: t.topic_key,
       momentum: t.momentum_score,
       mentions: t.mention_count,
@@ -170,7 +329,7 @@ class TopicMomentumTracker {
    * @returns {Array<{ topic: string, momentum: number, mentions: number }>}
    */
   getColdTopics(opts = {}) {
-    return this._store.getColdTopics(opts).map(t => ({
+    return this._store.getColdTopics(opts).map((t) => ({
       topic: t.topic_key,
       momentum: t.momentum_score,
       mentions: t.mention_count,
@@ -188,7 +347,7 @@ class TopicMomentumTracker {
     if (hotTopics.length === 0) return '';
 
     const topicList = hotTopics
-      .map(t => `"${t.topic.replace(/_/g, ' ')}" (mencionado ${t.mentions} veces recientemente)`)
+      .map((t) => `"${t.topic.replace(/_/g, ' ')}" (mencionado ${t.mentions} veces recientemente)`)
       .join(', ');
 
     return `Temas de interés ACTIVO del usuario: ${topicList}. Conecta con estos temas cuando sea relevante.`;

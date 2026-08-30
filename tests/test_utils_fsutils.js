@@ -8,7 +8,11 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 let passed = 0;
-const t = (c, m) => { assert(c, m); passed++; console.log('  ✓', m); };
+const t = (c, m) => {
+  assert(c, m);
+  passed++;
+  console.log('  ✓', m);
+};
 
 const { readJsonFile, appendJsonLine, delay } = require('../core/utils/fsUtils.js');
 
@@ -21,7 +25,10 @@ async function main() {
   const ok = readJsonFile(file, null);
   t(ok && ok.a === 1 && Array.isArray(ok.lista), 'JSON válido se parsea');
 
-  t(readJsonFile(path.join(dir, 'no-existe.json'), 'fallback') === 'fallback', 'archivo inexistente → fallback');
+  t(
+    readJsonFile(path.join(dir, 'no-existe.json'), 'fallback') === 'fallback',
+    'archivo inexistente → fallback'
+  );
   t(readJsonFile('', 'fb') === 'fb', 'path vacío → fallback');
 
   fs.writeFileSync(path.join(dir, 'roto.json'), '{esto no es json,,');
@@ -36,8 +43,15 @@ async function main() {
   const jsonl = path.join(dir, 'events.jsonl');
   appendJsonLine(jsonl, { ev: 1 });
   appendJsonLine(jsonl, { ev: 2 });
-  const lines = fs.readFileSync(jsonl, 'utf-8').trim().split('\n').map((l) => JSON.parse(l));
-  t(lines.length === 2 && lines[0].ev === 1 && lines[1].ev === 2, 'dos appends → dos líneas JSONL parseables');
+  const lines = fs
+    .readFileSync(jsonl, 'utf-8')
+    .trim()
+    .split('\n')
+    .map((l) => JSON.parse(l));
+  t(
+    lines.length === 2 && lines[0].ev === 1 && lines[1].ev === 2,
+    'dos appends → dos líneas JSONL parseables'
+  );
 
   // Borde: append a directorio inexistente no lanza (falla en silencio).
   let threw = false;
@@ -60,4 +74,7 @@ async function main() {
   console.log(`\nResultado: ${passed} passed`);
 }
 
-main().catch((e) => { console.error(e); process.exit(1); });
+main().catch((e) => {
+  console.error(e);
+  process.exit(1);
+});
