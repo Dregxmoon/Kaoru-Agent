@@ -42,6 +42,8 @@ const {
   mcpRemoveServer,
   mcpToggleServer,
   mcpSearchRegistry,
+  mcpGetFeatured,
+  mcpGetCategories,
 } = require('./core/mcp.js');
 const { reloadLLMConfig } = require('./core/config.js');
 const {
@@ -144,6 +146,8 @@ module.exports = {
   mcpRemoveServer,
   mcpToggleServer,
   mcpSearchRegistry,
+  mcpGetFeatured,
+  mcpGetCategories,
   setActiveWorkspace,
   getWorkspace,
   listSkills,

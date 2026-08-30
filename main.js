@@ -834,6 +834,7 @@ require('./ipc/config-handlers.js').register(ctx);
 require('./ipc/init-vectors-handlers.js').register(ctx);
 require('./ipc/openclaw-handlers.js').register(ctx);
 require('./ipc/mcp-handlers.js').register(ctx);
+if (global.__mcpOAuthSetup) global.__mcpOAuthSetup(app);
 require('./ipc/github-handlers.js').register(ctx);
 require('./ipc/security-handlers.js').register(ctx);
 require('./ipc/proactive-handlers.js').register(ctx);

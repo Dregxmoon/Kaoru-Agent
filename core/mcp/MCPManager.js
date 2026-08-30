@@ -45,6 +45,282 @@ const CONNECT_TIMEOUT_MS = 45 * 1000;
 const REGISTRY_API = 'https://registry.modelcontextprotocol.io/v0/servers';
 const REGISTRY_TIMEOUT_MS = 8 * 1000;
 
+const CATEGORIES = [
+  { id: 'code', name: 'Código', icon: '💻', description: 'Desarrollo, análisis, repositorios' },
+  { id: 'data', name: 'Datos', icon: '📊', description: 'Bases de datos, APIs, análisis' },
+  { id: 'web', name: 'Web', icon: '🌐', description: 'Navegación, scraping, APIs web' },
+  { id: 'files', name: 'Archivos', icon: '📁', description: 'Sistema de archivos, almacenamiento' },
+  {
+    id: 'comm',
+    name: 'Comunicación',
+    icon: '💬',
+    description: 'Slack, Discord, email, mensajería',
+  },
+  {
+    id: 'cloud',
+    name: 'Cloud/DevOps',
+    icon: '☁️',
+    description: 'AWS, GCP, Azure, Kubernetes, CI/CD',
+  },
+  { id: 'ai', name: 'IA/ML', icon: '🤖', description: 'Modelos, embeddings, entrenamiento' },
+  {
+    id: 'productivity',
+    name: 'Productividad',
+    icon: '⚡',
+    description: 'Notion, Obsidian, calendarios, tareas',
+  },
+  { id: 'security', name: 'Seguridad', icon: '🔒', description: 'Escaneo, secretos, compliance' },
+  { id: 'other', name: 'Otros', icon: '🔧', description: 'Utilidades varias' },
+];
+
+function _detectCategory(name, description, packages = []) {
+  const text = `${name} ${description} ${JSON.stringify(packages)}`.toLowerCase();
+  const rules = [
+    {
+      cat: 'code',
+      keywords: [
+        'github',
+        'git',
+        'code',
+        'repo',
+        'repository',
+        'gitlab',
+        'bitbucket',
+        'analyze',
+        'review',
+        'lint',
+        'refactor',
+        'debug',
+        'test',
+        'coverage',
+      ],
+    },
+    {
+      cat: 'data',
+      keywords: [
+        'database',
+        'sql',
+        'postgres',
+        'mysql',
+        'sqlite',
+        'mongodb',
+        'redis',
+        'analytics',
+        'query',
+        'data',
+        'csv',
+        'json',
+        'api',
+      ],
+    },
+    {
+      cat: 'web',
+      keywords: [
+        'web',
+        'browser',
+        'scrape',
+        'crawl',
+        'fetch',
+        'http',
+        'html',
+        'css',
+        'dom',
+        'playwright',
+        'puppeteer',
+        'search',
+      ],
+    },
+    {
+      cat: 'files',
+      keywords: [
+        'filesystem',
+        'file',
+        'folder',
+        'directory',
+        'storage',
+        's3',
+        'dropbox',
+        'drive',
+        'ftp',
+        'archive',
+      ],
+    },
+    {
+      cat: 'comm',
+      keywords: [
+        'slack',
+        'discord',
+        'email',
+        'mail',
+        'message',
+        'chat',
+        'notification',
+        'webhook',
+        'telegram',
+        'whatsapp',
+      ],
+    },
+    {
+      cat: 'cloud',
+      keywords: [
+        'aws',
+        'gcp',
+        'azure',
+        'cloud',
+        'kubernetes',
+        'k8s',
+        'docker',
+        'terraform',
+        'ci/cd',
+        'github actions',
+        'gitlab ci',
+        'deploy',
+      ],
+    },
+    {
+      cat: 'ai',
+      keywords: [
+        'llm',
+        'model',
+        'embedding',
+        'vector',
+        'openai',
+        'anthropic',
+        'huggingface',
+        'ml',
+        'training',
+        'inference',
+        'rag',
+      ],
+    },
+    {
+      cat: 'productivity',
+      keywords: [
+        'notion',
+        'obsidian',
+        'calendar',
+        'task',
+        'todo',
+        'reminder',
+        'note',
+        'document',
+        'wiki',
+        'confluence',
+        'jira',
+        'linear',
+      ],
+    },
+    {
+      cat: 'security',
+      keywords: [
+        'security',
+        'secret',
+        'vulnerab',
+        'scan',
+        'audit',
+        'compliance',
+        'encryption',
+        'key',
+        'cert',
+      ],
+    },
+  ];
+  for (const r of rules) {
+    if (r.keywords.some((k) => text.includes(k))) return r.cat;
+  }
+  return 'other';
+}
+
+function _extractAuthInfo(packages = []) {
+  const auth = { needsAuth: false, type: 'none', envVars: [], oauth: null };
+  for (const pkg of packages) {
+    for (const env of pkg.environmentVariables || []) {
+      const name = (env.name || '').toLowerCase();
+      const desc = (env.description || '').toLowerCase();
+      if (
+        name.includes('token') ||
+        name.includes('key') ||
+        name.includes('secret') ||
+        name.includes('auth') ||
+        name.includes('password') ||
+        desc.includes('token') ||
+        desc.includes('api key') ||
+        desc.includes('oauth')
+      ) {
+        auth.needsAuth = true;
+        if (
+          desc.includes('oauth') ||
+          name.includes('oauth') ||
+          name.includes('client_id') ||
+          name.includes('client_secret')
+        ) {
+          auth.type = 'oauth';
+          auth.oauth = { provider: _detectOAuthProvider(name, desc), description: env.description };
+        } else {
+          auth.type = 'api_key';
+        }
+        auth.envVars.push({
+          name: env.name,
+          description: env.description || '',
+          required: env.isRequired,
+        });
+      }
+    }
+  }
+  return auth;
+}
+
+function _detectOAuthProvider(envName, envDesc) {
+  const text = `${envName} ${envDesc}`.toLowerCase();
+  if (text.includes('github')) return 'github';
+  if (text.includes('gitlab')) return 'gitlab';
+  if (text.includes('google') || text.includes('gcp') || text.includes('gcloud')) return 'google';
+  if (
+    text.includes('microsoft') ||
+    text.includes('azure') ||
+    text.includes('outlook') ||
+    text.includes('office365')
+  )
+    return 'microsoft';
+  if (text.includes('slack')) return 'slack';
+  if (text.includes('discord')) return 'discord';
+  if (text.includes('notion')) return 'notion';
+  if (text.includes('linear')) return 'linear';
+  if (text.includes('jira') || text.includes('atlassian')) return 'atlassian';
+  return 'generic';
+}
+
+const POPULAR_SERVERS = [
+  {
+    identifier: '@modelcontextprotocol/server-filesystem',
+    reason: 'Acceso universal a archivos locales',
+  },
+  { identifier: '@modelcontextprotocol/server-github', reason: 'Issues, PRs, repos, código' },
+  { identifier: '@modelcontextprotocol/server-gitlab', reason: 'GitLab issues, MRs, CI/CD' },
+  {
+    identifier: '@modelcontextprotocol/server-memory',
+    reason: 'Memoria persistente entre sesiones',
+  },
+  {
+    identifier: '@modelcontextprotocol/server-sequential-thinking',
+    reason: 'Razonamiento estructurado paso a paso',
+  },
+  { identifier: '@modelcontextprotocol/server-everything', reason: 'Servidor de pruebas completo' },
+  { identifier: '@modelcontextprotocol/server-brave-search', reason: 'Búsqueda web privada' },
+  { identifier: '@modelcontextprotocol/server-fetch', reason: 'HTTP fetch y scraping simple' },
+  { identifier: '@modelcontextprotocol/server-sqlite', reason: 'Bases de datos SQLite locales' },
+  { identifier: '@modelcontextprotocol/server-postgres', reason: 'PostgreSQL remoto/locale' },
+  { identifier: '@modelcontextprotocol/server-redis', reason: 'Cache y pub/sub Redis' },
+  { identifier: '@modelcontextprotocol/server-slack', reason: 'Canales, mensajes, usuarios Slack' },
+  { identifier: '@modelcontextprotocol/server-gdrive', reason: 'Google Drive archivos' },
+  { identifier: '@modelcontextprotocol/server-notion', reason: 'Notion páginas, bases de datos' },
+  { identifier: '@modelcontextprotocol/server-linear', reason: 'Linear issues y proyectos' },
+  { identifier: '@modelcontextprotocol/server-jira', reason: 'Jira issues, sprints, boards' },
+  { identifier: '@modelcontextprotocol/server-aws', reason: 'Recursos AWS (EC2, S3, Lambda...)' },
+  { identifier: '@modelcontextprotocol/server-kubernetes', reason: 'Clústeres Kubernetes' },
+  { identifier: '@modelcontextprotocol/server-docker', reason: 'Contenedores e imágenes Docker' },
+];
+
 // ── Auto-reconnect (mejora #5) ────────────────────────────────────────────────
 // Si un servidor MCP se cae a mitad de sesión (el proceso hijo crashea, npx
 // se cuelga, etc.), antes se quedaba "conectado" en el estado hasta el
@@ -498,20 +774,16 @@ class MCPManager {
       const s = entry.server;
       if (!s) continue;
 
-      // El registro devuelve TODAS las versiones históricas de cada
-      // servidor — nos quedamos solo con la más reciente para no llenar
-      // la lista de duplicados.
       const meta = entry._meta?.['io.modelcontextprotocol.registry/official'];
       if (meta && meta.isLatest === false) continue;
 
-      // V1: solo mostramos servidores instalables vía npm + stdio (npx),
-      // que es el caso simple de "un click y listo" sin infraestructura
-      // extra. Los que solo ofrecen pypi/oci/http quedan fuera del
-      // catálogo por ahora — se pueden seguir agregando a mano con JSON.
       const pkg = (s.packages || []).find(
         (p) => p.registryType === 'npm' && (!p.transport || p.transport.type === 'stdio')
       );
       if (!pkg) continue;
+
+      const category = _detectCategory(s.title || s.name, s.description, s.packages);
+      const auth = _extractAuthInfo(s.packages);
 
       out.push({
         name: s.title || s.name,
@@ -524,9 +796,117 @@ class MCPManager {
           .filter((e) => e.isRequired)
           .map((e) => ({ name: e.name, description: e.description || '' })),
         source: 'live',
+        category,
+        auth,
+        repoUrl: s.repository?.url || '',
+        homepage: s.homepage || '',
+        tags: s.tags || [],
       });
     }
     return out;
+  }
+
+  async getFeaturedServers(limit = 12) {
+    try {
+      const url = `${REGISTRY_API}?limit=50`;
+      const res = await fetch(url, { signal: AbortSignal.timeout(REGISTRY_TIMEOUT_MS) });
+      if (!res.ok) throw new Error(`registro respondió ${res.status}`);
+      const data = await res.json();
+      const normalized = this._normalizeRegistryResults(data.servers || []);
+
+      const popularMap = new Map(POPULAR_SERVERS.map((p) => [p.identifier, p.reason]));
+      const featured = normalized
+        .filter((s) => popularMap.has(s.identifier))
+        .map((s) => ({ ...s, popularReason: popularMap.get(s.identifier) }))
+        .slice(0, limit);
+
+      if (featured.length < limit) {
+        const remaining = normalized
+          .filter((s) => !popularMap.has(s.identifier))
+          .sort((a, b) => {
+            const aPop = a.tags?.includes('popular') ? 1 : 0;
+            const bPop = b.tags?.includes('popular') ? 1 : 0;
+            return bPop - aPop;
+          })
+          .slice(0, limit - featured.length);
+        featured.push(...remaining);
+      }
+      return featured.slice(0, limit);
+    } catch (e) {
+      logger.warn('MCPManager', '[mcp] featured fallback:', e.message);
+      return FALLBACK_CATALOG.map((s) => ({
+        ...s,
+        source: 'static',
+        category: _detectCategory(s.name, s.description),
+        auth: { needsAuth: false, type: 'none', envVars: [] },
+        popularReason: POPULAR_SERVERS.find((p) => p.identifier === s.identifier)?.reason || '',
+      })).slice(0, limit);
+    }
+  }
+
+  async searchRegistry(query = '', options = {}) {
+    const { category, sort = 'relevance', limit = 20 } = options;
+    try {
+      const url = query
+        ? `${REGISTRY_API}?search=${encodeURIComponent(query)}&limit=50`
+        : `${REGISTRY_API}?limit=50`;
+
+      const res = await fetch(url, { signal: AbortSignal.timeout(REGISTRY_TIMEOUT_MS) });
+      if (!res.ok) throw new Error(`registro respondió ${res.status}`);
+      const data = await res.json();
+
+      let normalized = this._normalizeRegistryResults(data.servers || []);
+
+      if (category && category !== 'all') {
+        normalized = normalized.filter((s) => s.category === category);
+      }
+
+      switch (sort) {
+        case 'popular':
+          normalized.sort((a, b) => {
+            const aPop = POPULAR_SERVERS.find((p) => p.identifier === a.identifier) ? 1 : 0;
+            const bPop = POPULAR_SERVERS.find((p) => p.identifier === b.identifier) ? 1 : 0;
+            return bPop - aPop;
+          });
+          break;
+        case 'name':
+          normalized.sort((a, b) => a.name.localeCompare(b.name));
+          break;
+        case 'relevance':
+        default:
+          break;
+      }
+
+      if (normalized.length) return normalized.slice(0, limit);
+      throw new Error('sin resultados instalables vía npx');
+    } catch (e) {
+      logger.warn(
+        'MCPManager',
+        '[mcp] registro en vivo no disponible, usando catálogo estático:',
+        e.message
+      );
+      let filtered = FALLBACK_CATALOG.filter(
+        (s) =>
+          !query ||
+          s.name.includes(query.toLowerCase()) ||
+          s.description.toLowerCase().includes(query.toLowerCase())
+      );
+      if (category && category !== 'all') {
+        filtered = filtered.filter((s) => _detectCategory(s.name, s.description) === category);
+      }
+      return filtered
+        .map((s) => ({
+          ...s,
+          source: 'static',
+          category: _detectCategory(s.name, s.description),
+          auth: { needsAuth: false, type: 'none', envVars: [] },
+        }))
+        .slice(0, limit);
+    }
+  }
+
+  getCategories() {
+    return CATEGORIES;
   }
 }
 

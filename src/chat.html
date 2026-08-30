@@ -287,56 +287,72 @@
 
     <div id="mcp-modal">
       <div id="mcp-box">
-        <div class="settings-title">Servidores MCP</div>
-        <div class="settings-sub">
-          HERRAMIENTAS EXTRA, INDEPENDIENTES DE OPENCLAW · TODA LLAMADA PIDE TU APROBACIÓN
-        </div>
-
-        <div id="mcp-server-list"></div>
-        <div class="mcp-empty" id="mcp-empty-msg" style="display: none">
-          Sin servidores configurados todavía.
-        </div>
-
-        <button class="mcp-add-toggle" id="mcp-add-toggle-btn">+ Agregar servidor</button>
-
-        <div id="mcp-add-panel">
-          <div class="mcp-tabs">
-            <button class="mcp-tab active" id="mcp-tab-browse">Buscar en biblioteca</button>
-            <button class="mcp-tab" id="mcp-tab-manual">Configurar con JSON</button>
+        <div class="mcp-header">
+          <div class="mcp-title-row">
+            <span class="mcp-title">🏪 MCP Store</span>
+            <span class="mcp-subtitle">Servidores de herramientas para Kaoru</span>
+            <button class="modal-x" id="mcp-close" title="Cerrar">[x]</button>
           </div>
+          <div class="mcp-tabs-row">
+            <button class="mcp-tab active" id="mcp-tab-store" data-view="store">🏪 Tienda</button>
+            <button class="mcp-tab" id="mcp-tab-installed" data-view="installed">📦 Instalados</button>
+          </div>
+        </div>
 
-          <div id="mcp-browse-view">
-            <div class="mcp-search-row">
-              <input
-                id="mcp-search-input"
-                type="text"
-                placeholder="Buscar servidores MCP (ej: github, filesystem, slack)..."
-              />
-              <button id="mcp-search-btn">Buscar</button>
+        <div class="mcp-content">
+          <!-- VISTA: TIENDA -->
+          <div id="mcp-store-view">
+            <div class="mcp-toolbar">
+              <div class="mcp-search-box">
+                <svg class="search-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" width="16" height="16"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>
+                <input id="mcp-search-input" type="text" placeholder="Buscar servidores (github, slack, notion, aws...)" />
+              </div>
+              <div class="mcp-toolbar-right">
+                <select id="mcp-sort-select" class="mcp-select">
+                  <option value="popular">⭐ Populares primero</option>
+                  <option value="name">🔤 Por nombre</option>
+                  <option value="relevance">🎯 Relevancia</option>
+                </select>
+              </div>
             </div>
-            <div id="mcp-search-results"></div>
+
+            <div id="mcp-category-tabs" class="mcp-category-tabs"></div>
+
+            <div id="mcp-store-grid" class="mcp-grid"></div>
+
+            <div class="mcp-empty-state" id="mcp-store-empty" style="display:none">
+              No hay servidores que coincidan con tu búsqueda
+            </div>
           </div>
 
-          <div id="mcp-manual-view" style="display: none">
+          <!-- VISTA: INSTALADOS -->
+          <div id="mcp-installed-view" style="display:none">
+            <div class="mcp-toolbar">
+              <div class="mcp-section-title">Tus servidores MCP</div>
+            </div>
+            <div id="mcp-installed-list" class="mcp-grid"></div>
+            <div class="mcp-empty-state" id="mcp-installed-empty" style="display:none">
+              No hay servidores instalados. Ve a la <strong>Tienda</strong> para agregar.
+            </div>
+          </div>
+
+          <!-- VISTA: AUTH FLOW (dinámica) -->
+          <div id="mcp-auth-view" style="display:none"></div>
+
+          <!-- CONFIGURACIÓN MANUAL (JSON) - colapsable -->
+          <details class="mcp-manual-section" id="mcp-manual-section">
+            <summary>⚙️ Configuración manual (JSON)</summary>
             <div class="mcp-json-hint">
-              Formato tipo Claude Desktop — pega la config que traiga la documentación del
-              servidor:<br />
-              <code
-                >{"name": "mi-servidor", "command": "npx", "args": ["-y", "@paquete/servidor"],
-                "env": {}}</code
-              >
+              Formato tipo Claude Desktop — pega la config de la documentación del servidor:
+              <code>{"name": "mi-servidor", "command": "npx", "args": ["-y", "@paquete/servidor"], "env": {}}</code>
             </div>
-            <textarea
-              class="mcp-json-textarea"
-              id="mcp-json-input"
-              placeholder='{"name": "filesystem", "command": "npx", "args": ["-y", "@modelcontextprotocol/server-filesystem", "C:\\Users\\tu-usuario\\Documents"], "env": {}}'
-            ></textarea>
+            <textarea class="mcp-json-textarea" id="mcp-json-input" placeholder='{"name": "filesystem", "command": "npx", "args": ["-y", "@modelcontextprotocol/server-filesystem", "/ruta/permitida"], "env": {}}'></textarea>
             <div style="margin-top: 10px; text-align: right">
-              <button class="btn-save" id="mcp-json-add-btn">Agregar</button>
+              <button class="btn-save" id="mcp-json-add-btn">Agregar servidor</button>
             </div>
-          </div>
+          </details>
 
-          <div class="mcp-status-msg" id="mcp-status-msg"></div>
+          <div class="mcp-toast" id="mcp-toast"></div>
         </div>
       </div>
     </div>

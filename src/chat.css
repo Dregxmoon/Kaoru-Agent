@@ -1505,6 +1505,681 @@ body {
   min-height: 14px;
 }
 
+/* ── MCP STORE VISUAL ───────────────────────────────────────────────────────── */
+#mcp-box {
+  width: 720px;
+  max-width: 96vw;
+  max-height: 88vh;
+}
+
+.mcp-header {
+  margin-bottom: 16px;
+}
+.mcp-title-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 8px;
+}
+.mcp-title {
+  font-family: var(--font-mono);
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--accent);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+.mcp-subtitle {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--text-secondary);
+  opacity: 0.7;
+}
+.mcp-tabs-row {
+  display: flex;
+  gap: 4px;
+  background: var(--bg-input);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 3px;
+}
+.mcp-tab {
+  flex: 1;
+  padding: 8px 12px;
+  border: none;
+  background: transparent;
+  color: var(--text-secondary);
+  font-family: var(--font-mono);
+  font-size: 10px;
+  cursor: pointer;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  border-radius: 3px;
+  transition: all 0.2s;
+}
+.mcp-tab:hover {
+  color: var(--text-primary);
+}
+.mcp-tab.active {
+  background: var(--bg-panel);
+  color: var(--accent);
+  border: 1px solid var(--accent);
+  box-shadow: 0 2px 8px rgba(91, 110, 245, 0.2);
+}
+
+.mcp-content {
+  position: relative;
+}
+
+.mcp-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 12px;
+  padding: 10px 0;
+  border-bottom: 1px solid var(--border);
+}
+.mcp-search-box {
+  flex: 1;
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+.mcp-search-box .search-icon {
+  position: absolute;
+  left: 10px;
+  color: var(--text-secondary);
+  opacity: 0.6;
+  pointer-events: none;
+}
+.mcp-search-box input {
+  width: 100%;
+  background: var(--bg-input);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 9px 12px 9px 36px;
+  color: var(--text-primary);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  outline: none;
+  transition: border-color 0.2s, box-shadow 0.2s;
+}
+.mcp-search-box input:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px var(--accent-glow);
+}
+.mcp-toolbar-right {
+  display: flex;
+  gap: 8px;
+}
+.mcp-select {
+  background: var(--bg-input);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 8px 12px;
+  color: var(--text-primary);
+  font-family: var(--font-mono);
+  font-size: 10px;
+  cursor: pointer;
+  outline: none;
+}
+.mcp-select:focus {
+  border-color: var(--accent);
+}
+.mcp-section-title {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--text-secondary);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+.mcp-category-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 14px;
+  padding: 6px 0;
+}
+.mcp-cat-tab {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 7px 12px;
+  border: 1px solid var(--border);
+  border-radius: 20px;
+  background: transparent;
+  color: var(--text-secondary);
+  font-family: var(--font-mono);
+  font-size: 10px;
+  cursor: pointer;
+  transition: all 0.2s;
+  white-space: nowrap;
+}
+.mcp-cat-tab:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+  background: rgba(91, 110, 245, 0.08);
+}
+.mcp-cat-tab.active {
+  border-color: var(--accent);
+  background: var(--accent);
+  color: #fff;
+  box-shadow: 0 2px 8px rgba(91, 110, 245, 0.3);
+}
+.mcp-cat-tab.active .mcp-cat-icon {
+  opacity: 1;
+}
+.mcp-cat-icon {
+  font-size: 12px;
+  opacity: 0.7;
+}
+.mcp-cat-name {
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.mcp-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: 14px;
+  max-height: 55vh;
+  overflow-y: auto;
+  padding-right: 4px;
+}
+
+.mcp-server-card {
+  background: var(--bg-input);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  transition: all 0.2s;
+  position: relative;
+  overflow: hidden;
+}
+.mcp-server-card:hover {
+  border-color: var(--border-accent);
+  transform: translateY(-2px);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.3);
+}
+.mcp-server-card.connected {
+  border-color: rgba(16, 185, 129, 0.4);
+  background: rgba(16, 185, 129, 0.03);
+}
+.mcp-server-card.installed {
+  border-color: rgba(91, 110, 245, 0.4);
+}
+.mcp-server-card.installed::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 3px;
+  background: linear-gradient(90deg, var(--accent), #a855f7);
+}
+
+.mcp-card-header {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  margin-bottom: 10px;
+}
+.mcp-card-icon {
+  font-size: 28px;
+  flex-shrink: 0;
+  width: 48px;
+  height: 48px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--bg-panel);
+  border-radius: 10px;
+  border: 1px solid var(--border);
+}
+.mcp-card-meta {
+  flex: 1;
+  min-width: 0;
+}
+.mcp-card-name {
+  font-family: var(--font-mono);
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-primary);
+  margin: 0 0 4px 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.mcp-card-badges {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.mcp-popular-badge {
+  font-size: 9px;
+  background: linear-gradient(135deg, #fbbf24, #f59e0b);
+  color: #000;
+  padding: 2px 8px;
+  border-radius: 10px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  animation: pulse 2s ease-in-out infinite;
+}
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.7; }
+}
+.mcp-auth-badge {
+  font-size: 9px;
+  padding: 2px 8px;
+  border-radius: 10px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+}
+.mcp-auth-badge.oauth {
+  background: rgba(168, 85, 247, 0.15);
+  color: #a855f7;
+  border: 1px solid rgba(168, 85, 247, 0.3);
+}
+.mcp-auth-badge.api_key {
+  background: rgba(245, 158, 11, 0.15);
+  color: #f59e0b;
+  border: 1px solid rgba(245, 158, 11, 0.3);
+}
+.mcp-auth-badge.none {
+  background: rgba(16, 185, 129, 0.15);
+  color: #10b981;
+  border: 1px solid rgba(16, 185, 129, 0.3);
+}
+.mcp-installed-badge {
+  font-size: 9px;
+  background: rgba(91, 110, 245, 0.15);
+  color: var(--accent);
+  padding: 2px 8px;
+  border-radius: 10px;
+  font-weight: 600;
+  border: 1px solid rgba(91, 110, 245, 0.3);
+}
+
+.mcp-card-desc {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--text-secondary);
+  line-height: 1.5;
+  margin: 0 0 8px 0;
+  flex: 1;
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.mcp-card-tools {
+  font-family: var(--font-mono);
+  font-size: 9px;
+  color: var(--accent);
+  opacity: 0.8;
+  margin-bottom: 10px;
+  padding: 6px 10px;
+  background: var(--bg-panel);
+  border-radius: 4px;
+  border: 1px solid var(--border);
+}
+
+.mcp-card-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-top: auto;
+  padding-top: 10px;
+  border-top: 1px solid var(--border);
+}
+.mcp-card-category {
+  font-family: var(--font-mono);
+  font-size: 9px;
+  color: var(--text-secondary);
+  opacity: 0.6;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.mcp-install-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 16px;
+  border: none;
+  border-radius: 6px;
+  background: var(--accent);
+  color: #fff;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.mcp-install-btn:hover:not(:disabled) {
+  filter: brightness(1.15);
+  transform: scale(1.02);
+}
+.mcp-install-btn:disabled {
+  opacity: 0.7;
+  cursor: wait;
+}
+.mcp-install-btn .btn-loader {
+  animation: spin 1s linear infinite;
+}
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+.mcp-installed-actions {
+  display: flex;
+  gap: 8px;
+}
+.mcp-toggle-btn {
+  width: 36px;
+  height: 36px;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: var(--bg-panel);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 14px;
+  transition: all 0.2s;
+}
+.mcp-toggle-btn:hover {
+  border-color: var(--accent);
+  background: rgba(91, 110, 245, 0.1);
+}
+.mcp-toggle-btn.on {
+  border-color: #10b981;
+  background: rgba(16, 185, 129, 0.15);
+}
+.mcp-remove-btn {
+  width: 36px;
+  height: 36px;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: var(--bg-panel);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 14px;
+  transition: all 0.2s;
+}
+.mcp-remove-btn:hover {
+  border-color: #ef4444;
+  background: rgba(239, 68, 68, 0.1);
+  color: #ef4444;
+}
+
+.mcp-auth-hint {
+  font-family: var(--font-mono);
+  font-size: 8.5px;
+  color: #f59e0b;
+  margin-top: 8px;
+  padding: 6px 10px;
+  background: rgba(245, 158, 11, 0.1);
+  border-radius: 4px;
+  border: 1px solid rgba(245, 158, 11, 0.2);
+}
+
+.mcp-empty-state {
+  text-align: center;
+  padding: 40px 20px;
+  color: var(--text-secondary);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  opacity: 0.7;
+}
+.mcp-empty-state strong {
+  color: var(--accent);
+}
+
+/* Auth Flow */
+.mcp-auth-flow {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+}
+.mcp-auth-header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 20px;
+  padding-bottom: 16px;
+  border-bottom: 1px solid var(--border);
+}
+.mcp-auth-back {
+  width: 32px;
+  height: 32px;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: transparent;
+  color: var(--text-secondary);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 14px;
+  transition: all 0.2s;
+}
+.mcp-auth-back:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+  background: rgba(91, 110, 245, 0.1);
+}
+.mcp-auth-header h2 {
+  font-family: var(--font-mono);
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--text-primary);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+.mcp-auth-body {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  padding: 20px;
+}
+.mcp-auth-icon {
+  font-size: 48px;
+  margin-bottom: 16px;
+}
+.mcp-auth-body h3 {
+  font-family: var(--font-mono);
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-primary);
+  margin-bottom: 10px;
+}
+.mcp-auth-desc {
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  color: var(--text-secondary);
+  line-height: 1.6;
+  max-width: 360px;
+  margin-bottom: 24px;
+}
+.mcp-oauth-providers {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  width: 100%;
+  max-width: 320px;
+}
+.mcp-oauth-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  width: 100%;
+  padding: 14px 20px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--bg-input);
+  color: var(--text-primary);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+.mcp-oauth-btn:hover {
+  border-color: var(--accent);
+  background: rgba(91, 110, 245, 0.1);
+  transform: translateY(-1px);
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.2);
+}
+.mcp-oauth-btn .oauth-icon {
+  width: 20px;
+  height: 20px;
+  flex-shrink: 0;
+}
+.mcp-apikey-form {
+  width: 100%;
+  max-width: 360px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  text-align: left;
+}
+.mcp-apikey-form label {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--text-secondary);
+}
+.mcp-apikey-form input {
+  background: var(--bg-panel);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 12px 14px;
+  color: var(--text-primary);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  outline: none;
+  transition: border-color 0.2s, box-shadow 0.2s;
+}
+.mcp-apikey-form input:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px var(--accent-glow);
+}
+.mcp-apikey-form small {
+  font-family: var(--font-mono);
+  font-size: 9px;
+  color: var(--text-secondary);
+  opacity: 0.7;
+}
+.mcp-apikey-form .btn-save {
+  margin-top: 4px;
+  width: 100%;
+}
+
+.mcp-manual-section {
+  margin-top: 24px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg-input);
+  overflow: hidden;
+}
+.mcp-manual-section summary {
+  padding: 12px 16px;
+  cursor: pointer;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--accent);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  list-style: none;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.mcp-manual-section summary::-webkit-details-marker {
+  display: none;
+}
+.mcp-manual-section summary::before {
+  content: '▸';
+  transition: transform 0.2s;
+  font-size: 9px;
+}
+.mcp-manual-section[open] summary::before {
+  transform: rotate(90deg);
+}
+.mcp-manual-section .mcp-json-hint {
+  padding: 0 16px 12px;
+  font-family: var(--font-mono);
+  font-size: 9px;
+  color: var(--text-secondary);
+  line-height: 1.5;
+  opacity: 0.75;
+}
+.mcp-manual-section .mcp-json-hint code {
+  background: var(--bg-panel);
+  padding: 1px 4px;
+  border-radius: 2px;
+  font-size: 9px;
+}
+.mcp-manual-section .mcp-json-textarea {
+  width: 100%;
+  min-height: 100px;
+  background: var(--bg-panel);
+  border: none;
+  border-top: 1px solid var(--border);
+  padding: 12px 16px;
+  color: var(--text-primary);
+  font-family: var(--font-mono);
+  font-size: 10px;
+  outline: none;
+  resize: vertical;
+}
+.mcp-manual-section .btn-save {
+  margin: 12px 16px;
+}
+
+.mcp-toast {
+  position: fixed;
+  bottom: 24px;
+  right: 24px;
+  padding: 12px 20px;
+  border-radius: 8px;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: #fff;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
+  transform: translateY(100px);
+  opacity: 0;
+  pointer-events: none;
+  z-index: 2000;
+  transition: all 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
+  max-width: 360px;
+}
+.mcp-toast.show {
+  transform: translateY(0);
+  opacity: 1;
+}
+.mcp-toast.success {
+  background: linear-gradient(135deg, #10b981, #059669);
+}
+.mcp-toast.warning {
+  background: linear-gradient(135deg, #f59e0b, #d97706);
+}
+.mcp-toast.error {
+  background: linear-gradient(135deg, #ef4444, #dc2626);
+}
+.mcp-toast.info {
+  background: linear-gradient(135deg, var(--accent), #5b6ef5);
+}
+
 #chat-panel {
   display: flex;
   flex-direction: column;

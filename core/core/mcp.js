@@ -21,8 +21,16 @@ async function mcpToggleServer(id, enabled, serverCfg) {
   if (state.mcp) await state.mcp.toggleServer(id, enabled, serverCfg);
 }
 
-async function mcpSearchRegistry(query) {
-  return state.mcp ? state.mcp.searchRegistry(query) : [];
+async function mcpSearchRegistry(query, options = {}) {
+  return state.mcp ? state.mcp.searchRegistry(query, options) : [];
+}
+
+async function mcpGetFeatured() {
+  return state.mcp ? state.mcp.getFeaturedServers() : [];
+}
+
+function mcpGetCategories() {
+  return state.mcp ? state.mcp.getCategories() : [];
 }
 
 module.exports = {
@@ -31,4 +39,6 @@ module.exports = {
   mcpRemoveServer,
   mcpToggleServer,
   mcpSearchRegistry,
+  mcpGetFeatured,
+  mcpGetCategories,
 };
