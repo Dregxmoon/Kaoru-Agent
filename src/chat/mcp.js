@@ -1,4 +1,23 @@
 // @ts-nocheck
+// OpenClaw — sin badge en la UI; el flag openclawAvailable solo decide el
+// flujo del agent loop (proceso.js). El estado en vivo llega por el canal
+// 'openclaw-status' (ipc.js). Aquí se consulta el estado completo al arrancar
+// (disponibilidad + aislamiento de proceso bwrap).
+async function checkOpenClaw() {
+  try {
+    const status = await assistant.invoke('openclaw-status');
+    if (status) {
+      openclawAvailable = Boolean(status.available);
+      openclawSandbox =
+        status.sandbox === undefined || status.sandbox === null ? null : Boolean(status.sandbox);
+      openclawSandboxReason = status.sandboxReason || null;
+      updateSandboxBanner();
+    }
+  } catch {
+    openclawAvailable = false;
+  }
+}
+
 // MCP Store — Visual "app store" para servidores MCP
 // Panel de servidores conectados + Store visual con categorías, populares,
 // búsqueda, autenticación OAuth/API key, instalación one-click.
@@ -66,7 +85,7 @@ function escapeHtml(str) {
 
 async function refreshMcpBadge() {
   try {
-    const servers = await ipcRenderer.invoke('mcp-list-servers');
+    const servers = await assistant.invoke('mcp-list-servers');
     const badge = document.getElementById('mcp-btn');
     const count = document.getElementById('mcp-count');
     if (!badge || !count) return;
@@ -87,8 +106,8 @@ async function refreshMcpBadge() {
 async function loadInitialData() {
   try {
     const [featured, categories] = await Promise.all([
-      ipcRenderer.invoke('mcp-get-featured'),
-      ipcRenderer.invoke('mcp-get-categories'),
+      assistant.invoke('mcp-get-featured'),
+      assistant.invoke('mcp-get-categories'),
     ]);
     mcpState.featuredServers = featured || [];
     mcpState.categories = categories || [];
@@ -258,7 +277,7 @@ async function renderFeatured() {
 
 async function getInstalledServerIds() {
   try {
-    const servers = await ipcRenderer.invoke('mcp-list-servers');
+    const servers = await assistant.invoke('mcp-list-servers');
     return new Set(servers.map((s) => s.identifier || s.name).filter(Boolean));
   } catch {
     return new Set();
@@ -279,7 +298,7 @@ function attachCardListeners() {
       const enabling = !btn.classList.contains('on');
       btn.style.opacity = '0.5';
       try {
-        await ipcRenderer.invoke('mcp-toggle-server', { id, enabled: enabling });
+        await assistant.invoke('mcp-toggle-server', { id, enabled: enabling });
         await renderInstalled();
         await refreshMcpBadge();
       } catch (e) {
@@ -296,7 +315,7 @@ function attachCardListeners() {
       if (!confirm('¿Desinstalar este servidor MCP?')) return;
       btn.closest('.mcp-server-card').style.opacity = '0.4';
       try {
-        await ipcRenderer.invoke('mcp-remove-server', { id });
+        await assistant.invoke('mcp-remove-server', { id });
         await renderInstalled();
         await renderFeatured();
         await refreshMcpBadge();
@@ -429,7 +448,7 @@ async function startOAuthFlow(server, provider, btnEl) {
     btnEl.disabled = true;
     btnEl.textContent = 'Abriendo navegador...';
 
-    const res = await ipcRenderer.invoke('mcp-oauth-start', {
+    const res = await assistant.invoke('mcp-oauth-start', {
       provider,
       serverName: server.name,
       serverIdentifier: server.identifier,
@@ -455,7 +474,7 @@ async function startOAuthFlow(server, provider, btnEl) {
 async function pollOAuthCompletion(server, state, btnEl) {
   const check = async () => {
     try {
-      const res = await ipcRenderer.invoke('mcp-oauth-check', { state });
+      const res = await assistant.invoke('mcp-oauth-check', { state });
       if (res.completed) {
         if (res.tokens) {
           mcpState.authFlow.data.tokens = res.tokens;
@@ -489,7 +508,7 @@ async function doInstall(server, btnEl, authData = {}) {
       Object.assign(serverCfg.env, authData.tokens);
     }
 
-    const res = await ipcRenderer.invoke('mcp-add-server', { serverCfg });
+    const res = await assistant.invoke('mcp-add-server', { serverCfg });
 
     if (res.ok && res.status?.status === 'connected') {
       showToast(
@@ -532,7 +551,7 @@ async function renderInstalled() {
   if (!container) return;
 
   try {
-    const servers = await ipcRenderer.invoke('mcp-list-servers');
+    const servers = await assistant.invoke('mcp-list-servers');
     if (!servers.length) {
       container.innerHTML =
         '<div class="mcp-empty-state">No hay servidores instalados. Ve a la tienda para agregar.</div>';
@@ -644,7 +663,7 @@ document.getElementById('mcp-json-add-btn')?.addEventListener('click', async () 
   btn.disabled = true;
   btn.textContent = 'Agregando...';
   try {
-    const res = await ipcRenderer.invoke('mcp-add-server', { serverCfg: parsed });
+    const res = await assistant.invoke('mcp-add-server', { serverCfg: parsed });
     if (res.ok && res.status?.status === 'connected') {
       showToast(`"${parsed.name}" conectado (${res.status.toolCount} tools)`, 'success');
       document.getElementById('mcp-json-input').value = '';
