@@ -34,6 +34,232 @@ let mcpState = {
   authFlow: null, // { server, step, data }
 };
 
+// Fallback hardcodeado: servidores populares garantizados para la tienda
+function getHardcodedFallbackServers() {
+  return [
+    {
+      name: 'filesystem',
+      identifier: '@modelcontextprotocol/server-filesystem',
+      description: 'Leer/escribir/listar archivos en carpetas específicas del sistema',
+      category: 'files',
+      auth: { needsAuth: false },
+      popularReason: 'Acceso universal a archivos locales',
+      tools: [{ name: 'read_file' }, { name: 'write_file' }, { name: 'list_directory' }],
+      toolCount: 14,
+    },
+    {
+      name: 'github',
+      identifier: '@modelcontextprotocol/server-github',
+      description: 'Gestión de issues, PRs, repositorios y código en GitHub',
+      category: 'code',
+      auth: { needsAuth: true, type: 'oauth', oauth: { provider: 'github' } },
+      popularReason: 'Issues, PRs, repos, código',
+      tools: [{ name: 'create_issue' }, { name: 'list_prs' }, { name: 'search_repos' }],
+      toolCount: 25,
+    },
+    {
+      name: 'gitlab',
+      identifier: '@modelcontextprotocol/server-gitlab',
+      description: 'GitLab issues, merge requests, CI/CD y repositorios',
+      category: 'code',
+      auth: { needsAuth: true, type: 'oauth', oauth: { provider: 'gitlab' } },
+      popularReason: 'GitLab issues, MRs, CI/CD',
+      tools: [],
+      toolCount: 20,
+    },
+    {
+      name: 'memory',
+      identifier: '@modelcontextprotocol/server-memory',
+      description: 'Memoria de grafo de conocimiento persistente entre sesiones',
+      category: 'data',
+      auth: { needsAuth: false },
+      popularReason: 'Memoria persistente entre sesiones',
+      tools: [],
+      toolCount: 10,
+    },
+    {
+      name: 'sequential-thinking',
+      identifier: '@modelcontextprotocol/server-sequential-thinking',
+      description: 'Herramienta de razonamiento paso a paso estructurado',
+      category: 'ai',
+      auth: { needsAuth: false },
+      popularReason: 'Razonamiento estructurado paso a paso',
+      tools: [],
+      toolCount: 1,
+    },
+    {
+      name: 'everything',
+      identifier: '@modelcontextprotocol/server-everything',
+      description: 'Servidor de referencia/pruebas con herramientas de ejemplo',
+      category: 'other',
+      auth: { needsAuth: false },
+      popularReason: 'Servidor de pruebas completo',
+      tools: [],
+      toolCount: 15,
+    },
+    {
+      name: 'brave-search',
+      identifier: '@modelcontextprotocol/server-brave-search',
+      description: 'Búsqueda web privada con Brave Search API',
+      category: 'web',
+      auth: { needsAuth: true, type: 'api_key' },
+      popularReason: 'Búsqueda web privada',
+      tools: [],
+      toolCount: 3,
+    },
+    {
+      name: 'fetch',
+      identifier: '@modelcontextprotocol/server-fetch',
+      description: 'HTTP fetch y scraping simple de páginas web',
+      category: 'web',
+      auth: { needsAuth: false },
+      popularReason: 'HTTP fetch y scraping simple',
+      tools: [],
+      toolCount: 3,
+    },
+    {
+      name: 'sqlite',
+      identifier: '@modelcontextprotocol/server-sqlite',
+      description: 'Bases de datos SQLite locales — consultas y modificaciones',
+      category: 'data',
+      auth: { needsAuth: false },
+      popularReason: 'Bases de datos SQLite locales',
+      tools: [],
+      toolCount: 5,
+    },
+    {
+      name: 'postgres',
+      identifier: '@modelcontextprotocol/server-postgres',
+      description: 'PostgreSQL remoto/local — consultas SQL, esquema, migraciones',
+      category: 'data',
+      auth: { needsAuth: true, type: 'api_key' },
+      popularReason: 'PostgreSQL remoto/locale',
+      tools: [],
+      toolCount: 8,
+    },
+    {
+      name: 'redis',
+      identifier: '@modelcontextprotocol/server-redis',
+      description: 'Cache y pub/sub Redis — keys, streams, pub/sub',
+      category: 'data',
+      auth: { needsAuth: true, type: 'api_key' },
+      popularReason: 'Cache y pub/sub Redis',
+      tools: [],
+      toolCount: 6,
+    },
+    {
+      name: 'slack',
+      identifier: '@modelcontextprotocol/server-slack',
+      description: 'Canales, mensajes, usuarios y archivos de Slack',
+      category: 'comm',
+      auth: { needsAuth: true, type: 'oauth', oauth: { provider: 'slack' } },
+      popularReason: 'Canales, mensajes, usuarios Slack',
+      tools: [],
+      toolCount: 12,
+    },
+    {
+      name: 'gdrive',
+      identifier: '@modelcontextprotocol/server-gdrive',
+      description: 'Google Drive — archivos, carpetas, permisos, búsqueda',
+      category: 'files',
+      auth: { needsAuth: true, type: 'oauth', oauth: { provider: 'google' } },
+      popularReason: 'Google Drive archivos',
+      tools: [],
+      toolCount: 10,
+    },
+    {
+      name: 'notion',
+      identifier: '@modelcontextprotocol/server-notion',
+      description: 'Notion — páginas, bases de datos, bloques, búsqueda',
+      category: 'productivity',
+      auth: { needsAuth: true, type: 'oauth', oauth: { provider: 'notion' } },
+      popularReason: 'Notion páginas, bases de datos',
+      tools: [],
+      toolCount: 15,
+    },
+    {
+      name: 'linear',
+      identifier: '@modelcontextprotocol/server-linear',
+      description: 'Linear — issues, proyectos, ciclos, equipos',
+      category: 'productivity',
+      auth: { needsAuth: true, type: 'oauth', oauth: { provider: 'linear' } },
+      popularReason: 'Linear issues y proyectos',
+      tools: [],
+      toolCount: 12,
+    },
+    {
+      name: 'jira',
+      identifier: '@modelcontextprotocol/server-jira',
+      description: 'Jira/Atlassian — issues, sprints, boards, usuarios',
+      category: 'productivity',
+      auth: { needsAuth: true, type: 'oauth', oauth: { provider: 'atlassian' } },
+      popularReason: 'Jira issues, sprints, boards',
+      tools: [],
+      toolCount: 18,
+    },
+    {
+      name: 'aws',
+      identifier: '@modelcontextprotocol/server-aws',
+      description: 'AWS — EC2, S3, Lambda, CloudFormation, IAM, etc.',
+      category: 'cloud',
+      auth: { needsAuth: true, type: 'api_key' },
+      popularReason: 'Recursos AWS (EC2, S3, Lambda...)',
+      tools: [],
+      toolCount: 30,
+    },
+    {
+      name: 'kubernetes',
+      identifier: '@modelcontextprotocol/server-kubernetes',
+      description: 'Kubernetes — pods, services, deployments, logs, events',
+      category: 'cloud',
+      auth: { needsAuth: true, type: 'api_key' },
+      popularReason: 'Clústeres Kubernetes',
+      tools: [],
+      toolCount: 20,
+    },
+    {
+      name: 'docker',
+      identifier: '@modelcontextprotocol/server-docker',
+      description: 'Docker — contenedores, imágenes, redes, volúmenes',
+      category: 'cloud',
+      auth: { needsAuth: true, type: 'api_key' },
+      popularReason: 'Contenedores e imágenes Docker',
+      tools: [],
+      toolCount: 15,
+    },
+    {
+      name: 'gmail',
+      identifier: '@modelcontextprotocol/server-gmail',
+      description: 'Gmail — emails, etiquetas, hilos, adjuntos, búsqueda',
+      category: 'comm',
+      auth: { needsAuth: true, type: 'oauth', oauth: { provider: 'google' } },
+      popularReason: 'Gmail emails y etiquetas',
+      tools: [],
+      toolCount: 12,
+    },
+    {
+      name: 'google-calendar',
+      identifier: '@modelcontextprotocol/server-google-calendar',
+      description: 'Google Calendar — eventos, calendarios, disponibilidad',
+      category: 'productivity',
+      auth: { needsAuth: true, type: 'oauth', oauth: { provider: 'google' } },
+      popularReason: 'Google Calendar eventos',
+      tools: [],
+      toolCount: 8,
+    },
+    {
+      name: 'google-maps',
+      identifier: '@modelcontextprotocol/server-google-maps',
+      description: 'Google Maps — places, rutas, geocoding, distance matrix',
+      category: 'web',
+      auth: { needsAuth: true, type: 'api_key' },
+      popularReason: 'Google Maps places y rutas',
+      tools: [],
+      toolCount: 6,
+    },
+  ];
+}
+
 function mcpStatusLabel(status) {
   if (status === 'connected') return 'conectado';
   if (status === 'connecting') return 'conectando...';
@@ -105,16 +331,23 @@ async function refreshMcpBadge() {
 
 async function loadInitialData() {
   try {
+    console.log('[mcp] Iniciando carga de datos...');
     const [featured, categories] = await Promise.all([
       assistant.invoke('mcp-get-featured', 24),
       assistant.invoke('mcp-get-categories'),
     ]);
+    console.log('[mcp] Respuesta featured:', featured);
+    console.log('[mcp] Respuesta categories:', categories);
     // Handle error responses from IPC handlers
     if (featured?.error) {
       console.error('[mcp] featured servers error:', featured.error);
       mcpState.featuredServers = [];
+    } else if (Array.isArray(featured)) {
+      console.log('[mcp] Servidores cargados:', featured.length);
+      mcpState.featuredServers = featured;
     } else {
-      mcpState.featuredServers = featured || [];
+      console.warn('[mcp] Respuesta featured inesperada:', typeof featured, featured);
+      mcpState.featuredServers = [];
     }
     if (categories?.error) {
       console.error('[mcp] categories error:', categories.error);
@@ -125,7 +358,7 @@ async function loadInitialData() {
     renderCategories();
     renderFeatured();
   } catch (e) {
-    console.error('[mcp] error cargando datos iniciales:', e.message);
+    console.error('[mcp] error cargando datos iniciales:', e.message, e);
     mcpState.featuredServers = [];
     mcpState.categories = [];
     renderCategories();
@@ -608,7 +841,14 @@ function openMcpModal() {
   mcpModal.classList.add('visible');
   document.getElementById('mcp-status-msg').textContent = '';
   mcpState.currentView = 'store';
-  loadInitialData();
+  loadInitialData().then(() => {
+    // Fallback hardcodeado si IPC falla completamente
+    if (!mcpState.featuredServers.length) {
+      console.warn('[mcp] IPC no devolvió servidores, usando fallback hardcodeado');
+      mcpState.featuredServers = getHardcodedFallbackServers();
+      renderFeatured();
+    }
+  });
   renderInstalled();
 }
 

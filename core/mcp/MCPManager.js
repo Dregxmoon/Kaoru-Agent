@@ -970,15 +970,15 @@ class MCPManager {
 
       // Si el registro no devuelve los servidores populares, agregarlos desde el catálogo estático
       if (featured.length < limit) {
-        const staticPopular = FALLBACK_CATALOG
-          .filter((s) => popularMap.has(s.identifier))
-          .map((s) => ({
+        const staticPopular = FALLBACK_CATALOG.filter((s) => popularMap.has(s.identifier)).map(
+          (s) => ({
             ...s,
             source: 'static',
             category: _detectCategory(s.name, s.description),
             auth: { needsAuth: false, type: 'none', envVars: [] },
             popularReason: popularMap.get(s.identifier),
-          }));
+          })
+        );
         featured.push(...staticPopular);
 
         const remaining = normalized
@@ -995,8 +995,7 @@ class MCPManager {
     } catch (e) {
       logger.warn('MCPManager', '[mcp] featured fallback:', e.message);
       const popularMap = new Map(POPULAR_SERVERS.map((p) => [p.identifier, p.reason]));
-      return FALLBACK_CATALOG
-        .filter((s) => popularMap.has(s.identifier))
+      return FALLBACK_CATALOG.filter((s) => popularMap.has(s.identifier))
         .map((s) => ({
           ...s,
           source: 'static',
