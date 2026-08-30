@@ -25,18 +25,18 @@ function mcpStatusLabel(status) {
 
 function categoryIcon(catId) {
   const icons = {
-    code: '💻',
-    data: '📊',
-    web: '🌐',
-    files: '📁',
-    comm: '💬',
-    cloud: '☁️',
-    ai: '🤖',
-    productivity: '⚡',
-    security: '🔒',
-    other: '🔧',
+    code: '[CODE]',
+    data: '[DATA]',
+    web: '[WEB]',
+    files: '[FILE]',
+    comm: '[CHAT]',
+    cloud: '[CLD]',
+    ai: '[AI]',
+    productivity: '[PRD]',
+    security: '[SEC]',
+    other: '[TOOL]',
   };
-  return icons[catId] || '🔧';
+  return icons[catId] || '[TOOL]';
 }
 
 function categoryName(catId) {
@@ -102,7 +102,7 @@ async function loadInitialData() {
 function renderCategories() {
   const container = document.getElementById('mcp-category-tabs');
   if (!container) return;
-  const allCat = { id: 'all', name: 'Todos', icon: '🏪' };
+  const allCat = { id: 'all', name: 'Todos', icon: '[STR]' };
   const cats = [allCat, ...mcpState.categories];
   container.innerHTML = cats
     .map(
@@ -127,18 +127,20 @@ function renderServerCard(server, isInstalled = false) {
   const authBadge = server.auth?.needsAuth
     ? `
     <span class="mcp-auth-badge ${server.auth.type}">
-      ${server.auth.type === 'oauth' ? '🔐 OAuth' : '🔑 API Key'}
+      ${server.auth.type === 'oauth' ? '[OAUTH] OAuth' : '[KEY] API Key'}
     </span>
   `
     : '<span class="mcp-auth-badge none">Sin auth</span>';
 
   const popularBadge = server.popularReason
     ? `
-    <span class="mcp-popular-badge" title="${escapeHtml(server.popularReason)}">⭐ Popular</span>
+    <span class="mcp-popular-badge" title="${escapeHtml(server.popularReason)}">[POP] Popular</span>
   `
     : '';
 
-  const installedBadge = isInstalled ? '<span class="mcp-installed-badge">✓ Instalado</span>' : '';
+  const installedBadge = isInstalled
+    ? '<span class="mcp-installed-badge">[OK] Instalado</span>'
+    : '';
   const connected = isInstalled && server.status === 'connected';
 
   const toolsPreview =
@@ -158,7 +160,7 @@ function renderServerCard(server, isInstalled = false) {
         </div>
       </div>
       <p class="mcp-card-desc">${escapeHtml(server.description || 'Sin descripción')}</p>
-      ${toolsPreview ? `<div class="mcp-card-tools">🔧 ${escapeHtml(toolsPreview)}${toolsCount > 3 ? ` +${toolsCount - 3} más` : ''}</div>` : ''}
+      ${toolsPreview ? `<div class="mcp-card-tools">[TLS] ${escapeHtml(toolsPreview)}${toolsCount > 3 ? ` +${toolsCount - 3} más` : ''}</div>` : ''}
       <div class="mcp-card-footer">
         <span class="mcp-card-category">${categoryIcon(server.category)} ${categoryName(server.category)}</span>
         ${
@@ -166,15 +168,15 @@ function renderServerCard(server, isInstalled = false) {
             ? `
           <button class="mcp-install-btn" data-action="install" data-server='${escapeHtml(JSON.stringify(server))}'>
             <span class="btn-text">Instalar</span>
-            <span class="btn-loader" style="display:none">⏳</span>
+            <span class="btn-loader" style="display:none">[...]</span>
           </button>
         `
             : `
           <div class="mcp-installed-actions">
             <button class="mcp-toggle-btn ${connected ? 'on' : ''}" data-action="toggle" data-id="${server.id}" title="${connected ? 'Desconectar' : 'Conectar'}">
-              ${connected ? '🟢' : '⚪'}
+              ${connected ? '[ON]' : '[OFF]'}
             </button>
-            <button class="mcp-remove-btn" data-action="remove" data-id="${server.id}" title="Desinstalar">🗑️</button>
+            <button class="mcp-remove-btn" data-action="remove" data-id="${server.id}" title="Desinstalar">[X]</button>
           </div>
         `
         }
@@ -193,26 +195,26 @@ function renderServerCard(server, isInstalled = false) {
 function getServerIcon(name, identifier) {
   const nameLower = (name || '').toLowerCase();
   const idLower = (identifier || '').toLowerCase();
-  if (nameLower.includes('github') || idLower.includes('github')) return '🐙';
-  if (nameLower.includes('gitlab') || idLower.includes('gitlab')) return '🦊';
-  if (nameLower.includes('filesystem') || idLower.includes('filesystem')) return '📁';
-  if (nameLower.includes('memory') || idLower.includes('memory')) return '🧠';
-  if (nameLower.includes('sequential') || idLower.includes('thinking')) return '🧩';
-  if (nameLower.includes('brave') || idLower.includes('search')) return '🔍';
-  if (nameLower.includes('fetch')) return '📥';
-  if (nameLower.includes('sqlite') || idLower.includes('sqlite')) return '🗄️';
-  if (nameLower.includes('postgres') || idLower.includes('postgres')) return '🐘';
-  if (nameLower.includes('redis')) return '⚡';
-  if (nameLower.includes('slack')) return '💬';
-  if (nameLower.includes('gdrive') || nameLower.includes('drive')) return '📄';
-  if (nameLower.includes('notion')) return '📝';
-  if (nameLower.includes('linear')) return '📋';
-  if (nameLower.includes('jira')) return '🎫';
-  if (nameLower.includes('aws')) return '☁️';
-  if (nameLower.includes('kubernetes') || nameLower.includes('k8s')) return '⚓';
-  if (nameLower.includes('docker')) return '🐳';
-  if (nameLower.includes('everything')) return '🧪';
-  return '📦';
+  if (nameLower.includes('github') || idLower.includes('github')) return '[GIT]';
+  if (nameLower.includes('gitlab') || idLower.includes('gitlab')) return '[GLB]';
+  if (nameLower.includes('filesystem') || idLower.includes('filesystem')) return '[FS]';
+  if (nameLower.includes('memory') || idLower.includes('memory')) return '[MEM]';
+  if (nameLower.includes('sequential') || idLower.includes('thinking')) return '[SEQ]';
+  if (nameLower.includes('brave') || idLower.includes('search')) return '[SRC]';
+  if (nameLower.includes('fetch')) return '[FCH]';
+  if (nameLower.includes('sqlite') || idLower.includes('sqlite')) return '[SQL]';
+  if (nameLower.includes('postgres') || idLower.includes('postgres')) return '[PGS]';
+  if (nameLower.includes('redis')) return '[RDS]';
+  if (nameLower.includes('slack')) return '[SLK]';
+  if (nameLower.includes('gdrive') || nameLower.includes('drive')) return '[GDR]';
+  if (nameLower.includes('notion')) return '[NOT]';
+  if (nameLower.includes('linear')) return '[LIN]';
+  if (nameLower.includes('jira')) return '[JRA]';
+  if (nameLower.includes('aws')) return '[AWS]';
+  if (nameLower.includes('kubernetes') || nameLower.includes('k8s')) return '[K8S]';
+  if (nameLower.includes('docker')) return '[DKR]';
+  if (nameLower.includes('everything')) return '[ALL]';
+  return '[MCP]';
 }
 
 async function renderFeatured() {
@@ -339,7 +341,7 @@ function renderAuthFlow(server, btnEl) {
         <h2>Conectar ${escapeHtml(server.name)}</h2>
       </div>
       <div class="mcp-auth-body">
-        <div class="mcp-auth-icon">${isOAuth ? '🔐' : '🔑'}</div>
+        <div class="mcp-auth-icon">${isOAuth ? '[OAUTH]' : '[KEY]'}</div>
         <h3>${isOAuth ? 'Autorización OAuth' : 'Configurar API Key'}</h3>
         <p class="mcp-auth-desc">
           ${
