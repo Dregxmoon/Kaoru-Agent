@@ -25,8 +25,8 @@ async function mcpSearchRegistry(query, options = {}) {
   return state.mcp ? state.mcp.searchRegistry(query, options) : [];
 }
 
-async function mcpGetFeatured() {
-  return state.mcp ? state.mcp.getFeaturedServers() : [];
+async function mcpGetFeatured(limit = 24) {
+  return state.mcp ? state.mcp.getFeaturedServers(limit) : [];
 }
 
 function mcpGetCategories() {

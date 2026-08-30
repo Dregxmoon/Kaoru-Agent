@@ -106,7 +106,7 @@ async function refreshMcpBadge() {
 async function loadInitialData() {
   try {
     const [featured, categories] = await Promise.all([
-      assistant.invoke('mcp-get-featured'),
+      assistant.invoke('mcp-get-featured', 24),
       assistant.invoke('mcp-get-categories'),
     ]);
     mcpState.featuredServers = featured || [];
