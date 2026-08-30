@@ -109,12 +109,27 @@ async function loadInitialData() {
       assistant.invoke('mcp-get-featured', 24),
       assistant.invoke('mcp-get-categories'),
     ]);
-    mcpState.featuredServers = featured || [];
-    mcpState.categories = categories || [];
+    // Handle error responses from IPC handlers
+    if (featured?.error) {
+      console.error('[mcp] featured servers error:', featured.error);
+      mcpState.featuredServers = [];
+    } else {
+      mcpState.featuredServers = featured || [];
+    }
+    if (categories?.error) {
+      console.error('[mcp] categories error:', categories.error);
+      mcpState.categories = [];
+    } else {
+      mcpState.categories = categories || [];
+    }
     renderCategories();
     renderFeatured();
   } catch (e) {
     console.error('[mcp] error cargando datos iniciales:', e.message);
+    mcpState.featuredServers = [];
+    mcpState.categories = [];
+    renderCategories();
+    renderFeatured();
   }
 }
 
