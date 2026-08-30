@@ -40,9 +40,9 @@ function register(ctx) {
     }
   });
 
-  ipcMain.handle('mcp-get-featured', async () => {
+  ipcMain.handle('mcp-get-featured', async (e, limit = 12) => {
     try {
-      return await Core.getMCPManager().getFeaturedServers();
+      return await Core.getMCPManager().getFeaturedServers(limit);
     } catch (e) {
       logger.error('mcp-handlers', '[main] error en mcp-get-featured:', e.message);
       return { error: e.message };
