@@ -42,7 +42,7 @@ function register(ctx) {
 
   ipcMain.handle('mcp-get-featured', async (e, limit = 12) => {
     try {
-      return await Core.getMCPManager().getFeaturedServers(limit);
+      return await Core.mcpGetFeatured(limit);
     } catch (e) {
       logger.error('mcp-handlers', '[main] error en mcp-get-featured:', e.message);
       return { error: e.message };
@@ -51,9 +51,40 @@ function register(ctx) {
 
   ipcMain.handle('mcp-get-categories', async () => {
     try {
-      return Core.getMCPManager().getCategories();
+      return Core.mcpGetCategories();
     } catch (e) {
       logger.error('mcp-handlers', '[main] error en mcp-get-categories:', e.message);
+      return { error: e.message };
+    }
+  });
+
+  ipcMain.handle('mcp-get-oauth-providers', async () => {
+    try {
+      // Devuelve lista de proveedores OAuth que tienen client ID configurado
+      const configured = [];
+      for (const [provider, config] of Object.entries(_getOAuthConfig('').configs || {})) {
+        if (config.clientId) configured.push(provider);
+      }
+      // Alternativa: comprobar cada proveedor individualmente
+      const providers = [
+        'github',
+        'gitlab',
+        'google',
+        'microsoft',
+        'slack',
+        'discord',
+        'notion',
+        'linear',
+        'atlassian',
+      ];
+      const result = {};
+      for (const p of providers) {
+        const config = _getOAuthConfig(p);
+        result[p] = !!(config && config.clientId);
+      }
+      return result;
+    } catch (e) {
+      logger.error('mcp-handlers', '[main] error en mcp-get-oauth-providers:', e.message);
       return { error: e.message };
     }
   });

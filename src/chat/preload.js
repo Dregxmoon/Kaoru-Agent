@@ -66,6 +66,7 @@ const INVOKE_ALLOWLIST = new Set([
   'mcp-toggle-server',
   'mcp-get-featured',
   'mcp-get-categories',
+  'mcp-get-oauth-providers',
   'mcp-oauth-start',
   'mcp-oauth-check',
   'permissions-list',

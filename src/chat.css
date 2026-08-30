@@ -2031,6 +2031,33 @@ body {
   width: 100%;
   max-width: 320px;
 }
+.mcp-auth-notice {
+  padding: 16px;
+  background: rgba(245, 158, 11, 0.1);
+  border: 1px solid rgba(245, 158, 11, 0.3);
+  border-radius: 8px;
+  color: #f59e0b;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  line-height: 1.6;
+}
+.mcp-auth-notice strong {
+  color: #fbbf24;
+}
+.mcp-auth-notice code {
+  background: rgba(0, 0, 0, 0.3);
+  padding: 1px 4px;
+  border-radius: 3px;
+  font-family: var(--font-mono);
+  font-size: 10px;
+}
+.mcp-oauth-providers {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  width: 100%;
+  max-width: 320px;
+}
 .mcp-oauth-btn {
   display: inline-flex;
   align-items: center;

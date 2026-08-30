@@ -593,13 +593,24 @@ async function startAuthFlow(server, btnEl) {
   renderAuthFlow(server, btnEl);
 }
 
-function renderAuthFlow(server, btnEl) {
+async function renderAuthFlow(server, btnEl) {
   const modal = document.getElementById('mcp-modal');
   const content = modal.querySelector('.mcp-content');
 
   const auth = server.auth;
   const isOAuth = auth.type === 'oauth';
   const provider = auth.oauth?.provider || 'generic';
+
+  // Verificar si el proveedor OAuth está configurado
+  let oauthConfigured = false;
+  if (isOAuth) {
+    try {
+      const providers = await assistant.invoke('mcp-get-oauth-providers');
+      oauthConfigured = providers?.[provider] === true;
+    } catch (e) {
+      console.warn('[mcp] No se pudo verificar proveedores OAuth:', e.message);
+    }
+  }
 
   content.innerHTML = `
     <div class="mcp-auth-flow">
@@ -620,22 +631,30 @@ function renderAuthFlow(server, btnEl) {
 
         ${
           isOAuth
-            ? `
-          <div class="mcp-oauth-providers">
-            <button class="mcp-oauth-btn" data-provider="${provider}" title="Conectar con ${provider}">
-              <svg class="oauth-icon" viewBox="0 0 24 24" fill="currentColor">${getOAuthIcon(provider)}</svg>
-              <span>Continuar con ${capitalize(provider)}</span>
-            </button>
-          </div>
-        `
+            ? oauthConfigured
+              ? `
+            <div class="mcp-oauth-providers">
+              <button class="mcp-oauth-btn" data-provider="${provider}" title="Conectar con ${provider}">
+                <svg class="oauth-icon" viewBox="0 0 24 24" fill="currentColor">${getOAuthIcon(provider)}</svg>
+                <span>Continuar con ${capitalize(provider)}</span>
+              </button>
+            </div>
+          `
+              : `
+            <div class="mcp-auth-notice">
+              <p><strong>OAuth no configurado</strong></p>
+              <p>El proveedor <strong>${provider}</strong> no tiene <code>${provider.toUpperCase()}_CLIENT_ID</code> configurado en el entorno.</p>
+              <p>Agrega la variable de entorno y reinicia la app para usar OAuth.</p>
+            </div>
+          `
             : `
-          <div class="mcp-apikey-form">
-            <label>Variable de entorno: <strong>${auth.envVars[0]?.name || 'API_KEY'}</strong></label>
-            <input type="password" id="mcp-apikey-input" placeholder="Pega tu API key aquí" autocomplete="off">
-            <small>La key se guarda en el llavero del sistema (Keychain/Secret Service)</small>
-            <button class="btn-save" id="mcp-apikey-save">Guardar y continuar</button>
-          </div>
-        `
+            <div class="mcp-apikey-form">
+              <label>Variable de entorno: <strong>${auth.envVars[0]?.name || 'API_KEY'}</strong></label>
+              <input type="password" id="mcp-apikey-input" placeholder="Pega tu API key aquí" autocomplete="off">
+              <small>La key se guarda en el llavero del sistema (Keychain/Secret Service)</small>
+              <button class="btn-save" id="mcp-apikey-save">Guardar y continuar</button>
+            </div>
+          `
         }
       </div>
     </div>
