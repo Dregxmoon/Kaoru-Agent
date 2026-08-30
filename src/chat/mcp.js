@@ -839,7 +839,8 @@ async function mcpSearch(query) {
 
 function openMcpModal() {
   mcpModal.classList.add('visible');
-  document.getElementById('mcp-status-msg').textContent = '';
+  const statusEl = document.getElementById('mcp-status-msg');
+  if (statusEl) statusEl.textContent = '';
   mcpState.currentView = 'store';
   loadInitialData().then(() => {
     // Fallback hardcodeado si IPC falla completamente
