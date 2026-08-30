@@ -401,6 +401,22 @@ const FALLBACK_CATALOG = [
     requiredEnv: [],
   },
   {
+    name: 'github',
+    description: 'Gestión de issues, PRs, repositorios y código en GitHub.',
+    registryType: 'npm',
+    identifier: '@modelcontextprotocol/server-github',
+    args: [],
+    requiredEnv: ['GITHUB_TOKEN'],
+  },
+  {
+    name: 'gitlab',
+    description: 'GitLab issues, merge requests, CI/CD y repositorios.',
+    registryType: 'npm',
+    identifier: '@modelcontextprotocol/server-gitlab',
+    args: [],
+    requiredEnv: ['GITLAB_TOKEN'],
+  },
+  {
     name: 'memory',
     description:
       'Memoria de grafo de conocimiento persistente entre sesiones (servidor de referencia oficial de Anthropic).',
@@ -425,6 +441,134 @@ const FALLBACK_CATALOG = [
     identifier: '@modelcontextprotocol/server-everything',
     args: [],
     requiredEnv: [],
+  },
+  {
+    name: 'brave-search',
+    description: 'Búsqueda web privada con Brave Search API.',
+    registryType: 'npm',
+    identifier: '@modelcontextprotocol/server-brave-search',
+    args: [],
+    requiredEnv: ['BRAVE_API_KEY'],
+  },
+  {
+    name: 'fetch',
+    description: 'HTTP fetch y scraping simple de páginas web.',
+    registryType: 'npm',
+    identifier: '@modelcontextprotocol/server-fetch',
+    args: [],
+    requiredEnv: [],
+  },
+  {
+    name: 'sqlite',
+    description: 'Bases de datos SQLite locales — consultas y modificaciones.',
+    registryType: 'npm',
+    identifier: '@modelcontextprotocol/server-sqlite',
+    args: ['<ruta-db>'],
+    requiredEnv: [],
+  },
+  {
+    name: 'postgres',
+    description: 'PostgreSQL remoto o local — consultas SQL, esquema, migraciones.',
+    registryType: 'npm',
+    identifier: '@modelcontextprotocol/server-postgres',
+    args: [],
+    requiredEnv: ['POSTGRES_CONNECTION_STRING'],
+  },
+  {
+    name: 'redis',
+    description: 'Cache y pub/sub Redis — keys, streams, pub/sub.',
+    registryType: 'npm',
+    identifier: '@modelcontextprotocol/server-redis',
+    args: [],
+    requiredEnv: ['REDIS_URL'],
+  },
+  {
+    name: 'slack',
+    description: 'Canales, mensajes, usuarios y archivos de Slack.',
+    registryType: 'npm',
+    identifier: '@modelcontextprotocol/server-slack',
+    args: [],
+    requiredEnv: ['SLACK_BOT_TOKEN', 'SLACK_TEAM_ID'],
+  },
+  {
+    name: 'gdrive',
+    description: 'Google Drive — archivos, carpetas, permisos, búsqueda.',
+    registryType: 'npm',
+    identifier: '@modelcontextprotocol/server-gdrive',
+    args: [],
+    requiredEnv: ['GDRIVE_CREDENTIALS'],
+  },
+  {
+    name: 'notion',
+    description: 'Notion — páginas, bases de datos, bloques, búsqueda.',
+    registryType: 'npm',
+    identifier: '@modelcontextprotocol/server-notion',
+    args: [],
+    requiredEnv: ['NOTION_TOKEN'],
+  },
+  {
+    name: 'linear',
+    description: 'Linear — issues, proyectos, ciclos, equipos.',
+    registryType: 'npm',
+    identifier: '@modelcontextprotocol/server-linear',
+    args: [],
+    requiredEnv: ['LINEAR_API_KEY'],
+  },
+  {
+    name: 'jira',
+    description: 'Jira/Atlassian — issues, sprints, boards, usuarios.',
+    registryType: 'npm',
+    identifier: '@modelcontextprotocol/server-jira',
+    args: [],
+    requiredEnv: ['JIRA_URL', 'JIRA_EMAIL', 'JIRA_API_TOKEN'],
+  },
+  {
+    name: 'aws',
+    description: 'AWS — EC2, S3, Lambda, CloudFormation, IAM, etc.',
+    registryType: 'npm',
+    identifier: '@modelcontextprotocol/server-aws',
+    args: [],
+    requiredEnv: ['AWS_PROFILE'],
+  },
+  {
+    name: 'kubernetes',
+    description: 'Kubernetes — pods, services, deployments, logs, events.',
+    registryType: 'npm',
+    identifier: '@modelcontextprotocol/server-kubernetes',
+    args: [],
+    requiredEnv: ['KUBECONFIG'],
+  },
+  {
+    name: 'docker',
+    description: 'Docker — contenedores, imágenes, redes, volúmenes.',
+    registryType: 'npm',
+    identifier: '@modelcontextprotocol/server-docker',
+    args: [],
+    requiredEnv: [],
+  },
+  {
+    name: 'gmail',
+    description: 'Gmail — emails, etiquetas, hilos, adjuntos, búsqueda.',
+    registryType: 'npm',
+    identifier: '@modelcontextprotocol/server-gmail',
+    args: [],
+    requiredEnv: ['GMAIL_TOKEN'],
+  },
+  {
+    name: 'google-calendar',
+    description: 'Google Calendar — eventos, calendarios, disponibilidad.',
+    registryType: 'npm',
+    identifier: '@modelcontextprotocol/server-google-calendar',
+    args: [],
+    requiredEnv: ['GOOGLE_CALENDAR_TOKEN'],
+  },
+  {
+    name: 'google-maps',
+    description: 'Google Maps — places, rutas, geocoding, distance matrix.',
+    registryType: 'npm',
+    identifier: '@modelcontextprotocol/server-google-maps',
+    args: [],
+    requiredEnv: ['GOOGLE_MAPS_API_KEY'],
   },
 ];
 
@@ -824,7 +968,19 @@ class MCPManager {
         .map((s) => ({ ...s, popularReason: popularMap.get(s.identifier) }))
         .slice(0, limit);
 
+      // Si el registro no devuelve los servidores populares, agregarlos desde el catálogo estático
       if (featured.length < limit) {
+        const staticPopular = FALLBACK_CATALOG
+          .filter((s) => popularMap.has(s.identifier))
+          .map((s) => ({
+            ...s,
+            source: 'static',
+            category: _detectCategory(s.name, s.description),
+            auth: { needsAuth: false, type: 'none', envVars: [] },
+            popularReason: popularMap.get(s.identifier),
+          }));
+        featured.push(...staticPopular);
+
         const remaining = normalized
           .filter((s) => !popularMap.has(s.identifier))
           .sort((a, b) => {
@@ -838,13 +994,17 @@ class MCPManager {
       return featured.slice(0, limit);
     } catch (e) {
       logger.warn('MCPManager', '[mcp] featured fallback:', e.message);
-      return FALLBACK_CATALOG.map((s) => ({
-        ...s,
-        source: 'static',
-        category: _detectCategory(s.name, s.description),
-        auth: { needsAuth: false, type: 'none', envVars: [] },
-        popularReason: POPULAR_SERVERS.find((p) => p.identifier === s.identifier)?.reason || '',
-      })).slice(0, limit);
+      const popularMap = new Map(POPULAR_SERVERS.map((p) => [p.identifier, p.reason]));
+      return FALLBACK_CATALOG
+        .filter((s) => popularMap.has(s.identifier))
+        .map((s) => ({
+          ...s,
+          source: 'static',
+          category: _detectCategory(s.name, s.description),
+          auth: { needsAuth: false, type: 'none', envVars: [] },
+          popularReason: popularMap.get(s.identifier),
+        }))
+        .slice(0, limit);
     }
   }
 
