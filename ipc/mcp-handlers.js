@@ -2,7 +2,22 @@
 'use strict';
 const logger = require('../core/observability/Logger.js');
 
+const crypto = require('crypto');
 const { ipcMain, dialog } = require('electron');
+const SafeStorageCrypto = require('../infrastructure/config/SafeStorageCrypto.js');
+
+// TTL de estados OAuth pendientes: si un state nunca completa el flujo
+// (usuario cierra la ventana, cancela, o simplemente lo abandona), antes
+// quedaba vivo para siempre en el Map — fuga de memoria y una ventana de
+// reutilización de 'state' más larga de lo necesario (mitigación CSRF).
+const OAUTH_STATE_TTL_MS = 10 * 60 * 1000; // 10 minutos
+
+function _sweepExpiredOAuthStates(states) {
+  const now = Date.now();
+  for (const [state, data] of states) {
+    if (now - (data.createdAt || 0) > OAUTH_STATE_TTL_MS) states.delete(state);
+  }
+}
 
 function register(ctx) {
   const { Core, S, loadConfig, saveConfig } = ctx;
@@ -91,12 +106,20 @@ function register(ctx) {
 
   ipcMain.handle('mcp-add-server', async (e, { serverCfg }) => {
     try {
+      // Conectar con las credenciales en texto plano (el proceso hijo las
+      // necesita así) — el cifrado es solo para lo que toca disco.
       const status = await Core.mcpAddServer(serverCfg);
       const cfg = loadConfig();
       const servers = cfg?.mcp?.servers || [];
       const withoutDup = servers.filter((s) => s.id !== status.id);
+      const persistedCfg = {
+        ...serverCfg,
+        id: status.id,
+        enabled: true,
+        env: SafeStorageCrypto.encryptAllKeys(serverCfg.env || {}),
+      };
       saveConfig({
-        mcp: { servers: [...withoutDup, { ...serverCfg, id: status.id, enabled: true }] },
+        mcp: { servers: [...withoutDup, persistedCfg] },
       });
       return { ok: true, status };
     } catch (e) {
@@ -125,7 +148,10 @@ function register(ctx) {
       const serverCfg = servers.find((s) => s.id === id);
       if (!serverCfg) return { ok: false, error: 'Servidor no encontrado en config' };
 
-      await Core.mcpToggleServer(id, enabled, serverCfg);
+      // env viene cifrado desde config.json (ver mcp-add-server) — hay que
+      // descifrarlo antes de pasarlo al proceso hijo del servidor MCP.
+      const runtimeCfg = { ...serverCfg, env: SafeStorageCrypto.decryptAllKeys(serverCfg.env || {}) };
+      await Core.mcpToggleServer(id, enabled, runtimeCfg);
 
       const updated = servers.map((s) => (s.id === id ? { ...s, enabled } : s));
       saveConfig({ mcp: { servers: updated } });
@@ -221,6 +247,8 @@ function register(ctx) {
           };
         }
 
+        _sweepExpiredOAuthStates(oauthStates);
+
         const state = crypto.randomUUID();
         const codeVerifier = _generateCodeVerifier();
         const codeChallenge = _generateCodeChallenge(codeVerifier);
@@ -259,6 +287,10 @@ function register(ctx) {
     try {
       const oauthData = oauthStates.get(state);
       if (!oauthData) return { completed: false, error: 'Estado OAuth inválido o expirado' };
+      if (Date.now() - (oauthData.createdAt || 0) > OAUTH_STATE_TTL_MS) {
+        oauthStates.delete(state);
+        return { completed: false, error: 'Estado OAuth expirado, reintenta la conexión' };
+      }
 
       // El callback HTTP real recibe el code y lo intercambia por tokens
       // Aquí solo verificamos si ya se completó (el servidor HTTP lo guarda en oauthData.tokens)

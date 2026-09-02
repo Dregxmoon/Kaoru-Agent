@@ -6,6 +6,7 @@ const logger = require('../observability/Logger.js');
 const { readJsonFile } = require('../utils/fsUtils.js');
 const LLMProvider = require('../llm/LLMProvider.js');
 const KeychainManager = require('../../infrastructure/keychain/KeychainManager.js');
+const SafeStorageCrypto = require('../../infrastructure/config/SafeStorageCrypto.js');
 
 const state = require('./state.js');
 
@@ -60,11 +61,17 @@ function loadMCPConfig() {
       return;
     }
     const cfg = readJsonFile(state.configPath, null);
-    const servers = cfg?.mcp?.servers || [];
-    if (!servers.length) {
+    const rawServers = cfg?.mcp?.servers || [];
+    if (!rawServers.length) {
       state.mcpReadyPromise = Promise.resolve();
       return;
     }
+    // env se guarda cifrado en config.json (ver ipc/mcp-handlers.js) —
+    // descifrar antes de spawnear los procesos hijo de cada servidor.
+    const servers = rawServers.map((s) => ({
+      ...s,
+      env: SafeStorageCrypto.decryptAllKeys(s.env || {}),
+    }));
     state.mcpReadyPromise = state.mcp
       .init(servers)
       .catch((e) => logger.warn('config', '[core] error inicializando servidores MCP:', e.message));

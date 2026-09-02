@@ -245,20 +245,33 @@ function loadConfig() {
 // input de settings; la key real nunca sale del main process.
 const MASKED_KEY_VALUE = '***';
 
-// Devuelve una copia de la config con TODAS las API keys redactadas
-// (cfg.llm.apiKeys y cfg.llm.providers[*].apiKey).
+// Devuelve una copia de la config con TODAS las credenciales redactadas:
+// cfg.llm.apiKeys, cfg.llm.providers[*].apiKey y cfg.mcp.servers[*].env
+// (API keys y tokens OAuth de servidores MCP — antes viajaban en texto
+// plano al renderer, que también es donde corre contenido de terceros).
 function redactKeys(cfg) {
   const copy = JSON.parse(JSON.stringify(cfg));
   const llm = copy.llm;
-  if (!llm) return copy;
-  if (llm.apiKeys && typeof llm.apiKeys === 'object') {
-    for (const k of Object.keys(llm.apiKeys)) {
-      if (llm.apiKeys[k]) llm.apiKeys[k] = MASKED_KEY_VALUE;
+  if (llm) {
+    if (llm.apiKeys && typeof llm.apiKeys === 'object') {
+      for (const k of Object.keys(llm.apiKeys)) {
+        if (llm.apiKeys[k]) llm.apiKeys[k] = MASKED_KEY_VALUE;
+      }
+    }
+    if (llm.providers && typeof llm.providers === 'object') {
+      for (const p of Object.values(llm.providers)) {
+        if (p && p.apiKey) p.apiKey = MASKED_KEY_VALUE;
+      }
     }
   }
-  if (llm.providers && typeof llm.providers === 'object') {
-    for (const p of Object.values(llm.providers)) {
-      if (p && p.apiKey) p.apiKey = MASKED_KEY_VALUE;
+  const servers = copy.mcp?.servers;
+  if (Array.isArray(servers)) {
+    for (const s of servers) {
+      if (s && s.env && typeof s.env === 'object') {
+        for (const k of Object.keys(s.env)) {
+          if (s.env[k]) s.env[k] = MASKED_KEY_VALUE;
+        }
+      }
     }
   }
   return copy;
