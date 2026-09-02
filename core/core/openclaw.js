@@ -14,7 +14,9 @@ const { getProjectCWD } = require('../planner/Planner.js');
 
 const state = require('./state.js');
 
-const OPENCLAW_RETRIES = 15;
+// Windows compila el pequeño launcher nativo de AppContainer al arrancar.
+// Darle hasta dos minutos, incluso en equipos lentos o con antivirus activo.
+const OPENCLAW_RETRIES = process.platform === 'win32' ? 300 : 15;
 const OPENCLAW_RETRY_MS = 400;
 
 // ── Limpieza de procesos huérfanos ──────────────────────────────────────────

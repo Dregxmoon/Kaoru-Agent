@@ -516,7 +516,7 @@ function _showApprovalCard({ id, tool, params, description, diff }) {
   const runsCommand = /^(exec|code_execution)$/i.test(safeTool) || Boolean(safeParams.command);
   const sandboxWarning =
     runsCommand && openclawSandbox === false
-      ? `<div class="approval-sandbox-warn">Ejecución de comandos SIN aislamiento de proceso (bwrap no disponible)${openclawSandboxReason ? ` — ${_escapeHtml(openclawSandboxReason)}` : ''}. Esta acción corre con permisos reales del sistema.</div>`
+      ? `<div class="approval-sandbox-warn">Ejecución de comandos SIN aislamiento de proceso${openclawSandboxReason ? ` — ${_escapeHtml(openclawSandboxReason)}` : ''}. Esta acción corre con permisos reales del sistema.</div>`
       : '';
   // Vista previa de diff: si está disponible se muestra el bloque colapsable
   // del cambio real. Si NO está disponible para una tool que muta archivos, se

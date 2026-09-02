@@ -239,8 +239,8 @@ class OpenClawBridge {
       if (res.status === 200) {
         const sandbox = res.body?.sandbox;
         this._sandbox =
-          sandbox === 'bwrap' || sandbox === 'disabled'
-            ? { enabled: sandbox === 'bwrap', reason: res.body?.sandboxReason || null }
+          sandbox === 'bwrap' || sandbox === 'appcontainer' || sandbox === 'disabled'
+            ? { enabled: sandbox !== 'disabled', reason: res.body?.sandboxReason || null }
             : null;
       }
     } catch {
@@ -265,7 +265,8 @@ class OpenClawBridge {
     this._sandbox = null;
   }
 
-  // Estado de aislamiento de proceso del server (bwrap), capturado del /health.
+  // Estado de aislamiento de proceso del server (bwrap/AppContainer),
+  // capturado del /health.
   // Devuelve null cuando no hay información (server fuera de línea o health sin
   // el campo sandbox) — los consumidores deben tratar null como "sin aviso".
   getSandboxStatus() {

@@ -1,10 +1,27 @@
-## ASISTENTE PERSONAL
+<div align="center">
 
-[![CI](https://github.com/Dregxmoon/Asistente-Vtuber/actions/workflows/ci.yml/badge.svg?branch=produccion)](https://github.com/Dregxmoon/Asistente-Vtuber/actions/workflows/ci.yml)
-[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](./LICENSE)
-[![Node.js](https://img.shields.io/badge/node-%E2%89%A518-339933?logo=node.js&logoColor=white)](https://nodejs.org)
+<img src="./screenshots/02-overlay-character.png" width="180" alt="Kaoru, asistente de escritorio Live2D">
 
-**Un compañero de escritorio con IA que observa el sistema operativo, recuerda con contexto, y actúa solo cuando tiene permiso — con un motor de decisión determinista y auditable.**
+# Kaoru
+
+### Una presencia inteligente en tu escritorio
+
+**Observa el contexto · recuerda lo importante · propone antes de actuar**
+
+[![CI](https://github.com/Dregxmoon/Kaoru-Agent/actions/workflows/ci.yml/badge.svg?branch=produccion)](https://github.com/Dregxmoon/Kaoru-Agent/actions/workflows/ci.yml)
+[![Electron 28](https://img.shields.io/badge/Electron-28-47848F?logo=electron&logoColor=white)](https://www.electronjs.org/)
+[![Node.js ≥18](https://img.shields.io/badge/Node.js-%E2%89%A518-339933?logo=node.js&logoColor=white)](https://nodejs.org/)
+[![License: MIT](https://img.shields.io/badge/Licencia-MIT-7C3AED.svg)](./LICENSE)
+
+**Español** · [日本語](./docs/i18n/ja/README.md) · [한국어](./docs/i18n/ko/README.md) · [English (US)](./docs/i18n/en-US/README.md) · [English (UK)](./docs/i18n/en-GB/README.md) · [Português](./docs/i18n/pt/README.md)
+
+[Inicio rápido](#6-inicio-rápido) · [Arquitectura](#2-arquitectura-del-sistema) · [Seguridad](#seguridad) · [Documentación](#8-documentación)
+
+</div>
+
+---
+
+> El español es la fuente canónica. Las demás ediciones ofrecen una portada mantenida y enlazan a la referencia técnica en español cuando todavía no existe una traducción equivalente. Consulta la [política de idiomas](./docs/i18n/README.md).
 
 Una plataforma de asistencia personal que vive en el escritorio del usuario. Combina un avatar Live2D, un modelo de lenguaje conversacional, memoria semántica persistente con decaimiento temporal, percepción en tiempo real del sistema operativo, y un motor de proactividad que decide _cuándo_ hablar, _cuándo_ callar y _cómo_ entregar su ayuda — sin depender de un chatbot reactivo ni de temporizadores ciegos.
 
@@ -32,7 +49,7 @@ Los asistentes de escritorio tradicionales son **reactivos**: esperan a que el u
 - **Observa en silencio.** Detecta contexto real del sistema operativo: aplicación activa, tiempo de enfoque, inactividad, señales de riesgo en el repositorio (`.env` sin ignorar, conflictos de merge, commits sin push), errores del editor (LSP) y eventos próximos del calendario.
 - **Habla cuando aporta.** Cada mensaje proactivo está justificado por un **score de relevancia determinista** (no por corazonadas del modelo), pasa por un _gate de contexto_ que respeta el momento del usuario (foco, inactividad, presupuesto diario), y se entrega como **propuesta con consentimiento**: el asistente propone, el usuario decide.
 - **Recuerda con contexto.** Mantiene un grafo de conocimiento persistente sobre el usuario (proyectos, preferencias, hechos) con búsqueda semántica local y decaimiento temporal — lo de ayer pesa más que lo de hace tres semanas, sin descartar lo importante.
-- **Ejecuta con defensa en profundidad.** Las acciones de alto impacto (edición de archivos, comandos de shell, navegación web, herramientas externas) requieren aprobación explícita, están confinadas al proyecto del usuario y se verifican post-ejecución con rollback automático si algo sale mal.
+- **Ejecuta con defensa en profundidad.** Cada acción se clasifica fuera del LLM y pasa por reglas granulares <code>allow</code>/<code>ask</code>/<code>deny</code>. Las rutas se restringen al workspace y las mutaciones integran checkpoint y verificación según el flujo; la aprobación y el rollback dependen del tipo de acción y de la política efectiva.
 
 ### Segmentos objetivo
 
@@ -44,7 +61,7 @@ Los asistentes de escritorio tradicionales son **reactivos**: esperan a que el u
 
 ### Diferenciadores
 
-1. **Decisión auditable.** El motor proactivo usa un núcleo determinista (`DecisionCore`) con _reason codes_ en cada decisión: cualquier mensaje proactivo puede rastrearse hasta su puntuación, sus pesos y su política. El LLM **produce contenido, nunca decide** cuándo hablar.
+1. **Decisión auditable.** Las señales normalizadas de sensores pasan por un núcleo determinista (<code>DecisionCore</code>) con <em>reason codes</em>: su admisión puede rastrearse hasta puntuación, pesos y política. El LLM redacta el contenido una vez admitidas; los triggers heredados o no sensoriales se documentan por separado.
 2. **Privacidad por diseño.** Memoria, embeddings, telemetría y preferencias viven en la máquina del usuario (SQLite + modelos locales ONNX). No se sube nada por defecto.
 3. **Soberanía de proveedores.** Soporta Groq, Google Gemini y OpenAI con fallback automático y reintento exponencial. Sin vendor lock-in.
 4. **Extensible por MCP.** Cliente Model Context Protocol propio: cualquier servidor de herramientas del ecosistema se conecta sin tocar el núcleo.
@@ -109,7 +126,7 @@ flowchart TD
 3. `AgentLoop` (modo agente) ejecuta el bucle **LLM → herramienta → resultado → LLM** con un tope de iteraciones; o `complete()`/`completeWithTools()` para respuestas directas.
 4. La respuesta se renderiza en el chat (markdown sanitizado) y se persiste la sesión incrementalmente.
 
-### Flujo proactivo 
+### Flujo proactivo
 
 ```mermaid
 flowchart LR
@@ -123,7 +140,7 @@ flowchart LR
     REC -->|"ajusta"| G
 ```
 
-Todo mensaje proactivo es una **propuesta** con botones de aceptar/descartar; las mutaciones se ejecutan solo tras la confirmación, con preview, verificación post-acción y rollback.
+Los mensajes proactivos pueden incluir una **propuesta** con botones de aceptar/descartar. Cuando la propuesta contiene una acción, sus parámetros se construyen en backend y se ejecuta después del consentimiento; preview, verificación y recuperación dependen del executor y del tipo de acción.
 
 ---
 
@@ -156,10 +173,12 @@ Detección de errores del editor vía **LSP real** (typescript-language-server):
 
 </details>
 
+<a id="seguridad"></a>
+
 <details open>
 <summary><strong>Ejecución de acciones gobernada</strong> — sandbox de proceso, verificación forzada, checkpoint/revert, anti-prompt-injection</summary>
 
-Ninguna acción de alto impacto se ejecuta sin aprobación explícita. Combina: permisos granulares `allow`/`ask`/`deny` por herramienta y ruta, confinamiento de rutas al workspace activo (resuelto por `realpath`, no por comparación de strings — resistente a symlinks y `../`), bloqueo de rutas sensibles (`.ssh`, `.env`, credenciales, `.aws`, `.npmrc`) e idempotencia por `proposalId`.
+El LLM no autoriza acciones. <code>ActionParser</code>, <code>PermissionManager</code> y las aprobaciones de sesión aplican permisos granulares <code>allow</code>/<code>ask</code>/<code>deny</code> por herramienta y parámetros. Las operaciones marcadas como <code>ask</code> necesitan consentimiento; las permitidas o denegadas se resuelven sin convertir la salida del modelo en autoridad. <code>PathGuard</code> confina rutas al workspace activo, resuelve ancestros reales para rutas nuevas y bloquea ubicaciones sensibles.
 
 | Mecanismo                                       | Qué hace                                                                                                                                                                                                                                                                | Dónde se ve                                                                                                    |
 | ----------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------- |
@@ -205,7 +224,7 @@ Cliente MCP propio (stdio), reconexión automática con backoff, namespacing de 
 
 Ambas ventanas (overlay Live2D y chat) corren con `nodeIntegration:false` + `contextIsolation:true` + `webSecurity:true` y `sandbox:true` de Electron (renderer de Chromium sin Node). La página del chat carga scripts locales (marked/DOMPurify desde `node_modules`) y solo ve el puente `window.assistant` del preload. **La lógica Node vive en el proceso main**: el preload del chat (`src/chat/preload.js`) es fino (solo `contextBridge` + `ipcRenderer` con allowlists locales y cachés) y los handlers reales viven en `ipc/chat-handlers.js` (comandos, LLM con abort, core-sources, fs, TTS, `FileResolver`, `AgentManager`). La página nunca recibe `fs`/`path`/`child_process` crudos; el render de Markdown (`marked`) y la sanitización (`DOMPurify`) corren **en el renderer**. `GestureEngine` (clase ES que recibe el objeto Live2D real) se ejecuta en la página vía un loader mínimo que solo resuelve fuentes whitelisteadas.
 
-> **Nota:** este hardening es sobre el **sandbox del renderer de Electron** (`webPreferences.sandbox`), no sobre `contextIsolation` (que sigue siendo `true` en ambas ventanas). Son mecanismos distintos: `contextIsolation` separa el mundo del preload del mundo de la página; `sandbox` desactiva Node en el renderer. El overlay Live2D conserva `webSecurity:false` como tradeoff documentado por sus CDNs; el chat corre con `webSecurity:true`.
+> **Nota:** este hardening es sobre el **sandbox del renderer de Electron** (<code>webPreferences.sandbox</code>), no sobre <code>contextIsolation</code>. Son mecanismos distintos: <code>contextIsolation</code> separa el mundo del preload del mundo de la página; <code>sandbox</code> desactiva Node en el renderer. Las dos ventanas actuales habilitan además <code>webSecurity:true</code>.
 
 </details>
 
@@ -337,7 +356,7 @@ de `@electron/rebuild` (sin depender de `npx` en el PATH). Localmente: `bash scr
 - Node.js ≥ 18 y npm
 - Python 3 con `edge-tts` (solo si se usa síntesis de voz)
 - Sistema operativo: Windows (sensor nativo) o Linux/Hyprland (sensor Wayland)
-- **Sandbox de proceso (bwrap): solo Linux.** En Windows y macOS, los comandos ejecutados por el agente corren SIN aislamiento de proceso adicional del sistema operativo (se degrada automáticamente).
+- **Sandbox de proceso:** AppContainer en Windows y <code>bwrap</code> en Linux cuando están disponibles. Windows falla cerrado si AppContainer no inicializa, salvo desactivación explícita con <code>OPENCLAW_SANDBOX=0</code>; Linux informa la degradación si <code>bwrap</code> no está disponible. macOS no tiene actualmente aislamiento adicional para OpenClaw.
 
 ### Instalación
 
@@ -362,11 +381,11 @@ Si ves `Module did not self-register` u otro error de binding, la remediación
 es la que el propio asistente reporta (`EmbedService.BINDING_REMEDIATION`):
 
 > `[embeddings] onnxruntime-node no cargó su binding nativo. Es un módulo NAPI
-> (ABI estable), NO uses electron-rebuild: eso corrompería el prebuild. Si es
-> la primera carga del proceso, repáralo reinstalando el paquete
-> (npm install onnxruntime-node o npm ci). Si es una recarga (worker
-> recreado), es el límite single-load de NAPI — el worker debe ser persistente,
-> no se puede cargar dos veces.`
+(ABI estable), NO uses electron-rebuild: eso corrompería el prebuild. Si es
+la primera carga del proceso, repáralo reinstalando el paquete
+(npm install onnxruntime-node o npm ci). Si es una recarga (worker
+recreado), es el límite single-load de NAPI — el worker debe ser persistente,
+no se puede cargar dos veces.`
 
 #### Redes sin acceso a GitHub releases
 
@@ -384,7 +403,7 @@ node fix-electron.js           # Electron desde caché local + rebuild nativos
 El `~/.cache/electron/` conserva el zip íntegro de instalaciones previas y
 `fix-electron.js` lo usa si la descarga directa falla.
 
-<!-- 
+<!--
 EVIDENCIA DE REPRODUCCIÓN (hallazgo 'Module did not self-register', cerrado
 como AMBIENTAL — agosto 2026): se reprodujo el flujo completo en máquina
 limpia con red abierta (rm -rf node_modules → npm install → npm run rebuild →
@@ -514,23 +533,23 @@ npm run coverage:check    # además valida umbrales (guard de regresión)
 
 ## 7. Estado del proyecto
 
-| Componente                                  | Estado       |
-| ------------------------------------------- | ------------ |
-| Overlay Live2D + chat                       | ✅ Operativo |
-| Modo agente/chat con badge y % de contexto  | ✅ Operativo |
-| Gestos LLM-driven (marcadores `(gesto: x)`) | ✅ Operativo |
-| Streaming de respuesta con Markdown en vivo | ✅ Operativo |
-| Memoria semántica persistente               | ✅ Operativo |
-| Sensor de SO (Windows/Linux)                | ✅ Operativo |
-| Ejecución de acciones con consentimiento    | ✅ Operativo |
-| MCP + agentes + skills                      | ✅ Operativo |
-| Motor de decisión proactiva (Fases F–G)     | ✅ Operativo |
-| Aprendizaje por feedback (pesos + outcomes) | ✅ Operativo |
-| Telemetría local                            | ✅ Operativo |
-| Agente de código profundo (LSP)             | ✅ Operativo |
-| Plugins y skills                            | ✅ Operativo |
-| Modelo de confianza del agente              | ✅ Operativo |
-| Sandbox de proceso (bwrap)                  | ⚠️ Solo Linux — en Windows y macOS, los comandos ejecutados por el agente corren SIN aislamiento de proceso adicional del sistema operativo (se degrada automáticamente). |
+| Componente                                  | Estado                                                                                                                                                                 |
+| ------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Overlay Live2D + chat                       | ✅ Operativo                                                                                                                                                           |
+| Modo agente/chat con badge y % de contexto  | ✅ Operativo                                                                                                                                                           |
+| Gestos LLM-driven (marcadores `(gesto: x)`) | ✅ Operativo                                                                                                                                                           |
+| Streaming de respuesta con Markdown en vivo | ✅ Operativo                                                                                                                                                           |
+| Memoria semántica persistente               | ✅ Operativo                                                                                                                                                           |
+| Sensor de SO (Windows/Linux)                | ✅ Operativo                                                                                                                                                           |
+| Ejecución de acciones con consentimiento    | ✅ Operativo                                                                                                                                                           |
+| MCP + agentes + skills                      | ✅ Operativo                                                                                                                                                           |
+| Motor de decisión proactiva (Fases F–G)     | ✅ Operativo                                                                                                                                                           |
+| Aprendizaje por feedback (pesos + outcomes) | ✅ Operativo                                                                                                                                                           |
+| Telemetría local                            | ✅ Operativo                                                                                                                                                           |
+| Agente de código profundo (LSP)             | ✅ Operativo                                                                                                                                                           |
+| Plugins y skills                            | ✅ Operativo                                                                                                                                                           |
+| Modelo de confianza del agente              | ✅ Operativo                                                                                                                                                           |
+| Sandbox de proceso                          | ✅ Windows AppContainer · ✅ Linux <code>bwrap</code> cuando está disponible · ⚠️ macOS sin sandbox adicional de OpenClaw. El health check informa el estado efectivo. |
 
 El proyecto se desarrolla por fases y se entrega de forma incremental (ver el historial de `git log` para la estrategia completa y las siguientes entregas).
 
@@ -538,23 +557,23 @@ El proyecto se desarrolla por fases y se entrega de forma incremental (ver el hi
 
 ## 8. Documentación
 
-| Documento                                        | Contenido                             |
-| ------------------------------------------------ | ------------------------------------- |
-| [`ROADMAP.md`](./ROADMAP.md)                     | Visión, estrategia y hoja de ruta     |
-| [`docs/arquitectura.md`](./docs/arquitectura.md) | Diagrama de arquitectura detallado    |
-| [`core/`](./core/README.md)                      | Núcleo de inteligencia y orquestación |
-| [`core/git/`](./core/git/README.md)              | Integración nativa con Git            |
-| [`core/github/`](./core/github/README.md)        | Cliente REST de GitHub y OAuth        |
-| [`infrastructure/`](./infrastructure/README.md)  | Capa de bajo nivel                    |
-| [`ipc/`](./ipc/README.md)                        | Capa IPC (renderer ↔ núcleo)          |
-| [`src/`](./src/README.md)                        | Interfaz de usuario                   |
-| [`tests/`](./tests/README.md)                    | Estrategia de pruebas                 |
+| Documento                                        | Contenido                              |
+| ------------------------------------------------ | -------------------------------------- |
+| [`docs/README.md`](./docs/README.md)             | Centro documental y selector de idioma |
+| [`docs/arquitectura.md`](./docs/arquitectura.md) | Diagrama de arquitectura detallado     |
+| [`core/`](./core/README.md)                      | Núcleo de inteligencia y orquestación  |
+| [`core/git/`](./core/git/README.md)              | Integración nativa con Git             |
+| [`core/github/`](./core/github/README.md)        | Cliente REST de GitHub y OAuth         |
+| [`infrastructure/`](./infrastructure/README.md)  | Capa de bajo nivel                     |
+| [`ipc/`](./ipc/README.md)                        | Capa IPC (renderer ↔ núcleo)           |
+| [`src/`](./src/README.md)                        | Interfaz de usuario                    |
+| [`tests/`](./tests/README.md)                    | Estrategia de pruebas                  |
 
 ---
 
 ## 9. Pruebas y capturas
 
-La suite de pruebas es **ejecutable e independiente por archivo** (`tests/`), con cobertura de comandos, motor de proactividad, detección de intenciones, skills, integraciones LSP, Git/GitHub y seguridad de la Control API. La regresión completa se ejecuta con `npm test` (usando el Node de Electron): **más de 2500 pruebas en verde** (incluyen regresiones del fix LSP G.1, del parser de CONTENIDO multilínea, de la compactación de contexto, del edit determinista, de las tools grep/glob/subagent, de la compactación con memoria, del motor proactivo v2 con mixins + gate, del streaming IPC, del **reintento 413→smart** de tool-calling en `test_tool_calling`, de `WorkspaceCheckpoint` y el hook de verificación forzada del `AgentLoop`).
+La suite es **ejecutable e independiente por archivo** (<code>tests/</code>) y cubre comandos, proactividad, intención, skills, LSP, Git/GitHub, IPC y controles de seguridad. La regresión completa se ejecuta con <code>npm test</code> usando el Node de Electron. No se fija aquí una cifra de assertions: el comando local y el job de CI son la fuente actual.
 
 > El número exacto se desactualiza rápido — es más fiable correr `npm test` localmente o revisar el job de tests en CI que confiar en esta cifra. Antes de correrla, cierra el asistente para que las suites de seguridad puedan levantar su propio servidor en `:18789` (si la app está corriendo, `test_server_security` y `test_integration_stress` fallan por conflicto de puerto).
 

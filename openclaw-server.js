@@ -10,6 +10,7 @@ const crypto = require('crypto');
 const { dirSet } = require('./core/utils/ignoreDirs.js');
 const { isUrlSafe } = require('./core/security/UrlGuard.js');
 const logger = require('./core/observability/Logger.js');
+const { WindowsSandbox } = require('./core/sandbox/WindowsSandbox.js');
 
 // P3: límite de confianza anti prompt-injection — el texto de páginas web de
 // terceros NO es confiable (una página puede llevar instrucciones ocultas
@@ -183,10 +184,30 @@ function _safeChildEnv() {
 // OPENCLAW_SANDBOX=0.
 let _sandboxEnabled = false;
 let _sandboxReason = null;
+let _sandboxKind = 'disabled';
+/** @type {WindowsSandbox | null} */
+let _windowsSandbox = null;
+/** @type {Promise<void>} */
+let _sandboxInitPromise = Promise.resolve();
 (function _initSandbox() {
   try {
     if (process.env.OPENCLAW_SANDBOX === '0') {
       _sandboxReason = 'desactivado por OPENCLAW_SANDBOX=0';
+      return;
+    }
+    if (process.platform === 'win32') {
+      _sandboxReason = 'AppContainer pendiente de inicialización';
+      _windowsSandbox = new WindowsSandbox({ cwd: ALLOWED_PATH });
+      _sandboxInitPromise = _windowsSandbox.initialize().then((enabled) => {
+        _sandboxEnabled = enabled;
+        _sandboxKind = enabled ? 'appcontainer' : 'disabled';
+        _sandboxReason = _windowsSandbox
+          ? _windowsSandbox.sandboxReason()
+          : 'inicialización fallida';
+        if (enabled) logger.info('openclaw-server', 'sandbox de proceso: AppContainer habilitado');
+        else
+          logger.error('openclaw-server', `sandbox AppContainer no disponible: ${_sandboxReason}`);
+      });
       return;
     }
     if (process.platform !== 'linux') {
@@ -208,6 +229,7 @@ let _sandboxReason = null;
       { stdio: 'ignore', timeout: 10_000 }
     );
     _sandboxEnabled = true;
+    _sandboxKind = 'bwrap';
     logger.info('openclaw-server', 'sandbox de proceso: bwrap habilitado');
   } catch (e) {
     _sandboxReason = `bwrap no usable: ${e.message}`;
@@ -298,10 +320,16 @@ if (_sandboxEnabled) {
  * la salida del exec (bwrap sigue con `--unshare-pid`/`--ro-bind / /`/tmpfs, así
  * que el aislamiento se conserva; el bg queda en el mismo mount namespace).
  * @param {string[]} commandArgs
- * @param {{ detach?: boolean }} [opts]
+ * @param {{ detach?: boolean, cwd?: string, timeout?: number }} [opts]
  * @returns {string[]}
  */
 function _wrapSandbox(commandArgs, opts = {}) {
+  if (process.platform === 'win32' && process.env.OPENCLAW_SANDBOX !== '0') {
+    if (!_sandboxEnabled || !_windowsSandbox) {
+      throw new Error(`sandbox AppContainer no disponible: ${_sandboxReason}`);
+    }
+    return _windowsSandbox.wrap(commandArgs, { cwd: opts.cwd, timeout: opts.timeout });
+  }
   if (!_sandboxEnabled) return commandArgs;
   const home = process.env.HOME || '/tmp';
   const wrap = ['bwrap', '--unshare-user', '--unshare-pid', '--unshare-ipc', '--unshare-uts'];
@@ -760,7 +788,10 @@ const HANDLERS = {
       // redirección/backgrounding). Sin el flag ni la sintaxis, los argumentos
       // se pasan separados a spawn — y aunque se use shell, `sh -c` queda
       // envuelto en bwrap y el blocklist ya se aplicó sobre el string crudo.
-      args = ['sh', '-c', command];
+      args =
+        process.platform === 'win32'
+          ? ['cmd.exe', '/d', '/s', '/c', command]
+          : ['sh', '-c', command];
     } else {
       args = _rewriteToolchainCommand(_buildCommandArgs(command));
     }
@@ -779,7 +810,7 @@ const HANDLERS = {
       // que el agente levanta para verificar). El proceso principal se sigue
       // matando con el timeout (ver abajo).
       const detach = _hasBackgroundOperator(command);
-      const sandboxArgs = _wrapSandbox(args, { detach });
+      const sandboxArgs = _wrapSandbox(args, { detach, cwd, timeout });
       const child = spawn(sandboxArgs[0], sandboxArgs.slice(1), {
         cwd,
         stdio: ['pipe', 'pipe', 'pipe'],
@@ -1055,7 +1086,11 @@ const HANDLERS = {
     if (!code) return { error: 'code required' };
 
     return new Promise((resolve) => {
-      const sandboxArgs = _wrapSandbox(['python3', '-c', code]);
+      const pythonBin = process.platform === 'win32' ? 'python.exe' : 'python3';
+      const sandboxArgs = _wrapSandbox([pythonBin, '-c', code], {
+        cwd: ALLOWED_PATH,
+        timeout,
+      });
       const child = spawn(sandboxArgs[0], sandboxArgs.slice(1), {
         stdio: 'pipe',
         windowsHide: true,
@@ -1205,7 +1240,7 @@ const server = http.createServer((req, res) => {
   if (req.method === 'GET' && req.url === '/health') {
     return respond(res, 200, {
       status: 'ok',
-      sandbox: _sandboxEnabled ? 'bwrap' : 'disabled',
+      sandbox: _sandboxEnabled ? _sandboxKind : 'disabled',
       sandboxReason: _sandboxEnabled ? null : _sandboxReason,
     });
   }
@@ -1251,6 +1286,9 @@ const server = http.createServer((req, res) => {
 // ── Function: start/stop server programmatically ──────────────────────────
 
 async function startServer(port = PORT) {
+  // En Windows no publicamos /health hasta conocer el resultado real del
+  // self-test AppContainer. Así el bridge no cachea un estado transitorio.
+  await _sandboxInitPromise;
   return new Promise((resolve, reject) => {
     server.listen(port, '127.0.0.1', () => {
       logger.info('openclaw-server', `escuchando en http://127.0.0.1:${port}`);

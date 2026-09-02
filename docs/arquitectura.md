@@ -1,4 +1,12 @@
-# Arquitectura — Asistente Personal
+<div align="center">
+
+# Arquitectura de Kaoru
+
+**Español** · [日本語](./i18n/ja/README.md) · [한국어](./i18n/ko/README.md) · [English (US)](./i18n/en-US/README.md) · [English (UK)](./i18n/en-GB/README.md) · [Português](./i18n/pt/README.md)
+
+[← Centro de documentación](./README.md)
+
+</div>
 
 Documento de referencia de la arquitectura del sistema en su estado actual. Describe el flujo completo:
 de la entrada del usuario a la respuesta, y de las señales del sistema al motor de proactividad, pasando
@@ -123,9 +131,10 @@ flowchart TD
 
 ## 2. Motor de decisión proactiva
 
-El motor actual decide con un **núcleo determinista** entre los sensores y el engine. El LLM participa
-únicamente generando el contenido del mensaje (identidad + memoria + anti-repetición); **nunca decide**
-si el asistente debe hablar.
+Para las señales normalizadas de sensores, el motor decide con un **núcleo determinista** entre los
+sensores y el engine. En esa ruta el LLM genera el contenido del mensaje (identidad + memoria +
+anti-repetición), pero no autoriza su admisión. Algunos triggers heredados o no sensoriales conservan
+un flujo distinto y deben analizarse desde su punto de entrada.
 
 ```mermaid
 flowchart LR
@@ -142,12 +151,12 @@ flowchart LR
 
 ### Componentes
 
-| Módulo | Responsabilidad |
-|---|---|
-| `core/decision/DecisionCore.js` | Funciones puras: `scoreRelevancia`, `receptividad`, `presupuesto`, `decide` con reason codes + audit log. |
+| Módulo                              | Responsabilidad                                                                                                                                     |
+| ----------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `core/decision/DecisionCore.js`     | Funciones puras: `scoreRelevancia`, `receptividad`, `presupuesto`, `decide` con reason codes + audit log.                                           |
 | `core/decision/SignalNormalizer.js` | Convierte el payload de cada sensor en un candidato normalizado; deriva perfiles genéricos para señales desconocidas y permite `registerProfile()`. |
-| `core/decision/ContextGate.js` | Valida el momento: flow de trabajo, proximidad conversacional, presupuesto dinámico y cola de diferidos (QUEUE). |
-| `core/decision/SloMonitor.js` | SLOs por tipo de señal (aceptación mínima, ignorados máximos) con degradación automática y telemetría de "tasa de no-molestia". |
+| `core/decision/ContextGate.js`      | Valida el momento: flow de trabajo, proximidad conversacional, presupuesto dinámico y cola de diferidos (QUEUE).                                    |
+| `core/decision/SloMonitor.js`       | SLOs por tipo de señal (aceptación mínima, ignorados máximos) con degradación automática y telemetría de "tasa de no-molestia".                     |
 
 ### Flujo de decisión en detalle
 
@@ -166,7 +175,8 @@ flowchart LR
 
 1. `buildContext()` ensambla identidad (`core/identity/identity.json`), contexto del SO, memoria recuperada del `StateGraph`, intención (`IntentDetector`) y catálogo de herramientas (`ToolResolver`).
 2. Según el modo (`chat | plan | execute | agent`), la respuesta se genera con `LLMProvider.complete()` o con el `AgentLoop` (tool-calling nativo + fallback textual).
-3. Las acciones de alto impacto pasan por aprobación explícita del usuario (IPC `agent-approval-needed`).
+3. Las acciones se clasifican fuera del LLM. Las que resuelven a `ask` pasan por aprobación explícita
+   del usuario (IPC `agent-approval-needed`); `allow` y `deny` se aplican directamente según política.
 4. La sesión se persiste incrementalmente (`SessionManager` + `StateUpdater`).
 
 ---
@@ -175,6 +185,7 @@ flowchart LR
 
 - **Aditivo:** el pipeline proactivo nunca degrada la conversación normal.
 - **Determinista donde importa:** la decisión de hablar es trazable (score + reason code); el LLM solo redacta.
-- **Reversible:** toda mutación tiene preview, verificación post-acción y rollback.
+- **Recuperación explícita:** las rutas de mutación integran checkpoint y verificación cuando
+  corresponde; el rollback es una operación separada y puede ser parcial o encontrar conflictos.
 - **Local por defecto:** memoria, embeddings y telemetría residen en la máquina del usuario.
 - **Extensible:** MCP, skills y perfiles de señal se agregan sin tocar el núcleo.

@@ -242,7 +242,7 @@ ipcRenderer
 // Fase 3
 let openclawAvailable = false;
 
-// Estado de aislamiento de proceso del server (bwrap), reportado en /health.
+// Estado de aislamiento de proceso del server (bwrap/AppContainer), reportado en /health.
 // null = sin información (no avisa); false = sandbox desactivado (aviso).
 let openclawSandbox = null;
 let openclawSandboxReason = null;
@@ -256,7 +256,7 @@ function updateSandboxBanner() {
   banner.classList.toggle('visible', disabled);
   if (disabled) {
     const reason = openclawSandboxReason || 'razón desconocida';
-    banner.textContent = `Ejecución de comandos sin aislamiento de proceso (bwrap no disponible) — ${reason}`;
+    banner.textContent = `Ejecución de comandos sin aislamiento de proceso — ${reason}`;
   }
 }
 

@@ -136,22 +136,67 @@ function downloadElectronManual() {
   }
 }
 
-// ── 3. Ejecutar @electron/rebuild para módulos nativos ──────────────────────
+// ── 3a. Verificar si better-sqlite3 ya está compilado para el ABI de Electron ──
+
+function isBetterSqlite3Ready() {
+  try {
+    const sqlite3 = require(path.join(__dirname, 'node_modules', 'better-sqlite3'));
+    // better-sqlite3 exporta Database directamente o como propiedad.
+    if (typeof sqlite3 === 'function' || typeof sqlite3.Database === 'function') {
+      return true;
+    }
+    return false;
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    if (msg.includes('ERR_NODE_BINDING') || msg.includes('native') || msg.includes('ABI') || msg.includes('did not self-register')) {
+      return false;
+    }
+  }
+  return false;
+}
+
+// ── 3b. Reconstrucción con fallback gracioso ──────────────────────
 
 function rebuildNativeModules() {
-  log('info', 'Reconstruyendo módulos nativos para Electron...');
+  log('info', 'Verificando módulos nativos para Electron...');
 
+  // Pre-check: ¿better-sqlite3 ya funciona?
+  if (isBetterSqlite3Ready()) {
+    log('ok', 'better-sqlite3 ya está compilado y listo (ABI compatible)');
+    return;
+  }
+
+  log('info', 'better-sqlite3 necesita reconstrucción para el ABI de Electron');
+
+  const rebuildBin = path.join(
+    __dirname,
+    'node_modules',
+    '.bin',
+    process.platform === 'win32' ? 'electron-rebuild.cmd' : 'electron-rebuild'
+  );
+
+  // Intentar reconstrucción con @electron/rebuild
   try {
-    // Invocar el binario local de @electron/rebuild directamente (el shim
-    // multiplataforma de node_modules/.bin). Evita `spawnSync('npx', ...)`,
-    // que en Windows falla con ENOENT porque npx no está en el PATH del
-    // postinstall (hay que usar npx.cmd). El .bin/cmd de Windows funciona.
-    const rebuildBin = path.join(
-      __dirname,
-      'node_modules',
-      '.bin',
-      process.platform === 'win32' ? 'electron-rebuild.cmd' : 'electron-rebuild'
-    );
+    if (!fs.existsSync(rebuildBin)) {
+      log('warn', '@electron/rebuild no encontrado — intentando npm install');
+      try {
+        execSync('npm install @electron/rebuild --save-dev', {
+          cwd: __dirname,
+          stdio: 'inherit',
+          timeout: 120000,
+        });
+      } catch (_) {
+        log('error', 'No se pudo instalar @electron/rebuild');
+      }
+    }
+
+    if (!fs.existsSync(rebuildBin)) {
+      log('error', 'No se encontró electron-rebuild en node_modules/.bin');
+      log('warn', 'Intentando alternativa con node directamente...');
+      tryRebuildViaNode();
+      return;
+    }
+
     const result = spawnSync(rebuildBin, ['-f', '-w', 'better-sqlite3'], {
       cwd: __dirname,
       stdio: 'inherit',
@@ -159,24 +204,77 @@ function rebuildNativeModules() {
       shell: process.platform === 'win32',
     });
 
-    if (result.status === 0) {
-      log('ok', 'Módulos nativos reconstruidos correctamente');
-    } else {
-      log('error', `@electron/rebuild terminó con código ${result.status} — better-sqlite3 probablemente NO va a funcionar`);
-      log('error', 'Ejecuta manualmente: npx @electron/rebuild -f -w better-sqlite3');
-      if (result.error) {
-        log('error', result.error.message);
-      }
-      exitCode = 1;
+    if (result.status === 0 && isBetterSqlite3Ready()) {
+      log('ok', 'Módulos nativos reconstruidos correctamente — better-sqlite3 funcional');
+      return;
     }
+
+    if (result.status === 0) {
+      log('warn', '@electron/rebuild terminó con código 0 pero better-sqlite3 no carga');
+      log('warn', 'Posible mismatch de ABI — reintenta con: npm run rebuild');
+    } else {
+      log('error', `@electron/rebuild terminó con código ${result.status}`);
+    }
+
+    if (result.error) {
+      log('error', result.error.message);
+    }
+
+    // Fallback: intentar reconstrucción individual
+    log('info', 'Intentando fallback de reconstrucción...');
+    tryFallbackRebuild();
   } catch (e) {
-    log('error', `No se pudo ejecutar @electron/rebuild: ${e.message} — better-sqlite3 probablemente NO va a funcionar`);
-    log('error', 'Instálalo con: npm install -D @electron/rebuild, luego corre: npx @electron/rebuild -f -w better-sqlite3');
-    exitCode = 1;
+    log('error', `No se pudo ejecutar @electron/rebuild: ${e instanceof Error ? e.message : String(e)}`);
+    log('warn', 'Intentando alternativa con node directamente...');
+    tryFallbackRebuild();
   }
 }
 
-// ── Main ────────────────────────────────────────────────────────────────────
+function tryRebuildViaNode() {
+  try {
+    const result = spawnSync(
+      process.execPath,
+      [
+        path.join(__dirname, 'node_modules', '@electron', 'rebuild', 'cli.js'),
+        '-f', '-w', 'better-sqlite3',
+      ],
+      { cwd: __dirname, stdio: 'inherit', timeout: 180000 }
+    );
+    if (result.status === 0 && isBetterSqlite3Ready()) {
+      log('ok', 'Reconstrucción vía node exitosa');
+      return;
+    }
+  } catch (_) {}
+  log('warn', 'Fallback de reconstrucción no disponible');
+  log('warn', 'El asistente puede seguir funcionando sin better-sqlite3 (memoria en RAM).');
+  log('warn', 'Para corregir, ejecuta: npm run rebuild');
+}
+
+function tryFallbackRebuild() {
+  // Último intento: ejecutar rebuild directamente con node
+  try {
+    const result = spawnSync(
+      process.execPath,
+      [
+        '-e',
+        `require('@electron/rebuild').rebuild({ buildFromSource: true, modules: ['better-sqlite3'] })`,
+      ],
+      { cwd: __dirname, stdio: 'inherit', timeout: 180000 }
+    );
+    if (result.status === 0 && isBetterSqlite3Ready()) {
+      log('ok', 'Fallback de reconstrucción exitoso');
+      return;
+    }
+  } catch (_) {}
+
+  log('error', 'No se pudo reconstruir better-sqlite3 con ningún método');
+  log('error', 'El asistente usará memoria en RAM como fallback');
+  log('warn', 'Para corregir permanentemente ejecuta:');
+  log('warn', '  npm run rebuild');
+  log('warn', 'O en Windows: npx @electron/rebuild -f -w better-sqlite3');
+}
+
+// ── Main ────────────────────────────────────────────────────────────
 
 console.log('═══════════════════════════════════════════════════════');
 console.log('  fix-electron — instalación multiplataforma');
