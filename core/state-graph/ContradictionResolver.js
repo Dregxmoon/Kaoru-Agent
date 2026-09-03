@@ -87,6 +87,7 @@ const MAX_APPEND_SEGMENTS = 3;
  * @property {string} content
  * @property {number} [importance]
  * @property {string[]} [tags]
+ * @property {{reason?:string,source?:string,evidenceIds?:number[]}} [revision]
  */
 
 /**
@@ -110,6 +111,8 @@ const MAX_APPEND_SEGMENTS = 3;
  * @property {(rel: object) => void} createRelation
  * @property {(opts: object) => number | string | null} upsertNode
  * @property {(label: string) => number} _invalidateCascade
+ * @property {(id: number | string) => any} getNode
+ * @property {(input: object) => number} _recordMemoryRevision
  * @property {any} _db
  */
 
@@ -163,7 +166,7 @@ class ContradictionResolver {
    * @returns {number | string | null}
    */
   _applyPolicy(policy, existing, newNode) {
-    const { label, content, importance = 0.7, tags = [], type } = newNode;
+    const { label, content, importance = 0.7, tags = [], type, revision = {} } = newNode;
 
     switch (policy) {
       case 'overwrite': {
@@ -176,12 +179,16 @@ class ContradictionResolver {
         // (alguien corrige su trabajo, su ciudad, etc.) quedaba invisible
         // para queryNodesSemantic() hasta la próxima vez que ese nodo
         // se tocara por otra vía.
-        this._graph.updateNode(existing.id, {
-          content: content,
-          importance: Math.max(importance, existing.importance),
-          // F3.1: un overwrite ES una reconfirmación del hecho — su vigencia
-          // se refresca ahora, no al momento de la creación original.
-          verified_at: Date.now(),
+        this._atomic(() => {
+          this._graph.updateNode(existing.id, {
+            content: content,
+            importance: Math.max(importance, existing.importance),
+            // F3.1: un overwrite ES una reconfirmación del hecho — su vigencia
+            // se refresca ahora, no al momento de la creación original.
+            verified_at: Date.now(),
+            revision: false,
+          });
+          this._recordRevision('overwrite', existing, existing.id, newNode, revision);
         });
         logger.info(
           'ContradictionResolver',
@@ -203,8 +210,12 @@ class ContradictionResolver {
       }
 
       case 'archive_and_replace': {
-        this._graph._archiveNode(existing.id);
-        const newId = this._graph.createNode({ type, label, content, importance, tags });
+        let newId = null;
+        this._atomic(() => {
+          this._graph._archiveNode(existing.id);
+          newId = this._graph.createNode({ type, label, content, importance, tags });
+          this._recordRevision('archive_and_replace', existing, newId, newNode, revision);
+        });
         logger.info(
           'ContradictionResolver',
           `[resolver] archive_and_replace: ${label} — viejo archivado, nuevo creado`
@@ -246,9 +257,19 @@ class ContradictionResolver {
         const trimmed = segments.slice(-MAX_APPEND_SEGMENTS);
         const merged = trimmed.join(APPEND_SEPARATOR);
 
-        this._graph.updateNode(existing.id, {
-          content: merged,
-          importance: Math.max(importance, existing.importance),
+        this._atomic(() => {
+          this._graph.updateNode(existing.id, {
+            content: merged,
+            importance: Math.max(importance, existing.importance),
+            revision: false,
+          });
+          this._recordRevision(
+            'append',
+            existing,
+            existing.id,
+            { ...newNode, content: merged },
+            revision
+          );
         });
         logger.info(
           'ContradictionResolver',
@@ -260,6 +281,89 @@ class ContradictionResolver {
       default:
         return this._graph.upsertNode(newNode);
     }
+  }
+
+  /**
+   * Resuelve una tensión sólo cuando el llamador elige explícitamente qué
+   * versión queda vigente. La relación contradictoria se conserva como
+   * historia; al archivar el perdedor deja de aparecer como tensión activa.
+   * @param {{winnerNodeId:number,loserNodeId:number,reason?:string,source?:string,evidenceIds?:number[]}} input
+   */
+  resolveTension(input) {
+    const winner = this._graph.getNode(Number(input?.winnerNodeId));
+    const loser = this._graph.getNode(Number(input?.loserNodeId));
+    if (!winner || !loser || winner.id === loser.id) {
+      return { resolved: false, reason: 'invalid_nodes' };
+    }
+    if (winner.archived || loser.archived || winner.label !== loser.label) {
+      return { resolved: false, reason: 'not_active_tension' };
+    }
+    const relation = this._graph._db
+      .prepare(
+        `SELECT id FROM node_relations
+         WHERE type='CONTRADICES'
+           AND ((source_id=? AND target_id=?) OR (source_id=? AND target_id=?))
+         LIMIT 1`
+      )
+      .get(winner.id, loser.id, loser.id, winner.id);
+    if (!relation) return { resolved: false, reason: 'not_active_tension' };
+
+    let revisionId = null;
+    this._atomic(() => {
+      this._graph._archiveNode(loser.id);
+      this._graph.updateNode(winner.id, { verified_at: Date.now() });
+      this._graph.createRelation({ source: winner.id, target: loser.id, type: 'SUPERSEDES' });
+      revisionId = this._graph._recordMemoryRevision({
+        label: winner.label,
+        type: winner.type,
+        policy: 'resolve_tension',
+        previousNodeId: Number(loser.id),
+        currentNodeId: Number(winner.id),
+        previousContent: loser.content,
+        currentContent: winner.content,
+        reason: input.reason || null,
+        source: input.source || 'explicit_resolution',
+        evidenceIds: input.evidenceIds || [],
+      });
+    });
+    return {
+      resolved: true,
+      winnerNodeId: Number(winner.id),
+      loserNodeId: Number(loser.id),
+      revisionId,
+    };
+  }
+
+  /** @param {() => void} work */
+  _atomic(work) {
+    const transaction = this._graph._db?.transaction;
+    if (typeof transaction === 'function') {
+      return transaction.call(this._graph._db, work)();
+    }
+    return work();
+  }
+
+  /**
+   * @param {string} policy
+   * @param {MemNode} existing
+   * @param {number|string|null} currentNodeId
+   * @param {NewNodeInfo} newNode
+   * @param {{reason?:string,source?:string,evidenceIds?:number[]}} revision
+   */
+  _recordRevision(policy, existing, currentNodeId, newNode, revision) {
+    if (currentNodeId == null) throw new Error('No se creó el nodo vigente');
+    return this._graph._recordMemoryRevision({
+      label: newNode.label,
+      type: newNode.type,
+      policy,
+      previousNodeId: Number(existing.id),
+      currentNodeId: Number(currentNodeId),
+      previousContent: existing.content,
+      currentContent: newNode.content,
+      reason: revision.reason || null,
+      source: revision.source || 'memory_pipeline',
+      evidenceIds: revision.evidenceIds || [],
+    });
   }
 
   /**

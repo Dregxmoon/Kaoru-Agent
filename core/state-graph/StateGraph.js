@@ -33,6 +33,7 @@ const { GoalPlanStore } = require('./stores/GoalPlanStore.js');
 const { CausalMemoryStore } = require('./stores/CausalMemoryStore.js');
 const { AutobiographicalMemoryStore } = require('./stores/AutobiographicalMemoryStore.js');
 const { MetamemoryStore } = require('./stores/MetamemoryStore.js');
+const { MemoryRevisionStore } = require('./stores/MemoryRevisionStore.js');
 const { EvolutionStore } = require('./evolution/EvolutionStore.js');
 const { FeedbackScorer } = require('./evolution/FeedbackScorer.js');
 const { LLMEotionDetector } = require('./evolution/LLMEotionDetector.js');
@@ -478,6 +479,7 @@ class StateGraph {
     this._causalMemory = new CausalMemoryStore(this._db, this);
     this._autobiographical = new AutobiographicalMemoryStore(this._db, this);
     this._autobiographical.backfillLegacy(200);
+    this._memoryRevisions = new MemoryRevisionStore(this._db, this);
     this._metamemory = new MetamemoryStore(this._db, this);
     this._resolver = new ContradictionResolver(this);
     this._userModel = new UserModelBuilder(this._db, this);
@@ -698,6 +700,26 @@ class StateGraph {
         ON autobiographical_events(occurred_at DESC);
       CREATE INDEX IF NOT EXISTS idx_autobiographical_session
         ON autobiographical_events(session_id, occurred_at);
+
+      CREATE TABLE IF NOT EXISTS memory_revisions (
+        id               INTEGER PRIMARY KEY AUTOINCREMENT,
+        label            TEXT NOT NULL,
+        node_type        TEXT NOT NULL,
+        policy           TEXT NOT NULL,
+        previous_node_id INTEGER NOT NULL,
+        current_node_id  INTEGER NOT NULL,
+        previous_content TEXT NOT NULL,
+        current_content  TEXT NOT NULL,
+        reason           TEXT,
+        source           TEXT NOT NULL DEFAULT 'memory_pipeline',
+        evidence_ids     TEXT NOT NULL DEFAULT '[]',
+        created_at       INTEGER NOT NULL
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_memory_revisions_label
+        ON memory_revisions(label, id ASC);
+      CREATE INDEX IF NOT EXISTS idx_memory_revisions_current
+        ON memory_revisions(current_node_id, created_at DESC);
 
       CREATE TABLE IF NOT EXISTS interaction_log (
         id            INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -968,8 +990,35 @@ class StateGraph {
   createNode(opts) {
     return this._nodes.createNode(opts);
   }
-  updateNode(id, opts) {
-    return this._nodes.updateNode(id, opts);
+  updateNode(id, opts = {}) {
+    const existing = this._nodes.getNode(id);
+    const revision = opts.revision;
+    const { revision: _revision, ...nodeUpdate } = opts;
+    const changesContent =
+      existing && nodeUpdate.content !== undefined && nodeUpdate.content !== existing.content;
+    if (!changesContent || revision === false || !this._memoryRevisions) {
+      return this._nodes.updateNode(id, nodeUpdate);
+    }
+
+    let updated = false;
+    const apply = this._db.transaction(() => {
+      updated = this._nodes.updateNode(id, nodeUpdate);
+      if (!updated) throw new Error(`No se pudo actualizar el nodo ${id}`);
+      this._memoryRevisions.record({
+        label: nodeUpdate.label || existing.label,
+        type: existing.type,
+        policy: revision?.policy || 'direct_update',
+        previousNodeId: Number(existing.id),
+        currentNodeId: Number(existing.id),
+        previousContent: existing.content,
+        currentContent: nodeUpdate.content,
+        reason: revision?.reason || 'actualización directa del nodo',
+        source: revision?.source || 'state_graph',
+        evidenceIds: revision?.evidenceIds || [],
+      });
+    });
+    apply();
+    return updated;
   }
   getNode(id) {
     return this._nodes.getNode(id);
@@ -1367,6 +1416,21 @@ class StateGraph {
     if (metadata) return this._metamemory.assessNode(node, metadata, now);
     const assessment = this._metamemory.assessRecall({ nodes: [node], now });
     return assessment.nodes[0]?._metamemory || this._metamemory.assessNode(node, {}, now);
+  }
+  _recordMemoryRevision(input) {
+    return this._memoryRevisions.record(input);
+  }
+  _getMemoryRevisionMetadata(ids) {
+    return this._memoryRevisions.getMetadata(ids);
+  }
+  _deleteMemoryRevisions(labels) {
+    return this._memoryRevisions.deleteForLabels(labels);
+  }
+  getMemoryRevisionHistory(opts) {
+    return this._memoryRevisions.getHistory(opts);
+  }
+  resolveMemoryTension(opts) {
+    return this._resolver.resolveTension(opts);
   }
 
   setWorkingMemory(opts) {

@@ -301,13 +301,18 @@ class NodeStore {
       .get(type, label);
 
     if (existing) {
-      this.updateNode(existing.id, {
+      this._g.updateNode(existing.id, {
         content,
         importance,
         tags,
         verified_at,
         inferred,
         confidence,
+        revision: {
+          policy: 'upsert',
+          source: 'upsert_node',
+          reason: 'consolidación de memoria existente',
+        },
       });
       return existing.id;
     }
@@ -414,6 +419,7 @@ class NodeStore {
         content: String(t.content || '').slice(0, 80),
       });
     }
+    this._g._deleteMemoryRevisions?.(nodes.map((node) => node.label));
 
     return {
       found: rows.length,

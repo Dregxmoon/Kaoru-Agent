@@ -361,23 +361,30 @@ class StateUpdater {
           if (labelsHandled.has(nodeData.label)) continue;
           labelsHandled.add(nodeData.label);
 
-          const nodeId = this._resolver.resolve(nodeData);
+          const evidence =
+            sessionId == null
+              ? []
+              : this._graph
+                  .listObservations?.({
+                    sessionId,
+                    source: 'chat',
+                    kind: 'user_message',
+                    unprocessedOnly: true,
+                    limit: 1000,
+                  })
+                  ?.filter((row) => row.content === text)
+                  .slice(-1) || [];
+          const evidenceIds = evidence.map((row) => Number(row.id)).filter(Boolean);
+          const nodeId = this._resolver.resolve({
+            ...nodeData,
+            revision: {
+              source: 'user_statement',
+              reason: 'actualización explícita detectada en conversación',
+              evidenceIds,
+            },
+          });
           if (typeof nodeId === 'number' && sessionId != null) {
-            const evidence = this._graph
-              .listObservations?.({
-                sessionId,
-                source: 'chat',
-                kind: 'user_message',
-                unprocessedOnly: true,
-                limit: 1000,
-              })
-              ?.filter((row) => row.content === text)
-              .slice(-1);
-            this._graph.linkMemoryEvidence?.(
-              nodeId,
-              (evidence || []).map((row) => Number(row.id)).filter(Boolean),
-              1
-            );
+            this._graph.linkMemoryEvidence?.(nodeId, evidenceIds, 1);
           }
           saved++;
           logger.info('StateUpdater', `[state-updater] inmediato: ${nodeData.label}`);
@@ -705,6 +712,10 @@ class StateUpdater {
           content: node.content,
           importance: Math.min(1.0, Math.max(0.1, node.importance ?? 0.6)),
           tags: Array.isArray(node.tags) ? node.tags : [],
+          revision: {
+            source: 'session_extraction',
+            reason: 'nueva evidencia consolidada desde la sesión',
+          },
         });
         idByLabel.set(migratedLabel, id);
         if (typeof id === 'number') nodeIds.push(id);

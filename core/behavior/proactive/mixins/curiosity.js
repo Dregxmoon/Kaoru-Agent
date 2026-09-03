@@ -419,9 +419,20 @@ module.exports = {
    * por archived=0) sin necesidad de borrar la relación.
    */
   _resolveTensionRef(ref, decision) {
-    if (typeof this._graph._archiveNode !== 'function') return;
-    const toArchive = decision === 'accepted' ? ref.nodeB : ref.nodeA;
-    if (toArchive != null) this._graph._archiveNode(toArchive);
+    const winnerNodeId = decision === 'accepted' ? ref.nodeA : ref.nodeB;
+    const loserNodeId = decision === 'accepted' ? ref.nodeB : ref.nodeA;
+    if (winnerNodeId == null || loserNodeId == null) return;
+    if (typeof this._graph.resolveMemoryTension === 'function') {
+      this._graph.resolveMemoryTension({
+        winnerNodeId,
+        loserNodeId,
+        reason: 'el usuario resolvió una pregunta de contradicción',
+        source: 'user_confirmation',
+      });
+      return;
+    }
+    // Compatibilidad con dobles de prueba o grafos antiguos.
+    if (typeof this._graph._archiveNode === 'function') this._graph._archiveNode(loserNodeId);
   },
 
   /**

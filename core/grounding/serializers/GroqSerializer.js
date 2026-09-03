@@ -361,7 +361,16 @@ function _metamemoryLabel(item) {
     Number.isFinite(verifiedAt) && verifiedAt > 0
       ? ` · confirmada ${new Date(verifiedAt).toISOString().slice(0, 10)}`
       : '';
-  return ` · ${statuses[String(meta.status)] || 'estado incierto'} · confianza ${confidence}${confirmation}`;
+  const revisionCount = Math.max(0, Number(meta.revisionCount) || 0);
+  const correctedAt = Number(meta.lastCorrectedAt);
+  const revision = revisionCount
+    ? ` · revisada ${revisionCount} ${revisionCount === 1 ? 'vez' : 'veces'}${
+        Number.isFinite(correctedAt) && correctedAt > 0
+          ? ` (última ${new Date(correctedAt).toISOString().slice(0, 10)})`
+          : ''
+      }`
+    : '';
+  return ` · ${statuses[String(meta.status)] || 'estado incierto'} · confianza ${confidence}${confirmation}${revision}`;
 }
 
 /** @param {MetamemoryData|null|undefined} metamemory */

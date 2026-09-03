@@ -23,16 +23,23 @@ function _band(value) {
 }
 
 class MetamemoryStore {
-  /** @param {any} db @param {{usingFallback?:boolean}} graph */
+  /** @param {any} db @param {{usingFallback?:boolean,_getMemoryRevisionMetadata?:(ids:number[])=>Map<number,any>}} graph */
   constructor(db, graph) {
     this._db = db;
     this._graph = graph;
   }
 
-  /** @param {number[]} ids @returns {Map<number,{evidenceCount:number,contested:boolean}>} */
+  /** @param {number[]} ids @returns {Map<number,{evidenceCount:number,contested:boolean,revisionCount:number,lastCorrectedAt:number|null}>} */
   _metadata(ids) {
     const result = new Map();
-    for (const id of ids) result.set(id, { evidenceCount: 0, contested: false });
+    for (const id of ids) {
+      result.set(id, {
+        evidenceCount: 0,
+        contested: false,
+        revisionCount: 0,
+        lastCorrectedAt: null,
+      });
+    }
     if (this._graph.usingFallback || !ids.length) return result;
     const placeholders = ids.map(() => '?').join(',');
     try {
@@ -65,6 +72,14 @@ class MetamemoryStore {
           if (meta) meta.contested = true;
         }
       }
+      const revisions = this._graph._getMemoryRevisionMetadata?.(ids) || new Map();
+      for (const [id, revision] of revisions) {
+        const meta = result.get(Number(id));
+        if (meta) {
+          meta.revisionCount = Number(revision.revisionCount) || 0;
+          meta.lastCorrectedAt = revision.lastCorrectedAt ?? null;
+        }
+      }
     } catch (_) {
       // Sin metadata auxiliar, el recuerdo sigue disponible pero se etiqueta
       // de manera conservadora como no trazado.
@@ -74,7 +89,7 @@ class MetamemoryStore {
 
   /**
    * @param {any} node
-   * @param {{evidenceCount?:number,contested?:boolean}} [metadata]
+   * @param {{evidenceCount?:number,contested?:boolean,revisionCount?:number,lastCorrectedAt?:number|null}} [metadata]
    * @param {number} [now]
    */
   assessNode(node, metadata = {}, now = Date.now()) {
@@ -84,6 +99,9 @@ class MetamemoryStore {
       Number(metadata.evidenceCount ?? node?.memory_context?.evidenceCount) || 0
     );
     const contested = Boolean(metadata.contested);
+    const revisionCount = Math.max(0, Number(metadata.revisionCount) || 0);
+    const lastCorrectedAt =
+      metadata.lastCorrectedAt == null ? null : Number(metadata.lastCorrectedAt);
     // `updated_at` puede cambiar por mantenimiento o acceso y no equivale a
     // confirmación. Si `verified_at` fue invalidado explícitamente, se conserva
     // como null; `created_at` sólo sirve como base conservadora de antigüedad.
@@ -121,6 +139,7 @@ class MetamemoryStore {
     } else {
       reasons.push('no_linked_evidence');
     }
+    if (revisionCount > 0) reasons.push('reconsolidated_memory');
 
     return {
       status,
@@ -129,6 +148,8 @@ class MetamemoryStore {
       contested,
       stale,
       verifiedAt: verifiedAt || null,
+      revisionCount,
+      lastCorrectedAt,
       reasons,
       mayStateAsFact: !episode && !inferred && !contested && !stale && evidenceCount > 0,
     };
@@ -146,7 +167,12 @@ class MetamemoryStore {
     const now = Number(input.now) || Date.now();
     const annotate = (/** @type {any} */ node) => {
       const existingEvidence = Number(node?.memory_context?.evidenceCount) || 0;
-      const meta = metadata.get(Number(node?.id)) || { evidenceCount: 0, contested: false };
+      const meta = metadata.get(Number(node?.id)) || {
+        evidenceCount: 0,
+        contested: false,
+        revisionCount: 0,
+        lastCorrectedAt: null,
+      };
       return {
         ...node,
         _metamemory: this.assessNode(
@@ -154,6 +180,8 @@ class MetamemoryStore {
           {
             evidenceCount: Math.max(existingEvidence, meta.evidenceCount),
             contested: meta.contested,
+            revisionCount: meta.revisionCount,
+            lastCorrectedAt: meta.lastCorrectedAt,
           },
           now
         ),
