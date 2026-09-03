@@ -12,6 +12,7 @@ const { resolveToolset } = require('../task/ToolResolver.js');
 const { getProjectCWD } = require('../planner/Planner.js');
 const { buildGestureSection } = require('../behavior/GestureVocabulary.js');
 const { readGesturesConfig } = require('./config.js');
+const { _computeTurnEngagement } = require('../state-graph/evolution/FeedbackScorer.js');
 
 const state = require('./state.js');
 
@@ -184,7 +185,12 @@ const CONVERSATION_STYLE_RULE = `# ESTILO DE CONVERSACIÓN
 // ── Context ───────────────────────────────────────────────────────────────────
 
 // Estado para feedback loop: almacena el contexto del turno anterior
-const _prevTurnContext = { enforcement: null, emotionalCtx: null, adaptationType: null };
+const _prevTurnContext = {
+  enforcement: null,
+  emotionalCtx: null,
+  adaptationType: null,
+  sessionId: null,
+};
 
 async function buildContext(sessionHistory, activeProvider, options = {}) {
   const provider = activeProvider || LLMProvider.getActiveProvider() || 'groq';
@@ -192,18 +198,23 @@ async function buildContext(sessionHistory, activeProvider, options = {}) {
   const approvedPlan = options.plan || null;
 
   // Evaluar la respuesta del turno anterior (feedback loop)
-  if (_prevTurnContext.enforcement && state.graph) {
+  const currentSessionId = state.session?.getSessionId?.() ?? null;
+  if (
+    _prevTurnContext.enforcement &&
+    state.graph &&
+    _prevTurnContext.sessionId === currentSessionId
+  ) {
     try {
       const evaluator = state.graph.getResponseEvaluator?.();
       if (evaluator) {
-        // Calcular engagement del último turno del usuario
+        // El historial actual termina en el mensaje que responde a la salida
+        // pendiente. Antes se medía `history[length - 2]`, que normalmente era
+        // la propia respuesta de Kaoru y atribuía su longitud como engagement.
         const lastUserMsg = [...sessionHistory].reverse().find((m) => m.role === 'user');
-        const prevUserMsg =
-          sessionHistory.length >= 2 ? sessionHistory[sessionHistory.length - 2] : null;
-        const engagement = prevUserMsg
-          ? Math.min(1, (prevUserMsg.content?.length || 0) / 100 + 0.3)
+        const engagement = lastUserMsg
+          ? _computeTurnEngagement(lastUserMsg.content || '', sessionHistory.length > 2)
           : 0.5;
-        evaluator.evaluate(engagement);
+        evaluator.evaluate(engagement, currentSessionId);
       }
     } catch (e) {
       logger.debug('context', '[core] error evaluando respuesta anterior:', e.message);
@@ -218,6 +229,7 @@ async function buildContext(sessionHistory, activeProvider, options = {}) {
   // BehaviorModel
   let behaviorCtx = null;
   let enforcementRules = null;
+  _prevTurnContext.adaptationType = null;
   if (state.behavior) {
     try {
       // Get adaptation profile from evolutionary memory
@@ -229,13 +241,21 @@ async function buildContext(sessionHistory, activeProvider, options = {}) {
             adaptationProfile = adaptiveEngine.buildAdaptationProfile();
             // Registrar adaptación para feedback loop
             if (adaptationProfile && adaptationProfile.confidence > 0.2) {
+              const adaptationType =
+                adaptationProfile.emotionalContext && adaptationProfile.emotionalIntensity > 0.3
+                  ? 'emotionalContext'
+                  : adaptationProfile.responseLength !== 'normal'
+                    ? 'responseLength'
+                    : adaptationProfile.technicalLevel !== 'moderate'
+                      ? 'technicalLevel'
+                      : adaptationProfile.formality !== 'neutral'
+                        ? 'formality'
+                        : null;
               const feedbackScorer = state.graph.getFeedbackScorer?.();
-              if (feedbackScorer) {
-                feedbackScorer.recordAdaptation(
-                  'responseLength',
-                  adaptationProfile.styleHint || ''
-                );
+              if (feedbackScorer && adaptationType) {
+                feedbackScorer.recordAdaptation(adaptationType, adaptationProfile.styleHint || '');
               }
+              _prevTurnContext.adaptationType = adaptationType;
             }
             // Serializar perfil para inyectar al LLM
             if (adaptationProfile && adaptationProfile.confidence > 0.1) {
@@ -317,7 +337,7 @@ async function buildContext(sessionHistory, activeProvider, options = {}) {
       // Almacenar contexto para evaluación en el próximo turno
       _prevTurnContext.enforcement = enforcementRules;
       _prevTurnContext.emotionalCtx = emotionalCtx;
-      _prevTurnContext.adaptationType = null;
+      _prevTurnContext.sessionId = currentSessionId;
 
       behaviorCtx = state.behavior.evaluate(
         userText,

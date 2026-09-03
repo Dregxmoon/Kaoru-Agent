@@ -10,35 +10,50 @@ const { ContradictionResolver } = require('./ContradictionResolver.js');
 const DECAY_INTERVAL_HOURS = 20;
 
 /**
- * @typedef {{ id: string, history: Array<{ role: string, content: string, ts?: number }>, turnCount: number }} ResumableSession
+ * @typedef {{ id: string, history: Array<{ role: string, content: string, ts?: number, seq?: number }>, turnCount: number, memoryCursor?: number }} ResumableSession
  * @typedef {{ getPath(name: string): string }} ElectronAppLike
  * @typedef {{
  *   findResumableSession(hours: number): ResumableSession | null,
  *   startSession(): string,
- *   updateSessionHistory(id: string, history: Array<object>): void,
+ *   updateSessionHistory(id: string, history: Array<object>, turnCount?: number): void,
+ *   updateSessionMemoryCursor?(id: string, cursor: number, opts?: object): boolean,
  *   endSession(id: string, opts: object): void,
  *   getStats(): object,
  *   listActiveIntentions?(opts: {limit?: number}): Array<object>,
+ *   getEmotionalTrendTracker?(): any,
+ *   getTraitLearner?(): any,
+ *   getTopicTracker?(): any,
+ *   getFeedbackScorer?(): any,
+ *   recordObservation?(opts: object): number|null,
+ *   markObservationsProcessed?(ids: number[]): number,
  * }} StateGraphLike
  */
 class SessionManager {
   /**
    * @param {StateGraphLike} stateGraph
    * @param {object} groundingEngine
-   * @param {{ resumeMaxAgeHours?: number }} [options]
+   * @param {{ resumeMaxAgeHours?: number, incrementalEveryTurns?: number }} [options]
    */
-  constructor(stateGraph, groundingEngine, { resumeMaxAgeHours = 48 } = {}) {
+  constructor(
+    stateGraph,
+    groundingEngine,
+    { resumeMaxAgeHours = 48, incrementalEveryTurns = 8 } = {}
+  ) {
     this._graph = stateGraph;
     this._grounding = groundingEngine;
     this._updater = new StateUpdater(stateGraph);
     this._resolver = new ContradictionResolver(stateGraph);
     this._sessionId = null;
-    /** @type {Array<{ role: string, content: string, ts?: number }>} */
+    /** @type {Array<{ role: string, content: string, ts?: number, seq?: number }>} */
     this._history = [];
     this._turnCount = 0;
     this._isClosing = false;
     this._closePromise = null;
     this._resumeMaxAgeHours = resumeMaxAgeHours;
+    this._incrementalEveryTurns = Math.max(4, incrementalEveryTurns);
+    this._memoryCursor = 0;
+    /** @type {Promise<object|null>|null} */
+    this._incrementalPromise = null;
   }
 
   /**
@@ -64,8 +79,13 @@ class SessionManager {
         `[session] reanudando sesión interrumpida ${resumable.id} (${resumable.history.length} mensajes)`
       );
       this._sessionId = resumable.id;
-      this._history = resumable.history;
+      const baseSeq = Math.max(0, resumable.turnCount - resumable.history.length);
+      this._history = resumable.history.map((turn, index) => ({
+        ...turn,
+        seq: Number(turn.seq) || baseSeq + index + 1,
+      }));
       this._turnCount = resumable.turnCount;
+      this._memoryCursor = resumable.memoryCursor || 0;
       this._resolver.deduplicateNodes();
       this._updater.cleanupMemoryArtifacts();
       this._maybeRunDecay(app);
@@ -83,6 +103,7 @@ class SessionManager {
     this._sessionId = this._graph.startSession();
     this._history = [];
     this._turnCount = 0;
+    this._memoryCursor = 0;
     logger.info('SessionManager', `[session] sesión ${this._sessionId} iniciada`);
 
     // Iniciar tracking de tendencias emocionales para esta sesión
@@ -134,8 +155,8 @@ class SessionManager {
    * @param {string} content
    */
   addTurn(role, content) {
-    this._history.push({ role, content, ts: Date.now() });
     this._turnCount++;
+    this._history.push({ role, content, ts: Date.now(), seq: this._turnCount });
     if (this._history.length > 40) this._history = this._history.slice(-40);
 
     // Evolutionary memory analysis (per-turn, deterministic)
@@ -156,8 +177,18 @@ class SessionManager {
     // justo lo que permite resumir tras un crash: si la app truena ahora
     // mismo, como mucho se pierde el turno en vuelo, no la conversación.
     if (this._sessionId) {
-      this._graph.updateSessionHistory(this._sessionId, this._history);
+      this._graph.updateSessionHistory(this._sessionId, this._history, this._turnCount);
+      this._graph.recordObservation?.({
+        source: 'chat',
+        kind: role === 'user' ? 'user_message' : 'assistant_message',
+        content,
+        metadata: { role, seq: this._turnCount },
+        sessionId: this._sessionId,
+        sensitivity: 'private',
+        dedupeKey: `chat:${this._sessionId}:${this._turnCount}`,
+      });
     }
+    if (role === 'assistant') this._scheduleIncrementalMemory();
   }
 
   getHistory() {
@@ -177,8 +208,10 @@ class SessionManager {
     this._sessionId = sessionId || this._graph.startSession();
     this._history = safeHistory.slice(-40);
     this._turnCount = this._history.length;
+    this._history = this._history.map((turn, index) => ({ ...turn, seq: index + 1 }));
+    this._memoryCursor = 0;
     if (this._sessionId) {
-      this._graph.updateSessionHistory(this._sessionId, this._history);
+      this._graph.updateSessionHistory(this._sessionId, this._history, this._turnCount);
     }
     logger.info(
       'SessionManager',
@@ -201,8 +234,20 @@ class SessionManager {
       `[session] cerrando sesión ${sessionId} (${turnCount} turnos)...`
     );
 
-    this._closePromise = this._updater
-      .processSession(sessionId, history, turnCount)
+    this._closePromise = Promise.resolve(this._incrementalPromise)
+      .catch(() => {})
+      .then(async () => {
+        const pending = history.filter((turn) => (Number(turn.seq) || 0) > this._memoryCursor);
+        const result = await this._updater.processIncremental(sessionId, pending);
+        const cursor = pending.reduce(
+          (max, turn) => Math.max(max, Number(turn.seq) || 0),
+          this._memoryCursor
+        );
+        this._graph.updateSessionMemoryCursor?.(sessionId, cursor, result);
+        this._graph.markObservationsProcessed?.(result.observationIds || []);
+        this._graph.endSession(sessionId, { turnCount });
+        return result;
+      })
       .then((result) => {
         logger.info('SessionManager', `[session] memoria guardada: ${result.saved} nodos`);
         return result;
@@ -218,6 +263,38 @@ class SessionManager {
       });
 
     return this._closePromise;
+  }
+
+  _scheduleIncrementalMemory() {
+    if (!this._sessionId || this._incrementalPromise) return;
+    const pending = this._history.filter((turn) => (Number(turn.seq) || 0) > this._memoryCursor);
+    if (pending.length < this._incrementalEveryTurns) return;
+
+    const sessionId = this._sessionId;
+    const cursor = pending.reduce((max, turn) => Math.max(max, Number(turn.seq) || 0), 0);
+    let succeeded = false;
+    this._incrementalPromise = this._updater
+      .processIncremental(sessionId, pending)
+      .then((result) => {
+        if (this._graph.updateSessionMemoryCursor?.(sessionId, cursor, result) !== false) {
+          this._memoryCursor = Math.max(this._memoryCursor, cursor);
+          this._graph.markObservationsProcessed?.(result.observationIds || []);
+        }
+        succeeded = true;
+        return result;
+      })
+      .catch((e) => {
+        logger.warn(
+          'SessionManager',
+          '[session] memoria incremental pendiente de reintento:',
+          /** @type {Error} */ (e).message
+        );
+        return null;
+      })
+      .finally(() => {
+        this._incrementalPromise = null;
+        if (succeeded && this._sessionId === sessionId) this._scheduleIncrementalMemory();
+      });
   }
 
   /** @param {ElectronAppLike | null} [app] */

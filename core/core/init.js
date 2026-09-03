@@ -11,6 +11,7 @@ const { getStateGraph } = require('../state-graph/StateGraph.js');
 const { GroundingEngine } = require('../grounding/GroundingEngine.js');
 const { SessionManager } = require('../state-graph/SessionManager.js');
 const { StateUpdater } = require('../state-graph/StateUpdater.js');
+const { ObservationBridge } = require('../perception/ObservationBridge.js');
 const { OSSensor } = require('../../infrastructure/sensors/OSSensor.js');
 const { LinuxOSSensor } = require('../../infrastructure/sensors/LinuxOSSensor.js');
 const { GitWatcher } = require('../../infrastructure/sensors/GitWatcher.js');
@@ -106,6 +107,7 @@ function init(app) {
   }
 
   state.graph = getStateGraph(dbPath);
+  state.observationBridge = new ObservationBridge({ bus: state.bus, graph: state.graph }).start();
   if (process.env.DEBUG)
     logger.info(
       'init',

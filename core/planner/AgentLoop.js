@@ -795,6 +795,12 @@ class AgentLoop {
       }
     }
 
+    // Estado ejecutivo efímero de la sesión. Nunca concede permisos ni
+    // sustituye una aprobación: solo recuerda el foco y su estado observable.
+    if (typeof opts.workingMemorySection === 'string' && opts.workingMemorySection.trim()) {
+      agentPrompt += '\n\n' + opts.workingMemorySection;
+    }
+
     // ── Fase 3 ítem 2: lo aprendido (feedback de proactividad + outcomes de
     //    tareas). El LearningEngine lo produce; el loop lo anexa como el
     //    bloque MENOS importante (primero en cortarse bajo presupuesto).

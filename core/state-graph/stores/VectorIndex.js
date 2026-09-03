@@ -145,9 +145,10 @@ class VectorIndex {
       scored.sort((a, b) => b._semanticScore - a._semanticScore);
       const top = scored.slice(0, limit);
 
-      if (!includeArchived) {
-        this._g._nodes._touchNodes(top.map((n) => n.id).filter(Boolean), 'queryNodesSemantic');
-      }
+      // No tocar last_accessed_at durante la selección: ese timestamp forma
+      // parte del score y refrescarlo aquí haría que una elección del propio
+      // algoritmo aumente las probabilidades de repetirse. El caller podrá
+      // registrar más adelante qué recuerdos llegaron realmente al prompt.
 
       return top;
     } catch (e) {

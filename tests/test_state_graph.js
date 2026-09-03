@@ -1065,6 +1065,8 @@ function testConsolidation() {
 
   const fact = graph.getNode(res.facts[0].id);
   assert(fact.type === 'Belief', 'el hecho es un Belief persistente');
+  assert(fact.inferred === 1, 'la recurrencia se marca como inferencia, no como hecho declarado');
+  assert(fact.confidence > 0.5 && fact.confidence < 1, 'la recurrencia conserva confianza acotada');
   assert(fact.label === 'consolidacion_videojuego', 'label del hecho es consolidacion_<termino>');
   assert(
     Math.abs(fact.importance - 0.65) < 1e-9,

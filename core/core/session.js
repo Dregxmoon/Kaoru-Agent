@@ -114,7 +114,9 @@ function addTurn(role, content) {
 
 function detectInstant(userMessage) {
   if (!state.updater) return;
-  state.updater.detectAndSaveInstant(userMessage);
+  state.updater.detectAndSaveInstant(userMessage, {
+    sessionId: state.session?.getSessionId?.() ?? null,
+  });
 }
 
 module.exports = {

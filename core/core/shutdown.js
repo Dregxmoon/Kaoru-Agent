@@ -39,6 +39,8 @@ async function shutdown() {
     state.initiativeUnsub();
     state.initiativeUnsub = null;
   }
+  state.observationBridge?.stop();
+  state.observationBridge = null;
   if (state.proposalExecutedUnsub) {
     state.proposalExecutedUnsub();
     state.proposalExecutedUnsub = null;

@@ -244,8 +244,11 @@ class RetrievalPlanner {
     // preferencias, proyectos) quedaba fuera del contexto del chat.
     // Fase 3: passing context for contextual boosting
     const context = {
-      activeApp: this._osSensor?.getCurrentContext()?.app || null,
-      windowTitle: this._osSensor?.getCurrentContext()?.title || null,
+      // GroundingEngine ya toma un snapshot del sensor y lo entrega como
+      // `osContext`. Mantener una segunda referencia al sensor dentro del
+      // planner dejaba este boost permanentemente vacío.
+      activeApp: osContext?.app || osContext?.friendlyName || null,
+      windowTitle: osContext?.title || null,
       currentTopic: this._extractKeywords(userMessage).slice(0, 3).join(' ') || null,
     };
     addAll(this._graph.getWorldModel(context));

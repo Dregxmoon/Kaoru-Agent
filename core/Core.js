@@ -47,6 +47,15 @@ const {
 } = require('./core/mcp.js');
 const { reloadLLMConfig } = require('./core/config.js');
 const {
+  getLearningData,
+  getTaskOutcomes,
+  getLearnedWeights,
+  recordTaskOutcome,
+  listReflectionProposals,
+  decideReflection,
+  resetLearning,
+} = require('./core/learning.js');
+const {
   listIntentions,
   addIntention,
   completeIntention,
@@ -89,13 +98,6 @@ const {
   getMemoryGaps,
   storeFact,
 } = require('./core/misc.js');
-const {
-  getLearningData,
-  getTaskOutcomes,
-  getLearnedWeights,
-  recordTaskOutcome,
-  resetLearning,
-} = require('./core/learning.js');
 const {
   getTrustData,
   getTrustStats,
@@ -168,6 +170,8 @@ module.exports = {
   getTaskOutcomes,
   getLearnedWeights,
   recordTaskOutcome,
+  listReflectionProposals,
+  decideReflection,
   resetLearning,
   getTrustData,
   getTrustStats,

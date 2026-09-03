@@ -32,6 +32,8 @@ const EmbedService = require('../grounding/EmbedService.js');
 const SEGMENT_COSINE_THRESHOLD = 0.4;
 const MIN_SEGMENT_TURNS = 3;
 const MIN_SESSION_TURNS_FOR_SEGMENTATION = 6;
+const MAX_EXTRACTION_CHARS = 18_000;
+const MAX_TURN_EXTRACTION_CHARS = 6_000;
 
 const EXTRACTION_SYSTEM = `Eres la memoria del asistente personal. Analiza la conversación y extrae lo memorable.
 
@@ -342,8 +344,10 @@ class StateUpdater {
    * mensaje (ej. "en realidad mi color favorito es rojo" matchea el genérico
    * Y el de corrección), solo se procesa el primero que aparezca — evita
    * doble resolve()/doble escritura para el mismo hecho.
+   * @param {string} userMessage
+   * @param {{sessionId?: string|number|null}} [opts]
    */
-  detectAndSaveInstant(userMessage) {
+  detectAndSaveInstant(userMessage, { sessionId = null } = {}) {
     if (!userMessage || !this._graph?.isReady) return 0;
     let saved = 0;
     const text = userMessage.trim();
@@ -357,7 +361,24 @@ class StateUpdater {
           if (labelsHandled.has(nodeData.label)) continue;
           labelsHandled.add(nodeData.label);
 
-          this._resolver.resolve(nodeData);
+          const nodeId = this._resolver.resolve(nodeData);
+          if (typeof nodeId === 'number' && sessionId != null) {
+            const evidence = this._graph
+              .listObservations?.({
+                sessionId,
+                source: 'chat',
+                kind: 'user_message',
+                unprocessedOnly: true,
+                limit: 1000,
+              })
+              ?.filter((row) => row.content === text)
+              .slice(-1);
+            this._graph.linkMemoryEvidence?.(
+              nodeId,
+              (evidence || []).map((row) => Number(row.id)).filter(Boolean),
+              1
+            );
+          }
           saved++;
           logger.info('StateUpdater', `[state-updater] inmediato: ${nodeData.label}`);
         }
@@ -366,6 +387,86 @@ class StateUpdater {
       }
     }
     return saved;
+  }
+
+  /**
+   * Convierte un lote de turnos en memoria sin cerrar la sesión. Solo el caller
+   * avanza el cursor durable después de que todas las extracciones terminaron.
+   * @param {string|number} sessionId
+   * @param {Array<{role:string, content:string, ts?:number, seq?:number}>} history
+   */
+  async processIncremental(sessionId, history) {
+    const turns = Array.isArray(history) ? history : [];
+    let instantSaved = 0;
+    for (const turn of turns) {
+      if (turn.role === 'user') {
+        instantSaved += this.detectAndSaveInstant(turn.content, { sessionId });
+      }
+    }
+    if (turns.length < 2 || !turns.some((t) => t.role === 'user')) {
+      return { saved: instantSaved, skipped: true, summary: null, episodeId: null, segments: 0 };
+    }
+
+    const segments = await this._segmentByTopic(turns);
+    const idByLabel = new Map();
+    let saved = instantSaved;
+    let discarded = 0;
+    let relations = 0;
+    const episodeIds = [];
+    const observationIds = [];
+    const summaries = [];
+
+    for (let i = 0; i < segments.length; i++) {
+      try {
+        const extracted = await this._extractMemories(segments[i]);
+        const result = this._saveExtraction(extracted, idByLabel);
+        saved += result.saved;
+        discarded += result.discarded;
+        relations += result.relations;
+        const segmentSeqs = segments[i].map((turn) => Number(turn.seq) || 0).filter(Boolean);
+        const minSeq = segmentSeqs.length ? Math.min(...segmentSeqs) : 0;
+        const maxSeq = segmentSeqs.length ? Math.max(...segmentSeqs) : 0;
+        const evidence = this._graph
+          .listObservations?.({ sessionId, source: 'chat', unprocessedOnly: true, limit: 1000 })
+          ?.filter((row) => {
+            let metadata = {};
+            try {
+              metadata = JSON.parse(row.metadata || '{}');
+            } catch (_) {}
+            const seq = Number(metadata.seq) || 0;
+            return seq >= minSeq && seq <= maxSeq;
+          });
+        const evidenceIds = (evidence || []).map((row) => Number(row.id)).filter(Boolean);
+        observationIds.push(...evidenceIds);
+        for (const nodeId of result.nodeIds) {
+          this._graph.linkMemoryEvidence?.(nodeId, evidenceIds, 1);
+        }
+        const episodeId = this._createEpisodeNode(extracted);
+        if (episodeId) {
+          episodeIds.push(episodeId);
+          this._graph.linkMemoryEvidence?.(episodeId, evidenceIds, 1);
+        }
+        if (extracted.episode_summary) summaries.push(extracted.episode_summary);
+      } catch (e) {
+        throw new Error(
+          `extracción incremental falló en segmento ${i + 1}/${segments.length}: ${e.message}`
+        );
+      }
+    }
+
+    logger.info(
+      'StateUpdater',
+      `[state-updater] lote incremental sesión ${sessionId}: ${saved} nodos, ${episodeIds.length} episodios`
+    );
+    return {
+      saved,
+      discarded,
+      relations,
+      summary: summaries.length ? summaries.join(' | ') : null,
+      episodeId: episodeIds[0] ?? null,
+      segments: segments.length,
+      observationIds: [...new Set(observationIds)],
+    };
   }
 
   /**
@@ -459,7 +560,7 @@ class StateUpdater {
     let instantSaved = 0;
     for (const turn of history) {
       if (turn.role === 'user') {
-        instantSaved += this.detectAndSaveInstant(turn.content);
+        instantSaved += this.detectAndSaveInstant(turn.content, { sessionId });
       }
     }
 
@@ -566,12 +667,13 @@ class StateUpdater {
    * segmentos).
    * @param {{ nodes?: any[], relations?: any[] }} extracted
    * @param {Map<string, number>} idByLabel
-   * @returns {{ saved: number, discarded: number, relations: number }}
+   * @returns {{ saved: number, discarded: number, relations: number, nodeIds: number[] }}
    */
   _saveExtraction(extracted, idByLabel) {
     let saved = 0,
       discarded = 0,
       relations = 0;
+    const nodeIds = [];
     for (const node of extracted.nodes || []) {
       try {
         if (!node.type || !node.label || !node.content) continue;
@@ -599,6 +701,7 @@ class StateUpdater {
           tags: Array.isArray(node.tags) ? node.tags : [],
         });
         idByLabel.set(migratedLabel, id);
+        if (typeof id === 'number') nodeIds.push(id);
         saved++;
       } catch (e) {
         logger.warn('StateUpdater', '[state-updater] error guardando nodo:', e.message);
@@ -630,7 +733,7 @@ class StateUpdater {
         logger.warn('StateUpdater', '[state-updater] error guardando relación:', e.message);
       }
     }
-    return { saved, discarded, relations };
+    return { saved, discarded, relations, nodeIds: [...new Set(nodeIds)] };
   }
 
   /**
@@ -655,44 +758,89 @@ class StateUpdater {
   }
 
   async _extractMemories(history) {
-    const recent = history.slice(-10);
-    const conversation = recent
-      .map((m) => `${m.role === 'user' ? 'Usuario' : 'Asistente'}: ${m.content}`)
-      .join('\n');
+    const chunks = this._chunkExtractionHistory(history);
+    const extractions = [];
+    for (const chunk of chunks) {
+      const conversation = chunk
+        .map((m) => {
+          const role = m.role === 'user' ? 'Usuario' : 'Asistente';
+          const content = String(m.content || '').slice(0, MAX_TURN_EXTRACTION_CHARS);
+          return `${role}: ${content}`;
+        })
+        .join('\n');
+      const useSmart = history.length > 20;
+      const raw = useSmart
+        ? await LLMProvider.completeTask(
+            [{ role: 'user', content: `Conversación:\n\n${conversation}` }],
+            EXTRACTION_SYSTEM
+          )
+        : await LLMProvider.complete(
+            [{ role: 'user', content: `Conversación:\n\n${conversation}` }],
+            EXTRACTION_SYSTEM
+          );
+      extractions.push(this._parseJSON(raw));
+    }
 
-    // DECISIÓN smart mode: con la segmentación por tema, el umbral de >20 turnos
-    // ahora aplica POR SEGMENTO, no por sesión completa. Antes una sesión de
-    // 30 turnos cambiaba a smart aunque fueran 2 temas de 15; hoy cada segmento
-    // decide por sí mismo: un segmento largo (tema pesado, >20 turnos) usa
-    // smart sobre SU contexto completo, y los segmentos cortos usan el modo
-    // normal. Es más justo con el contexto real que recibe cada llamada. El
-    // caso de 1 segmento (sesión corta/monotemática) se comporta igual que
-    // siempre, porque su longitud == la de la sesión.
-    const useSmart = history.length > 20;
-    const raw = useSmart
-      ? await LLMProvider.completeTask(
-          [{ role: 'user', content: `Conversación:\n\n${conversation}` }],
-          EXTRACTION_SYSTEM
-        )
-      : await LLMProvider.complete(
-          [{ role: 'user', content: `Conversación:\n\n${conversation}` }],
-          EXTRACTION_SYSTEM
-        );
-    return this._parseJSON(raw);
+    if (extractions.length === 1) return extractions[0];
+    const summaries = extractions.map((e) => e.episode_summary).filter(Boolean);
+    return {
+      episode_summary: summaries.length ? summaries.join(' | ') : null,
+      episode_importance: extractions.reduce(
+        (max, e) => Math.max(max, Number(e.episode_importance) || 0),
+        0
+      ),
+      nodes: extractions.flatMap((e) => (Array.isArray(e.nodes) ? e.nodes : [])),
+      relations: extractions.flatMap((e) => (Array.isArray(e.relations) ? e.relations : [])),
+    };
+  }
+
+  /**
+   * Divide la extracción por presupuesto sin eliminar los primeros turnos.
+   * El antiguo `slice(-10)` hacía invisible el inicio de cada tema largo.
+   * @param {Array<{role:string, content:string}>} history
+   * @returns {Array<Array<{role:string, content:string}>>}
+   */
+  _chunkExtractionHistory(history) {
+    const chunks = [];
+    let chunk = [];
+    let chars = 0;
+    for (const turn of Array.isArray(history) ? history : []) {
+      const turnChars = Math.min(String(turn.content || '').length, MAX_TURN_EXTRACTION_CHARS) + 14;
+      if (chunk.length && chars + turnChars > MAX_EXTRACTION_CHARS) {
+        chunks.push(chunk);
+        chunk = [];
+        chars = 0;
+      }
+      chunk.push(turn);
+      chars += turnChars;
+    }
+    if (chunk.length) chunks.push(chunk);
+    return chunks.length ? chunks : [[]];
   }
 
   _parseJSON(raw) {
-    if (!raw) return { episode_summary: null, episode_importance: 0, nodes: [], relations: [] };
+    if (!raw) throw new Error('extracción de memoria vacía');
+    let parsed = null;
     try {
-      return JSON.parse(raw.trim());
+      parsed = JSON.parse(raw.trim());
     } catch (_) {}
-    const match = raw.match(/\{[\s\S]*\}/);
-    if (match) {
-      try {
-        return JSON.parse(match[0]);
-      } catch (_) {}
+    if (!parsed) {
+      const match = raw.match(/\{[\s\S]*\}/);
+      if (match) {
+        try {
+          parsed = JSON.parse(match[0]);
+        } catch (_) {}
+      }
     }
-    return { episode_summary: null, episode_importance: 0, nodes: [], relations: [] };
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+      throw new Error('extracción de memoria no contiene JSON válido');
+    }
+    return {
+      episode_summary: typeof parsed.episode_summary === 'string' ? parsed.episode_summary : null,
+      episode_importance: Number(parsed.episode_importance) || 0,
+      nodes: Array.isArray(parsed.nodes) ? parsed.nodes : [],
+      relations: Array.isArray(parsed.relations) ? parsed.relations : [],
+    };
   }
 
   runDecay() {

@@ -7,6 +7,7 @@ const state = {
   grounding: null,
   session: null,
   updater: null,
+  observationBridge: null,
   osSensor: null,
   proactive: null,
   behavior: null,

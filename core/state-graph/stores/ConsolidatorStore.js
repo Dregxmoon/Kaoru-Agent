@@ -4,8 +4,8 @@
 /**
  * ConsolidatorStore.js — Fase 2, ítem 2: consolidación episodio→semántica.
  *
- * Convierte episodios VIEJOS y no consolidados en hechos persistentes
- * (nodos `Belief`). Es 100% determinista (sin LLM): tokeniza el contenido de
+ * Convierte episodios VIEJOS y no consolidados en patrones persistentes
+ * (nodos `Belief` marcados como inferidos). Es 100% determinista (sin LLM): tokeniza el contenido de
  * los episodios, agrupa por términos recurrentes entre sesiones y por cada
  * término con >= minOccurrences menciones crea (o actualiza, es idempotente)
  * un nodo `consolidacion_<término>` con importancia proporcional a la
@@ -219,6 +219,11 @@ class ConsolidatorStore {
         content,
         importance: Math.min(0.9, 0.5 + r.count * 0.05),
         tags: ['consolidacion', r.term],
+        // Repetición léxica es evidencia de un patrón, no una afirmación del
+        // usuario. Debe vivir en la sección de inferencias y poder decaer.
+        inferred: 1,
+        confidence: Math.min(0.85, 0.45 + r.count * 0.1),
+        decay_rate: 0.06,
       });
       facts.push({ id, label: slug, term: r.term, occurrences: r.count });
       for (const epId of termIndex.get(r.term)?.episodes ?? []) {

@@ -177,7 +177,7 @@ class NodeStore {
         `
       SELECT * FROM nodes
       WHERE type='Episode' AND archived=0
-      ORDER BY importance DESC, created_at DESC
+      ORDER BY created_at DESC, importance DESC
       LIMIT ?
     `
       )

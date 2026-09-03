@@ -27,6 +27,8 @@ const { DecayStore } = require('./stores/DecayStore.js');
 const { ConsolidatorStore } = require('./stores/ConsolidatorStore.js');
 const { FactReasonerStore } = require('./stores/FactReasonerStore.js');
 const { IntentionsStore } = require('./stores/IntentionsStore.js');
+const { ObservationStore } = require('./stores/ObservationStore.js');
+const { WorkingMemoryStore } = require('./stores/WorkingMemoryStore.js');
 const { EvolutionStore } = require('./evolution/EvolutionStore.js');
 const { FeedbackScorer } = require('./evolution/FeedbackScorer.js');
 const { LLMEotionDetector } = require('./evolution/LLMEotionDetector.js');
@@ -285,6 +287,7 @@ class MemoryStatement {
         turn_count: 0,
         episode_id: null,
         history_json: null,
+        memory_cursor: 0,
       });
       return { lastInsertRowid: id, changes: 1 };
     }
@@ -459,12 +462,14 @@ class StateGraph {
   _initStores() {
     this._nodes = new NodeStore(this._db, this);
     this._vectors = new VectorIndex(this._db, this);
-    this._sessions = new SessionStore(this._db);
+    this._sessions = new SessionStore(this._db, this);
     this._appHistory = new AppHistoryStore(this._db);
     this._decay = new DecayStore(this._db);
     this._consolidator = new ConsolidatorStore(this._db, this);
     this._factReasoner = new FactReasonerStore(this._db, this);
     this._intentions = new IntentionsStore(this._db, this);
+    this._observations = new ObservationStore(this._db, this);
+    this._workingMemory = new WorkingMemoryStore(this._db, this);
     this._resolver = new ContradictionResolver(this);
     this._userModel = new UserModelBuilder(this._db, this);
     this._evolution = new EvolutionStore(this._db);
@@ -555,7 +560,8 @@ class StateGraph {
         ended_at   INTEGER,
         summary    TEXT,
         turn_count INTEGER NOT NULL DEFAULT 0,
-        episode_id INTEGER REFERENCES nodes(id)
+        episode_id INTEGER REFERENCES nodes(id),
+        memory_cursor INTEGER NOT NULL DEFAULT 0
       );
 
       CREATE TABLE IF NOT EXISTS app_history (
@@ -610,6 +616,51 @@ class StateGraph {
 
       CREATE INDEX IF NOT EXISTS idx_interaction_log_type ON interaction_log(interaction_type);
       CREATE INDEX IF NOT EXISTS idx_interaction_log_session ON interaction_log(session_id);
+
+      CREATE TABLE IF NOT EXISTS observations (
+        id            INTEGER PRIMARY KEY AUTOINCREMENT,
+        source        TEXT NOT NULL,
+        kind          TEXT NOT NULL,
+        content       TEXT NOT NULL DEFAULT '',
+        metadata      TEXT NOT NULL DEFAULT '{}',
+        session_id    TEXT,
+        sensitivity   TEXT NOT NULL DEFAULT 'private',
+        occurred_at   INTEGER NOT NULL,
+        expires_at    INTEGER,
+        processed_at  INTEGER,
+        dedupe_key    TEXT UNIQUE
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_observations_session ON observations(session_id, occurred_at);
+      CREATE INDEX IF NOT EXISTS idx_observations_pending ON observations(processed_at, occurred_at);
+
+      CREATE TABLE IF NOT EXISTS memory_evidence (
+        id             INTEGER PRIMARY KEY AUTOINCREMENT,
+        node_id        INTEGER NOT NULL REFERENCES nodes(id) ON DELETE CASCADE,
+        observation_id INTEGER NOT NULL REFERENCES observations(id) ON DELETE CASCADE,
+        relation       TEXT NOT NULL DEFAULT 'SUPPORTS',
+        confidence     REAL NOT NULL DEFAULT 1.0,
+        created_at     INTEGER NOT NULL,
+        UNIQUE(node_id, observation_id, relation)
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_memory_evidence_node ON memory_evidence(node_id);
+      CREATE INDEX IF NOT EXISTS idx_memory_evidence_observation ON memory_evidence(observation_id);
+
+      CREATE TABLE IF NOT EXISTS working_memory (
+        id                    INTEGER PRIMARY KEY AUTOINCREMENT,
+        scope                 TEXT NOT NULL,
+        key                   TEXT NOT NULL,
+        value                 TEXT NOT NULL,
+        confidence            REAL NOT NULL DEFAULT 1.0,
+        source_observation_id INTEGER REFERENCES observations(id) ON DELETE SET NULL,
+        expires_at            INTEGER,
+        updated_at            INTEGER NOT NULL,
+        UNIQUE(scope, key)
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_working_memory_scope ON working_memory(scope, updated_at DESC);
+      CREATE INDEX IF NOT EXISTS idx_working_memory_expiry ON working_memory(expires_at);
     `);
 
     // Evolutionary memory tables
@@ -656,6 +707,10 @@ class StateGraph {
         logger.info('StateGraph', '[state-graph] migrando schema: sessions.history_json...');
         this._db.exec(`ALTER TABLE sessions ADD COLUMN history_json TEXT;`);
       }
+      if (!sessionCols.some((c) => c.name === 'memory_cursor')) {
+        logger.info('StateGraph', '[state-graph] migrando schema: sessions.memory_cursor...');
+        this._db.exec(`ALTER TABLE sessions ADD COLUMN memory_cursor INTEGER NOT NULL DEFAULT 0;`);
+      }
 
       const nodeCols = this._db.prepare(`PRAGMA table_info(nodes)`).all();
       const nodeNames = new Set(nodeCols.map((c) => c.name));
@@ -681,6 +736,14 @@ class StateGraph {
         this._db.exec(`UPDATE nodes SET verified_at = created_at WHERE verified_at IS NULL;`);
         logger.info('StateGraph', '[state-graph] migración nodes verificación completada');
       }
+      // Las consolidaciones históricas eran recurrencias léxicas guardadas
+      // como hechos. Se reclasifican como inferencias para no contaminar el
+      // world model factual.
+      this._db.exec(
+        `UPDATE nodes
+         SET inferred=1, confidence=COALESCE(confidence, 0.55), decay_rate=0.06
+         WHERE label LIKE 'consolidacion_%' AND archived=0;`
+      );
 
       const relationsTable = this._db
         .prepare(`SELECT name FROM sqlite_master WHERE type='table' AND name='node_relations'`)
@@ -990,11 +1053,36 @@ class StateGraph {
   getLastSessions(limit) {
     return this._sessions.getLastSessions(limit);
   }
-  updateSessionHistory(id, history) {
-    return this._sessions.updateSessionHistory(id, history);
+  updateSessionHistory(id, history, turnCount) {
+    return this._sessions.updateSessionHistory(id, history, turnCount);
+  }
+  updateSessionMemoryCursor(id, cursor, opts) {
+    return this._sessions.updateMemoryCursor(id, cursor, opts);
   }
   findResumableSession(maxAgeHours) {
     return this._sessions.findResumableSession(maxAgeHours);
+  }
+
+  recordObservation(opts) {
+    return this._observations.record(opts);
+  }
+  listObservations(opts) {
+    return this._observations.list(opts);
+  }
+  markObservationsProcessed(ids) {
+    return this._observations.markProcessed(ids);
+  }
+  linkMemoryEvidence(nodeId, observationIds, confidence) {
+    return this._observations.linkEvidence(nodeId, observationIds, confidence);
+  }
+  getMemoryEvidence(nodeId) {
+    return this._observations.getEvidence(nodeId);
+  }
+  pruneExpiredObservations() {
+    return this._observations.pruneExpired();
+  }
+  getObservationStats() {
+    return this._observations.getStats();
   }
 
   saveAppHistory(opts) {
@@ -1015,6 +1103,8 @@ class StateGraph {
 
   applyDecay() {
     const result = this._decay.applyDecay();
+    this._observations.pruneExpired();
+    this._workingMemory.pruneExpired();
     // F2.1: al archivar nodos, purga sus vectores semánticos para que no
     // queden stale en node_vectors.
     if (result?.archived > 0) {
@@ -1101,6 +1191,22 @@ class StateGraph {
     return this._intentions.getStats();
   }
 
+  setWorkingMemory(opts) {
+    return this._workingMemory.set(opts);
+  }
+  getWorkingMemory(scope, key) {
+    return this._workingMemory.get(scope, key);
+  }
+  listWorkingMemory(scope) {
+    return this._workingMemory.list(scope);
+  }
+  clearWorkingMemory(scope, key) {
+    return this._workingMemory.clear(scope, key);
+  }
+  buildWorkingMemorySection(scope) {
+    return this._workingMemory.buildPromptSection(scope);
+  }
+
   // Evolutionary memory accessors
   getTraitLearner() {
     return this._traitLearner;
@@ -1182,6 +1288,7 @@ class StateGraph {
         byType,
         appHistoryToday,
         appHistoryTotal,
+        observations: this._observations.getStats(),
         evolution: this._evolution ? this._evolution.getStats() : null,
         usingFallback: this.usingFallback,
       };
@@ -1192,6 +1299,7 @@ class StateGraph {
         byType: [],
         appHistoryToday: 0,
         appHistoryTotal: 0,
+        observations: { total: 0, pending: 0, evidenceLinks: 0 },
         usingFallback: this.usingFallback,
       };
     }

@@ -145,13 +145,15 @@ class ResponseEvaluator {
    * @param {Object} enforcement
    * @param {Object} emotionalCtx
    * @param {string} adaptationType
+   * @param {string|number|null} [sessionId]
    */
-  recordResponse(kaoruResponse, enforcement, emotionalCtx, adaptationType) {
+  recordResponse(kaoruResponse, enforcement, emotionalCtx, adaptationType, sessionId = null) {
     this._pendingEvaluation = {
       response: kaoruResponse,
       enforcement,
       emotionalCtx,
       adaptationType,
+      sessionId,
       timestamp: Date.now(),
     };
   }
@@ -160,10 +162,15 @@ class ResponseEvaluator {
    * Evalúa la calidad de la respuesta y actualiza el FeedbackScorer.
    * Llamado después de que el usuario responde.
    * @param {number} userEngagement  engagement del turno del usuario
+   * @param {string|number|null} [sessionId]
    * @returns {{ quality: number, feedbackApplied: boolean }}
    */
-  evaluate(userEngagement) {
+  evaluate(userEngagement, sessionId = null) {
     if (!this._pendingEvaluation) {
+      return { quality: 0.5, feedbackApplied: false };
+    }
+
+    if (this._pendingEvaluation.sessionId !== sessionId) {
       return { quality: 0.5, feedbackApplied: false };
     }
 

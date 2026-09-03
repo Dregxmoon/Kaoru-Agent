@@ -21,6 +21,7 @@
 
 const fs = require('fs');
 const path = require('path');
+const crypto = require('crypto');
 const logger = require('../observability/Logger.js');
 const DecisionCore = require('../decision/DecisionCore.js');
 
@@ -50,11 +51,32 @@ const MAX_TASK_OUTCOMES = 500;
  * @property {number|null} elapsedMs
  * @property {number|null} difficulty
  * @property {string} goal
+ * @property {boolean} [terminalSuccess]
+ * @property {string} [verificationStatus]
+ * @property {string} [verificationReason]
+ * @property {number} [mutationCount]
+ * @property {boolean} [rollbackAvailable]
+ * @property {string[]} [skills]
+ */
+
+/**
+ * @typedef {object} ReflectionProposal
+ * @property {string} id
+ * @property {number} version
+ * @property {string} kind
+ * @property {string} signature
+ * @property {string} hypothesis
+ * @property {{instruction:string}} proposedChange
+ * @property {Array<{ts:number, goal:string, verificationStatus?:string}>} evidence
+ * @property {'proposed'|'approved'|'rejected'|'superseded'} status
+ * @property {number} createdAt
+ * @property {number|null} decidedAt
  */
 
 /** @typedef {object} LearningData
  *  @property {object|null} learnedWeights
  *  @property {TaskOutcome[]} taskOutcomes
+ *  @property {ReflectionProposal[]} reflectionProposals
  *  @property {number|null} updatedAt
  */
 
@@ -79,6 +101,7 @@ class LearningEngine {
     this._data = /** @type {LearningData} */ ({
       learnedWeights: null,
       taskOutcomes: [],
+      reflectionProposals: [],
       updatedAt: null,
     });
     this._inMem = false;
@@ -93,6 +116,9 @@ class LearningEngine {
           this._data = {
             learnedWeights: raw.learnedWeights || null,
             taskOutcomes: Array.isArray(raw.taskOutcomes) ? raw.taskOutcomes : [],
+            reflectionProposals: Array.isArray(raw.reflectionProposals)
+              ? raw.reflectionProposals
+              : [],
             updatedAt: raw.updatedAt || null,
           };
         }
@@ -155,16 +181,28 @@ class LearningEngine {
    * @param {number} [outcome.elapsedMs] duración
    * @param {number} [outcome.difficulty] estimación 0..1 (ver difficulty.js)
    * @param {string} [outcome.goal]      resumen del objetivo
+   * @param {boolean} [outcome.terminalSuccess]
+   * @param {string} [outcome.verificationStatus]
+   * @param {string} [outcome.verificationReason]
+   * @param {number} [outcome.mutationCount]
+   * @param {boolean} [outcome.rollbackAvailable]
+   * @param {string[]} [outcome.skills]
    * @returns {object} el outcome persistido
    */
   recordTaskOutcome(outcome = {}) {
-    const entry = {
+    const entry = /** @type {TaskOutcome} */ ({
       ts: Date.now(),
       mode: outcome.mode || 'unknown',
       provider: outcome.provider || null,
       model: outcome.model || null,
       success: !!outcome.success,
+      terminalSuccess:
+        outcome.terminalSuccess === undefined ? !!outcome.success : !!outcome.terminalSuccess,
       error: outcome.error || null,
+      verificationStatus: outcome.verificationStatus || 'unknown',
+      verificationReason: outcome.verificationReason || null,
+      mutationCount: Math.max(0, Number(outcome.mutationCount) || 0),
+      rollbackAvailable: !!outcome.rollbackAvailable,
       iterations: outcome.iterations ?? null,
       elapsedMs: outcome.elapsedMs ?? null,
       difficulty: outcome.difficulty ?? null,
@@ -174,13 +212,96 @@ class LearningEngine {
       skills: Array.isArray(outcome.skills)
         ? outcome.skills.slice(0, 5).map((s) => String(s).slice(0, 60))
         : [],
-    };
+    });
     this._data.taskOutcomes.push(entry);
     if (this._data.taskOutcomes.length > MAX_TASK_OUTCOMES) {
       this._data.taskOutcomes.splice(0, this._data.taskOutcomes.length - MAX_TASK_OUTCOMES);
     }
+    this._maybeProposeReflection(entry);
     this._persist();
     return entry;
+  }
+
+  /**
+   * Crea una propuesta de estrategia después de tres fallos equivalentes.
+   * La propuesta queda inerte hasta que otra capa la apruebe explícitamente.
+   * @param {TaskOutcome} entry
+   */
+  _maybeProposeReflection(entry) {
+    if (entry.success) return null;
+    if (!['failed', 'unverified'].includes(entry.verificationStatus || '')) return null;
+    const rawReason = entry.verificationReason || entry.error || 'unknown_failure';
+    const reason = String(rawReason)
+      .toLowerCase()
+      .replace(/[^a-z0-9_-]+/g, '_')
+      .slice(0, 80);
+    const signature = `${entry.mode}:${reason}`;
+    const matching = this._data.taskOutcomes.filter((outcome) => {
+      const otherReason = String(outcome.verificationReason || outcome.error || 'unknown_failure')
+        .toLowerCase()
+        .replace(/[^a-z0-9_-]+/g, '_')
+        .slice(0, 80);
+      return !outcome.success && `${outcome.mode}:${otherReason}` === signature;
+    });
+    if (matching.length < 3) return null;
+    const prior = this._data.reflectionProposals
+      .filter((proposal) => proposal.signature === signature)
+      .sort((a, b) => b.version - a.version)[0];
+    if (prior && prior.status !== 'rejected') return prior;
+    if (prior) {
+      const freshFailures = matching.filter((outcome) => outcome.ts > (prior.decidedAt || 0));
+      if (freshFailures.length < 3) return null;
+    }
+    const version = prior ? prior.version + 1 : 1;
+    const id = crypto
+      .createHash('sha256')
+      .update(`${signature}:${version}`)
+      .digest('hex')
+      .slice(0, 16);
+    const proposal = /** @type {ReflectionProposal} */ ({
+      id,
+      version,
+      kind: 'strategy',
+      signature,
+      hypothesis: `La estrategia actual repitió el fallo "${reason}" al menos 3 veces.`,
+      proposedChange: {
+        instruction: `Cuando aparezca "${reason}", revisa la evidencia del último intento y cambia de estrategia antes de repetir la misma acción.`,
+      },
+      evidence: matching.slice(-5).map((outcome) => ({
+        ts: outcome.ts,
+        goal: outcome.goal,
+        verificationStatus: outcome.verificationStatus,
+      })),
+      status: 'proposed',
+      createdAt: Date.now(),
+      decidedAt: null,
+    });
+    this._data.reflectionProposals.push(proposal);
+    return proposal;
+  }
+
+  /** @param {{status?:string}} [opts] */
+  listReflectionProposals({ status } = {}) {
+    const list = this._data.reflectionProposals || [];
+    const filtered = status ? list.filter((proposal) => proposal.status === status) : list;
+    return filtered.map((proposal) => JSON.parse(JSON.stringify(proposal)));
+  }
+
+  /**
+   * Único gate que activa una reflexión. La decisión debe provenir de una
+   * acción explícita del usuario/UI; este método no se llama automáticamente.
+   * @param {string} id
+   * @param {'approved'|'rejected'} decision
+   */
+  decideReflection(id, decision) {
+    if (!['approved', 'rejected'].includes(decision)) return false;
+    const proposal = this._data.reflectionProposals.find((item) => item.id === id);
+    if (!proposal || proposal.status !== 'proposed') return false;
+    proposal.status = decision;
+    proposal.decidedAt = Date.now();
+    this._data.updatedAt = Date.now();
+    this._persist();
+    return true;
   }
 
   /**
@@ -298,6 +419,15 @@ class LearningEngine {
     if (fast !== null)
       lines.push(`Tareas "fast" recientes completadas con éxito: ${Math.round(fast * 100)}%.`);
 
+    // Solo estrategias aprobadas explícitamente. Las propuestas pendientes
+    // jamás influyen en conducta, permisos o selección de herramientas.
+    for (const proposal of this._data.reflectionProposals.filter(
+      (item) => item.status === 'approved'
+    )) {
+      const instruction = proposal.proposedChange?.instruction;
+      if (instruction) lines.push(`Estrategia aprobada v${proposal.version}: ${instruction}`);
+    }
+
     if (!lines.length) return null;
     return '# LO APRENDIDO (FEEDBACK)\n' + lines.map((l) => '  - ' + l).join('\n') + '\n';
   }
@@ -306,6 +436,9 @@ class LearningEngine {
     return {
       learnedWeights: this._data.learnedWeights,
       taskOutcomes: this._data.taskOutcomes.slice(-20),
+      reflectionProposals: this._data.reflectionProposals
+        .slice(-20)
+        .map((proposal) => JSON.parse(JSON.stringify(proposal))),
       updatedAt: this._data.updatedAt,
       filePath: this._filePath,
       inMemoryOnly: this._inMem,
@@ -313,7 +446,12 @@ class LearningEngine {
   }
 
   reset() {
-    this._data = { learnedWeights: null, taskOutcomes: [], updatedAt: null };
+    this._data = {
+      learnedWeights: null,
+      taskOutcomes: [],
+      reflectionProposals: [],
+      updatedAt: null,
+    };
     this._inMem = false;
     if (this._proposalStore && typeof this._proposalStore.setLearnedWeights === 'function') {
       this._proposalStore.setLearnedWeights(null);

@@ -11,6 +11,7 @@ const { buildContext } = require('./context.js');
 const LLMProvider = require('../llm/LLMProvider.js');
 const { estimateDifficulty } = require('../learning/difficulty.js');
 const { MODE_ADVANTAGE } = require('../trust/TrustModel.js');
+const { evaluateTaskOutcome } = require('../learning/OutcomeEvaluator.js');
 
 const state = require('./state.js');
 
@@ -151,6 +152,8 @@ function resolveAgentMode(userMessage, opts = {}) {
 async function runAgent(userMessage, opts = {}) {
   const _t0 = Date.now();
   const sessionHistory = state.session?.getHistory() || [];
+  const sessionId = state.session?.getSessionId?.() || '';
+  const workingScope = sessionId ? `session:${sessionId}` : null;
 
   // ── Hooks de plugins (patrón opencode): beforeAgentRun ──────────────────
   // Los plugins pueden registrar hooks con registerHook('beforeAgentRun', fn)
@@ -191,6 +194,17 @@ async function runAgent(userMessage, opts = {}) {
       toolResults: [],
       error: 'blocked_by_plugin',
     };
+  }
+
+  // Memoria de trabajo efímera: mantiene el foco ejecutivo de esta sesión.
+  // Es contexto, no una concesión de permisos, y expira aunque el proceso siga vivo.
+  if (workingScope && state.graph?.setWorkingMemory) {
+    state.graph.setWorkingMemory({
+      scope: workingScope,
+      key: 'current_goal',
+      value: { goal: effectiveMessage.slice(0, 1000), status: 'active', startedAt: _t0 },
+      ttlMs: 24 * 60 * 60 * 1000,
+    });
   }
 
   const context = await buildContext(sessionHistory, null, {
@@ -240,6 +254,27 @@ async function runAgent(userMessage, opts = {}) {
     permissionManager: state.permissionManager || null,
   };
 
+  // Snapshot mínimo del progreso observable. No guarda params/resultados de
+  // tools porque pueden contener rutas privadas, tokens o contenido sensible.
+  if (workingScope && state.graph?.setWorkingMemory) {
+    const callerOnProgress = loopOpts.onProgress;
+    loopOpts.onProgress = (progress) => {
+      state.graph.setWorkingMemory({
+        scope: workingScope,
+        key: 'last_progress',
+        value: {
+          iteration: Number(progress?.iteration) || 0,
+          tool: String(progress?.tool || '').slice(0, 80),
+          phase: String(progress?.phase || '').slice(0, 20),
+          status: String(progress?.status || '').slice(0, 20),
+          at: Date.now(),
+        },
+        ttlMs: 24 * 60 * 60 * 1000,
+      });
+      if (typeof callerOnProgress === 'function') callerOnProgress(progress);
+    };
+  }
+
   // ── Fase 3 ítem 1: metas persistentes ────────────────────────────────────
   // Si el caller no las inyecta explícitamente, se toman del stack de
   // intenciones activas pendientes (sobreviven al reinicio) y se pasan al
@@ -257,6 +292,13 @@ async function runAgent(userMessage, opts = {}) {
   try {
     const learningSection = state.learning?.buildPromptSection?.();
     if (learningSection) loopOpts.learningSection = learningSection;
+  } catch (_) {}
+
+  try {
+    const workingMemorySection = workingScope
+      ? state.graph?.buildWorkingMemorySection?.(workingScope)
+      : null;
+    if (workingMemorySection) loopOpts.workingMemorySection = workingMemorySection;
   } catch (_) {}
 
   // Self-critique: en modo tarea (smart), al terminar el run con una respuesta
@@ -325,7 +367,8 @@ async function runAgent(userMessage, opts = {}) {
           result.response,
           _prevTurnContext.enforcement,
           _prevTurnContext.emotionalCtx,
-          _prevTurnContext.adaptationType
+          _prevTurnContext.adaptationType,
+          state.session?.getSessionId?.() ?? null
         );
       }
     } catch (e) {
@@ -452,7 +495,7 @@ async function runAgent(userMessage, opts = {}) {
     const costUsd = usageAfter.slice(usageBefore.length).reduce((a, e) => a + (e.costUsd || 0), 0);
     const provider = LLMProvider.getActiveProvider() || 'unknown';
     const model = LLMProvider.getActiveModel(mode) || null;
-    const success = !result.error && !result.truncated;
+    const evaluated = evaluateTaskOutcome(result);
     const elapsedMs = Date.now() - _t0;
     const taskIntent = state.taskDetector?.detect(effectiveMessage);
     const difficulty = _estimateDifficultyFor({
@@ -464,7 +507,14 @@ async function runAgent(userMessage, opts = {}) {
       mode,
       provider,
       model,
-      success,
+      success: evaluated.success,
+      terminalSuccess: evaluated.terminalSuccess,
+      verificationStatus: evaluated.verificationStatus,
+      verificationReason: evaluated.verificationReason,
+      mutationCount: evaluated.mutationCount,
+      successfulTools: evaluated.successfulTools,
+      rollbackAvailable: Boolean(result.checkpoint?.canRevert),
+      sessionId: sessionId || null,
       error: result.error || null,
       iterations: result.iterations,
       elapsedMs,
@@ -486,6 +536,32 @@ async function runAgent(userMessage, opts = {}) {
     }
     if (state.trust && typeof state.trust.recordOutcome === 'function') {
       state.trust.recordOutcome(outcome);
+    }
+    if (workingScope && state.graph?.setWorkingMemory) {
+      state.graph.setWorkingMemory({
+        scope: workingScope,
+        key: 'current_goal',
+        value: {
+          goal: effectiveMessage.slice(0, 1000),
+          status: evaluated.success ? 'completed' : 'needs_attention',
+          verification: evaluated.verificationStatus,
+          reason: evaluated.verificationReason,
+          finishedAt: Date.now(),
+        },
+        ttlMs: 24 * 60 * 60 * 1000,
+      });
+      if (result.plan) {
+        state.graph.setWorkingMemory({
+          scope: workingScope,
+          key: 'last_plan',
+          value: {
+            steps: Array.isArray(result.plan.steps) ? result.plan.steps.slice(0, 20) : [],
+            done: Number(result.plan.done) || 0,
+            total: Number(result.plan.total) || 0,
+          },
+          ttlMs: 24 * 60 * 60 * 1000,
+        });
+      }
     }
   } catch (_) {}
 
