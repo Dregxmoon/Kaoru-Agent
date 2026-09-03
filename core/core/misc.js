@@ -62,6 +62,26 @@ function forgetMemory(text) {
   return state.graph.forget(text);
 }
 
+function inspectMemory(nodeId) {
+  if (!state.graph?.isReady) return { ok: false, error: 'grafo_no_inicializado' };
+  return state.graph.inspectMemory(nodeId, { includeSensitive: false });
+}
+
+function exportMemorySnapshot() {
+  if (!state.graph?.isReady) return { schemaVersion: 1, exportedAt: Date.now(), nodes: [] };
+  return state.graph.exportMemorySnapshot({ includeSensitive: true });
+}
+
+function correctMemory(input) {
+  if (!state.graph?.isReady) return { ok: false, error: 'grafo_no_inicializado' };
+  return state.graph.correctMemory(input);
+}
+
+function deleteMemoryLineage(input) {
+  if (!state.graph?.isReady) return { ok: false, error: 'grafo_no_inicializado' };
+  return state.graph.deleteMemoryLineage(input);
+}
+
 /** Consulta explícita de la línea autobiográfica; no ejecuta acciones. */
 function recallAutobiographical(opts = {}) {
   if (!state.graph?.isReady) return [];
@@ -751,6 +771,10 @@ module.exports = {
   isOpenClawAvailable,
   getOpenClawStatus,
   forgetMemory,
+  inspectMemory,
+  exportMemorySnapshot,
+  correctMemory,
+  deleteMemoryLineage,
   recallAutobiographical,
   pendingRecap,
   getProactiveStats,

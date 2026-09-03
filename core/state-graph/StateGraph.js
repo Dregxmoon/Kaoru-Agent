@@ -34,6 +34,7 @@ const { CausalMemoryStore } = require('./stores/CausalMemoryStore.js');
 const { AutobiographicalMemoryStore } = require('./stores/AutobiographicalMemoryStore.js');
 const { MetamemoryStore } = require('./stores/MetamemoryStore.js');
 const { MemoryRevisionStore } = require('./stores/MemoryRevisionStore.js');
+const { MemoryPrivacyStore } = require('./stores/MemoryPrivacyStore.js');
 const { EvolutionStore } = require('./evolution/EvolutionStore.js');
 const { FeedbackScorer } = require('./evolution/FeedbackScorer.js');
 const { LLMEotionDetector } = require('./evolution/LLMEotionDetector.js');
@@ -481,6 +482,7 @@ class StateGraph {
     this._autobiographical.backfillLegacy(200);
     this._memoryRevisions = new MemoryRevisionStore(this._db, this);
     this._metamemory = new MetamemoryStore(this._db, this);
+    this._memoryPrivacy = new MemoryPrivacyStore(this._db, this);
     this._resolver = new ContradictionResolver(this);
     this._userModel = new UserModelBuilder(this._db, this);
     this._evolution = new EvolutionStore(this._db);
@@ -1431,6 +1433,18 @@ class StateGraph {
   }
   resolveMemoryTension(opts) {
     return this._resolver.resolveTension(opts);
+  }
+  inspectMemory(nodeId, opts) {
+    return this._memoryPrivacy.inspect(nodeId, opts);
+  }
+  exportMemorySnapshot(opts) {
+    return this._memoryPrivacy.exportSnapshot(opts);
+  }
+  correctMemory(opts) {
+    return this._memoryPrivacy.correct(opts);
+  }
+  deleteMemoryLineage(opts) {
+    return this._memoryPrivacy.deleteLineage(opts);
   }
 
   setWorkingMemory(opts) {

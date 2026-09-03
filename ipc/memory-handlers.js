@@ -1,11 +1,28 @@
 // @ts-nocheck
 'use strict';
 const logger = require('../core/observability/Logger.js');
+const fs = require('fs');
 
-const { ipcMain } = require('electron');
+const { ipcMain, dialog } = require('electron');
 
 function register(ctx) {
   const { Core } = ctx;
+  const trustedSender = (event) => {
+    const chat = ctx.S?.chatWindow;
+    return Boolean(chat && !chat.isDestroyed() && event.sender === chat.webContents);
+  };
+  const owner = () => {
+    const chat = ctx.S?.chatWindow;
+    return chat && !chat.isDestroyed() ? chat : undefined;
+  };
+  const confirmWithNativeDialog = (options) => {
+    const window = owner();
+    return window ? dialog.showMessageBox(window, options) : dialog.showMessageBox(options);
+  };
+  const chooseExportPath = (options) => {
+    const window = owner();
+    return window ? dialog.showSaveDialog(window, options) : dialog.showSaveDialog(options);
+  };
 
   // IPC: memoria
   ipcMain.on('memory-add-turn', (e, { role, content }) => {
@@ -94,6 +111,88 @@ function register(ctx) {
 
   // IPC: OS Sensor
   ipcMain.handle('memory-forget', (e, { text } = {}) => Core.forgetMemory(text));
+
+  ipcMain.handle('memory-inspect', (event, { nodeId } = {}) => {
+    if (!trustedSender(event)) return { ok: false, error: 'untrusted_sender' };
+    return Core.inspectMemory(Number(nodeId));
+  });
+
+  ipcMain.handle('memory-correct', async (event, payload = {}) => {
+    if (!trustedSender(event)) return { ok: false, error: 'untrusted_sender' };
+    const nodeId = Number(payload.nodeId);
+    const content = String(payload.content || '').trim();
+    if (!Number.isInteger(nodeId) || nodeId <= 0 || content.length < 2 || content.length > 12000) {
+      return { ok: false, error: 'invalid_input' };
+    }
+    const confirmation = await confirmWithNativeDialog({
+      type: 'question',
+      title: 'Corregir memoria',
+      message: '¿Guardar esta corrección en la memoria de Kaoru?',
+      detail: content.slice(0, 500),
+      buttons: ['Cancelar', 'Guardar corrección'],
+      defaultId: 0,
+      cancelId: 0,
+      noLink: true,
+    });
+    if (confirmation.response !== 1) return { ok: false, cancelled: true };
+    const expectedUpdatedAt = Number(payload.expectedUpdatedAt);
+    return Core.correctMemory({
+      nodeId,
+      content,
+      reason: String(payload.reason || '').slice(0, 1000),
+      expectedUpdatedAt: Number.isFinite(expectedUpdatedAt) ? expectedUpdatedAt : undefined,
+    });
+  });
+
+  ipcMain.handle('memory-delete', async (event, payload = {}) => {
+    if (!trustedSender(event)) return { ok: false, error: 'untrusted_sender' };
+    const nodeId = Number(payload.nodeId);
+    if (!Number.isInteger(nodeId) || nodeId <= 0) return { ok: false, error: 'invalid_input' };
+    const confirmation = await confirmWithNativeDialog({
+      type: 'warning',
+      title: 'Eliminar memoria',
+      message: '¿Eliminar esta memoria y todas sus versiones?',
+      detail: 'También se eliminarán sus evidencias que no estén vinculadas a otros recuerdos.',
+      buttons: ['Cancelar', 'Eliminar definitivamente'],
+      defaultId: 0,
+      cancelId: 0,
+      noLink: true,
+    });
+    if (confirmation.response !== 1) return { ok: false, cancelled: true };
+    const expectedUpdatedAt = Number(payload.expectedUpdatedAt);
+    return Core.deleteMemoryLineage({
+      nodeId,
+      expectedUpdatedAt: Number.isFinite(expectedUpdatedAt) ? expectedUpdatedAt : undefined,
+      includeEvidence: true,
+    });
+  });
+
+  ipcMain.handle('memory-export', async (event) => {
+    if (!trustedSender(event)) return { ok: false, error: 'untrusted_sender' };
+    try {
+      const chosen = await chooseExportPath({
+        title: 'Exportar memoria de Kaoru',
+        defaultPath: `memoria-kaoru-${new Date().toISOString().slice(0, 10)}.json`,
+        filters: [{ name: 'JSON', extensions: ['json'] }],
+        properties: ['createDirectory', 'showOverwriteConfirmation'],
+      });
+      if (chosen.canceled || !chosen.filePath) return { ok: false, cancelled: true };
+      const snapshot = Core.exportMemorySnapshot();
+      await fs.promises.writeFile(chosen.filePath, JSON.stringify(snapshot, null, 2), {
+        encoding: 'utf8',
+        mode: 0o600,
+      });
+      if (process.platform !== 'win32') await fs.promises.chmod(chosen.filePath, 0o600);
+      return { ok: true, exportedAt: snapshot.exportedAt };
+    } catch (error) {
+      logger.warn(
+        'memory-handlers',
+        '[memory-export] no se pudo completar la exportación:',
+        error?.code || 'error'
+      );
+      return { ok: false, error: 'export_failed' };
+    }
+  });
 
   ipcMain.handle('list-skills', () => Core.listSkills());
   ipcMain.handle('store-fact', (e, fact) => Core.storeFact(fact));

@@ -240,6 +240,7 @@ async function renderGraph() {
     <div class="nodes-inline-head">
       <span class="nodes-inline-title">Memoria — conexiones de nodos</span>
       <span class="nodes-inline-tools">
+        <button class="nodes-inline-export" title="Exportar memoria">Exportar</button>
         <button class="nodes-inline-zoomin" title="Acercar">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="12" height="12">
             <circle cx="11" cy="11" r="7"></circle>
@@ -273,6 +274,7 @@ async function renderGraph() {
     <div class="nodes-inline-body"></div>
     <div class="nodes-inline-legend" id="nodes-inline-legend"></div>
     <div class="nodes-inline-gaps" id="nodes-inline-gaps"></div>
+    <div class="nodes-inline-detail" id="nodes-inline-detail" hidden></div>
   `;
   messagesEl.appendChild(inline);
   _scrollMessagesToBottom();
@@ -283,11 +285,17 @@ async function renderGraph() {
     if (legend) legend.style.display = min ? 'none' : '';
     const gapsEl = inline.querySelector('#nodes-inline-gaps');
     if (gapsEl) gapsEl.style.display = min ? 'none' : '';
+    const detailEl = inline.querySelector('#nodes-inline-detail');
+    if (detailEl) detailEl.style.display = min ? 'none' : '';
     inline.querySelector('.nodes-inline-hide').style.display = min ? 'none' : '';
     inline.querySelector('.nodes-inline-max').style.display = min ? '' : 'none';
   }
   inline.querySelector('.nodes-inline-hide').addEventListener('click', () => setMinimized(true));
   inline.querySelector('.nodes-inline-max').addEventListener('click', () => setMinimized(false));
+  inline.querySelector('.nodes-inline-export').addEventListener('click', async () => {
+    const result = await ipcRenderer.invoke('memory-export');
+    if (result?.ok) addMessage('assistant', 'Memoria exportada mediante el diálogo de archivo.');
+  });
 
   const body = inline.querySelector('.nodes-inline-body');
   if (nodes.length === 0) {
@@ -373,22 +381,33 @@ async function renderGraph() {
 
   // Pan: clic presionado + arrastre
   let dragging = false;
-  let lastX = 0;
-  let lastY = 0;
+  let dragged = false;
   svg.style.cursor = 'grab';
   svg.addEventListener('mousedown', (ev) => {
     if (ev.button !== 0) return;
     dragging = true;
-    lastX = ev.clientX;
-    lastY = ev.clientY;
+    dragged = false;
     svg.style.cursor = 'grabbing';
     const rect = svg.getBoundingClientRect();
     const px = ((ev.clientX - rect.left) / rect.width) * SCALE.x;
     const py = ((ev.clientY - rect.top) / rect.height) * SCALE.y;
-    state._dragStart = { tx: state.tx, ty: state.ty, px, py };
+    state._dragStart = {
+      tx: state.tx,
+      ty: state.ty,
+      px,
+      py,
+      clientX: ev.clientX,
+      clientY: ev.clientY,
+    };
   });
   window.addEventListener('mousemove', (ev) => {
     if (!dragging) return;
+    if (
+      Math.abs(ev.clientX - state._dragStart.clientX) > 3 ||
+      Math.abs(ev.clientY - state._dragStart.clientY) > 3
+    ) {
+      dragged = true;
+    }
     const rect = svg.getBoundingClientRect();
     const px = ((ev.clientX - rect.left) / rect.width) * SCALE.x;
     const py = ((ev.clientY - rect.top) / rect.height) * SCALE.y;
@@ -400,6 +419,9 @@ async function renderGraph() {
   window.addEventListener('mouseup', () => {
     dragging = false;
     svg.style.cursor = 'grab';
+    setTimeout(() => {
+      dragged = false;
+    }, 0);
   });
 
   const tip = document.createElement('div');
@@ -409,6 +431,60 @@ async function renderGraph() {
   document.body.appendChild(tip);
 
   body.querySelectorAll('circle').forEach((c) => {
+    c.addEventListener('click', async (ev) => {
+      if (dragged) return;
+      ev.stopPropagation();
+      const detail = await ipcRenderer.invoke('memory-inspect', { nodeId: Number(c.dataset.id) });
+      const detailEl = inline.querySelector('#nodes-inline-detail');
+      if (!detailEl || !detail?.ok) return;
+      const node = detail.node;
+      const history = detail.history?.versions || [];
+      const evidence = detail.evidence || [];
+      detailEl.hidden = false;
+      detailEl.innerHTML = `
+        <div class="nodes-detail-title">${escapeHtml(node.label)} <span>${escapeHtml(node.type)}</span></div>
+        <textarea class="nodes-detail-content" maxlength="12000">${escapeHtml(node.content)}</textarea>
+        <div class="nodes-detail-meta">
+          ${node.inferred ? 'Inferencia · ' : ''}${history.length ? `${history.length} versiones · ` : ''}${evidence.length} evidencias
+        </div>
+        <details>
+          <summary>Historial y evidencias</summary>
+          <div class="nodes-detail-history">
+            ${history
+              .map(
+                (version) =>
+                  `<div><b>v${version.version} ${escapeHtml(version.status)}</b> ${escapeHtml(version.content)}</div>`
+              )
+              .join('')}
+            ${evidence
+              .map(
+                (item) =>
+                  `<div><b>${escapeHtml(item.source)} · ${escapeHtml(item.sensitivity)}</b> ${escapeHtml(item.content)}</div>`
+              )
+              .join('')}
+          </div>
+        </details>
+        <div class="nodes-detail-actions">
+          <button class="nodes-detail-save">Guardar corrección</button>
+          <button class="nodes-detail-delete">Eliminar memoria</button>
+        </div>`;
+      detailEl.querySelector('.nodes-detail-save').addEventListener('click', async () => {
+        const content = detailEl.querySelector('.nodes-detail-content').value.trim();
+        const result = await ipcRenderer.invoke('memory-correct', {
+          nodeId: node.id,
+          content,
+          expectedUpdatedAt: node.updatedAt,
+        });
+        if (result?.ok) await renderGraph();
+      });
+      detailEl.querySelector('.nodes-detail-delete').addEventListener('click', async () => {
+        const result = await ipcRenderer.invoke('memory-delete', {
+          nodeId: node.id,
+          expectedUpdatedAt: node.updatedAt,
+        });
+        if (result?.ok) await renderGraph();
+      });
+    });
     c.addEventListener('mouseenter', (ev) => {
       tip.textContent = `[${c.dataset.type}] ${c.dataset.label} — imp. ${c.dataset.imp}${c.dataset.tags ? ' · ' + c.dataset.tags : ''}\n${_fmtDate(c.dataset.created)}\n${c.dataset.content}`;
       tip.style.display = 'block';

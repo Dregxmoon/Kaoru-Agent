@@ -1258,7 +1258,8 @@ body {
 .nodes-inline-zoomin,
 .nodes-inline-zoomout,
 .nodes-inline-hide,
-.nodes-inline-max {
+.nodes-inline-max,
+.nodes-inline-export {
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -1270,13 +1271,66 @@ body {
   color: var(--text-secondary);
   cursor: pointer;
 }
+/* Exportar conserva ancho de texto; los demás controles son cuadrados. */
+.nodes-inline-export {
+  width: auto;
+  padding: 0 7px;
+}
 .nodes-inline-min:hover,
 .nodes-inline-zoomin:hover,
 .nodes-inline-zoomout:hover,
 .nodes-inline-hide:hover,
-.nodes-inline-max:hover {
+.nodes-inline-max:hover,
+.nodes-inline-export:hover {
   border-color: var(--accent);
   color: var(--accent);
+}
+
+.nodes-inline-detail {
+  border-top: 1px solid var(--border);
+  padding-top: 8px;
+  font-family: var(--font-mono);
+  font-size: 10px;
+}
+.nodes-detail-title {
+  color: var(--text-primary);
+  margin-bottom: 6px;
+}
+.nodes-detail-title span,
+.nodes-detail-meta {
+  color: var(--text-secondary);
+}
+.nodes-detail-content {
+  width: 100%;
+  min-height: 70px;
+  box-sizing: border-box;
+  background: var(--bg-elevated, var(--bg-panel));
+  color: var(--text-primary);
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  padding: 6px;
+}
+.nodes-detail-history {
+  max-height: 160px;
+  overflow-y: auto;
+}
+.nodes-detail-history > div {
+  padding: 4px 0;
+}
+.nodes-detail-actions {
+  display: flex;
+  gap: 6px;
+  margin-top: 8px;
+}
+.nodes-detail-actions button {
+  border: 1px solid var(--border);
+  background: transparent;
+  color: var(--text-primary);
+  padding: 5px 8px;
+  cursor: pointer;
+}
+.nodes-detail-delete {
+  color: #f87171 !important;
 }
 .nodes-inline-tools {
   display: inline-flex;
