@@ -441,7 +441,13 @@ class StateUpdater {
         for (const nodeId of result.nodeIds) {
           this._graph.linkMemoryEvidence?.(nodeId, evidenceIds, 1);
         }
-        const episodeId = this._createEpisodeNode(extracted);
+        const segmentTimes = segments[i].map((turn) => Number(turn.ts) || 0).filter(Boolean);
+        const episodeId = this._createEpisodeNode(extracted, {
+          sessionId,
+          occurredAt: segmentTimes.length ? Math.min(...segmentTimes) : Date.now(),
+          endedAt: segmentTimes.length ? Math.max(...segmentTimes) : Date.now(),
+          evidenceCount: evidenceIds.length,
+        });
         if (episodeId) {
           episodeIds.push(episodeId);
           this._graph.linkMemoryEvidence?.(episodeId, evidenceIds, 1);
@@ -604,7 +610,7 @@ class StateUpdater {
       saved += r.saved;
       discarded += r.discarded;
       relations += r.relations;
-      const epId = this._createEpisodeNode(extracted);
+      const epId = this._createEpisodeNode(extracted, { sessionId });
       if (epId) episodeIds.push(epId);
 
       this._graph.endSession(sessionId, {
@@ -629,7 +635,7 @@ class StateUpdater {
         saved += r.saved;
         discarded += r.discarded;
         relations += r.relations;
-        const epId = this._createEpisodeNode(extracted);
+        const epId = this._createEpisodeNode(extracted, { sessionId });
         if (epId) episodeIds.push(epId);
         if (extracted.episode_summary) segmentSummaryTexts.push(extracted.episode_summary);
       } catch (e) {
@@ -739,22 +745,32 @@ class StateUpdater {
   /**
    * Crea el nodo Episode de una extracción (una extracción por segmento).
    * @param {{ episode_summary?: string, episode_importance?: number }} extracted
+   * @param {{sessionId?:string|number|null,occurredAt?:number,endedAt?:number|null,evidenceCount?:number}} [context]
    * @returns {number | null} id del Episode, o null si no hay resumen.
    */
-  _createEpisodeNode(extracted) {
+  _createEpisodeNode(extracted, context = {}) {
     if (!extracted.episode_summary) return null;
     const dateStr = new Date().toLocaleDateString('es-MX', {
       weekday: 'long',
       day: 'numeric',
       month: 'long',
     });
-    return this._graph.createNode({
+    const nodeId = this._graph.createNode({
       type: 'Episode',
       label: `sesion_${Date.now()}`,
       content: `[${dateStr}] ${extracted.episode_summary}`,
       importance: Math.min(1.0, Math.max(0.1, extracted.episode_importance ?? 0.5)),
       tags: ['sesion'],
     });
+    this._graph.registerAutobiographicalEpisode?.(nodeId, {
+      sessionId: context.sessionId,
+      occurredAt: context.occurredAt,
+      endedAt: context.endedAt,
+      salience: Math.min(1.0, Math.max(0.1, extracted.episode_importance ?? 0.5)),
+      evidenceCount: context.evidenceCount,
+      source: 'session_summary',
+    });
+    return nodeId;
   }
 
   async _extractMemories(history) {

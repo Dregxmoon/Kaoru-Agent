@@ -181,7 +181,33 @@ class ContextAssembler {
     const retrieved = retrievalResult
       ? { nodes: retrievalResult.nodes || [], episodes: retrievalResult.episodeNodes || [] }
       : { nodes: [], episodes: [] };
-    const factNodes = retrieved.nodes.filter((n) => n.inferred !== 1);
+    let factNodes = retrieved.nodes.filter((n) => n.inferred !== 1);
+    let episodicMemories = retrieved.episodes;
+    let metamemory = { knowledgeState: 'not_queried', reason: 'no_memory_question' };
+    if (includeMemory && this._graph?.assessMemoryRecall) {
+      try {
+        const assessment = this._graph.assessMemoryRecall({
+          query: currentMsg?.content || '',
+          nodes: factNodes,
+          episodes: episodicMemories,
+          memoryQuery: Boolean(retrievalResult?.memoryQuery),
+          matchCount: Number(retrievalResult?.memoryMatchCount) || 0,
+          relevantIds: retrievalResult?.relevantMemoryIds || [],
+        });
+        factNodes = assessment.nodes;
+        episodicMemories = assessment.episodes;
+        metamemory = {
+          knowledgeState: assessment.knowledgeState,
+          reason: assessment.reason,
+        };
+      } catch (e) {
+        logger.warn(
+          'ContextAssembler',
+          '[context-assembler] metamemoria no disponible:',
+          e.message
+        );
+      }
+    }
 
     let inferredModel = [];
     if (includeMemory && this._graph && typeof this._graph.getUserModel === 'function') {
@@ -213,7 +239,8 @@ class ContextAssembler {
     const contextPackage = {
       identity,
       osContext: osCtx,
-      persistentMemory: { nodes: factNodes, episodes: retrieved.episodes },
+      persistentMemory: { nodes: factNodes, episodes: episodicMemories },
+      metamemory,
       inferredModel,
       sessionHistory: history,
       currentMessage: currentMsg,

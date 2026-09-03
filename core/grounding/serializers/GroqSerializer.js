@@ -322,9 +322,67 @@ function _buildOSSection(osContext) {
 /**
  * @typedef {{
  *   nodes?: Array<{ type?: string, content?: string, inferred?: number }>,
- *   episodes?: Array<{ content?: string, created_at?: string }>,
+ *   episodes?: Array<{
+ *     content?: string,
+ *     created_at?: string|number,
+ *     memory_context?: {occurredAt?:number, evidenceCount?:number},
+ *   }>,
  * }} MemoryData
+ * @typedef {{knowledgeState?:'known'|'partial'|'unknown'|'not_queried',reason?:string}} MetamemoryData
  */
+
+/** @param {any} item */
+function _metamemoryLabel(item) {
+  const episodeEvidence = Math.max(0, Number(item?.memory_context?.evidenceCount) || 0);
+  const meta =
+    item?._metamemory ||
+    (item?.memory_context
+      ? {
+          status: episodeEvidence > 0 ? 'recollection_supported' : 'recollection_untraced',
+          confidenceBand: episodeEvidence > 0 ? 'medium' : 'low',
+        }
+      : null);
+  if (!meta) return '';
+  /** @type {Record<string, string>} */
+  const statuses = {
+    supported: 'apoyada por evidencia',
+    recorded_without_trace: 'registrada sin traza',
+    stale: 'posiblemente desactualizada',
+    contested: 'en contradicción',
+    inferred: 'inferida',
+    recollection_supported: 'resumen con evidencia',
+    recollection_untraced: 'resumen sin traza',
+  };
+  /** @type {Record<string, string>} */
+  const confidenceLabels = { high: 'alta', medium: 'media', low: 'baja' };
+  const confidence = confidenceLabels[String(meta.confidenceBand)] || 'baja';
+  const verifiedAt = Number(meta.verifiedAt);
+  const confirmation =
+    Number.isFinite(verifiedAt) && verifiedAt > 0
+      ? ` · confirmada ${new Date(verifiedAt).toISOString().slice(0, 10)}`
+      : '';
+  return ` · ${statuses[String(meta.status)] || 'estado incierto'} · confianza ${confidence}${confirmation}`;
+}
+
+/** @param {MetamemoryData|null|undefined} metamemory */
+function _buildMetamemorySection(metamemory) {
+  if (!metamemory || metamemory.knowledgeState === 'not_queried') return '';
+  if (metamemory.knowledgeState === 'unknown') {
+    return (
+      '## Límite de memoria\n' +
+      'No se recuperó un recuerdo relevante para la pregunta. Dilo claramente; no completes el vacío ' +
+      'con conocimiento general ni inventes que el usuario lo contó. Puedes pedir una pista breve.'
+    );
+  }
+  if (metamemory.knowledgeState === 'partial') {
+    return (
+      '## Límite de memoria\n' +
+      'La recuperación sólo produjo recuerdos resumidos, no trazados, antiguos, inferidos o en tensión. ' +
+      'Respóndelos como recuerdo tentativo y señala la incertidumbre; no los conviertas en hechos.'
+    );
+  }
+  return '';
+}
 
 /** @param {MemoryData | null | undefined} persistentMemory */
 function _buildMemorySection(persistentMemory) {
@@ -357,7 +415,7 @@ function _buildMemorySection(persistentMemory) {
       if (used >= budget) break;
       const type = node.type || 'Dato';
       const props = (node.content || '').slice(0, Math.min(200, budget - used));
-      if (!pushLine(`- (${type}): ${props}`)) break;
+      if (!pushLine(`- (${type}${_metamemoryLabel(node)}): ${props}`)) break;
     }
   }
 
@@ -370,14 +428,20 @@ function _buildMemorySection(persistentMemory) {
         c.length > 15 && !c.endsWith('null"') && !c.endsWith('null') && !/^\[.+\]\s*null/.test(c)
       );
     });
-    if (withContent.length > 0 && used + '\n## Episodios recientes relevantes'.length <= budget) {
-      parts.push('', '## Episodios recientes relevantes');
-      used += 2 + '## Episodios recientes relevantes'.length;
+    const heading = '## Recuerdos episódicos relevantes (resúmenes, no hechos independientes)';
+    if (withContent.length > 0 && used + `\n${heading}`.length <= budget) {
+      parts.push('', heading);
+      used += 2 + heading.length;
+      pushLine(
+        'Úsalos como contexto temporal; no inventes detalles ausentes ni los presentes como citas.'
+      );
       for (const ep of withContent) {
         if (used >= budget) break;
-        const when = ep.created_at ? new Date(ep.created_at).toLocaleDateString('es-MX') : 'antes';
+        const occurredAt = ep.memory_context?.occurredAt ?? ep.created_at;
+        const when = occurredAt ? new Date(occurredAt).toLocaleDateString('es-MX') : 'antes';
+        const evidence = _metamemoryLabel(ep);
         const preview = (ep.content || '').slice(0, Math.min(200, budget - used));
-        if (!pushLine(`- [${when}] ${preview}`)) break;
+        if (!pushLine(`- [${when}${evidence}] ${preview}`)) break;
       }
     }
   }
@@ -470,9 +534,11 @@ class GroqSerializer {
    *   osContext?: OSContext | null,
    *   persistentMemory?: MemoryData | null,
    *   inferredModel?: InferredModelData,
+   *   metamemory?: MetamemoryData | null,
    *   sessionHistory?: Array<HistoryTurn>,
    *   currentMessage?: HistoryTurn | null,
    *   toolIntent?: ToolIntentData | null,
+   *   commStyleHint?: string | null,
    * }} contextPackage
    *
    * @param {{ includeMemory?: boolean }} [opts]
@@ -489,6 +555,7 @@ class GroqSerializer {
       osContext = null,
       persistentMemory = null,
       inferredModel = null,
+      metamemory = null,
       sessionHistory = [],
       currentMessage = null,
       toolIntent = null,
@@ -503,6 +570,7 @@ class GroqSerializer {
       _getSerializedIdentity(),
       _buildOSSection(osContext),
       includeMemory ? _buildMemorySection(persistentMemory) : '',
+      includeMemory ? _buildMetamemorySection(metamemory) : '',
       includeMemory ? _buildInferredSection(inferredModel) : '',
       _buildToolIntentSection(toolIntent),
       _buildMoodSection(),

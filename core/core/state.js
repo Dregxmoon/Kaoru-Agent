@@ -8,6 +8,7 @@ const state = {
   session: null,
   updater: null,
   observationBridge: null,
+  memorySleepCycle: null,
   osSensor: null,
   proactive: null,
   behavior: null,

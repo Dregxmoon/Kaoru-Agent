@@ -41,6 +41,24 @@ function resetLearning() {
   return { ok: true };
 }
 
+function listCausalHypotheses(opts) {
+  return state.graph?.listCausalHypotheses?.(opts || {}) || [];
+}
+
+function decideCausalHypothesis(signature, decision) {
+  return Boolean(state.graph?.decideCausalHypothesis?.(String(signature), decision));
+}
+
+function consolidateMemory() {
+  if (state.memorySleepCycle?.run) return state.memorySleepCycle.run('manual');
+  return {
+    skipped: false,
+    reason: 'manual',
+    semantic: state.graph?.runConsolidation?.() || null,
+    causal: state.graph?.runCausalConsolidation?.() || null,
+  };
+}
+
 module.exports = {
   getLearningData,
   getTaskOutcomes,
@@ -48,5 +66,8 @@ module.exports = {
   recordTaskOutcome,
   listReflectionProposals,
   decideReflection,
+  listCausalHypotheses,
+  decideCausalHypothesis,
+  consolidateMemory,
   resetLearning,
 };

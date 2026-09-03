@@ -40,6 +40,8 @@ function _errMsg(e) {
  *   last_progress_at: number,
  *   created_at: number,
  *   updated_at: number,
+ *   goal_plan?: Array<object>,
+ *   resume_point?: object,
  * }} IntentionRow
  */
 
@@ -55,7 +57,7 @@ class IntentionsStore {
 
   /**
    * Crea una intención activa (empuja al tope del stack).
-   * @param {{sessionId: string, goal: string, steps?: Array<object>, lastProgress?: string}} opts
+   * @param {{sessionId: string, goal: string, steps?: Array<string|object>, lastProgress?: string}} opts
    * @returns {number | null} id de la intención, o null en modo memoria.
    */
   create({ sessionId, goal, steps = [], lastProgress = '' }) {
@@ -76,7 +78,11 @@ class IntentionsStore {
           now,
           now
         );
-      return Number(info.lastInsertRowid);
+      const id = Number(info.lastInsertRowid);
+      if (steps.length && typeof this._g.createGoalPlan === 'function') {
+        this._g.createGoalPlan(id, steps);
+      }
+      return id;
     } catch (e) {
       logger.warn('IntentionsStore', `[intentions] no se pudo crear intención: ${_errMsg(e)}`);
       return null;
@@ -91,14 +97,16 @@ class IntentionsStore {
   listActive({ limit = 10 } = {}) {
     if (this._g.usingFallback) return [];
     try {
-      const rows = this._db
-        .prepare(
-          `SELECT id, session_id, goal, status, steps, last_progress, last_progress_at, created_at, updated_at
+      const rows = /** @type {any[]} */ (
+        this._db
+          .prepare(
+            `SELECT id, session_id, goal, status, steps, last_progress, last_progress_at, created_at, updated_at
            FROM intentions WHERE status='active'
            ORDER BY updated_at DESC, id DESC LIMIT ?`
-        )
-        .all(limit);
-      return /** @type {IntentionRow[]} */ (rows);
+          )
+          .all(limit)
+      );
+      return /** @type {IntentionRow[]} */ (rows.map((row) => this._hydrate(row)));
     } catch (e) {
       logger.warn('IntentionsStore', `[intentions] error listando activas: ${_errMsg(e)}`);
       return [];
@@ -112,14 +120,13 @@ class IntentionsStore {
   get(id) {
     if (this._g.usingFallback) return undefined;
     try {
-      return /** @type {IntentionRow | undefined} */ (
-        this._db
-          .prepare(
-            `SELECT id, session_id, goal, status, steps, last_progress, last_progress_at, created_at, updated_at
+      const row = this._db
+        .prepare(
+          `SELECT id, session_id, goal, status, steps, last_progress, last_progress_at, created_at, updated_at
              FROM intentions WHERE id=?`
-          )
-          .get(id)
-      );
+        )
+        .get(id);
+      return row ? /** @type {IntentionRow} */ (this._hydrate(row)) : undefined;
     } catch (e) {
       logger.warn('IntentionsStore', `[intentions] error leyendo ${id}: ${_errMsg(e)}`);
       return undefined;
@@ -183,14 +190,16 @@ class IntentionsStore {
     if (this._g.usingFallback || typeof olderThanMs !== 'number' || olderThanMs <= 0) return [];
     try {
       const cutoff = Date.now() - olderThanMs;
-      const rows = this._db
-        .prepare(
-          `SELECT id, session_id, goal, status, steps, last_progress, last_progress_at, created_at, updated_at
+      const rows = /** @type {any[]} */ (
+        this._db
+          .prepare(
+            `SELECT id, session_id, goal, status, steps, last_progress, last_progress_at, created_at, updated_at
            FROM intentions WHERE status='active' AND last_progress_at < ?
            ORDER BY last_progress_at ASC, id DESC LIMIT ?`
-        )
-        .all(cutoff, limit);
-      return /** @type {IntentionRow[]} */ (rows);
+          )
+          .all(cutoff, limit)
+      );
+      return /** @type {IntentionRow[]} */ (rows.map((row) => this._hydrate(row)));
     } catch (e) {
       logger.warn('IntentionsStore', `[intentions] error listando stale: ${_errMsg(e)}`);
       return [];
@@ -214,6 +223,32 @@ class IntentionsStore {
       logger.warn('IntentionsStore', `[intentions] error en stats: ${_errMsg(e)}`);
       return { active: 0, done: 0, dropped: 0 };
     }
+  }
+
+  /** @param {any} row */
+  _hydrate(row) {
+    if (!row || typeof this._g.getGoalPlan !== 'function') return row;
+    let plan = this._g.getGoalPlan(Number(row.id));
+    // Migración perezosa: las intenciones creadas antes del grafo prospectivo
+    // conservan los pasos en JSON. Se materializan una sola vez al leerlas.
+    if (!plan.length && typeof row.steps === 'string') {
+      try {
+        const legacy = JSON.parse(row.steps);
+        if (
+          Array.isArray(legacy) &&
+          legacy.length &&
+          typeof this._g.createGoalPlan === 'function'
+        ) {
+          plan = this._g.createGoalPlan(Number(row.id), legacy);
+        }
+      } catch (_) {}
+    }
+    if (!plan.length) return row;
+    return {
+      ...row,
+      goal_plan: plan,
+      resume_point: this._g.getGoalResumePoint(Number(row.id)),
+    };
   }
 }
 

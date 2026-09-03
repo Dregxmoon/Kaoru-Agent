@@ -397,8 +397,8 @@ function buildActiveIntentionsSection(intentions) {
     'Hay metas de antes que quedaron en vuelo. Retómalas o coordínalas con la petición actual:'
   );
   for (const it of intentions) {
-    let steps = [];
-    if (typeof it.steps === 'string') {
+    let steps = Array.isArray(it.goal_plan) ? it.goal_plan : [];
+    if (!steps.length && typeof it.steps === 'string') {
       try {
         steps = JSON.parse(it.steps);
       } catch (_) {}
@@ -406,12 +406,23 @@ function buildActiveIntentionsSection(intentions) {
       steps = it.steps;
     }
     const stepNames = steps
-      .map((s) => (typeof s === 'string' ? s : s && (s.description || s.label)))
+      .map((s) => {
+        if (typeof s === 'string') return s;
+        if (!s) return null;
+        const label = s.description || s.label;
+        return label ? `[${s.status || 'pending'}] ${label}` : null;
+      })
       .filter(Boolean)
       .slice(0, 5);
     const progress = it.last_progress ? ` Progreso: ${it.last_progress}` : '';
     const stepLine = stepNames.length ? ` Pasos: ${stepNames.join(' → ')}` : '';
-    lines.push(`- Meta: ${it.goal}${progress}${stepLine}`);
+    const resume = it.resume_point?.step?.description
+      ? ` Próximo foco: ${it.resume_point.step.description} (${it.resume_point.state}).`
+      : '';
+    const criteria = Array.isArray(it.resume_point?.step?.successCriteria)
+      ? ` Criterios: ${it.resume_point.step.successCriteria.slice(0, 3).join('; ')}.`
+      : '';
+    lines.push(`- Meta: ${it.goal}${progress}${stepLine}${resume}${criteria}`);
   }
   return lines.join('\n');
 }

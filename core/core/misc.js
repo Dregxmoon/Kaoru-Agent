@@ -62,6 +62,12 @@ function forgetMemory(text) {
   return state.graph.forget(text);
 }
 
+/** Consulta explícita de la línea autobiográfica; no ejecuta acciones. */
+function recallAutobiographical(opts = {}) {
+  if (!state.graph?.isReady) return [];
+  return state.graph.recallAutobiographical?.(opts) || [];
+}
+
 /** Al arrancar: ofrece retomar lo pendiente (recordatorios guardados). */
 function pendingRecap() {
   return state.proactive?.pendingRecap() ?? Promise.resolve(null);
@@ -745,6 +751,7 @@ module.exports = {
   isOpenClawAvailable,
   getOpenClawStatus,
   forgetMemory,
+  recallAutobiographical,
   pendingRecap,
   getProactiveStats,
   setAutonomyMode,

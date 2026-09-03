@@ -36,6 +36,7 @@
 
 'use strict';
 const logger = require('../observability/Logger.js');
+const { resolveTemporalWindow } = require('../state-graph/stores/AutobiographicalMemoryStore.js');
 
 // ── Patrones de intención para StateGraph (sin cambios de Fase 2) ──────────────
 const INTENT_PATTERNS = [
@@ -62,7 +63,7 @@ const INTENT_PATTERNS = [
   },
   {
     pattern:
-      /\b(cómo estoy|cómo me ves|qué piensas de mí|qué sabes de mí|how (?:am i|do you see me)|what do you (?:know|think) (?:about|of) me)\b/i,
+      /(?:^|[^\p{L}\p{N}_])(cómo estoy|cómo me ves|qué piensas de mí|qué sabes de mí|how (?:am i|do you see me)|what do you (?:know|think) (?:about|of) me)(?=$|[^\p{L}\p{N}_])/iu,
     types: ['User', 'Belief'],
   },
   {
@@ -72,6 +73,14 @@ const INTENT_PATTERNS = [
 ];
 
 const ALWAYS_SEARCH = new Set(['bug', 'api', 'db', 'git', 'ui', 'ux', 'ml', 'ia', 'ai']);
+
+const MEMORY_QUERY_PATTERN =
+  /(?:^|[^\p{L}\p{N}_])(recuerd\w*|acuerd\w*|qué sabes de m[ií]|que sabes de mi|quién soy|quien soy|cómo me llamo|como me llamo|ayer|semana pasada|mes pasado|última vez|ultima vez|hace \d+ d[ií]as?|mi (?:nombre|color|música|musica|comida|proyecto) favorito|remember|last time|what do you know about me)(?=$|[^\p{L}\p{N}_])/iu;
+
+/** @param {string} message */
+function isMemoryQuery(message) {
+  return MEMORY_QUERY_PATTERN.test(String(message || ''));
+}
 
 const STOPWORDS = new Set([
   'para',
@@ -219,11 +228,26 @@ class RetrievalPlanner {
         strategy: 'fallback',
         keywords: [],
         intents: [],
+        memoryQuery: isMemoryQuery(userMessage),
+        memoryMatchCount: 0,
+        relevantMemoryIds: [],
       };
     }
 
     const nodeIds = new Set();
     const nodes = [];
+    const episodeIds = new Set();
+    const episodeNodes = [];
+    const relevantMemoryIds = new Set();
+    const memoryQuery = isMemoryQuery(userMessage);
+    const temporalWindow = resolveTemporalWindow(userMessage, Date.now());
+
+    const addEpisode = (episode) => {
+      if (episode && !episodeIds.has(episode.id)) {
+        episodeIds.add(episode.id);
+        episodeNodes.push(episode);
+      }
+    };
 
     const addNode = (n) => {
       // F3.3: los nodos inferidos (modelo del usuario) NO entran al bucket de
@@ -231,6 +255,12 @@ class RetrievalPlanner {
       // ContextAssembler.getUserModel(). Evita que un rasgo inferido consuma
       // presupuesto del recall y se cuele al prompt como "hecho".
       if (n && n.inferred === 1) return;
+      // Los episodios son recuerdos resumidos, no hechos del world model.
+      // Mantenerlos en su bucket evita presentarlos como afirmaciones estables.
+      if (n?.type === 'Episode') {
+        addEpisode(n);
+        return;
+      }
       if (n && !nodeIds.has(n.id)) {
         nodeIds.add(n.id);
         nodes.push(n);
@@ -256,7 +286,11 @@ class RetrievalPlanner {
     // 2. Detectar intención semántica para StateGraph y traer nodos específicos
     const intents = this._detectGraphIntents(userMessage);
     for (const type of intents) {
-      addAll(this._graph.queryNodes({ type, limit: 3 }));
+      const intentNodes = this._graph.queryNodes({ type, limit: 3 });
+      addAll(intentNodes);
+      if (memoryQuery && !temporalWindow && type !== 'Episode') {
+        for (const node of intentNodes) relevantMemoryIds.add(Number(node.id));
+      }
     }
 
     // 3. Recall semántico sobre el mensaje completo (antes: LIKE por keyword)
@@ -279,9 +313,20 @@ class RetrievalPlanner {
       }
       if (semantic.length > 0) {
         addAll(semantic);
+        if (memoryQuery && !temporalWindow) {
+          for (const node of semantic) {
+            if (node._similarity == null || Number(node._similarity) >= 0.45) {
+              relevantMemoryIds.add(Number(node.id));
+            }
+          }
+        }
       } else if (keywords.length > 0) {
         for (const kw of keywords.slice(0, 5)) {
-          addAll(this._graph.queryNodes({ search: kw, limit: 2 }));
+          const matches = this._graph.queryNodes({ search: kw, limit: 2 });
+          addAll(matches);
+          if (memoryQuery && !temporalWindow) {
+            for (const node of matches) relevantMemoryIds.add(Number(node.id));
+          }
         }
       }
     }
@@ -297,8 +342,36 @@ class RetrievalPlanner {
       addAll(this._graph.queryNodes({ type: 'Preference', limit: 2 }));
     }
 
-    // 6. Episodios recientes (GroqSerializer solo usa hasta 3)
-    const episodes = this._graph.getRecentEpisodes(3);
+    // 6. Continuidad autobiográfica: combina episodios encontrados por recall
+    // semántico con una selección temporal/temática. Fallback compatible para
+    // bases antiguas o modo degradado.
+    const autobiographical = this._graph.recallAutobiographical?.({
+      query: userMessage,
+      now: Date.now(),
+      limit: 3,
+    });
+    // Una ventana temporal explícita ("ayer", "semana pasada", fecha ISO)
+    // domina sobre episodios semánticos fuera de ese intervalo.
+    if (temporalWindow) {
+      episodeIds.clear();
+      episodeNodes.length = 0;
+    }
+    for (const episode of autobiographical || this._graph.getRecentEpisodes(3)) {
+      addEpisode(episode);
+      if (
+        memoryQuery &&
+        (episode.memory_context?.temporalWindow || Number(episode._topicMatches) > 0)
+      ) {
+        relevantMemoryIds.add(Number(episode.id));
+      }
+    }
+    const episodes = episodeNodes
+      .sort(
+        (a, b) =>
+          (b.memory_context?.score ?? b._semanticScore ?? b.importance ?? 0) -
+          (a.memory_context?.score ?? a._semanticScore ?? a.importance ?? 0)
+      )
+      .slice(0, 3);
 
     // Ordenar por importancia y recortar
     const sortedNodes = nodes.sort((a, b) => b.importance - a.importance).slice(0, 12);
@@ -324,6 +397,9 @@ class RetrievalPlanner {
       strategy,
       keywords,
       intents,
+      memoryQuery,
+      memoryMatchCount: relevantMemoryIds.size,
+      relevantMemoryIds: [...relevantMemoryIds],
     };
   }
 
@@ -380,4 +456,4 @@ class RetrievalPlanner {
   }
 }
 
-module.exports = { RetrievalPlanner };
+module.exports = { RetrievalPlanner, isMemoryQuery };

@@ -41,6 +41,8 @@ async function shutdown() {
   }
   state.observationBridge?.stop();
   state.observationBridge = null;
+  state.memorySleepCycle?.stop();
+  state.memorySleepCycle = null;
   if (state.proposalExecutedUnsub) {
     state.proposalExecutedUnsub();
     state.proposalExecutedUnsub = null;

@@ -708,7 +708,7 @@ function truncateSystemPrompt(systemPrompt, opts = {}) {
     { name: 'OpenClaw', marker: '# HERRAMIENTAS DISPONIBLES', keepIf: null },
     { name: 'Plan', marker: '# MODO PLAN', keepIf: null },
     { name: 'Execute', marker: '# MODO EJECUCIÓN', keepIf: null },
-    { name: 'Episodios', marker: '## Episodios recientes', keepIf: null },
+    { name: 'Episodios', marker: '## Recuerdos episódicos', keepIf: null },
     { name: 'Memoria', marker: '## Lo que sé del usuario', keepIf: null },
     { name: 'OS', marker: '## Contexto actual', keepIf: null },
     { name: 'Behavior', marker: '# COMPORTAMIENTO ESTE TURNO', keepIf: null },

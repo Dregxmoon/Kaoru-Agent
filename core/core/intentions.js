@@ -76,10 +76,42 @@ function getIntentionsStats() {
   }
 }
 
+function getIntentionPlan(id) {
+  const g = _graph();
+  return g?.getGoalPlan?.(Number(id)) || [];
+}
+
+function getIntentionResumePoint(id) {
+  const g = _graph();
+  return g?.getGoalResumePoint?.(Number(id)) || null;
+}
+
+function updateIntentionStep(id, ordinal, update) {
+  const g = _graph();
+  if (!g?.updateGoalStep) return false;
+  try {
+    const ok = g.updateGoalStep(Number(id), Number(ordinal), update || {});
+    if (ok) state.bus?.emit('intention:step-updated', { id, ordinal });
+    return ok;
+  } catch (e) {
+    logger.warn('intentions', '[core] error actualizando paso:', e.message);
+    return false;
+  }
+}
+
+function listIntentionEvents(id, opts) {
+  const g = _graph();
+  return g?.listGoalEvents?.(Number(id), opts || {}) || [];
+}
+
 module.exports = {
   listIntentions,
   addIntention,
   completeIntention,
   dropIntention,
   getIntentionsStats,
+  getIntentionPlan,
+  getIntentionResumePoint,
+  updateIntentionStep,
+  listIntentionEvents,
 };

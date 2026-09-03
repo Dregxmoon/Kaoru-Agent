@@ -14,14 +14,16 @@ class SessionStore {
   }
 
   endSession(sessionId, { summary, turnCount, episodeId } = {}) {
+    const endedAt = Date.now();
     if (this._graph?.usingFallback && this._db._sessions) {
       const row = this._db._sessions.get(sessionId);
       if (row) {
-        row.ended_at = Date.now();
+        row.ended_at = endedAt;
         if (summary) row.summary = summary;
         row.turn_count = turnCount || 0;
         if (episodeId) row.episode_id = episodeId;
       }
+      this._graph?.closeAutobiographicalSession?.(sessionId, endedAt);
       return;
     }
     this._db
@@ -32,7 +34,8 @@ class SessionStore {
       WHERE id=?
     `
       )
-      .run(Date.now(), summary || null, turnCount || 0, episodeId || null, sessionId);
+      .run(endedAt, summary || null, turnCount || 0, episodeId || null, sessionId);
+    this._graph?.closeAutobiographicalSession?.(sessionId, endedAt);
   }
 
   getLastSessions(limit = 5) {

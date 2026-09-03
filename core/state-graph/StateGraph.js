@@ -29,6 +29,10 @@ const { FactReasonerStore } = require('./stores/FactReasonerStore.js');
 const { IntentionsStore } = require('./stores/IntentionsStore.js');
 const { ObservationStore } = require('./stores/ObservationStore.js');
 const { WorkingMemoryStore } = require('./stores/WorkingMemoryStore.js');
+const { GoalPlanStore } = require('./stores/GoalPlanStore.js');
+const { CausalMemoryStore } = require('./stores/CausalMemoryStore.js');
+const { AutobiographicalMemoryStore } = require('./stores/AutobiographicalMemoryStore.js');
+const { MetamemoryStore } = require('./stores/MetamemoryStore.js');
 const { EvolutionStore } = require('./evolution/EvolutionStore.js');
 const { FeedbackScorer } = require('./evolution/FeedbackScorer.js');
 const { LLMEotionDetector } = require('./evolution/LLMEotionDetector.js');
@@ -470,6 +474,11 @@ class StateGraph {
     this._intentions = new IntentionsStore(this._db, this);
     this._observations = new ObservationStore(this._db, this);
     this._workingMemory = new WorkingMemoryStore(this._db, this);
+    this._goalPlans = new GoalPlanStore(this._db, this);
+    this._causalMemory = new CausalMemoryStore(this._db, this);
+    this._autobiographical = new AutobiographicalMemoryStore(this._db, this);
+    this._autobiographical.backfillLegacy(200);
+    this._metamemory = new MetamemoryStore(this._db, this);
     this._resolver = new ContradictionResolver(this);
     this._userModel = new UserModelBuilder(this._db, this);
     this._evolution = new EvolutionStore(this._db);
@@ -604,6 +613,91 @@ class StateGraph {
       );
 
       CREATE INDEX IF NOT EXISTS idx_intentions_active ON intentions(status, updated_at DESC);
+
+      CREATE TABLE IF NOT EXISTS goal_steps (
+        id               INTEGER PRIMARY KEY AUTOINCREMENT,
+        intention_id     INTEGER NOT NULL REFERENCES intentions(id) ON DELETE CASCADE,
+        ordinal          INTEGER NOT NULL,
+        parent_ordinal   INTEGER,
+        description      TEXT NOT NULL,
+        status           TEXT NOT NULL DEFAULT 'pending',
+        depends_on       TEXT NOT NULL DEFAULT '[]',
+        success_criteria TEXT NOT NULL DEFAULT '[]',
+        verification     TEXT,
+        trigger_context  TEXT,
+        due_at           INTEGER,
+        created_at       INTEGER NOT NULL,
+        updated_at       INTEGER NOT NULL,
+        UNIQUE(intention_id, ordinal)
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_goal_steps_intention ON goal_steps(intention_id, ordinal);
+      CREATE INDEX IF NOT EXISTS idx_goal_steps_status ON goal_steps(status, updated_at DESC);
+
+      CREATE TABLE IF NOT EXISTS goal_events (
+        id            INTEGER PRIMARY KEY AUTOINCREMENT,
+        intention_id  INTEGER NOT NULL REFERENCES intentions(id) ON DELETE CASCADE,
+        step_ordinal   INTEGER,
+        event_type     TEXT NOT NULL,
+        metadata       TEXT NOT NULL DEFAULT '{}',
+        created_at     INTEGER NOT NULL
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_goal_events_intention ON goal_events(intention_id, id DESC);
+
+      CREATE TABLE IF NOT EXISTS task_outcome_evidence (
+        id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+        session_id          TEXT NOT NULL,
+        mode                TEXT NOT NULL,
+        difficulty          TEXT NOT NULL DEFAULT 'unknown',
+        strategy            TEXT NOT NULL,
+        outcome             TEXT NOT NULL,
+        verification_status TEXT NOT NULL,
+        verification_reason TEXT,
+        tools               TEXT NOT NULL DEFAULT '[]',
+        elapsed_ms          INTEGER NOT NULL DEFAULT 0,
+        created_at          INTEGER NOT NULL,
+        consolidated_at     INTEGER
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_task_evidence_pending
+        ON task_outcome_evidence(consolidated_at, created_at);
+      CREATE INDEX IF NOT EXISTS idx_task_evidence_strategy
+        ON task_outcome_evidence(strategy, created_at);
+
+      CREATE TABLE IF NOT EXISTS causal_hypotheses (
+        id               INTEGER PRIMARY KEY AUTOINCREMENT,
+        signature        TEXT NOT NULL UNIQUE,
+        cause            TEXT NOT NULL,
+        effect           TEXT NOT NULL,
+        support_count    INTEGER NOT NULL,
+        contradict_count INTEGER NOT NULL,
+        confidence       REAL NOT NULL,
+        status           TEXT NOT NULL DEFAULT 'inferred',
+        evidence_ids     TEXT NOT NULL DEFAULT '[]',
+        created_at       INTEGER NOT NULL,
+        updated_at       INTEGER NOT NULL
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_causal_hypotheses_status
+        ON causal_hypotheses(status, confidence DESC);
+
+      CREATE TABLE IF NOT EXISTS autobiographical_events (
+        id             INTEGER PRIMARY KEY AUTOINCREMENT,
+        node_id        INTEGER NOT NULL UNIQUE REFERENCES nodes(id) ON DELETE CASCADE,
+        session_id     TEXT,
+        occurred_at    INTEGER NOT NULL,
+        ended_at       INTEGER,
+        salience       REAL NOT NULL DEFAULT 0.5,
+        evidence_count INTEGER NOT NULL DEFAULT 0,
+        source         TEXT NOT NULL DEFAULT 'session_summary',
+        created_at     INTEGER NOT NULL
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_autobiographical_time
+        ON autobiographical_events(occurred_at DESC);
+      CREATE INDEX IF NOT EXISTS idx_autobiographical_session
+        ON autobiographical_events(session_id, occurred_at);
 
       CREATE TABLE IF NOT EXISTS interaction_log (
         id            INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -801,6 +895,25 @@ class StateGraph {
           `UPDATE intentions SET last_progress_at = created_at WHERE last_progress_at IS NULL;`
         );
         logger.info('StateGraph', '[state-graph] migración intentions.last_progress_at completada');
+      }
+
+      // Compatibilidad con builds intermedios del grafo prospectivo.
+      const goalStepCols = this._db.prepare(`PRAGMA table_info(goal_steps)`).all();
+      if (!goalStepCols.some((c) => c.name === 'trigger_context')) {
+        this._db.exec(`ALTER TABLE goal_steps ADD COLUMN trigger_context TEXT;`);
+      }
+      if (!goalStepCols.some((c) => c.name === 'due_at')) {
+        this._db.exec(`ALTER TABLE goal_steps ADD COLUMN due_at INTEGER;`);
+      }
+
+      // Compatibilidad con builds intermedios de la memoria causal. La tabla
+      // final se crea antes de esta migración; este ALTER sólo aplica si el
+      // usuario alcanzó a iniciar una versión que aún no separaba dificultad.
+      const outcomeCols = this._db.prepare(`PRAGMA table_info(task_outcome_evidence)`).all();
+      if (outcomeCols.length && !outcomeCols.some((c) => c.name === 'difficulty')) {
+        this._db.exec(
+          `ALTER TABLE task_outcome_evidence ADD COLUMN difficulty TEXT NOT NULL DEFAULT 'unknown';`
+        );
       }
     } catch (e) {
       logger.warn('StateGraph', '[state-graph] error en migración (no crítico):', e.message);
@@ -1189,6 +1302,71 @@ class StateGraph {
   }
   intentionStats() {
     return this._intentions.getStats();
+  }
+
+  createGoalPlan(intentionId, steps) {
+    return this._goalPlans.createPlan(intentionId, steps);
+  }
+  getGoalPlan(intentionId) {
+    return this._goalPlans.listSteps(intentionId);
+  }
+  updateGoalStep(intentionId, ordinal, update) {
+    return this._goalPlans.updateStep(intentionId, ordinal, update);
+  }
+  getGoalResumePoint(intentionId) {
+    return this._goalPlans.getResumePoint(intentionId);
+  }
+  recordGoalRunProgress(intentionId, plan) {
+    return this._goalPlans.recordRunProgress(intentionId, plan);
+  }
+  completeGoalPlan(intentionId, verification) {
+    return this._goalPlans.completePlan(intentionId, verification);
+  }
+  recordGoalEvent(intentionId, ordinal, type, metadata) {
+    return this._goalPlans.recordEvent(intentionId, ordinal, type, metadata);
+  }
+  listGoalEvents(intentionId, opts) {
+    return this._goalPlans.listEvents(intentionId, opts);
+  }
+  matchProspectiveGoals(event, payload, now) {
+    return this._goalPlans.findCues(event, payload, now);
+  }
+
+  recordTaskOutcomeEvidence(outcome) {
+    return this._causalMemory.recordOutcome(outcome);
+  }
+  runCausalConsolidation(opts) {
+    return this._causalMemory.consolidate(opts);
+  }
+  listCausalHypotheses(opts) {
+    return this._causalMemory.listHypotheses(opts);
+  }
+  decideCausalHypothesis(signature, decision) {
+    return this._causalMemory.decide(signature, decision);
+  }
+  buildCausalMemorySection() {
+    return this._causalMemory.buildPromptSection();
+  }
+
+  registerAutobiographicalEpisode(nodeId, opts) {
+    return this._autobiographical.registerEpisode(nodeId, opts);
+  }
+  closeAutobiographicalSession(sessionId, endedAt) {
+    return this._autobiographical.closeSession(sessionId, endedAt);
+  }
+  recallAutobiographical(opts) {
+    return this._autobiographical.recall(opts);
+  }
+  runAutobiographicalMaintenance(limit) {
+    return this._autobiographical.backfillLegacy(limit);
+  }
+  assessMemoryRecall(input) {
+    return this._metamemory.assessRecall(input);
+  }
+  assessMemoryNode(node, metadata, now) {
+    if (metadata) return this._metamemory.assessNode(node, metadata, now);
+    const assessment = this._metamemory.assessRecall({ nodes: [node], now });
+    return assessment.nodes[0]?._metamemory || this._metamemory.assessNode(node, {}, now);
   }
 
   setWorkingMemory(opts) {

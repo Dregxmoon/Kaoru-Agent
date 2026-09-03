@@ -306,8 +306,9 @@ module.exports = function registerCommands(register) {
   }
 
   function _intentionSteps(intention) {
-    let steps = [];
-    if (typeof intention?.steps === 'string') {
+    const structured = Array.isArray(intention?.goal_plan);
+    let steps = structured ? intention.goal_plan : [];
+    if (!steps.length && typeof intention?.steps === 'string') {
       try {
         steps = JSON.parse(intention.steps);
       } catch (_) {}
@@ -315,7 +316,13 @@ module.exports = function registerCommands(register) {
       steps = intention.steps;
     }
     return steps
-      .map((s) => (typeof s === 'string' ? s : s && (s.description || s.label)))
+      .map((s) => {
+        if (typeof s === 'string') return s;
+        const description = s && (s.description || s.label);
+        return description && structured
+          ? `[${s.status || 'pending'}] ${description}`
+          : description;
+      })
       .filter(Boolean);
   }
 
@@ -367,6 +374,12 @@ module.exports = function registerCommands(register) {
       if (steps.length) {
         lines.push(`Pasos planificados:`);
         for (const s of steps) lines.push(`- ${s}`);
+      }
+      if (target.resume_point?.step?.description) {
+        const prefix = target.resume_point.state === 'verify' ? 'Verificá primero' : 'Próximo paso';
+        lines.push(`${prefix}: ${target.resume_point.step.description}`);
+        const criteria = target.resume_point.step.successCriteria || [];
+        if (criteria.length) lines.push(`Criterios de éxito: ${criteria.join('; ')}`);
       }
       lines.push(
         ``,

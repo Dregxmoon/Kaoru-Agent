@@ -291,7 +291,9 @@ async function runAgent(userMessage, opts = {}) {
   //    bajo presión de presupuesto (es lo menos importante).
   try {
     const learningSection = state.learning?.buildPromptSection?.();
-    if (learningSection) loopOpts.learningSection = learningSection;
+    const causalSection = state.graph?.buildCausalMemorySection?.();
+    const learnedSections = [learningSection, causalSection].filter(Boolean);
+    if (learnedSections.length) loopOpts.learningSection = learnedSections.join('\n\n');
   } catch (_) {}
 
   try {
@@ -427,6 +429,8 @@ async function runAgent(userMessage, opts = {}) {
     };
   }
 
+  const evaluatedOutcome = evaluateTaskOutcome(result);
+
   // ── Fase 3 ítem 1: si la meta queda en vuelo (se agotaron iteraciones o el
   //    usuario canceló), se persiste como intención activa para retomarla al
   //    reanudar la sesión (re-planificación). Las terminadas bien se limpian.
@@ -440,14 +444,30 @@ async function runAgent(userMessage, opts = {}) {
       const g = state.graph;
       if (g && !g.usingFallback && typeof g.createIntention === 'function') {
         const planSteps = (result.plan && result.plan.steps) || [];
-        g.createIntention({
-          sessionId: state.session?.getSessionId?.() || '',
-          goal: userMessage,
-          steps: planSteps,
-          lastProgress:
-            `Se interrumpió tras ${result.iterations || 0} iteraciones ` +
-            `(${result.error || 'truncado'})${planSteps.length ? ` — plan ${result.plan.done}/${result.plan.total}` : ''}.`,
-        });
+        const progress =
+          `Se interrumpió tras ${result.iterations || 0} iteraciones ` +
+          `(${result.error || 'truncado'})${planSteps.length ? ` — plan ${result.plan.done}/${result.plan.total}` : ''}.`;
+        const goalMatch = /(?:^|\n)Objetivo:\s*(.+?)\s*$/m.exec(String(effectiveMessage || ''));
+        const resumed = goalMatch
+          ? (loopOpts.activeIntentions || []).find(
+              (item) => String(item.goal || '').trim() === goalMatch[1].trim()
+            )
+          : null;
+        let intentionId = null;
+        if (resumed) {
+          g.updateIntention(resumed.id, { lastProgress: progress });
+          intentionId = resumed.id;
+        } else {
+          intentionId = g.createIntention({
+            sessionId: state.session?.getSessionId?.() || '',
+            goal: userMessage,
+            steps: planSteps,
+            lastProgress: progress,
+          });
+        }
+        if (intentionId && result.plan && typeof g.recordGoalRunProgress === 'function') {
+          g.recordGoalRunProgress(intentionId, result.plan);
+        }
       }
     } catch (e) {
       logger.warn('agent', '[core] no se pudo persistir la intención pendiente:', e.message);
@@ -461,8 +481,7 @@ async function runAgent(userMessage, opts = {}) {
   //    (ya no queda en vuelo). Solo aplica cuando el prompt efectivo menciona
   //    explícitamente "Objetivo:" — una tarea nueva e independiente no
   //    dispara esto ni completa intenciones ajenas.
-  const success = !result.error && !result.truncated && !result.cancelled;
-  if (success && loopOpts.activeIntentions && loopOpts.activeIntentions.length) {
+  if (evaluatedOutcome.terminalSuccess && loopOpts.activeIntentions?.length) {
     try {
       const goalMatch = /(?:^|\n)Objetivo:\s*(.+?)\s*$/m.exec(String(effectiveMessage || ''));
       if (goalMatch) {
@@ -472,12 +491,36 @@ async function runAgent(userMessage, opts = {}) {
         );
         if (match) {
           const g = state.graph;
-          if (g && !g.usingFallback && typeof g.completeIntention === 'function') {
-            g.completeIntention(match.id);
-            logger.info(
-              'agent',
-              `[core] intención #${match.id} completada tras reanudar con éxito`
-            );
+          if (g && !g.usingFallback) {
+            const storedPlan = g.getGoalPlan?.(match.id) || [];
+            const hasCompletionEvidence =
+              evaluatedOutcome.verificationStatus === 'verified' ||
+              (storedPlan.length === 0 && evaluatedOutcome.verificationStatus === 'not_applicable');
+            if (
+              evaluatedOutcome.success &&
+              hasCompletionEvidence &&
+              typeof g.completeIntention === 'function'
+            ) {
+              g.completeGoalPlan?.(match.id, {
+                status: evaluatedOutcome.verificationStatus,
+                reason: evaluatedOutcome.verificationReason,
+                source: 'agent_run',
+                at: Date.now(),
+              });
+              g.completeIntention(match.id);
+              logger.info(
+                'agent',
+                `[core] intención #${match.id} completada con evidencia ${evaluatedOutcome.verificationStatus}`
+              );
+            } else {
+              g.updateIntention?.(match.id, {
+                lastProgress: `La ejecución terminó, pero requiere verificación (${evaluatedOutcome.verificationReason}).`,
+              });
+              g.recordGoalEvent?.(match.id, null, 'verification_required', {
+                status: evaluatedOutcome.verificationStatus,
+                reason: evaluatedOutcome.verificationReason,
+              });
+            }
           }
         }
       }
@@ -495,7 +538,7 @@ async function runAgent(userMessage, opts = {}) {
     const costUsd = usageAfter.slice(usageBefore.length).reduce((a, e) => a + (e.costUsd || 0), 0);
     const provider = LLMProvider.getActiveProvider() || 'unknown';
     const model = LLMProvider.getActiveModel(mode) || null;
-    const evaluated = evaluateTaskOutcome(result);
+    const evaluated = evaluatedOutcome;
     const elapsedMs = Date.now() - _t0;
     const taskIntent = state.taskDetector?.detect(effectiveMessage);
     const difficulty = _estimateDifficultyFor({
@@ -537,6 +580,7 @@ async function runAgent(userMessage, opts = {}) {
     if (state.trust && typeof state.trust.recordOutcome === 'function') {
       state.trust.recordOutcome(outcome);
     }
+    state.graph?.recordTaskOutcomeEvidence?.(outcome);
     if (workingScope && state.graph?.setWorkingMemory) {
       state.graph.setWorkingMemory({
         scope: workingScope,

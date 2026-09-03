@@ -27,7 +27,7 @@ function dedupe(event, payload) {
 
 class ObservationBridge {
   /**
-   * @param {{bus:{on:(event:string, handler:(payload:any)=>void)=>()=>void}, graph:{recordObservation?:(opts:object)=>number|null}}} deps
+   * @param {{bus:{on:(event:string, handler:(payload:any)=>void)=>()=>void, emit?:(event:string,payload:object)=>void}, graph:{recordObservation?:(opts:object)=>number|null, matchProspectiveGoals?:(event:string,payload:object)=>Array<any>}}} deps
    */
   constructor({ bus, graph }) {
     this._bus = bus;
@@ -113,6 +113,22 @@ class ObservationBridge {
         ttlMs,
         dedupeKey: dedupe(event, normalized),
       });
+      // El mismo evento perceptivo puede despertar una intención prospectiva.
+      // Solo emite una propuesta recordatoria; el pipeline proactivo conserva
+      // sus gates, cooldown y consentimiento. Se evita re-procesar el evento
+      // sintético para no crear ciclos.
+      if (event !== 'memory:upcoming-event' && this._graph.matchProspectiveGoals) {
+        const cues = this._graph.matchProspectiveGoals(event, normalized.metadata) || [];
+        for (const cue of cues) {
+          this._bus.emit?.('memory:upcoming-event', {
+            content: `Objetivo "${cue.goal}": ${cue.description}`,
+            when: cue.dueAt || Date.now(),
+            kind: 'prospective_goal',
+            intentionId: cue.intentionId,
+            stepOrdinal: cue.ordinal,
+          });
+        }
+      }
     });
     this._unsubs.push(unsubscribe);
   }
