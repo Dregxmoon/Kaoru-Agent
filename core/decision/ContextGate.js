@@ -235,6 +235,25 @@ function evaluate(candidate, context = {}, policy = DEFAULT_GATE_POLICY) {
     };
   }
 
+  // La curiosidad no justifica romper concentración ni hablarle a una silla
+  // vacía. Se conserva en cola para el siguiente cambio de contexto/regreso.
+  // Esto también aplica a los huecos de aprendizaje: relevancia epistémica no
+  // equivale a urgencia humana.
+  if (curiosityType && (flow.level === FLOW.DEEP || flow.level === FLOW.IDLE)) {
+    return {
+      admit: false,
+      queue: true,
+      decision: {
+        verdict: 'QUEUE',
+        reason: flow.level === FLOW.DEEP ? 'user_in_deep_flow' : 'user_not_present',
+        relevance: candidate.score ?? 0,
+        flow: flow.level,
+      },
+      flow: flow.level,
+      budgetLimit,
+    };
+  }
+
   const selfValidated = candidate.selfGated || curiosityType;
   if (selfValidated) {
     if (!withinBudget) {

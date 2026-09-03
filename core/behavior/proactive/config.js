@@ -39,6 +39,7 @@ const CURIOSITY_TYPES = new Set([
   'memory_tension',
   'intention_stale',
   'topic_cold',
+  'knowledge_gap',
 ]);
 
 // Una intención activa con `last_progress_at` más viejo que esto (días) se
@@ -273,6 +274,14 @@ const PROPOSAL_HINTS = {
       action: null,
     },
   },
+  knowledge_gap: {
+    default: {
+      title: 'Conocerte un poco mejor',
+      preview: 'Una pregunta opcional sobre algo que todavía no sé de ti.',
+      kind: 'question',
+      action: null,
+    },
+  },
   // Fase D: error de código detectado por el LSP. La propuesta pide un parche;
   // si el LLM no logra generar uno válido, cae a informativa (ver el error).
   lsp_error: {
@@ -327,6 +336,7 @@ const TRIGGER_COOLDOWN_MS = {
   memory_tension: 6 * 60 * 60 * 1000,
   intention_stale: 6 * 60 * 60 * 1000,
   topic_cold: 4 * 60 * 60 * 1000,
+  knowledge_gap: 6 * 60 * 60 * 1000,
 };
 
 // Señales de TRABAJO: tienen cupo diario PROPIO (como la curiosidad). Un

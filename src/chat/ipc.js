@@ -339,6 +339,7 @@ const _proposalActions = new Map();
 function _renderProposal(proposal, bubble) {
   const wrap = document.createElement('div');
   wrap.className = 'proposal-actions';
+  const isQuestion = proposal.kind === 'question';
 
   if (proposal.preview) {
     const preview = document.createElement('div');
@@ -359,12 +360,15 @@ function _renderProposal(proposal, bubble) {
 
   const accept = document.createElement('button');
   accept.className = 'btn-proposal-accept';
-  accept.textContent = 'Sí, hazlo';
-  accept.addEventListener('click', () => sendProposalDecision(proposal, 'accepted', wrap, accept));
+  accept.textContent = isQuestion ? 'Responder' : 'Sí, hazlo';
+  accept.addEventListener('click', () => {
+    sendProposalDecision(proposal, 'accepted', wrap, accept);
+    if (isQuestion) document.getElementById('msg-input')?.focus();
+  });
 
   const deny = document.createElement('button');
   deny.className = 'btn-proposal-deny';
-  deny.textContent = 'No, gracias';
+  deny.textContent = isQuestion ? 'Ahora no' : 'No, gracias';
   deny.addEventListener('click', () => sendProposalDecision(proposal, 'rejected', wrap, deny));
 
   btns.appendChild(accept);
@@ -400,8 +404,12 @@ function sendProposalDecision(proposal, decision, wrap, clickedBtn) {
   status.className = decision === 'accepted' ? 'proposal-status ok' : 'proposal-status no';
   status.textContent =
     decision === 'accepted'
-      ? '✓ Aceptado — en proceso.'
-      : 'Descartado — seré más selectiva con esto.';
+      ? proposal.kind === 'question'
+        ? 'Te leo.'
+        : '✓ Aceptado — en proceso.'
+      : proposal.kind === 'question'
+        ? 'Lo dejamos para otro momento.'
+        : 'Descartado — seré más selectiva con esto.';
   wrap.appendChild(status);
   _scrollMessagesToBottom();
 }

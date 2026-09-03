@@ -506,7 +506,8 @@ No expliques por qué escribes. No anuncies que eres proactiva. NO muestres tu r
       (trigger.type === 'memory_stale' ||
         trigger.type === 'pattern_uncertain' ||
         trigger.type === 'memory_tension' ||
-        trigger.type === 'intention_stale')
+        trigger.type === 'intention_stale' ||
+        trigger.type === 'knowledge_gap')
     ) {
       return this._buildMemoryCuriosityContext(trigger);
     }
@@ -569,6 +570,10 @@ No expliques por qué escribes. No anuncies que eres proactiva. NO muestres tu r
       if (trigger.type === 'memory_stale') {
         const what = String(trigger.content || trigger.label || 'eso').slice(0, 160);
         return `\nDato de memoria a revalidar: el usuario te contó antes "${what}" (${trigger.label}), hace tiempo que no se menciona y quedó marcado como posiblemente caducado. Es un HECHO que él dijo, no una inferencia: puedes preguntarle DIRECTO y natural, p. ej. "hace tiempo no hablamos de ${trigger.label || 'eso'}, ¿sigue igual?". No inventes nada nuevo sobre él; solo pregunta si sigue vigente.`;
+      }
+      if (trigger.type === 'knowledge_gap') {
+        const trait = String(trigger.trait || 'ese aspecto').slice(0, 160);
+        return `\nAprendizaje activo: hay un hueco explícito y todavía NO sabes ${trait}. Si el momento se siente natural, haz UNA pregunta breve y abierta para conocerlo; no sugieras que ya conocías la respuesta y permite que el usuario la ignore. Esta curiosidad no es autorización: no propongas ni ejecutes herramientas, cambios o acciones a partir de la pregunta.`;
       }
       if (trigger.type === 'pattern_uncertain') {
         const pct = Math.round(

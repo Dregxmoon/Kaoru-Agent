@@ -35,6 +35,7 @@ const { AutobiographicalMemoryStore } = require('./stores/AutobiographicalMemory
 const { MetamemoryStore } = require('./stores/MetamemoryStore.js');
 const { MemoryRevisionStore } = require('./stores/MemoryRevisionStore.js');
 const { MemoryPrivacyStore } = require('./stores/MemoryPrivacyStore.js');
+const { ActiveLearningStore } = require('./stores/ActiveLearningStore.js');
 const { EvolutionStore } = require('./evolution/EvolutionStore.js');
 const { FeedbackScorer } = require('./evolution/FeedbackScorer.js');
 const { LLMEotionDetector } = require('./evolution/LLMEotionDetector.js');
@@ -483,6 +484,7 @@ class StateGraph {
     this._memoryRevisions = new MemoryRevisionStore(this._db, this);
     this._metamemory = new MetamemoryStore(this._db, this);
     this._memoryPrivacy = new MemoryPrivacyStore(this._db, this);
+    this._activeLearning = new ActiveLearningStore(this._db, this);
     this._resolver = new ContradictionResolver(this);
     this._userModel = new UserModelBuilder(this._db, this);
     this._evolution = new EvolutionStore(this._db);
@@ -722,6 +724,24 @@ class StateGraph {
         ON memory_revisions(label, id ASC);
       CREATE INDEX IF NOT EXISTS idx_memory_revisions_current
         ON memory_revisions(current_node_id, created_at DESC);
+
+      CREATE TABLE IF NOT EXISTS active_learning_questions (
+        gap_key          TEXT PRIMARY KEY,
+        trait            TEXT NOT NULL,
+        priority         REAL NOT NULL DEFAULT 0.5,
+        status           TEXT NOT NULL DEFAULT 'open',
+        ask_count        INTEGER NOT NULL DEFAULT 0,
+        asked_at         INTEGER,
+        answered_at      INTEGER,
+        next_eligible_at INTEGER NOT NULL,
+        last_proposal_id TEXT,
+        last_outcome     TEXT,
+        created_at       INTEGER NOT NULL,
+        updated_at       INTEGER NOT NULL
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_active_learning_eligible
+        ON active_learning_questions(status, next_eligible_at, priority DESC);
 
       CREATE TABLE IF NOT EXISTS interaction_log (
         id            INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -1445,6 +1465,15 @@ class StateGraph {
   }
   deleteMemoryLineage(opts) {
     return this._memoryPrivacy.deleteLineage(opts);
+  }
+  listActiveLearningGaps(gaps, now) {
+    return this._activeLearning.syncAndListEligible(gaps, now);
+  }
+  recordActiveLearningQuestion(opts) {
+    return this._activeLearning.recordAsked(opts);
+  }
+  recordActiveLearningOutcome(opts) {
+    return this._activeLearning.recordOutcome(opts);
   }
 
   setWorkingMemory(opts) {

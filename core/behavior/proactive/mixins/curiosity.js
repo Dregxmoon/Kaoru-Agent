@@ -60,10 +60,18 @@ registerProfile('topic_cold', 'default', {
   urgencia: 0.2,
   confianza: 0.6,
 });
+registerProfile('knowledge_gap', 'default', {
+  severity: 0.05,
+  actionability: 0.3,
+  salience: 0.2,
+  costOfIgnore: 0.05,
+  urgencia: 0.05,
+  confianza: 1,
+});
 
-const { extractThemeTerms } = require('../../../core/misc.js');
+const { extractThemeTerms, getMemoryGaps } = require('../../../core/misc.js');
 const { _localDayString } = require('../helpers.js');
-const { INTENTION_STALE_DAYS } = require('../config.js');
+const { INTENTION_STALE_DAYS, SILENCE_THRESHOLD_MS } = require('../config.js');
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 
@@ -188,6 +196,37 @@ module.exports = {
     if (!g || !g._ready) return [];
 
     const candidates = [];
+
+    // 0) Huecos reales: cosas que nunca se aprendieron. A diferencia de la
+    // curiosidad decorativa del prompt, cada pregunta tiene identidad estable
+    // y un ledger persistente para no repetirse después de reiniciar.
+    try {
+      const gaps = getMemoryGaps().filter((gap) => gap.kind === 'unknown');
+      const eligible =
+        typeof g.listActiveLearningGaps === 'function'
+          ? g.listActiveLearningGaps(gaps, Date.now())
+          : gaps;
+      for (const gap of eligible) {
+        const boost = this._contextBoostFor(gap.key, gap.trait);
+        const silenceBase = this._lastUserMsg || this._startedAt || Date.now();
+        const quietLongEnough = Date.now() - silenceBase >= SILENCE_THRESHOLD_MS;
+        // No convertir el onboarding en encuesta: un hueco nuevo solo entra
+        // si el contexto actual lo volvió relevante o hubo silencio largo.
+        if (boost <= 0 && !quietLongEnough) continue;
+        candidates.push({
+          type: 'knowledge_gap',
+          kind: gap.key,
+          gapKey: gap.key,
+          trait: gap.trait,
+          priority: gap.priority,
+          askCount: gap.askCount || 0,
+          salienceBoost: boost,
+          context: `Hay un hueco explícito en la memoria: Kaoru todavía no sabe ${gap.trait}.`,
+        });
+      }
+    } catch (e) {
+      logger.warn('curiosity', '[proactive] error leyendo huecos de aprendizaje:', e.message);
+    }
 
     // 1) Hechos sospechosos (stale).
     for (const f of this._staleFacts()) {
@@ -320,7 +359,18 @@ module.exports = {
       // con mayor boost contextual ("justo estás en el tema"), y si el LLM no
       // decide escribir, el resto espera al próximo heartbeat (el cooldown de
       // 6h por tipo pone el techo de acoso, no estos intentos).
-      const [trigger] = candidates.sort((a, b) => (b.salienceBoost ?? 0) - (a.salienceBoost ?? 0));
+      const priority = (candidate) => {
+        const typePriority = {
+          memory_tension: 0.9,
+          memory_stale: 0.8,
+          intention_stale: 0.75,
+          pattern_uncertain: 0.65,
+          topic_cold: 0.4,
+          knowledge_gap: Number(candidate.priority) || 0.3,
+        };
+        return (typePriority[candidate.type] || 0) + (candidate.salienceBoost || 0);
+      };
+      const [trigger] = candidates.sort((a, b) => priority(b) - priority(a));
       if (!this._running || this._deciding) return;
       const result = await this._tryTrigger(trigger);
       return typeof result === 'string';
@@ -361,6 +411,10 @@ module.exports = {
   _connectCuriosityOutcome(proposalId, type, decision) {
     const ref = this._proposalRefs?.get(proposalId) || null;
     this._proposalRefs?.delete(proposalId);
+    if (type === 'knowledge_gap' && ref?.gapKey && this._graph) {
+      this._graph.recordActiveLearningOutcome?.({ key: ref.gapKey, outcome: decision });
+      return;
+    }
     if (decision !== 'accepted' && decision !== 'rejected') return;
     if (!this._graph || !ref) return;
     try {

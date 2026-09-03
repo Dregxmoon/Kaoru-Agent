@@ -118,6 +118,14 @@ module.exports = {
         nodeB: trigger.nodeB,
       });
     }
+    if (trigger.type === 'knowledge_gap' && trigger.gapKey) {
+      this._proposalRefs.set(proposal.id, { gapKey: trigger.gapKey });
+      this._graph?.recordActiveLearningQuestion?.({
+        key: trigger.gapKey,
+        trait: trigger.trait,
+        proposalId: proposal.id,
+      });
+    }
 
     if (action) {
       // Memoria efímera de acciones pendientes (la ejecución llega en

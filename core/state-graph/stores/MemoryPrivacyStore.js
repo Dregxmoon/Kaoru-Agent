@@ -94,6 +94,9 @@ class MemoryPrivacyStore {
         .prepare('SELECT * FROM autobiographical_events ORDER BY id')
         .all(),
       revisions: this._db.prepare('SELECT * FROM memory_revisions ORDER BY id').all(),
+      activeLearningQuestions: this._db
+        .prepare('SELECT * FROM active_learning_questions ORDER BY created_at, gap_key')
+        .all(),
     };
   }
 

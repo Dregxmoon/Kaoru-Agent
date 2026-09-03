@@ -586,17 +586,42 @@ function extractThemeTerms(text) {
 // Rasgos que Kaoru querría conocer del usuario. Cada entrada: label que debe
 // existir (regex sobre el label del nodo) + cómo lo diría en el prompt.
 const KNOWLEDGE_GAPS = [
-  { re: /^nombre_usuario$/i, ask: 'su nombre' },
-  { re: /^edad_usuario$/i, ask: 'su edad' },
-  { re: /^ubicacion_usuario$|^preferencia_ubicacion$/i, ask: 'dónde vive' },
-  { re: /^trabajo_usuario$/i, ask: 'a qué se dedica' },
-  { re: /^musica_favorita$/i, ask: 'qué música le gusta' },
-  { re: /^preferencia_anime$|^anime_favorito$/i, ask: 'si le gusta el anime y cuál' },
-  { re: /^color_favorito$/i, ask: 'su color favorito' },
-  { re: /^comida_favorita$/i, ask: 'su comida favorita' },
-  { re: /^preferencia_(hobbie|hobby|pasatiempo)$/i, ask: 'qué le gusta hacer en su tiempo libre' },
-  { re: /^preferencia_lenguaje$/i, ask: 'su lenguaje de programación favorito' },
-  { re: /^preferencia_tonos$/i, ask: 'el tono que prefiere en la conversación' },
+  { key: 'nombre', re: /^nombre_usuario$/i, ask: 'su nombre', priority: 0.65 },
+  { key: 'edad', re: /^edad_usuario$/i, ask: 'su edad', priority: 0.25 },
+  {
+    key: 'ubicacion',
+    re: /^ubicacion_usuario$|^preferencia_ubicacion$/i,
+    ask: 'dónde vive',
+    priority: 0.35,
+  },
+  { key: 'trabajo', re: /^trabajo_usuario$/i, ask: 'a qué se dedica', priority: 0.75 },
+  { key: 'musica', re: /^musica_favorita$/i, ask: 'qué música le gusta', priority: 0.45 },
+  {
+    key: 'anime',
+    re: /^preferencia_anime$|^anime_favorito$/i,
+    ask: 'si le gusta el anime y cuál',
+    priority: 0.35,
+  },
+  { key: 'color', re: /^color_favorito$/i, ask: 'su color favorito', priority: 0.15 },
+  { key: 'comida', re: /^comida_favorita$/i, ask: 'su comida favorita', priority: 0.25 },
+  {
+    key: 'pasatiempo',
+    re: /^preferencia_(hobbie|hobby|pasatiempo)$/i,
+    ask: 'qué le gusta hacer en su tiempo libre',
+    priority: 0.55,
+  },
+  {
+    key: 'lenguaje_programacion',
+    re: /^preferencia_lenguaje$/i,
+    ask: 'su lenguaje de programación favorito',
+    priority: 0.6,
+  },
+  {
+    key: 'tono_conversacion',
+    re: /^preferencia_tonos$/i,
+    ask: 'el tono que prefiere en la conversación',
+    priority: 0.85,
+  },
 ];
 
 /**
@@ -605,7 +630,7 @@ const KNOWLEDGE_GAPS = [
  * "falta"/"No determinado" NO cuenta como conocido). El motor proactivo puede
  * usarlos para preguntar con curiosidad genuina y armar una mejor percepción
  * del usuario.
- * @returns {Array<{ trait: string }>}
+ * @returns {Array<{key:string,trait:string,priority:number,kind:'unknown'|'stale'}>}
  */
 function getMemoryGaps() {
   if (!state.graph || state.graph.usingFallback) return [];
@@ -616,7 +641,12 @@ function getMemoryGaps() {
       if (!_isRealIdentity(n)) continue;
       for (const g of KNOWLEDGE_GAPS) if (g.re.test(n.label)) known.add(g);
     }
-    const gaps = KNOWLEDGE_GAPS.filter((g) => !known.has(g)).map((g) => ({ trait: g.ask }));
+    const gaps = KNOWLEDGE_GAPS.filter((g) => !known.has(g)).map((g) => ({
+      key: g.key,
+      trait: g.ask,
+      priority: g.priority,
+      kind: /** @type {'unknown'} */ ('unknown'),
+    }));
 
     // F3.1: los hechos fijos de larga duración marcados 'stale' por el
     // FactReasonerStore son gaps de BAJA prioridad — no es que no sepamos el
@@ -627,7 +657,12 @@ function getMemoryGaps() {
       if (!Array.isArray(n.tags) || !n.tags.includes('stale')) continue;
       if (!STALE_ASK[n.label] || staleSeen.has(n.label)) continue;
       staleSeen.add(n.label);
-      gaps.push({ trait: STALE_ASK[n.label] });
+      gaps.push({
+        key: `stale_${n.label}`,
+        trait: STALE_ASK[n.label],
+        priority: 0.7,
+        kind: /** @type {'stale'} */ ('stale'),
+      });
     }
 
     return gaps;
