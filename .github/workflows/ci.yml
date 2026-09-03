@@ -56,6 +56,11 @@ jobs:
       - name: Instalar dependencias (postinstall descarga Electron y reconstruye better-sqlite3)
         run: npm ci
 
+      # npm ci instala el prebuild para Node 20. La comprobacion del postinstall
+      # tambien corre bajo Node, por lo que no puede detectar el ABI de Electron.
+      - name: Reconstruir better-sqlite3 para Electron
+        run: npm run rebuild
+
       - name: Indexar intenciones (init_vectors.js → data/core.db)
         run: ELECTRON_RUN_AS_NODE=1 ./node_modules/electron/dist/electron infrastructure/database/init_vectors.js
 
@@ -100,12 +105,13 @@ jobs:
   build:
     name: Build ${{ matrix.os }} · auto-update
     runs-on: ${{ matrix.os }}
-    needs: [quality, test]
+    needs: [quality, test, e2e-ui]
     timeout-minutes: 60
-    continue-on-error: true
     permissions:
       contents: write
-    if: github.ref == 'refs/heads/produccion' || startsWith(github.ref, 'refs/tags/v')
+    # El CD debe producir instaladores aunque una comprobacion de CI reporte
+    # errores en el codigo subido. Los jobs de calidad conservan su resultado.
+    if: ${{ always() && !cancelled() && (github.ref == 'refs/heads/produccion' || startsWith(github.ref, 'refs/tags/v')) }}
     strategy:
       fail-fast: false
       matrix:
@@ -113,15 +119,23 @@ jobs:
           - os: ubuntu-latest
             target: linux
             artifact: asistente-linux
-            pattern: dist/*.AppImage dist/*.deb dist/latest-linux.yml
+            pattern: |
+              dist/*.AppImage
+              dist/*.deb
+              dist/latest-linux.yml
           - os: macos-latest
             target: mac
             artifact: asistente-mac
-            pattern: dist/*.dmg dist/*.zip dist/latest-mac.yml
+            pattern: |
+              dist/*.dmg
+              dist/*.zip
+              dist/latest-mac.yml
           - os: windows-latest
             target: win
             artifact: asistente-win
-            pattern: dist/*.exe dist/latest.yml
+            pattern: |
+              dist/*.exe
+              dist/latest.yml
     steps:
       - uses: actions/checkout@v5
 
@@ -157,7 +171,7 @@ jobs:
         with:
           name: ${{ matrix.artifact }}
           path: ${{ matrix.pattern }}
-          if-no-files-found: warn
+          if-no-files-found: error
 
   # En tags v* el job build ya publica; este paso solo deja notas y el
   # cuerpo de la release para cuando electron-builder cree la release.
