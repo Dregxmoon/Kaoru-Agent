@@ -113,8 +113,11 @@ function testIsBetterSqlite3ReadyBroken() {
 
   // Simular error de ABI de better-sqlite3.
   const errorMsg = 'Module did not self-register.';
-  const detected = errorMsg.includes('ERR_NODE_BINDING') || errorMsg.includes('native') ||
-    errorMsg.includes('ABI') || errorMsg.includes('did not self-register');
+  const detected =
+    errorMsg.includes('ERR_NODE_BINDING') ||
+    errorMsg.includes('native') ||
+    errorMsg.includes('ABI') ||
+    errorMsg.includes('did not self-register');
   assert(detected, 'Error de ABI detectado por la lógica de isBetterSqlite3Ready');
 }
 
@@ -139,19 +142,48 @@ async function main() {
   console.log(C.bold(' fix-electron — better-sqlite3 rebuild'));
   console.log(C.bold('════════════════════════════════════════════════════════'));
 
-  try { testSqlite3Ready(); } catch (e) { console.error(`  ${C.red('✗')} ${e.message}`); failed++; }
-  try { testRebuildLogicExists(); } catch (e) { console.error(`  ${C.red('✗')} ${e.message}`); failed++; }
-  try { testIsBetterSqlite3Ready(); } catch (e) { console.error(`  ${C.red('✗')} ${e.message}`); failed++; }
-  try { testIsBetterSqlite3ReadyBroken(); } catch (e) { console.error(`  ${C.red('✗')} ${e.message}`); failed++; }
-  try { testClearErrorMessages(); } catch (e) { console.error(`  ${C.red('✗')} ${e.message}`); failed++; }
+  try {
+    testSqlite3Ready();
+  } catch (e) {
+    console.error(`  ${C.red('✗')} ${e.message}`);
+    failed++;
+  }
+  try {
+    testRebuildLogicExists();
+  } catch (e) {
+    console.error(`  ${C.red('✗')} ${e.message}`);
+    failed++;
+  }
+  try {
+    testIsBetterSqlite3Ready();
+  } catch (e) {
+    console.error(`  ${C.red('✗')} ${e.message}`);
+    failed++;
+  }
+  try {
+    testIsBetterSqlite3ReadyBroken();
+  } catch (e) {
+    console.error(`  ${C.red('✗')} ${e.message}`);
+    failed++;
+  }
+  try {
+    testClearErrorMessages();
+  } catch (e) {
+    console.error(`  ${C.red('✗')} ${e.message}`);
+    failed++;
+  }
 
   console.log(C.bold('\n════════════════════════════════════════════════════════'));
   const total = passed + failed;
   const color = failed === 0 ? C.green : C.red;
   if (failed === 0) {
-    console.log(`  ${color('Resultado')}: ${color(`${passed} passed`)}  ${C.dim('0 failed')}  / ${total} total`);
+    console.log(
+      `  ${color('Resultado')}: ${color(`${passed} passed`)}  ${C.dim('0 failed')}  / ${total} total`
+    );
   } else {
-    console.log(`  Resultado: ${C.green(`${passed} passed`)}  ${C.red(`${failed} failed`)}  / ${total} total`);
+    console.log(
+      `  Resultado: ${C.green(`${passed} passed`)}  ${C.red(`${failed} failed`)}  / ${total} total`
+    );
   }
   console.log(C.bold('════════════════════════════════════════════════════════'));
 

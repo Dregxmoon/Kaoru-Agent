@@ -42,8 +42,10 @@ module.exports = {
     return this._shadowMode;
   },
 
-  onUserMessage() {
+  onUserMessage(content = '') {
     this._recordUserTurn();
+    this._graph?.captureActiveLearningAnswer?.({ content });
+    this._captureProjectUpdate?.(content);
   },
 
   // ── Fase 5: registro de turnos del usuario ────────────────────────────────
@@ -87,6 +89,7 @@ module.exports = {
     this._bus.off('memory:upcoming-event', this._boundOnUpcoming);
     this._bus.off('lsp:error', this._boundOnLspError);
     this._bus.off('initiative:decision', this._boundOnDecision);
+    this._bus.off('workspace:changed', this._boundOnWorkspaceChanged);
     this._running = false;
     logger.info('lifecycle', '[proactive] detenido');
   },
@@ -94,8 +97,8 @@ module.exports = {
   // ── Listeners de eventos del OS (análisis en vivo, sin esperar timer) ──────
 
   _setupListeners() {
-    this._boundOnTurnAdded = ({ role }) => {
-      if (role === 'user') this._recordUserTurn();
+    this._boundOnTurnAdded = ({ role, content }) => {
+      if (role === 'user') this.onUserMessage(content);
     };
     this._boundOnAppChanged = (p) => this._onAppChanged(p);
     this._boundOnAppTick = (p) => this._onAppTick(p);
@@ -110,6 +113,11 @@ module.exports = {
     this._boundOnUpcoming = (p) => this._onUpcomingEvent(p);
     this._boundOnLspError = (p) => this._onLspError(p);
     this._boundOnDecision = (d) => this.handleDecision(d);
+    this._boundOnWorkspaceChanged = (payload) => {
+      this._lastProjectFocusKey = null;
+      this._lastProjectFocusWrite = 0;
+      this._onProjectWorkspaceChanged?.(payload).catch(() => {});
+    };
 
     this._bus.on('memory:turn-added', this._boundOnTurnAdded);
     this._bus.on('os:app-changed', this._boundOnAppChanged);
@@ -123,5 +131,6 @@ module.exports = {
     this._bus.on('memory:upcoming-event', this._boundOnUpcoming);
     this._bus.on('lsp:error', this._boundOnLspError);
     this._bus.on('initiative:decision', this._boundOnDecision);
+    this._bus.on('workspace:changed', this._boundOnWorkspaceChanged);
   },
 };

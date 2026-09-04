@@ -34,6 +34,8 @@ function _formatStats(s) {
     `- Cola QUEUE: ${s.gate?.queued ?? 0} · Propuestas pendientes: ${s.pendingProposals ?? 0}`,
     `- Foco contextual: ${s.contextFocus?.mode || 'aún no evaluado'} · términos: ${s.contextFocus?.terms?.slice(0, 5).join(', ') || '—'}`,
     `- Alineación: ${s.contextAlignment?.accepted ?? 0} candidato(s) válidos · ${s.contextAlignment?.rejected ?? 0} fuera de contexto`,
+    `- Aprendizaje activo: ${s.activeLearning?.answered ?? 0} respondida(s) · ${s.activeLearning?.awaitingAnswer ?? 0} esperando respuesta`,
+    `- Hilo de proyecto: ${s.projectCompanion ? `${s.projectCompanion.projectName} · ${s.projectCompanion.phase}` : 'sin estado para el workspace actual'}`,
     `- Categoría actual: ${s.currentCategory || '—'} (${s.categoryStreakSec || 0}s) · Cambios de app: ${s.recentSwitchesCount ?? 0}`,
   ];
   const slo = s.slo;

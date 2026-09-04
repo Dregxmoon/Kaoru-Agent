@@ -85,6 +85,7 @@ const proposals = require('./proactive/mixins/proposals.js');
 const messageGen = require('./proactive/mixins/message-gen.js');
 const testing = require('./proactive/mixins/testing.js');
 const adaptiveIntegration = require('./proactive/mixins/adaptive-integration.js');
+const projectCompanion = require('./proactive/mixins/project-companion.js');
 
 // ── ProactiveEngine ───────────────────────────────────────────────────────────
 
@@ -121,6 +122,9 @@ class ProactiveEngine {
     this._getWorkspace = opts.getWorkspace || null;
     this._lastContextFocus = null;
     this._lastContextAlignment = { accepted: 0, rejected: 0, reasons: {} };
+    this._lastProjectFocusKey = null;
+    this._lastProjectFocusWrite = 0;
+    this._currentProjectTitle = null;
 
     this._lastAttemptByType = {}; // último intento (haya dicho sí o no el LLM) por tipo
 
@@ -197,5 +201,6 @@ Object.assign(ProactiveEngine.prototype, proposals);
 Object.assign(ProactiveEngine.prototype, messageGen);
 Object.assign(ProactiveEngine.prototype, testing);
 Object.assign(ProactiveEngine.prototype, adaptiveIntegration);
+Object.assign(ProactiveEngine.prototype, projectCompanion);
 
 module.exports = { ProactiveEngine };

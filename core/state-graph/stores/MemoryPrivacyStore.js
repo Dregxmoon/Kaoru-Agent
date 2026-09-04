@@ -97,6 +97,9 @@ class MemoryPrivacyStore {
       activeLearningQuestions: this._db
         .prepare('SELECT * FROM active_learning_questions ORDER BY created_at, gap_key')
         .all(),
+      projectCompanions: this._db
+        .prepare('SELECT * FROM project_companion_state ORDER BY updated_at DESC')
+        .all(),
     };
   }
 

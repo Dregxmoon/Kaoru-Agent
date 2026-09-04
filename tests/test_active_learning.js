@@ -177,10 +177,57 @@ function testInterruptionGuards() {
   );
 }
 
+function testAnswerBecomesTraceableMemory() {
+  console.log('\nAprendizaje activo — respuesta enlazada con evidencia');
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'kaoru-active-answer-'));
+  const graph = new StateGraph(path.join(dir, 'memory.db')).init();
+  const gap = { key: 'color', trait: 'su color favorito', priority: 0.4 };
+  try {
+    graph.listActiveLearningGaps([gap]);
+    graph.recordActiveLearningQuestion({
+      key: gap.key,
+      trait: gap.trait,
+      proposalId: 'proposal-color',
+    });
+    graph.recordActiveLearningOutcome({ key: gap.key, outcome: 'accepted' });
+
+    const unrelated = graph.captureActiveLearningAnswer({ content: 'continúa con el proyecto' });
+    assert(unrelated.status === 'unrelated', 'una orden posterior no se confunde con la respuesta');
+    assert(
+      !graph.queryNodes({ limit: 20 }).some((node) => node.label === 'color_favorito'),
+      'el mensaje no relacionado no crea una falsa memoria'
+    );
+
+    const captured = graph.captureActiveLearningAnswer({ content: 'Mi favorito es azul' });
+    const node = graph.queryNodes({ limit: 20 }).find((item) => item.label === 'color_favorito');
+    assert(captured.status === 'captured' && node?.content.includes('azul'), 'guarda la respuesta');
+    assert(
+      graph
+        .getMemoryEvidence(Number(node?.id))
+        .some((evidence) => evidence.source === 'active_learning'),
+      'la memoria conserva la respuesta original como evidencia'
+    );
+    const row = graph._db
+      .prepare(
+        'SELECT status, answer_observation_id FROM active_learning_questions WHERE gap_key=?'
+      )
+      .get(gap.key);
+    assert(
+      row.status === 'answered' && row.answer_observation_id,
+      'cierra explícitamente el hueco de conocimiento'
+    );
+    assert(graph.getActiveLearningStats().answered === 1, 'expone la calidad del lazo en métricas');
+  } finally {
+    graph.close();
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+}
+
 async function main() {
   testPersistentQuestionLedger();
   await testCandidateAndNoAuthorization();
   testInterruptionGuards();
+  testAnswerBecomesTraceableMemory();
   console.log(`\nResultado: ${passed} passed  ${failed} failed`);
   if (failed) process.exit(1);
 }

@@ -281,6 +281,14 @@ const TEMPORAL_PROFILES = {
     urgencia: 0.35,
     confianza: 0.8,
   },
+  project_resume: {
+    severity: 0.35,
+    actionability: 0.55,
+    salience: 0.7,
+    costOfIgnore: 0.25,
+    urgencia: 0.4,
+    confianza: 0.95,
+  },
 };
 
 // Eventos de telemetría/contexto que NUNCA son una señal proactiva (no hay

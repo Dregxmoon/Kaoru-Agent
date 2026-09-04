@@ -36,6 +36,7 @@ const { MetamemoryStore } = require('./stores/MetamemoryStore.js');
 const { MemoryRevisionStore } = require('./stores/MemoryRevisionStore.js');
 const { MemoryPrivacyStore } = require('./stores/MemoryPrivacyStore.js');
 const { ActiveLearningStore } = require('./stores/ActiveLearningStore.js');
+const { ProjectCompanionStore } = require('./stores/ProjectCompanionStore.js');
 const { EvolutionStore } = require('./evolution/EvolutionStore.js');
 const { FeedbackScorer } = require('./evolution/FeedbackScorer.js');
 const { LLMEotionDetector } = require('./evolution/LLMEotionDetector.js');
@@ -485,6 +486,7 @@ class StateGraph {
     this._metamemory = new MetamemoryStore(this._db, this);
     this._memoryPrivacy = new MemoryPrivacyStore(this._db, this);
     this._activeLearning = new ActiveLearningStore(this._db, this);
+    this._projectCompanion = new ProjectCompanionStore(this._db, this);
     this._resolver = new ContradictionResolver(this);
     this._userModel = new UserModelBuilder(this._db, this);
     this._evolution = new EvolutionStore(this._db);
@@ -737,12 +739,35 @@ class StateGraph {
         next_eligible_at INTEGER NOT NULL,
         last_proposal_id TEXT,
         last_outcome     TEXT,
+        pending_until    INTEGER,
+        answer_text      TEXT,
+        answer_observation_id INTEGER,
         created_at       INTEGER NOT NULL,
         updated_at       INTEGER NOT NULL
       );
 
       CREATE INDEX IF NOT EXISTS idx_active_learning_eligible
         ON active_learning_questions(status, next_eligible_at, priority DESC);
+
+      CREATE TABLE IF NOT EXISTS project_companion_state (
+        workspace          TEXT PRIMARY KEY,
+        project_name       TEXT NOT NULL,
+        objective          TEXT,
+        active_file        TEXT,
+        phase              TEXT NOT NULL DEFAULT 'unknown',
+        blocker            TEXT,
+        next_step          TEXT,
+        last_progress      TEXT,
+        last_event_type    TEXT NOT NULL DEFAULT 'activity',
+        last_activity_at   INTEGER NOT NULL,
+        last_progress_at   INTEGER,
+        last_prompted_at   INTEGER,
+        created_at         INTEGER NOT NULL,
+        updated_at         INTEGER NOT NULL
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_project_companion_updated
+        ON project_companion_state(updated_at DESC);
 
       CREATE TABLE IF NOT EXISTS interaction_log (
         id            INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -963,6 +988,22 @@ class StateGraph {
       if (outcomeCols.length && !outcomeCols.some((c) => c.name === 'difficulty')) {
         this._db.exec(
           `ALTER TABLE task_outcome_evidence ADD COLUMN difficulty TEXT NOT NULL DEFAULT 'unknown';`
+        );
+      }
+
+      const activeLearningCols = this._db
+        .prepare(`PRAGMA table_info(active_learning_questions)`)
+        .all();
+      const activeLearningNames = new Set(activeLearningCols.map((c) => c.name));
+      if (!activeLearningNames.has('pending_until')) {
+        this._db.exec(`ALTER TABLE active_learning_questions ADD COLUMN pending_until INTEGER;`);
+      }
+      if (!activeLearningNames.has('answer_text')) {
+        this._db.exec(`ALTER TABLE active_learning_questions ADD COLUMN answer_text TEXT;`);
+      }
+      if (!activeLearningNames.has('answer_observation_id')) {
+        this._db.exec(
+          `ALTER TABLE active_learning_questions ADD COLUMN answer_observation_id INTEGER;`
         );
       }
     } catch (e) {
@@ -1480,6 +1521,24 @@ class StateGraph {
   }
   recordActiveLearningOutcome(opts) {
     return this._activeLearning.recordOutcome(opts);
+  }
+  captureActiveLearningAnswer(opts) {
+    return this._activeLearning.captureAnswer(opts);
+  }
+  getActiveLearningStats() {
+    return this._activeLearning.getStats();
+  }
+  updateProjectCompanion(opts) {
+    return this._projectCompanion.update(opts);
+  }
+  getProjectCompanion(workspace) {
+    return this._projectCompanion.get(workspace);
+  }
+  listProjectCompanions(limit) {
+    return this._projectCompanion.list(limit);
+  }
+  markProjectCompanionPrompted(workspace, now) {
+    return this._projectCompanion.markPrompted(workspace, now);
   }
 
   setWorkingMemory(opts) {

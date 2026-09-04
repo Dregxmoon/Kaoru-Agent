@@ -368,6 +368,21 @@ No expliques por qué escribes. No anuncies que eres proactiva. NO muestres tu r
       this._lastContextFocus = focus;
       const worldModel = this._graph.getWorldModel?.(memCtx) ?? [];
 
+      // Hilo de proyecto aislado por workspace. Sólo entra al prompt en foco
+      // de trabajo; buscar o ver contenido nunca rescata objetivos/bloqueos.
+      const companion = focus.mode === 'work' ? this._getCurrentProjectCompanion?.() : null;
+      if (companion) {
+        lines.push(`Estado comprobado del proyecto activo (${companion.projectName}):`);
+        if (companion.objective) lines.push(`- Objetivo: ${companion.objective}`);
+        if (companion.activeFile) lines.push(`- Archivo actual: ${companion.activeFile}`);
+        if (companion.lastProgress) lines.push(`- Último avance: ${companion.lastProgress}`);
+        if (companion.blocker) lines.push(`- Bloqueo vigente: ${companion.blocker}`);
+        if (companion.nextStep) lines.push(`- Siguiente paso declarado: ${companion.nextStep}`);
+        lines.push(
+          '- Usa este hilo sólo si aporta al trigger actual; no inventes avance ni des por resuelto el bloqueo.'
+        );
+      }
+
       // MEM-2: recall semántico por trigger — nodos enterrados relacionados
       // con el disparador actual que el world model no trajo.
       let semanticHits = [];

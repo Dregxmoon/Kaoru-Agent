@@ -189,6 +189,8 @@ module.exports = {
       lastFocusedWindow: this._lastFocusedWindow,
       contextFocus: this._lastContextFocus,
       contextAlignment: this._lastContextAlignment,
+      projectCompanion: this._getCurrentProjectCompanion?.() || null,
+      activeLearning: this._graph?.getActiveLearningStats?.() || null,
       dailyBudget: {
         dayKey: this._store?.getDailyStats().dayKey ?? null,
         count: this._store?.dailyCount() ?? 0,

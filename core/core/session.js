@@ -105,10 +105,9 @@ function loadSession(sessionId) {
 function addTurn(role, content) {
   state.session?.addTurn(role, content);
   state.telemetry?.recordTurn(role);
-  // El gate proactivo necesita saber cuándo habló el usuario por última vez
-  // (guardia de "no interrumpir una conversación activa"). Antes esto NUNCA
-  // se llamaba en producción: el guardia estaba muerto.
-  if (role === 'user') state.proactive?.onUserMessage?.();
+  // `memory:turn-added` es la única ruta hacia ProactiveEngine: además de
+  // alimentar la guardia de conversación, puede vincular una respuesta con
+  // una pregunta pendiente. Evitar una llamada directa impide contar dos veces.
   state.bus.emit('memory:turn-added', { role, content });
 }
 

@@ -62,7 +62,10 @@ function testNoServerFetchDep() {
 function testMCPManagerUsesFetch() {
   console.log(C.bold('\n── Test 2: MCPManager.js usa fetch() nativo ─────────'));
 
-  const content = fs.readFileSync(path.join(__dirname, '..', 'core', 'mcp', 'MCPManager.js'), 'utf8');
+  const content = fs.readFileSync(
+    path.join(__dirname, '..', 'core', 'mcp', 'MCPManager.js'),
+    'utf8'
+  );
 
   assert(content.includes('fetch('), 'Usa fetch()');
   assert(!content.includes("require('server-fetch')"), 'No requiere server-fetch');
@@ -76,9 +79,15 @@ function testMCPManagerUsesFetch() {
 function testFetchTimeout() {
   console.log(C.bold('\n── Test 3: fetch() con AbortSignal.timeout ───────────'));
 
-  const content = fs.readFileSync(path.join(__dirname, '..', 'core', 'mcp', 'MCPManager.js'), 'utf8');
+  const content = fs.readFileSync(
+    path.join(__dirname, '..', 'core', 'mcp', 'MCPManager.js'),
+    'utf8'
+  );
   const fetchMatches = content.match(/fetch\([^)]*AbortSignal\.timeout/g);
-  assert(fetchMatches && fetchMatches.length >= 3, `Al menos 3 llamadas fetch con AbortSignal.timeout (${fetchMatches?.length || 0})`);
+  assert(
+    fetchMatches && fetchMatches.length >= 3,
+    `Al menos 3 llamadas fetch con AbortSignal.timeout (${fetchMatches?.length || 0})`
+  );
 }
 
 // ── Test 4: src/chat/mcp.js solo lista, no importa ──────────
@@ -89,7 +98,10 @@ function testCatalogOnly() {
   const content = fs.readFileSync(path.join(__dirname, '..', 'src', 'chat', 'mcp.js'), 'utf8');
 
   // server-fetch aparece en el catálogo como opción disponible.
-  assert(content.includes('@modelcontextprotocol/server-fetch'), 'Catálogo incluye server-fetch como opción');
+  assert(
+    content.includes('@modelcontextprotocol/server-fetch'),
+    'Catálogo incluye server-fetch como opción'
+  );
 
   // Pero no lo importa ni lo requiere.
   assert(!content.includes("require('server-fetch')"), 'Catálogo no requiere server-fetch');
@@ -113,19 +125,48 @@ async function main() {
   console.log(C.bold(' server-fetch replacement verification'));
   console.log(C.bold('════════════════════════════════════════════════════════'));
 
-  try { testNoServerFetchDep(); } catch (e) { console.error(`  ${C.red('✗')} ${e.message}`); failed++; }
-  try { testMCPManagerUsesFetch(); } catch (e) { console.error(`  ${C.red('✗')} ${e.message}`); failed++; }
-  try { testFetchTimeout(); } catch (e) { console.error(`  ${C.red('✗')} ${e.message}`); failed++; }
-  try { testCatalogOnly(); } catch (e) { console.error(`  ${C.red('✗')} ${e.message}`); failed++; }
-  try { testFetchGlobal(); } catch (e) { console.error(`  ${C.red('✗')} ${e.message}`); failed++; }
+  try {
+    testNoServerFetchDep();
+  } catch (e) {
+    console.error(`  ${C.red('✗')} ${e.message}`);
+    failed++;
+  }
+  try {
+    testMCPManagerUsesFetch();
+  } catch (e) {
+    console.error(`  ${C.red('✗')} ${e.message}`);
+    failed++;
+  }
+  try {
+    testFetchTimeout();
+  } catch (e) {
+    console.error(`  ${C.red('✗')} ${e.message}`);
+    failed++;
+  }
+  try {
+    testCatalogOnly();
+  } catch (e) {
+    console.error(`  ${C.red('✗')} ${e.message}`);
+    failed++;
+  }
+  try {
+    testFetchGlobal();
+  } catch (e) {
+    console.error(`  ${C.red('✗')} ${e.message}`);
+    failed++;
+  }
 
   console.log(C.bold('\n════════════════════════════════════════════════════════'));
   const total = passed + failed;
   const color = failed === 0 ? C.green : C.red;
   if (failed === 0) {
-    console.log(`  ${color('Resultado')}: ${color(`${passed} passed`)}  ${C.dim('0 failed')}  / ${total} total`);
+    console.log(
+      `  ${color('Resultado')}: ${color(`${passed} passed`)}  ${C.dim('0 failed')}  / ${total} total`
+    );
   } else {
-    console.log(`  Resultado: ${C.green(`${passed} passed`)}  ${C.red(`${failed} failed`)}  / ${total} total`);
+    console.log(
+      `  Resultado: ${C.green(`${passed} passed`)}  ${C.red(`${failed} failed`)}  / ${total} total`
+    );
   }
   console.log(C.bold('════════════════════════════════════════════════════════'));
 

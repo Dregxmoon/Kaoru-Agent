@@ -8,7 +8,7 @@ const path = require('path');
 
 const LLMProvider = require('../../../llm/LLMProvider.js');
 const { _extractPatch, _patchLanguageRule } = require('../helpers.js');
-const { TRIGGER_COOLDOWN_MS, WORK_SIGNAL_TYPES } = require('../config.js');
+const { TRIGGER_COOLDOWN_MS } = require('../config.js');
 
 // P3: cooldown corto para re-disparos de lsp_error (el watcher emite por
 // flanco — cada emisión es un error nuevo/distinto).
@@ -86,6 +86,7 @@ module.exports = {
 
   _onLspError({ file, absPath, workspace, errors, focused, symbols, languageId, fileType } = {}) {
     if (!file || !Array.isArray(errors) || !errors.length) return;
+    this._recordProjectBlocker?.({ workspace, absPath, file, errors });
     const first = errors[0];
     // P6 telemetría: inicio del circuito, una línea con lo esencial.
     logger.info(

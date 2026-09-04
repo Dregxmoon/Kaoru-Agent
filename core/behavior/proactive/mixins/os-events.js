@@ -150,6 +150,7 @@ module.exports = {
    */
   async _onAppTick({ friendlyName, category, title }) {
     this._trackMedia({ category, title, friendlyName });
+    this._observeProjectFocus?.({ category, title });
 
     if (FOCUS_RULES[category]) {
       this._lastFocusedWindow = {

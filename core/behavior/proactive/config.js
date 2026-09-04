@@ -282,6 +282,14 @@ const PROPOSAL_HINTS = {
       action: null,
     },
   },
+  project_resume: {
+    default: {
+      title: 'Retomar el hilo de este proyecto',
+      preview: 'Continuar desde el último avance, bloqueo o siguiente paso que me contaste.',
+      kind: 'info',
+      action: null,
+    },
+  },
   // Fase D: error de código detectado por el LSP. La propuesta pide un parche;
   // si el LLM no logra generar uno válido, cae a informativa (ver el error).
   lsp_error: {
@@ -337,6 +345,7 @@ const TRIGGER_COOLDOWN_MS = {
   intention_stale: 6 * 60 * 60 * 1000,
   topic_cold: 4 * 60 * 60 * 1000,
   knowledge_gap: 6 * 60 * 60 * 1000,
+  project_resume: 12 * 60 * 60 * 1000,
 };
 
 // Señales de TRABAJO: tienen cupo diario PROPIO (como la curiosidad). Un

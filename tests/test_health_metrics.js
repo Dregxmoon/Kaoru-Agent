@@ -72,7 +72,9 @@ function testHealthWithBridge() {
   console.log(C.bold('\n── Test 2: getHealth() con bridge mock ────────────────'));
   const mockBridge = {
     _available: true,
-    getSandboxStatus() { return { enabled: true, reason: null }; },
+    getSandboxStatus() {
+      return { enabled: true, reason: null };
+    },
   };
   const hm = new HealthMetrics({ bridge: mockBridge });
   const health = hm.getHealth();
@@ -112,7 +114,11 @@ function testRecordError() {
   hm.recordError('algo salió mal');
   assertEqual(hm._lastError, 'algo salió mal', 'lastError capturado');
   assert(hm._lastErrorTime > 0, 'lastErrorTime definido');
-  assertEqual(hm.getHealth().healthy, true, 'healthy es true tras error (depende de bridge + requests)');
+  assertEqual(
+    hm.getHealth().healthy,
+    true,
+    'healthy es true tras error (depende de bridge + requests)'
+  );
 }
 
 // ── Test 5: getReport() completo ──────────────────────────────
@@ -155,7 +161,12 @@ function testReset() {
 function testUsageSummary() {
   console.log(C.bold('\n── Test 7: getUsageSummary() ────────────────────────'));
   const tracker = new UsageTracker(null);
-  tracker.record({ provider: 'openai', model: 'gpt-4o-mini', promptTokens: 1000, completionTokens: 500 });
+  tracker.record({
+    provider: 'openai',
+    model: 'gpt-4o-mini',
+    promptTokens: 1000,
+    completionTokens: 500,
+  });
 
   const hm = new HealthMetrics({ tracker });
   const summary = hm.getUsageSummary();
@@ -192,23 +203,72 @@ async function main() {
   console.log(C.bold(' HealthMetrics observability point'));
   console.log(C.bold('════════════════════════════════════════════════════════'));
 
-  try { testHealthBasic(); } catch (e) { console.error(`  ${C.red('✗')} ${e.message}`); failed++; }
-  try { testHealthWithBridge(); } catch (e) { console.error(`  ${C.red('✗')} ${e.message}`); failed++; }
-  try { testRequestTracking(); } catch (e) { console.error(`  ${C.red('✗')} ${e.message}`); failed++; }
-  try { testRecordError(); } catch (e) { console.error(`  ${C.red('✗')} ${e.message}`); failed++; }
-  try { await testReport(); } catch (e) { console.error(`  ${C.red('✗')} ${e.message}`); failed++; }
-  try { testReset(); } catch (e) { console.error(`  ${C.red('✗')} ${e.message}`); failed++; }
-  try { testUsageSummary(); } catch (e) { console.error(`  ${C.red('✗')} ${e.message}`); failed++; }
-  try { testNoTracker(); } catch (e) { console.error(`  ${C.red('✗')} ${e.message}`); failed++; }
-  try { testSingleton(); } catch (e) { console.error(`  ${C.red('✗')} ${e.message}`); failed++; }
+  try {
+    testHealthBasic();
+  } catch (e) {
+    console.error(`  ${C.red('✗')} ${e.message}`);
+    failed++;
+  }
+  try {
+    testHealthWithBridge();
+  } catch (e) {
+    console.error(`  ${C.red('✗')} ${e.message}`);
+    failed++;
+  }
+  try {
+    testRequestTracking();
+  } catch (e) {
+    console.error(`  ${C.red('✗')} ${e.message}`);
+    failed++;
+  }
+  try {
+    testRecordError();
+  } catch (e) {
+    console.error(`  ${C.red('✗')} ${e.message}`);
+    failed++;
+  }
+  try {
+    await testReport();
+  } catch (e) {
+    console.error(`  ${C.red('✗')} ${e.message}`);
+    failed++;
+  }
+  try {
+    testReset();
+  } catch (e) {
+    console.error(`  ${C.red('✗')} ${e.message}`);
+    failed++;
+  }
+  try {
+    testUsageSummary();
+  } catch (e) {
+    console.error(`  ${C.red('✗')} ${e.message}`);
+    failed++;
+  }
+  try {
+    testNoTracker();
+  } catch (e) {
+    console.error(`  ${C.red('✗')} ${e.message}`);
+    failed++;
+  }
+  try {
+    testSingleton();
+  } catch (e) {
+    console.error(`  ${C.red('✗')} ${e.message}`);
+    failed++;
+  }
 
   console.log(C.bold('\n════════════════════════════════════════════════════════'));
   const total = passed + failed;
   const color = failed === 0 ? C.green : C.red;
   if (failed === 0) {
-    console.log(`  ${color('Resultado')}: ${color(`${passed} passed`)}  ${C.dim('0 failed')}  / ${total} total`);
+    console.log(
+      `  ${color('Resultado')}: ${color(`${passed} passed`)}  ${C.dim('0 failed')}  / ${total} total`
+    );
   } else {
-    console.log(`  Resultado: ${C.green(`${passed} passed`)}  ${C.red(`${failed} failed`)}  / ${total} total`);
+    console.log(
+      `  Resultado: ${C.green(`${passed} passed`)}  ${C.red(`${failed} failed`)}  / ${total} total`
+    );
   }
   console.log(C.bold('════════════════════════════════════════════════════════'));
 
