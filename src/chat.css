@@ -1857,6 +1857,28 @@ body {
   font-weight: 600;
   border: 1px solid rgba(91, 110, 245, 0.3);
 }
+.mcp-health-badge {
+  font-size: 9px;
+  padding: 2px 8px;
+  border-radius: 10px;
+  font-weight: 600;
+  color: #10b981;
+  background: rgba(16, 185, 129, 0.12);
+  border: 1px solid rgba(16, 185, 129, 0.3);
+}
+.mcp-health-badge.open {
+  color: #f87171;
+  background: rgba(248, 113, 113, 0.12);
+  border-color: rgba(248, 113, 113, 0.35);
+}
+.mcp-health-badge.half_open {
+  color: #fbbf24;
+  background: rgba(251, 191, 36, 0.12);
+  border-color: rgba(251, 191, 36, 0.35);
+}
+.mcp-server-card.degraded {
+  border-color: rgba(248, 113, 113, 0.45);
+}
 
 .mcp-card-desc {
   font-family: var(--font-mono);

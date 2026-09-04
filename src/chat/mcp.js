@@ -409,6 +409,13 @@ function renderServerCard(server, isInstalled = false) {
     ? '<span class="mcp-installed-badge">[OK] Instalado</span>'
     : '';
   const connected = isInstalled && server.status === 'connected';
+  const breaker = server.health?.breaker || 'closed';
+  const degraded = connected && breaker !== 'closed';
+  const healthScore = Math.round(Number(server.health?.score || 0) * 100);
+  const healthBadge =
+    isInstalled && server.health
+      ? `<span class="mcp-health-badge ${escapeHtml(breaker)}" title="${server.health.totalCalls} llamadas · ${server.health.failedCalls} fallos · ${server.health.averageLatencyMs ?? '—'} ms">[HLT] ${healthScore}%${degraded ? ` · ${breaker === 'open' ? 'en pausa' : 'probando'}` : ''}</span>`
+      : '';
 
   const toolsPreview =
     server.tools
@@ -418,12 +425,12 @@ function renderServerCard(server, isInstalled = false) {
   const toolsCount = server.toolCount || server.tools?.length || 0;
 
   return `
-    <article class="mcp-server-card ${connected ? 'connected' : ''} ${isInstalled ? 'installed' : ''}" data-id="${server.id || server.identifier}" data-category="${server.category || 'other'}">
+    <article class="mcp-server-card ${connected ? 'connected' : ''} ${degraded ? 'degraded' : ''} ${isInstalled ? 'installed' : ''}" data-id="${server.id || server.identifier}" data-category="${server.category || 'other'}">
       <div class="mcp-card-header">
         <div class="mcp-card-icon">${getServerIcon(server.name, server.identifier)}</div>
         <div class="mcp-card-meta">
           <h3 class="mcp-card-name">${escapeHtml(server.name)}</h3>
-          <div class="mcp-card-badges">${popularBadge}${authBadge}${installedBadge}</div>
+          <div class="mcp-card-badges">${popularBadge}${authBadge}${installedBadge}${healthBadge}</div>
         </div>
       </div>
       <p class="mcp-card-desc">${escapeHtml(server.description || 'Sin descripción')}</p>

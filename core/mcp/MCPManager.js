@@ -333,6 +333,9 @@ const POPULAR_SERVERS = [
 // visible en el panel, esperando que el usuario reconecte a mano.
 const MAX_RECONNECT_ATTEMPTS = 5;
 const RECONNECT_BASE_MS = 1000;
+const CIRCUIT_FAILURE_THRESHOLD = 3;
+const CIRCUIT_BASE_COOLDOWN_MS = 30 * 1000;
+const CIRCUIT_MAX_COOLDOWN_MS = 5 * 60 * 1000;
 
 // Sleep cancelable: disconnect() despierta el await con un evento, para que
 // el timer de reconexión no mantenga vivo el event loop al cerrar la app.
@@ -613,6 +616,128 @@ class MCPServerConnection {
     this._reconnectAttempts = 0;
     this._reconnectInProgress = false;
     this._onStatusChange = null; // callback del Manager, para _notify()
+    this._circuitFailureThreshold = Math.max(
+      1,
+      Math.min(20, Number(config.circuitBreaker?.failureThreshold) || CIRCUIT_FAILURE_THRESHOLD)
+    );
+    this._circuitBaseCooldownMs = Math.max(
+      100,
+      Math.min(
+        CIRCUIT_MAX_COOLDOWN_MS,
+        Number(config.circuitBreaker?.baseCooldownMs) || CIRCUIT_BASE_COOLDOWN_MS
+      )
+    );
+    this._health = {
+      totalCalls: 0,
+      successfulCalls: 0,
+      failedCalls: 0,
+      consecutiveFailures: 0,
+      averageLatencyMs: null,
+      lastSuccessAt: null,
+      lastFailureAt: null,
+      lastFailure: null,
+      breaker: 'closed',
+      openUntil: null,
+      openCount: 0,
+      halfOpenProbe: false,
+    };
+  }
+
+  getHealth(now = Date.now()) {
+    const health = this._health;
+    const breaker =
+      health.breaker === 'open' && Number(health.openUntil) <= now ? 'half_open' : health.breaker;
+    const reliability = health.totalCalls ? health.successfulCalls / health.totalCalls : 1;
+    const failurePenalty = Math.exp(-0.35 * health.consecutiveFailures);
+    return {
+      totalCalls: health.totalCalls,
+      successfulCalls: health.successfulCalls,
+      failedCalls: health.failedCalls,
+      consecutiveFailures: health.consecutiveFailures,
+      averageLatencyMs: health.averageLatencyMs,
+      lastSuccessAt: health.lastSuccessAt,
+      lastFailureAt: health.lastFailureAt,
+      lastFailure: health.lastFailure,
+      breaker,
+      openUntil: breaker === 'open' ? health.openUntil : null,
+      retryAfterMs: breaker === 'open' ? Math.max(0, health.openUntil - now) : 0,
+      score: Math.round(Math.max(0, Math.min(1, reliability * failurePenalty)) * 100) / 100,
+    };
+  }
+
+  isAvailableForCalls(now = Date.now()) {
+    const health = this.getHealth(now);
+    return (
+      this.status === 'connected' &&
+      (health.breaker === 'closed' ||
+        (health.breaker === 'half_open' && !this._health.halfOpenProbe))
+    );
+  }
+
+  _beginCall(now) {
+    const health = this.getHealth(now);
+    if (health.breaker === 'open' || this._health.halfOpenProbe) {
+      const error = new Error(
+        `Circuit breaker abierto para MCP "${this.name}"; reintenta en ${Math.ceil(health.retryAfterMs / 1000)}s`
+      );
+      error.code = 'MCP_CIRCUIT_OPEN';
+      error.retryAfterMs = health.retryAfterMs;
+      throw error;
+    }
+    if (health.breaker === 'half_open') {
+      this._health.breaker = 'half_open';
+      this._health.halfOpenProbe = true;
+    }
+  }
+
+  _recordCallSuccess(elapsed, now) {
+    const wasDegraded = this._health.breaker !== 'closed';
+    this._health.totalCalls++;
+    this._health.successfulCalls++;
+    this._health.consecutiveFailures = 0;
+    this._health.lastSuccessAt = now;
+    this._health.averageLatencyMs =
+      this._health.averageLatencyMs == null
+        ? elapsed
+        : Math.round(this._health.averageLatencyMs * 0.8 + elapsed * 0.2);
+    this._health.breaker = 'closed';
+    this._health.openUntil = null;
+    this._health.halfOpenProbe = false;
+    if (wasDegraded) this._onStatusChange?.();
+  }
+
+  _recordCallFailure(error, elapsed, now) {
+    const wasOpen = this._health.breaker === 'open';
+    this._health.totalCalls++;
+    this._health.failedCalls++;
+    this._health.consecutiveFailures++;
+    this._health.lastFailureAt = now;
+    this._health.lastFailure = error instanceof Error ? error.message : String(error);
+    this._health.averageLatencyMs =
+      this._health.averageLatencyMs == null
+        ? elapsed
+        : Math.round(this._health.averageLatencyMs * 0.8 + elapsed * 0.2);
+    this._health.halfOpenProbe = false;
+    if (
+      this._health.breaker === 'half_open' ||
+      this._health.consecutiveFailures >= this._circuitFailureThreshold
+    ) {
+      this._health.openCount++;
+      const cooldown = Math.min(
+        CIRCUIT_MAX_COOLDOWN_MS,
+        this._circuitBaseCooldownMs * 2 ** Math.max(0, this._health.openCount - 1)
+      );
+      this._health.breaker = 'open';
+      this._health.openUntil = now + cooldown;
+      if (!wasOpen) this._onStatusChange?.();
+    }
+  }
+
+  _resetCircuit() {
+    this._health.consecutiveFailures = 0;
+    this._health.breaker = 'closed';
+    this._health.openUntil = null;
+    this._health.halfOpenProbe = false;
   }
 
   async connect() {
@@ -663,6 +788,7 @@ class MCPServerConnection {
       this.tools = listed.tools || [];
       this.status = 'connected';
       this._reconnectAttempts = 0; // conexión sana — resetea el presupuesto de reintentos
+      this._resetCircuit();
       logger.info(
         'MCPManager',
         `[mcp] conectado: "${this.name}" (${this.tools.length} tools: ${this.tools.map((t) => t.name).join(', ')})`
@@ -753,6 +879,7 @@ class MCPServerConnection {
     this.transport = null;
     this.status = 'disconnected';
     this.tools = [];
+    this._resetCircuit();
   }
 
   async callTool(toolName, args, options = {}) {
@@ -766,14 +893,25 @@ class MCPServerConnection {
     if (validationError)
       throw new Error(`Argumentos inválidos para ${this.name}.${toolName}: ${validationError}`);
     const timeout = Math.max(1_000, Math.min(5 * 60 * 1000, Number(options.timeout) || 30_000));
-    const result = await this.client.callTool(
-      { name: toolName, arguments: args || {} },
-      undefined,
-      { signal: options.signal, timeout, maxTotalTimeout: timeout }
-    );
-    // Límite de confianza: cualquier resultado de un servidor MCP externo se
-    // envuelve como contenido no confiable antes de llegar al pipeline.
-    return _trustMCPResult(result);
+    const startedAt = Date.now();
+    this._beginCall(startedAt);
+    try {
+      const result = await this.client.callTool(
+        { name: toolName, arguments: args || {} },
+        undefined,
+        { signal: options.signal, timeout, maxTotalTimeout: timeout }
+      );
+      this._recordCallSuccess(Date.now() - startedAt, Date.now());
+      // Límite de confianza: cualquier resultado de un servidor MCP externo se
+      // envuelve como contenido no confiable antes de llegar al pipeline.
+      return _trustMCPResult(result);
+    } catch (error) {
+      this._health.halfOpenProbe = false;
+      if (error?.name !== 'AbortError' && error?.code !== 'ABORTED') {
+        this._recordCallFailure(error, Date.now() - startedAt, Date.now());
+      }
+      throw error;
+    }
   }
 }
 
@@ -865,6 +1003,7 @@ class MCPManager {
       status: c.status,
       error: c.error,
       toolCount: c.tools.length,
+      health: c.getHealth(),
       tools: c.tools.map((t) => ({ name: t.name, description: t.description || '' })),
     }));
   }
@@ -878,6 +1017,7 @@ class MCPManager {
       status: c.status,
       error: c.error,
       toolCount: c.tools.length,
+      health: c.getHealth(),
       tools: c.tools.map((t) => ({ name: t.name, description: t.description || '' })),
     };
   }
@@ -886,7 +1026,7 @@ class MCPManager {
   listAllTools() {
     const out = [];
     for (const conn of this._connections.values()) {
-      if (conn.status !== 'connected') continue;
+      if (!conn.isAvailableForCalls()) continue;
       for (const t of conn.tools) {
         out.push({
           server: conn.name,
@@ -901,7 +1041,7 @@ class MCPManager {
   }
 
   hasConnectedServers() {
-    return [...this._connections.values()].some((c) => c.status === 'connected');
+    return [...this._connections.values()].some((c) => c.isAvailableForCalls());
   }
 
   /** serverRef puede ser el id o el name del servidor — acepta ambos por conveniencia. */
@@ -1076,4 +1216,10 @@ function getMCPManager() {
   return _instance;
 }
 
-module.exports = { MCPManager, MCPServerConnection, getMCPManager, _validateMCPArgs };
+module.exports = {
+  MCPManager,
+  MCPServerConnection,
+  getMCPManager,
+  _validateMCPArgs,
+  CIRCUIT_FAILURE_THRESHOLD,
+};
