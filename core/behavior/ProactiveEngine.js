@@ -118,6 +118,9 @@ class ProactiveEngine {
     // contexto de código.
     this._getFocusedFile = opts.getFocusedFile || null;
     this._getSymbols = opts.getSymbols || null;
+    this._getWorkspace = opts.getWorkspace || null;
+    this._lastContextFocus = null;
+    this._lastContextAlignment = { accepted: 0, rejected: 0, reasons: {} };
 
     this._lastAttemptByType = {}; // último intento (haya dicho sí o no el LLM) por tipo
 

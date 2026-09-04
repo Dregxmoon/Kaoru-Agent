@@ -146,6 +146,7 @@ function init(app) {
     // el engine consulta (en caliente), ya existen.
     getFocusedFile: () => state.lspErrorWatcher?.getFocusedFile?.() ?? null,
     getSymbols: (file) => state.symbolIndex?.getSymbolsFor?.(file) ?? Promise.resolve([]),
+    getWorkspace: () => state.activeWorkspace,
     // B: últimos turnos del CHAT para que los mensajes proactivos no repitan
     // lo que ya se habló (antes solo veían mensajes PROACTIVOS previos).
     getRecentChatTurns: () => {

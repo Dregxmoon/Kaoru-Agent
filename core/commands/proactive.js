@@ -32,6 +32,8 @@ function _formatStats(s) {
     `- Silencio: ${_hms(s.silenceMs)} · Chat abierto: ${s.chatOpen ? 'sí' : 'no'}`,
     `- Presupuesto del día: ${s.dailyBudget?.count ?? 0}/${s.dailyBudget?.limit ?? '—'} (límite dinámico)`,
     `- Cola QUEUE: ${s.gate?.queued ?? 0} · Propuestas pendientes: ${s.pendingProposals ?? 0}`,
+    `- Foco contextual: ${s.contextFocus?.mode || 'aún no evaluado'} · términos: ${s.contextFocus?.terms?.slice(0, 5).join(', ') || '—'}`,
+    `- Alineación: ${s.contextAlignment?.accepted ?? 0} candidato(s) válidos · ${s.contextAlignment?.rejected ?? 0} fuera de contexto`,
     `- Categoría actual: ${s.currentCategory || '—'} (${s.categoryStreakSec || 0}s) · Cambios de app: ${s.recentSwitchesCount ?? 0}`,
   ];
   const slo = s.slo;

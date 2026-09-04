@@ -1762,6 +1762,14 @@ function testIntentionStaleCandidate() {
   );
 
   const engine = new ProactiveEngine(graph);
+  engine.setOSSensor(
+    fakeSensor(() => ({
+      app: 'Code',
+      title: 'backend PostgreSQL — Visual Studio Code',
+      category: 'code',
+      idleSecs: 0,
+    }))
+  );
   const cands = engine._collectCuriosityCandidates();
   const staleCands = cands.filter((c) => c.type === 'intention_stale');
 

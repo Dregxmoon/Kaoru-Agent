@@ -455,12 +455,13 @@ async function runAgent(userMessage, opts = {}) {
           : null;
         let intentionId = null;
         if (resumed) {
-          g.updateIntention(resumed.id, { lastProgress: progress });
+          g.updateIntention(resumed.id, { lastProgress: progress, workspace: projectCwd });
           intentionId = resumed.id;
         } else {
           intentionId = g.createIntention({
             sessionId: state.session?.getSessionId?.() || '',
             goal: userMessage,
+            workspace: projectCwd,
             steps: planSteps,
             lastProgress: progress,
           });

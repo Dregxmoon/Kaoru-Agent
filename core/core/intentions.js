@@ -30,7 +30,13 @@ function addIntention({ goal, steps = [], lastProgress = '' } = {}) {
   if (!g) return null;
   const sessionId = state.session?.getSessionId?.() || '';
   try {
-    const id = g.createIntention({ sessionId, goal, steps, lastProgress });
+    const id = g.createIntention({
+      sessionId,
+      goal,
+      workspace: state.activeWorkspace,
+      steps,
+      lastProgress,
+    });
     state.bus?.emit('intention:added', { id, goal });
     return id;
   } catch (e) {

@@ -34,6 +34,7 @@ function _errMsg(e) {
  *   id: number,
  *   session_id: string,
  *   goal: string,
+ *   workspace: string | null,
  *   status: string,
  *   steps: string,
  *   last_progress: string | null,
@@ -57,21 +58,22 @@ class IntentionsStore {
 
   /**
    * Crea una intención activa (empuja al tope del stack).
-   * @param {{sessionId: string, goal: string, steps?: Array<string|object>, lastProgress?: string}} opts
+   * @param {{sessionId: string, goal: string, workspace?:string|null, steps?: Array<string|object>, lastProgress?: string}} opts
    * @returns {number | null} id de la intención, o null en modo memoria.
    */
-  create({ sessionId, goal, steps = [], lastProgress = '' }) {
+  create({ sessionId, goal, workspace = null, steps = [], lastProgress = '' }) {
     if (this._g.usingFallback || !sessionId || !goal) return null;
     const now = Date.now();
     try {
       const info = this._db
         .prepare(
-          `INSERT INTO intentions (session_id, goal, status, steps, last_progress, last_progress_at, created_at, updated_at)
-           VALUES (?, ?, 'active', ?, ?, ?, ?, ?)`
+          `INSERT INTO intentions (session_id, goal, workspace, status, steps, last_progress, last_progress_at, created_at, updated_at)
+           VALUES (?, ?, ?, 'active', ?, ?, ?, ?, ?)`
         )
         .run(
           String(sessionId),
           String(goal),
+          workspace ? String(workspace) : null,
           JSON.stringify(steps),
           String(lastProgress || ''),
           now,
@@ -100,7 +102,7 @@ class IntentionsStore {
       const rows = /** @type {any[]} */ (
         this._db
           .prepare(
-            `SELECT id, session_id, goal, status, steps, last_progress, last_progress_at, created_at, updated_at
+            `SELECT id, session_id, goal, workspace, status, steps, last_progress, last_progress_at, created_at, updated_at
            FROM intentions WHERE status='active'
            ORDER BY updated_at DESC, id DESC LIMIT ?`
           )
@@ -122,7 +124,7 @@ class IntentionsStore {
     try {
       const row = this._db
         .prepare(
-          `SELECT id, session_id, goal, status, steps, last_progress, last_progress_at, created_at, updated_at
+          `SELECT id, session_id, goal, workspace, status, steps, last_progress, last_progress_at, created_at, updated_at
              FROM intentions WHERE id=?`
         )
         .get(id);
@@ -139,7 +141,7 @@ class IntentionsStore {
    * `last_progress_at` (cuándo hubo movimiento por última vez). Un status
    * 'done'/'dropped' deja de ser candidata a stale porque ya no está 'active'.
    * @param {number} id
-   * @param {{status?: string, steps?: Array<object>, lastProgress?: string}} [opts]
+   * @param {{status?: string, workspace?:string|null, steps?: Array<object>, lastProgress?: string}} [opts]
    * @returns {boolean}
    */
   update(id, opts = {}) {
@@ -155,12 +157,13 @@ class IntentionsStore {
       const steps = opts.steps ? JSON.stringify(opts.steps) : row.steps;
       const lastProgress =
         opts.lastProgress !== undefined ? String(opts.lastProgress) : row.last_progress;
+      const workspace = opts.workspace !== undefined ? opts.workspace : row.workspace;
       const now = Date.now();
       this._db
         .prepare(
-          `UPDATE intentions SET status=?, steps=?, last_progress=?, updated_at=?, last_progress_at=? WHERE id=?`
+          `UPDATE intentions SET status=?, workspace=?, steps=?, last_progress=?, updated_at=?, last_progress_at=? WHERE id=?`
         )
-        .run(status, steps, lastProgress, now, now, id);
+        .run(status, workspace ? String(workspace) : null, steps, lastProgress, now, now, id);
       return true;
     } catch (e) {
       logger.warn('IntentionsStore', `[intentions] error actualizando ${id}: ${_errMsg(e)}`);
@@ -193,7 +196,7 @@ class IntentionsStore {
       const rows = /** @type {any[]} */ (
         this._db
           .prepare(
-            `SELECT id, session_id, goal, status, steps, last_progress, last_progress_at, created_at, updated_at
+            `SELECT id, session_id, goal, workspace, status, steps, last_progress, last_progress_at, created_at, updated_at
            FROM intentions WHERE status='active' AND last_progress_at < ?
            ORDER BY last_progress_at ASC, id DESC LIMIT ?`
           )

@@ -52,6 +52,7 @@ function testStore() {
   const a = graph.createIntention({
     sessionId: 's1',
     goal: 'Refactorizar el modulo auth',
+    workspace: '/projects/kaoru-agent',
     steps: [{ description: 'leer auth.js' }],
   });
   const b = graph.createIntention({
@@ -87,6 +88,10 @@ function testStore() {
   const reloaded = g2.listActiveIntentions({ limit: 10 });
   assert(reloaded.length === 2, 'las intenciones sobreviven al reinicio');
   assert(reloaded[0].goal === 'Escribir tests de intenciones', 'el orden del stack persiste');
+  assert(
+    reloaded.find((item) => item.id === a)?.workspace === '/projects/kaoru-agent',
+    'el alcance de workspace persiste con la intención'
+  );
 
   // update: progreso + steps.
   assert(
@@ -245,6 +250,10 @@ function testMigration() {
     cols.some((c) => c.name === 'last_progress_at'),
     'columna last_progress_at agregada'
   );
+  assert(
+    cols.some((c) => c.name === 'workspace'),
+    'columna workspace agregada'
+  );
   const row = graph._db
     .prepare(`SELECT last_progress_at FROM intentions WHERE goal='Meta vieja'`)
     .get();
@@ -260,6 +269,7 @@ function testMigration() {
     fromStore.length === 1 && fromStore[0].goal === 'Meta vieja',
     'la fila migrada es detectable como stale'
   );
+  assert(fromStore[0].workspace === null, 'una intención heredada queda sin alcance inventado');
 
   graph.close();
   fs.rmSync(dir, { recursive: true, force: true });

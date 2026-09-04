@@ -70,6 +70,7 @@ registerProfile('knowledge_gap', 'default', {
 });
 
 const { extractThemeTerms, getMemoryGaps } = require('../../../core/misc.js');
+const { assessTriggerAlignment, buildFocusContext } = require('../ContextAlignment.js');
 const { _localDayString } = require('../helpers.js');
 const { INTENTION_STALE_DAYS, SILENCE_THRESHOLD_MS } = require('../config.js');
 
@@ -196,6 +197,28 @@ module.exports = {
     if (!g || !g._ready) return [];
 
     const candidates = [];
+    const focus = buildFocusContext({
+      osContext: this._osSensor?.getCurrentContext?.() ?? {},
+      workspace: this._getWorkspace?.() ?? null,
+      focusedFile: this._getFocusedFile?.() ?? null,
+    });
+    this._lastContextFocus = focus;
+    this._lastContextAlignment = { accepted: 0, rejected: 0, reasons: {} };
+    const addCandidate = (candidate) => {
+      const alignment = assessTriggerAlignment(candidate, focus);
+      if (!alignment.allow) {
+        this._lastContextAlignment.rejected += 1;
+        this._lastContextAlignment.reasons[alignment.reason] =
+          (this._lastContextAlignment.reasons[alignment.reason] || 0) + 1;
+        return;
+      }
+      this._lastContextAlignment.accepted += 1;
+      candidates.push({
+        ...candidate,
+        contextAffinity: alignment.affinity,
+        alignmentReason: alignment.reason,
+      });
+    };
 
     // 0) Huecos reales: cosas que nunca se aprendieron. A diferencia de la
     // curiosidad decorativa del prompt, cada pregunta tiene identidad estable
@@ -213,7 +236,7 @@ module.exports = {
         // No convertir el onboarding en encuesta: un hueco nuevo solo entra
         // si el contexto actual lo volvió relevante o hubo silencio largo.
         if (boost <= 0 && !quietLongEnough) continue;
-        candidates.push({
+        addCandidate({
           type: 'knowledge_gap',
           kind: gap.key,
           gapKey: gap.key,
@@ -231,7 +254,7 @@ module.exports = {
     // 1) Hechos sospechosos (stale).
     for (const f of this._staleFacts()) {
       if (!f.label || !f.content) continue;
-      candidates.push({
+      addCandidate({
         type: 'memory_stale',
         kind: f.label,
         nodeId: f.id,
@@ -246,7 +269,7 @@ module.exports = {
     try {
       for (const t of g.getTensions?.() ?? []) {
         if (!t.label) continue;
-        candidates.push({
+        addCandidate({
           type: 'memory_tension',
           kind: 'default',
           label: t.label,
@@ -267,7 +290,7 @@ module.exports = {
       for (const n of g.getUserModel?.({ limit: 20 }) ?? []) {
         if (!isMidConfidence(n.confidence)) continue;
         if (!n.content) continue;
-        candidates.push({
+        addCandidate({
           type: 'pattern_uncertain',
           kind: 'default',
           nodeId: n.id,
@@ -286,7 +309,7 @@ module.exports = {
     //    en INTENTION_STALE_DAYS días. El candidato lleva el TEXTO REAL de la
     //    meta para que el mensaje sea continuidad real de conversación.
     for (const i of this._staleIntentions()) {
-      candidates.push({
+      addCandidate({
         type: 'intention_stale',
         kind: 'default',
         nodeId: i.id,
@@ -294,6 +317,7 @@ module.exports = {
         goal: i.goal,
         lastProgress: i.last_progress || '',
         lastProgressAt: i.last_progress_at,
+        workspace: i.workspace || null,
         salienceBoost: this._contextBoostFor(i.goal, i.last_progress || ''),
         context: `El usuario me pidió hace tiempo que haga "${i.goal}" y quedó activa sin actividad (status='active'). Pregúntale cómo va usando su texto real.${i.last_progress ? ` Último progreso que dejó: "${i.last_progress}".` : ''}`,
       });
@@ -326,7 +350,7 @@ module.exports = {
 
           const tema = t.topic.replace(/_/g, ' ');
           const backing = related[0].content.slice(0, 100);
-          candidates.push({
+          addCandidate({
             type: 'topic_cold',
             kind: 'default',
             label: t.topic,

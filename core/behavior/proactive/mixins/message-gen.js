@@ -12,6 +12,11 @@ const {
 } = require('../helpers.js');
 const { getMemoryGaps, isRealIdentityNode } = require('../../../core/misc.js');
 const {
+  buildFocusContext,
+  memoryAllowedForFocus,
+  narrativeAllowedForFocus,
+} = require('../ContextAlignment.js');
+const {
   WORK_CATEGORIES,
   THRASH_WINDOW_MS,
   THRASH_MIN_SWITCHES,
@@ -116,13 +121,23 @@ module.exports = {
   async _generateMessage(trigger) {
     const osCtx = this._osSensor?.getCurrentContext() ?? null;
     const memory = await this._buildMemoryContext(trigger);
+    const focus =
+      this._lastContextFocus ||
+      buildFocusContext({
+        osContext: osCtx || {},
+        workspace: this._getWorkspace?.() ?? null,
+        focusedFile: this._getFocusedFile?.() ?? null,
+        eventContext: trigger?.context || '',
+      });
     const now = new Date();
     const timeStr = now.toLocaleTimeString('es-MX', { hour: '2-digit', minute: '2-digit' });
     const identity = _safeGetIdentity();
 
     // Contexto emocional y de momentum de topics (nuevos componentes evolutivos)
     const emotionalCtx = await this._buildEmotionalContext(trigger);
-    const topicCtx = this._buildTopicContext(trigger);
+    const topicCtx = ['topic_hot', 'topic_cold'].includes(trigger?.type)
+      ? this._buildTopicContext(trigger)
+      : '';
 
     // Reglas de enforcement forzadas (basadas en emociones y efectividad)
     const enforcement = await this._buildEnforcementRules(emotionalCtx, topicCtx, null);
@@ -155,6 +170,10 @@ personales que no estén ahí (nombres, cumpleaños, horarios, detalles de su vi
 vaga, pregunta con curiosidad en vez de afirmar. Un "no sé" o un "NO" es siempre mejor que inventar.
 Tampoco inventes conversaciones pasadas ni temas "que mencionaste antes": si no está en tu memoria real,
 no existió.
+
+LÍMITE DE CONTEXTO: el foco actual es "${focus.mode}". Solo puedes mencionar un proyecto si la sección
+de memoria lo marca como alineado con la ventana o workspace actual. Si está buscando, viendo contenido
+o trabajando en otro proyecto, no rescates proyectos, tareas ni conversaciones anteriores sin relación.
 
 ${enforcementPrompt}
 
@@ -340,6 +359,13 @@ No expliques por qué escribes. No anuncies que eres proactiva. NO muestres tu r
       const memCtx = osCtx
         ? { activeApp: osCtx.friendlyName || osCtx.app || '', windowTitle: osCtx.title || '' }
         : null;
+      const focus = buildFocusContext({
+        osContext: osCtx || {},
+        workspace: this._getWorkspace?.() ?? null,
+        focusedFile: this._getFocusedFile?.() ?? null,
+        eventContext: trigger?.context || '',
+      });
+      this._lastContextFocus = focus;
       const worldModel = this._graph.getWorldModel?.(memCtx) ?? [];
 
       // MEM-2: recall semántico por trigger — nodos enterrados relacionados
@@ -367,6 +393,7 @@ No expliques por qué escribes. No anuncies que eres proactiva. NO muestres tu r
         if (!node?.id || seenIds.has(node.id)) continue;
         if (!isRealIdentityNode(node)) continue;
         if (_isNoisePreference(node)) continue;
+        if (!memoryAllowedForFocus(node, focus)) continue;
         seenIds.add(node.id);
         const ageMs = Math.max(0, nowMs - (node.updated_at || nowMs));
         const recency = Math.exp((-Math.LN2 * ageMs) / HALF_LIFE_MS);
@@ -386,7 +413,6 @@ No expliques por qué escribes. No anuncies que eres proactiva. NO muestres tu r
 
       const MAX_MEMORY_LINES = 12;
       const picked = candidates.slice(0, MAX_MEMORY_LINES);
-      const pickedIds = new Set(picked.map((p) => p.node.id));
       const semanticOnly = picked.filter((p) => !worldModel.some((w) => w.id === p.node.id));
 
       // Salida agrupada por tipo para legibilidad del LLM.
@@ -399,7 +425,7 @@ No expliques por qué escribes. No anuncies que eres proactiva. NO muestres tu r
         byType.User.forEach((n) => lines.push(`- ${n.content}${_provenanceSuffix(n)}`));
       }
       if (byType.Project.length) {
-        lines.push('Proyectos activos:');
+        lines.push('Proyecto alineado con el foco actual:');
         byType.Project.forEach((n) => lines.push(`- ${n.content}${_provenanceSuffix(n)}`));
       }
       if (byType.Preference.length) {
@@ -419,14 +445,18 @@ No expliques por qué escribes. No anuncies que eres proactiva. NO muestres tu r
         );
       }
 
-      const episodes = this._graph.getRecentEpisodes?.(5) ?? [];
+      const episodes = (this._graph.getRecentEpisodes?.(5) ?? []).filter((episode) =>
+        narrativeAllowedForFocus(episode.content, focus)
+      );
       if (episodes.length) {
         lines.push('Sesiones recientes (episodios):');
         episodes.slice(-3).forEach((e) => lines.push(`- ${e.content.slice(0, 160)}`));
       }
 
       const lastSessions = this._graph.getLastSessions?.(3) ?? [];
-      const withSummary = lastSessions.filter((s) => s.summary);
+      const withSummary = lastSessions.filter(
+        (session) => session.summary && narrativeAllowedForFocus(session.summary, focus)
+      );
       if (withSummary.length) {
         lines.push('Resumen de las últimas sesiones de chat:');
         withSummary.slice(-2).forEach((s) => {
@@ -442,7 +472,9 @@ No expliques por qué escribes. No anuncies que eres proactiva. NO muestres tu r
       // Gaps de conocimiento: rasgos del usuario que aún no sabes. Úsalos como
       // puntos de curiosidad genuina — preguntar algo de aquí vale más que
       // preguntar "¿cómo va el proyecto?" por enésima vez.
-      const gaps = getMemoryGaps();
+      const mayAskPersonally =
+        trigger?.type === 'knowledge_gap' || LOW_FRICTION_TRIGGERS.has(trigger?.type);
+      const gaps = mayAskPersonally ? getMemoryGaps() : [];
       if (gaps.length) {
         lines.push('Aún no sabes de la persona:');
         gaps.forEach((g) =>
@@ -466,7 +498,7 @@ No expliques por qué escribes. No anuncies que eres proactiva. NO muestres tu r
           const words = String(t.topic_key || '')
             .split('_')
             .filter((w) => w.length >= 4);
-          if (!words.length) continue;
+          if (!words.length || !narrativeAllowedForFocus(words.join(' '), focus)) continue;
           const covered = words.every((w) => knownText.includes(w));
           if (!covered && !dynGaps.some((d) => d.includes(words[0]))) {
             dynGaps.push(words.join(' '));
@@ -529,7 +561,15 @@ No expliques por qué escribes. No anuncies que eres proactiva. NO muestres tu r
         let anchor = '';
         try {
           const known = this._graph.getWorldModel?.() ?? [];
-          const real = known.filter((x) => isRealIdentityNode(x));
+          const focus = buildFocusContext({
+            osContext: this._osSensor?.getCurrentContext?.() ?? {},
+            workspace: this._getWorkspace?.() ?? null,
+            focusedFile: this._getFocusedFile?.() ?? null,
+            eventContext: trigger?.context || '',
+          });
+          const real = known.filter(
+            (x) => isRealIdentityNode(x) && memoryAllowedForFocus(x, focus)
+          );
           const pick = real[real.length - 1];
           if (pick?.content)
             anchor = ` — podés anclarla a que ya sabes: "${String(pick.content).slice(0, 80)}"`;

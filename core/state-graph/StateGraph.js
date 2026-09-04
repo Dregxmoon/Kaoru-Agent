@@ -610,6 +610,7 @@ class StateGraph {
         id            INTEGER PRIMARY KEY AUTOINCREMENT,
         session_id    TEXT    NOT NULL,
         goal          TEXT    NOT NULL,
+        workspace     TEXT,
         status        TEXT    NOT NULL DEFAULT 'active',
         steps         TEXT    NOT NULL DEFAULT '[]',
         last_progress TEXT,
@@ -913,6 +914,7 @@ class StateGraph {
             id            INTEGER PRIMARY KEY AUTOINCREMENT,
             session_id    TEXT    NOT NULL,
             goal          TEXT    NOT NULL,
+            workspace     TEXT,
             status        TEXT    NOT NULL DEFAULT 'active',
             steps         TEXT    NOT NULL DEFAULT '[]',
             last_progress TEXT,
@@ -939,6 +941,10 @@ class StateGraph {
           `UPDATE intentions SET last_progress_at = created_at WHERE last_progress_at IS NULL;`
         );
         logger.info('StateGraph', '[state-graph] migración intentions.last_progress_at completada');
+      }
+      if (!intentionCols.some((c) => c.name === 'workspace')) {
+        this._db.exec(`ALTER TABLE intentions ADD COLUMN workspace TEXT;`);
+        logger.info('StateGraph', '[state-graph] migración intentions.workspace completada');
       }
 
       // Compatibilidad con builds intermedios del grafo prospectivo.

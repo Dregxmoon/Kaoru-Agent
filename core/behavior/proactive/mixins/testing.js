@@ -187,6 +187,8 @@ module.exports = {
       pendingProposals: this._pendingActions.size,
       relationLog: this._relationLog.slice(-10),
       lastFocusedWindow: this._lastFocusedWindow,
+      contextFocus: this._lastContextFocus,
+      contextAlignment: this._lastContextAlignment,
       dailyBudget: {
         dayKey: this._store?.getDailyStats().dayKey ?? null,
         count: this._store?.dailyCount() ?? 0,
