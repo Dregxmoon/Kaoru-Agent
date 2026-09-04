@@ -1403,6 +1403,9 @@ class StateGraph {
   listActiveIntentions(opts) {
     return this._intentions.listActive(opts);
   }
+  findActiveIntention(opts) {
+    return this._intentions.findActive(opts);
+  }
   listStaleIntentions(opts) {
     return this._intentions.listStale(opts);
   }

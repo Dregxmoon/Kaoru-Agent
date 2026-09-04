@@ -448,16 +448,16 @@ En `config.json` (fuente de claves) o `.env` (alternativa):
 }
 ```
 
-| Clave             | Descripción                                                                              |
-| ----------------- | ---------------------------------------------------------------------------------------- |
-| `activeModel`     | Modelo Live2D activo (carpeta dentro de `models/`)                                       |
-| `activeWorkspace` | Carpeta/proyecto activo sobre el que opera el asistente                                  |
-| `llm.primary`     | Proveedor principal (`groq` / `gemini` / `openai`)                                       |
-| `llm.apiKeys`     | Claves API por proveedor (o `LLM_KEY_*` en `.env`)                                       |
-| `llm.fallback`    | Cadena de fallback entre proveedores                                                     |
-| `autonomy`        | `observe` (solo observa) · `suggest` (propone, default) · `act` (actúa con confirmación) |
-| `sensors.*`       | Activa/desactiva sensores de señales (git, sistema, título, portapapeles, eventos, LSP)  |
-| `mcp.servers`     | Servidores MCP a conectar al arrancar                                                    |
+| Clave             | Descripción                                                                                                                          |
+| ----------------- | ------------------------------------------------------------------------------------------------------------------------------------ |
+| `activeModel`     | Modelo Live2D activo (carpeta dentro de `models/`)                                                                                   |
+| `activeWorkspace` | Carpeta/proyecto activo sobre el que opera el asistente                                                                              |
+| `llm.primary`     | Proveedor principal (`groq` / `gemini` / `openai`)                                                                                   |
+| `llm.apiKeys`     | Claves API por proveedor (o `LLM_KEY_*` en `.env`)                                                                                   |
+| `llm.fallback`    | Cadena de fallback entre proveedores                                                                                                 |
+| `autonomy`        | `observe` (solo observa) · `suggest` (propone, default) · `act` (actúa con regla `allow` explícita; si no existe, pide confirmación) |
+| `sensors.*`       | Activa/desactiva sensores de señales (git, sistema, título, portapapeles, eventos, LSP)                                              |
+| `mcp.servers`     | Servidores MCP a conectar al arrancar                                                                                                |
 
 ### Cambiar el modelo Live2D
 

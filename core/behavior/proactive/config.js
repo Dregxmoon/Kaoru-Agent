@@ -140,14 +140,14 @@ const CONVO_ACTIVE_WINDOW_MS = 30 * 60 * 1000; // 30 min
 // El mensaje proactivo pasa de comentario a *propuesta*: además del texto del
 // LLM, el payload lleva un bloque `proposal` determinista (NUNCA inventado por
 // el modelo) con un título, un preview de qué pasaría y — si aplica — una
-// acción declarada que en la Fase B ejecutará un executor whitelisted tras la
-// confirmación del usuario. Hoy la acción se registra (feedback), no se ejecuta.
+// acción declarada que ejecuta un executor whitelisted tras consentimiento o,
+// en modo `act`, cuando una regla persistente y explícita ya autoriza el alcance.
 //
 // La escalera: observar → informar → proponer → actuar. El slider de autonomía
 // (config `autonomy`) controla cuánto sube el engine en esa escalera:
 //   observe → ni informa (sensores corren, cero mensajes proactivos)
 //   suggest → informa + propone botones (default)
-//   act     → en Fase B habilita ejecutar tras confirmación; hoy = suggest.
+//   act     → ejecuta sólo con regla `allow` explícita; de otro modo propone.
 const AUTONOMY_MODES = ['observe', 'suggest', 'act'];
 
 // Propuestas por tipo de trigger (+kind del sensor). `action` es declarativo:

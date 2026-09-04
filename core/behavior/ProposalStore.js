@@ -31,6 +31,8 @@ const MAX_REJECTS_TRACKED = 4;
 const MAX_COOLDOWN_MULTIPLIER = 3;
 // Cuántos días de historial diario de iniciativas se conservan en disco.
 const MAX_DAILY_KEYS = 30;
+const MAX_EMISSIONS = 200;
+const EMISSION_RETENTION_MS = 90 * 24 * 60 * 60 * 1000;
 const CONTEXT_MODES = new Set(['work', 'browser', 'search', 'media', 'neutral']);
 const CONTEXT_LEVELS = new Set(['auto', 'quiet', 'balanced', 'engaged']);
 const CONTEXT_DEFAULTS = Object.freeze({
@@ -49,7 +51,14 @@ function _localDayKey(ts = Date.now()) {
 class ProposalStore {
   constructor({ filePath } = {}) {
     this._filePath = filePath || DEFAULT_PATH;
-    this._data = { byType: {}, decisions: [], byDay: {}, byContext: {}, contextPreferences: {} };
+    this._data = {
+      byType: {},
+      decisions: [],
+      byDay: {},
+      byContext: {},
+      contextPreferences: {},
+      emissions: [],
+    };
     this._inMem = false; // true si el disco falló → solo RAM
     this._load();
   }
@@ -62,6 +71,7 @@ class ProposalStore {
         if (!this._data.byDay) this._data.byDay = {};
         if (!this._data.byContext) this._data.byContext = {};
         if (!this._data.contextPreferences) this._data.contextPreferences = {};
+        if (!Array.isArray(this._data.emissions)) this._data.emissions = [];
       }
     } catch (e) {
       logger.warn('ProposalStore', '[proposal-store] no se pudo leer feedback previo:', e.message);
@@ -223,6 +233,116 @@ class ProposalStore {
     return [...CONTEXT_MODES].map((context) => this.getContextPolicy(context));
   }
 
+  /**
+   * Conserva el historial relacional para que el anti-repetición y la
+   * evaluación sobrevivan a los reinicios. No guarda el contexto crudo del
+   * sensor, sólo el mensaje emitido y sus atributos mínimos.
+   * @param {{proposalId?:string|null,type:string,context?:string,message:string,at?:number}} input
+   */
+  recordEmission(input) {
+    if (!input?.type || !input?.message) return null;
+    const at = Number(input.at) || Date.now();
+    const id = input.proposalId || `emission-${at}-${Math.random().toString(36).slice(2, 8)}`;
+    const row = {
+      id,
+      proposalId: input.proposalId || null,
+      type: String(input.type).slice(0, 80),
+      context: CONTEXT_MODES.has(input.context) ? input.context : 'neutral',
+      message: String(input.message).trim().slice(0, 600),
+      at,
+      outcome: null,
+      respondedAt: null,
+      responseLatencyMs: null,
+    };
+    this._data.emissions.push(row);
+    this._pruneEmissions(at);
+    this._persist();
+    return { ...row };
+  }
+
+  /** @param {string} proposalId @param {'accepted'|'rejected'|'ignored'|'auto_executed'} outcome @param {number} [now] */
+  resolveEmission(proposalId, outcome, now = Date.now()) {
+    if (!proposalId || !['accepted', 'rejected', 'ignored', 'auto_executed'].includes(outcome)) {
+      return false;
+    }
+    const row = [...this._data.emissions].reverse().find((item) => item.proposalId === proposalId);
+    if (!row) return false;
+    row.outcome = outcome;
+    row.respondedAt = now;
+    row.responseLatencyMs = Math.max(0, now - Number(row.at || now));
+    this._persist();
+    return true;
+  }
+
+  /** @param {{limit?:number,maxAgeMs?:number}} [opts] */
+  getRecentEmissions({ limit = 20, maxAgeMs = 14 * 24 * 60 * 60 * 1000 } = {}) {
+    const cutoff = Date.now() - Math.max(1, maxAgeMs);
+    return this._data.emissions
+      .filter((row) => Number(row.at) >= cutoff)
+      .slice(-Math.max(1, Math.min(100, limit)))
+      .map((row) => ({ ...row }));
+  }
+
+  /** Métricas de utilidad real, no sólo cantidad de mensajes enviados. */
+  getLongitudinalStats() {
+    const rows = this.getRecentEmissions({ limit: MAX_EMISSIONS, maxAgeMs: EMISSION_RETENTION_MS });
+    const resolved = rows.filter((row) =>
+      ['accepted', 'rejected', 'ignored'].includes(row.outcome)
+    );
+    const accepted = resolved.filter((row) => row.outcome === 'accepted').length;
+    const rejected = resolved.filter((row) => row.outcome === 'rejected').length;
+    const ignored = resolved.filter((row) => row.outcome === 'ignored').length;
+    const autoExecuted = rows.filter((row) => row.outcome === 'auto_executed').length;
+    const latencies = resolved
+      .map((row) => Number(row.responseLatencyMs))
+      .filter((value) => Number.isFinite(value))
+      .sort((a, b) => a - b);
+    const middle = Math.floor(latencies.length / 2);
+    const medianResponseMs = latencies.length
+      ? latencies.length % 2
+        ? latencies[middle]
+        : Math.round((latencies[middle - 1] + latencies[middle]) / 2)
+      : null;
+    const byContext = {};
+    for (const row of resolved) {
+      const stats = (byContext[row.context] ||= { total: 0, accepted: 0, rejected: 0, ignored: 0 });
+      stats.total += 1;
+      stats[row.outcome] += 1;
+    }
+    const half = Math.floor(resolved.length / 2);
+    const rate = (group) =>
+      group.length ? group.filter((row) => row.outcome === 'accepted').length / group.length : null;
+    const previousRate = half ? rate(resolved.slice(0, half)) : null;
+    const recentRate = half ? rate(resolved.slice(half)) : null;
+    return {
+      totalEmissions: rows.length,
+      resolved: resolved.length,
+      accepted,
+      rejected,
+      ignored,
+      autoExecuted,
+      acceptanceRate: resolved.length ? accepted / resolved.length : null,
+      medianResponseMs,
+      trend: resolved.length >= 8 ? recentRate - previousRate : null,
+      byContext,
+    };
+  }
+
+  /** @param {number} now */
+  _pruneEmissions(now) {
+    const cutoff = now - EMISSION_RETENTION_MS;
+    this._data.emissions = this._data.emissions
+      .filter((row) => Number(row.at) >= cutoff)
+      .slice(-MAX_EMISSIONS);
+  }
+
+  clearEmissions() {
+    const deleted = this._data.emissions.length;
+    this._data.emissions = [];
+    this._persist();
+    return { ok: true, deleted };
+  }
+
   getStats() {
     return {
       byType: this._data.byType,
@@ -230,13 +350,21 @@ class ProposalStore {
       byDay: this._data.byDay,
       byContext: this._data.byContext,
       contextPolicies: this.getContextPolicies(),
+      longitudinal: this.getLongitudinalStats(),
       filePath: this._filePath,
       inMemoryOnly: this._inMem,
     };
   }
 
   reset() {
-    this._data = { byType: {}, decisions: [], byDay: {}, byContext: {}, contextPreferences: {} };
+    this._data = {
+      byType: {},
+      decisions: [],
+      byDay: {},
+      byContext: {},
+      contextPreferences: {},
+      emissions: [],
+    };
     this._inMem = false;
     if (this._filePath) {
       try {

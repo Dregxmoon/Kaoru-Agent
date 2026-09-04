@@ -192,6 +192,7 @@ module.exports = {
       projectCompanion: this._getCurrentProjectCompanion?.() || null,
       activeLearning: this._graph?.getActiveLearningStats?.() || null,
       contextPolicies: this._store?.getContextPolicies?.() || [],
+      longitudinal: this._store?.getLongitudinalStats?.() || null,
       dailyBudget: {
         dayKey: this._store?.getDailyStats().dayKey ?? null,
         count: this._store?.dailyCount() ?? 0,

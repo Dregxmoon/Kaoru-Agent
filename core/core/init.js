@@ -167,6 +167,23 @@ function init(app) {
         return null;
       }
     },
+    authorizeAction: (action) => {
+      if (!state.permissionManager?.check || !action?.tool) {
+        return { action: 'ask', rule: null };
+      }
+      const workspace = state.activeWorkspace || '';
+      const rawTarget = action.params?.file || action.params?.path || '';
+      const targetPath = rawTarget
+        ? path.isAbsolute(rawTarget)
+          ? rawTarget
+          : path.resolve(workspace, rawTarget)
+        : workspace;
+      return state.permissionManager.check({
+        tool: action.tool,
+        path: targetPath,
+        defaultAction: 'ask',
+      });
+    },
     executor: (state.proactiveExecutor = new ProactiveExecutor({
       getWorkspace: () => state.activeWorkspace,
       // Fase D: guard de archivos abiertos en el editor + verificación LSP

@@ -16,6 +16,7 @@
  */
 
 const logger = require('../../observability/Logger.js');
+const path = require('path');
 
 const STATUS = ['active', 'done', 'dropped'];
 
@@ -93,26 +94,48 @@ class IntentionsStore {
 
   /**
    * Stack de intenciones activas: del tope (más reciente) hacia abajo.
-   * @param {{limit?: number}} [opts]
+   * @param {{limit?: number, workspace?: string|null, includeUnscoped?: boolean}} [opts]
    * @returns {IntentionRow[]}
    */
-  listActive({ limit = 10 } = {}) {
+  listActive({ limit = 10, workspace = null, includeUnscoped = false } = {}) {
     if (this._g.usingFallback) return [];
     try {
+      const scopedWorkspace = workspace ? path.resolve(String(workspace)) : null;
+      const where = scopedWorkspace
+        ? includeUnscoped
+          ? "status='active' AND (workspace=? OR workspace IS NULL OR workspace='')"
+          : "status='active' AND workspace=?"
+        : "status='active'";
+      const params = scopedWorkspace ? [scopedWorkspace, limit] : [limit];
       const rows = /** @type {any[]} */ (
         this._db
           .prepare(
             `SELECT id, session_id, goal, workspace, status, steps, last_progress, last_progress_at, created_at, updated_at
-           FROM intentions WHERE status='active'
+           FROM intentions WHERE ${where}
            ORDER BY updated_at DESC, id DESC LIMIT ?`
           )
-          .all(limit)
+          .all(...params)
       );
       return /** @type {IntentionRow[]} */ (rows.map((row) => this._hydrate(row)));
     } catch (e) {
       logger.warn('IntentionsStore', `[intentions] error listando activas: ${_errMsg(e)}`);
       return [];
     }
+  }
+
+  /**
+   * Busca un compromiso activo exacto dentro del mismo workspace. La igualdad
+   * deliberadamente estricta evita fusionar dos objetivos parecidos que puedan
+   * necesitar planes o criterios de éxito distintos.
+   * @param {{goal:string, workspace?:string|null}} input
+   * @returns {IntentionRow|undefined}
+   */
+  findActive({ goal, workspace = null }) {
+    const target = String(goal || '').trim();
+    if (!target) return undefined;
+    return this.listActive({ limit: 50, workspace }).find(
+      (item) => String(item.goal || '').trim() === target
+    );
   }
 
   /**

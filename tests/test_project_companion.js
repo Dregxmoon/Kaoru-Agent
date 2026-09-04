@@ -76,6 +76,18 @@ async function main() {
     const stateB = engine._getCurrentProjectCompanion();
     assert(stateB?.projectName === 'tienda', 'al cambiar de workspace cambia el hilo activo');
     assert(!stateB?.objective && !stateB?.blocker, 'no filtra datos del proyecto anterior');
+    graph.updateProjectCompanion({
+      workspace: projectB,
+      objective: null,
+      blocker: null,
+      nextStep: null,
+      lastProgress: 'Objetivo completado y verificado',
+      phase: 'paused',
+      eventType: 'goal_completed',
+      now: Date.now() - 3 * 60 * 60 * 1000,
+    });
+    await engine._onProjectWorkspaceChanged({ path: projectB });
+    assert(resumeTriggers === 1, 'no propone retomar un objetivo que ya fue completado');
 
     workspace = projectA;
     engine._captureProjectUpdate(

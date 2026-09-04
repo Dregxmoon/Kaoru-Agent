@@ -249,6 +249,7 @@ module.exports = {
           decision: 'ignored',
           context: info.context || 'neutral',
         });
+        this._store.resolveEmission?.(proposalId, 'ignored', now);
         this._connectCuriosityOutcome?.(proposalId, info.type, 'ignored');
         // Hilo relacional: la propuesta ignorada también se marca en el registro.
         for (const e of this._relationLog) {

@@ -99,6 +99,7 @@ const INVOKE_ALLOWLIST = new Set([
   'proactive:set-autonomy',
   'proactive:set-shadow-mode',
   'proactive:set-context-preference',
+  'proactive:clear-history',
   // Capacidades del chat movidas a main (sandbox:true)
   'chat-run-command',
   'chat-core-sources',

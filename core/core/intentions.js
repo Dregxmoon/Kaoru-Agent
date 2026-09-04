@@ -12,12 +12,13 @@ function _graph() {
   return state.graph;
 }
 
-/** Stack de intenciones activas, del tope (más reciente) hacia abajo. */
-function listIntentions({ limit = 10 } = {}) {
+/** Stack de intenciones activas del workspace actual, salvo petición explícita global. */
+function listIntentions({ limit = 10, workspace, all = false } = {}) {
   const g = _graph();
   if (!g) return [];
   try {
-    return g.listActiveIntentions({ limit });
+    const scope = all ? null : workspace || state.activeWorkspace || null;
+    return g.listActiveIntentions({ limit, workspace: scope });
   } catch (e) {
     logger.warn('intentions', '[core] error listando intenciones:', e.message);
     return [];

@@ -141,6 +141,7 @@ module.exports = {
     const state = this._graph?.getProjectCompanion?.(workspace);
     if (!state || !(state.objective || state.blocker || state.nextStep || state.lastProgress))
       return;
+    if (state.lastEventType === 'goal_completed') return;
     const now = Date.now();
     const age = now - Number(state.lastActivityAt || 0);
     if (age < RESUME_MIN_AGE_MS || age > RESUME_MAX_AGE_MS) return;

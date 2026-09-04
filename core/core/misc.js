@@ -120,6 +120,11 @@ function setProactiveContextPreference(context, level) {
   return state.proactive.setContextPreference(context, level);
 }
 
+function clearProactiveHistory() {
+  if (!state.proactive) return { ok: false, error: 'engine no inicializado' };
+  return state.proactive.clearLongitudinalHistory();
+}
+
 // ── Getters ───────────────────────────────────────────────────────────────────
 
 function getGraph() {
@@ -822,6 +827,7 @@ module.exports = {
   setAutonomyMode,
   setShadowMode,
   setProactiveContextPreference,
+  clearProactiveHistory,
   getGraph,
   getOSSensor,
   getEventBus: getEventBus_,

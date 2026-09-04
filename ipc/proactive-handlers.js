@@ -3,13 +3,14 @@
 
 // proactive-handlers.js — canal de control en runtime del ProactiveEngine.
 //
-// Expone al renderer (y al comando /proactive, que corre en el chat) cuatro
+// Expone al renderer (y al comando /proactive, que corre en el chat) cinco
 // operaciones vía IPC:
 //   - proactive:get-stats       → stats en vivo (running, autonomía, shadow,
 //                                 presupuesto dinámico, cola QUEUE, SLO...).
 //   - proactive:set-autonomy     → observe | suggest | act (slider en runtime).
 //   - proactive:set-shadow-mode  → on|off: el gate corre pero nada se envía.
 //   - proactive:set-context-preference → presencia por tipo de foco.
+//   - proactive:clear-history → elimina continuidad relacional persistida.
 //
 // Los canales se validan en ipc/channel-whitelist.js (INVOKE_ALLOWLIST); un
 // renderer comprometido no puede tocar canales fuera de esa lista.
@@ -46,6 +47,12 @@ function register(ctx) {
     }
     const result = Core.setProactiveContextPreference(context, level);
     logger.info('proactive', `[main] contexto ${context} → ${level}`);
+    return result;
+  });
+
+  ipcMain.handle('proactive:clear-history', () => {
+    const result = Core.clearProactiveHistory();
+    logger.info('proactive', `[main] historial relacional eliminado: ${result.deleted || 0}`);
     return result;
   });
 }

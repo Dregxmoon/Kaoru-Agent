@@ -161,6 +161,56 @@ module.exports = {
   },
 
   /**
+   * Evalúa autonomía graduada fuera del LLM. `act` por sí solo no alcanza:
+   * hace falta una regla explícita allow devuelta por PermissionManager.
+   */
+  _prepareAutonomousExecution(payload) {
+    if (
+      this._autonomyMode !== 'act' ||
+      !payload?.proposal?.action ||
+      !payload.proposalId ||
+      !this._executor ||
+      typeof this._authorizeAction !== 'function'
+    ) {
+      return null;
+    }
+    let permission = null;
+    try {
+      permission = this._authorizeAction(payload.proposal.action);
+    } catch (e) {
+      logger.warn('proposals', '[proactive] política de autonomía falló:', e.message);
+      return null;
+    }
+    // rule:null significa fallback/default; jamás basta para autoejecutar.
+    if (permission?.action !== 'allow' || !permission.rule) return null;
+    const pending = this._pendingActions.get(payload.proposalId);
+    if (!pending) return null;
+    payload.proposal.requiresConsent = null;
+    payload.proposal.autonomous = true;
+    payload.proposal.permissionRule = String(permission.rule.id || '').slice(0, 160);
+    return pending;
+  },
+
+  /** Despacha una acción ya autorizada sin falsear una aceptación del usuario. */
+  _executeAutonomousProposal(pending, proposalId, type) {
+    this._pendingActions.delete(proposalId);
+    this._audit.push({
+      type,
+      proposalId,
+      outcome: 'auto_executed',
+      reason: 'explicit_allow_rule',
+      at: Date.now(),
+    });
+    for (const entry of this._relationLog) {
+      if (entry.proposalId === proposalId) entry.outcome = 'auto_executed';
+    }
+    this._store?.resolveEmission?.(proposalId, 'auto_executed');
+    this._executeProposal(pending, proposalId, type).catch((e) =>
+      logger.warn('proposals', '[proactive] ejecución autónoma falló:', e.message)
+    );
+  },
+
+  /**
    * El usuario respondió a una propuesta (botón del chat). Se persiste el
    * feedback por tipo; el próximo cálculo de cooldown lo tiene en cuenta.
    * Si aceptó y la propuesta tiene una acción pendiente, se ejecuta con el
@@ -203,6 +253,7 @@ module.exports = {
           reason,
           context: sentInfo?.context || this._lastContextFocus?.mode || 'neutral',
         });
+        this._store.resolveEmission?.(proposalId, decision);
         logger.info(
           'proposals',
           `[proactive] feedback ${decision} para "${type}" (factor cooldown ahora ×${this._store.cooldownMultiplier(type)})`

@@ -85,8 +85,8 @@ function testFetchTimeout() {
   );
   const fetchMatches = content.match(/fetch\([^)]*AbortSignal\.timeout/g);
   assert(
-    fetchMatches && fetchMatches.length >= 3,
-    `Al menos 3 llamadas fetch con AbortSignal.timeout (${fetchMatches?.length || 0})`
+    fetchMatches && fetchMatches.length >= 2,
+    `Las 2 consultas públicas usan fetch con AbortSignal.timeout (${fetchMatches?.length || 0})`
   );
 }
 

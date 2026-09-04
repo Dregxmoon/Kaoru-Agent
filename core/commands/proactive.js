@@ -42,6 +42,22 @@ function _formatStats(s) {
     .map((p) => `${p.context}=${p.effective}${p.configured !== 'auto' ? '*' : ''}`)
     .join(' · ');
   if (policies) lines.push(`- Presencia por contexto: ${policies} (* explícita)`);
+  if (s.longitudinal) {
+    const rate =
+      s.longitudinal.acceptanceRate == null
+        ? 'sin muestra'
+        : `${Math.round(s.longitudinal.acceptanceRate * 100)}%`;
+    const trend =
+      s.longitudinal.trend == null
+        ? 'aún sin tendencia'
+        : `${s.longitudinal.trend >= 0 ? '+' : ''}${Math.round(s.longitudinal.trend * 100)} puntos`;
+    lines.push(
+      `- Utilidad longitudinal: ${rate} de aceptación · ${s.longitudinal.resolved}/${s.longitudinal.totalEmissions} con desenlace · tendencia ${trend}`
+    );
+    if (s.longitudinal.autoExecuted) {
+      lines.push(`- Acciones autónomas con regla explícita: ${s.longitudinal.autoExecuted}`);
+    }
+  }
   const slo = s.slo;
   if (slo && (slo.total || slo.porTipo)) {
     const total = slo.total ?? 0;
@@ -65,7 +81,7 @@ module.exports = function registerCommands(register) {
     name: 'proactive',
     description: 'Control del ProactiveEngine en vivo (stats, autonomía, shadow)',
     usage:
-      '/proactive [autonomy observe|suggest|act | shadow on|off | context work|browser|search|media|neutral auto|quiet|balanced|engaged]',
+      '/proactive [autonomy observe|suggest|act | shadow on|off | context work|browser|search|media|neutral auto|quiet|balanced|engaged | history clear]',
     handler: async (args, ctx) => {
       const ipc = ctx.ipcRenderer;
       if (!ipc) return 'IPC no disponible.';
@@ -95,8 +111,15 @@ module.exports = function registerCommands(register) {
             : `Error: ${res.error}`;
         }
 
+        if (sub === 'history' && (args[1] || '').toLowerCase() === 'clear') {
+          const res = await ipc.invoke('proactive:clear-history');
+          return res.ok
+            ? `Historial relacional eliminado (${res.deleted} iniciativa(s)).`
+            : `Error: ${res.error}`;
+        }
+
         if (sub) {
-          return `Uso: \`/proactive\` · \`/proactive autonomy observe|suggest|act\` · \`/proactive shadow on|off\` · \`/proactive context work|browser|search|media|neutral auto|quiet|balanced|engaged\``;
+          return `Uso: \`/proactive\` · \`/proactive autonomy observe|suggest|act\` · \`/proactive shadow on|off\` · \`/proactive context work|browser|search|media|neutral auto|quiet|balanced|engaged\` · \`/proactive history clear\``;
         }
 
         return _formatStats(await ipc.invoke('proactive:get-stats'));

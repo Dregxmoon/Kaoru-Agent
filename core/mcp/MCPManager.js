@@ -870,43 +870,6 @@ class MCPManager {
     return conn.callTool(toolName, args);
   }
 
-  /**
-   * Busca en el registro oficial de MCP (registry.modelcontextprotocol.io).
-   * Si falla (sin internet, registro caído, cambió de forma) cae al
-   * catálogo estático — nunca devuelve una lista vacía por error de red.
-   */
-  async searchRegistry(query = '') {
-    try {
-      const url = query
-        ? `${REGISTRY_API}?search=${encodeURIComponent(query)}&limit=20`
-        : `${REGISTRY_API}?limit=20`;
-
-      const res = await fetch(url, { signal: AbortSignal.timeout(REGISTRY_TIMEOUT_MS) });
-      if (!res.ok) throw new Error(`registro respondió ${res.status}`);
-      const data = await res.json();
-
-      const normalized = this._normalizeRegistryResults(data.servers || []);
-      // Si el registro respondió pero ninguno de los resultados trae un
-      // paquete npm/stdio instalable de forma simple, mejor mostrar el
-      // catálogo estático (que sí lo garantiza) en vez de una lista vacía.
-      if (normalized.length) return normalized;
-      throw new Error('sin resultados instalables vía npx en la respuesta del registro');
-    } catch (e) {
-      logger.warn(
-        'MCPManager',
-        '[mcp] registro en vivo no disponible, usando catálogo estático:',
-        e.message
-      );
-      const q = query.toLowerCase().trim();
-      const filtered = q
-        ? FALLBACK_CATALOG.filter(
-            (s) => s.name.includes(q) || s.description.toLowerCase().includes(q)
-          )
-        : FALLBACK_CATALOG;
-      return filtered.map((s) => ({ ...s, source: 'static' }));
-    }
-  }
-
   _normalizeRegistryResults(servers) {
     const out = [];
     for (const entry of servers) {

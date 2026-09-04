@@ -72,6 +72,11 @@ function testStore() {
     'fondo del stack = la más antigua',
     stack[2]?.goal
   );
+  const scoped = graph.listActiveIntentions({
+    limit: 10,
+    workspace: '/projects/kaoru-agent',
+  });
+  assert(scoped.length === 1 && scoped[0].id === a, 'el stack se puede aislar por workspace');
 
   // Completar el tope: deja la siguiente como candidata a retomar.
   assert(graph.completeIntention(c), 'completeIntention marca done');

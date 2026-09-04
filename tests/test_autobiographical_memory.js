@@ -67,10 +67,13 @@ async function testTimelineAndRetrieval() {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'kaoru-autobiographical-'));
   const dbPath = path.join(dir, 'memory.db');
   let graph = new StateGraph(dbPath).init();
-  const now = new Date(2026, 8, 3, 12, 0, 0).getTime();
+  const now = Date.now();
   try {
     const sessionId = graph.startSession();
-    const yesterday = now - 30 * 60 * 60 * 1000;
+    const yesterdayDate = new Date(now);
+    yesterdayDate.setDate(yesterdayDate.getDate() - 1);
+    yesterdayDate.setHours(12, 0, 0, 0);
+    const yesterday = yesterdayDate.getTime();
     const oldProject = now - 60 * 86400e3;
     const recentOther = now - 2 * 86400e3;
     const updater = new StateUpdater(graph);

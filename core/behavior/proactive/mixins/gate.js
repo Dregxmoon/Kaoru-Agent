@@ -345,6 +345,13 @@ module.exports = {
       }
 
       const payload = await this._buildPayload(trigger, message);
+      this._store?.recordEmission?.({
+        proposalId: payload.proposalId,
+        type: trigger.type,
+        context: trigger._proactivityContext || this._lastContextFocus?.mode || 'neutral',
+        message,
+        at: Date.now(),
+      });
 
       // Hilo relacional: registro del mensaje enviado (para bookend y para el
       // registro adaptativo). El outcome lo rellena handleDecision/el barrido
@@ -358,13 +365,22 @@ module.exports = {
       });
       if (this._relationLog.length > 40) this._relationLog.shift();
 
+      const autonomous = this._prepareAutonomousExecution?.(payload) || null;
       logger.info('gate', `[proactive] emitiendo: "${message.slice(0, 60)}..."`);
       this._bus.emit('initiative:trigger', payload);
+
+      if (autonomous && payload.proposalId) {
+        logger.info(
+          'gate',
+          `[proactive] ejecución autónoma autorizada por regla explícita: ${payload.proposal.permissionRule}`
+        );
+        this._executeAutonomousProposal(autonomous, payload.proposalId, trigger.type);
+      }
 
       // F-5: rastrear la propuesta enviada para marcarla "ignored" si el
       // usuario no responde en el plazo. El barrido de las vencidas lo hace el
       // heartbeat (_evaluateTimeBased → _markIgnoredStale) cada 5 min.
-      if (payload.proposalId) {
+      if (payload.proposalId && !autonomous) {
         this._sentFeedback.set(payload.proposalId, {
           type: trigger.type,
           context: trigger._proactivityContext || this._lastContextFocus?.mode || 'neutral',

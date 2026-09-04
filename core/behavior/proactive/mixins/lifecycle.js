@@ -49,6 +49,14 @@ module.exports = {
     return this._store.setContextPreference(context, level);
   },
 
+  clearLongitudinalHistory() {
+    if (!this._store?.clearEmissions) return { ok: false, error: 'store_no_disponible' };
+    const result = this._store.clearEmissions();
+    this._recentProactive = [];
+    this._relationLog = [];
+    return result;
+  },
+
   onUserMessage(content = '') {
     this._recordUserTurn();
     this._graph?.captureActiveLearningAnswer?.({ content });

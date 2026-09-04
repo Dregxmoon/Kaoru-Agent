@@ -111,6 +111,9 @@ class ProactiveEngine {
     // Fase B: executor whitelisted de acciones. Opcional — sin él las
     // propuestas solo informan (el botón "Sí, hazlo" solo registra feedback).
     this._executor = opts.executor || null;
+    // Autonomía graduada: callback de política externo al LLM. Sólo una regla
+    // persistente y explícita `allow` puede habilitar ejecución en modo act.
+    this._authorizeAction = opts.authorizeAction || null;
     this._pendingActions = new Map(); // proposalId → { action, type, at }
 
     // Fase C: contexto de código — getters lazy del archivo enfocado y sus
@@ -134,7 +137,11 @@ class ProactiveEngine {
     // Fase D: historial corto de mensajes proactivos enviados (máx 5). Se pasa
     // al prompt para que Kaoru NO repita temas ni preguntas equivalentes, no
     // solo el último mensaje.
-    this._recentProactive = []; // [{ msg, trigger, at }] — más reciente al final
+    this._recentProactive = (this._store?.getRecentEmissions?.({ limit: 5 }) || []).map((row) => ({
+      msg: row.message,
+      trigger: row.type,
+      at: row.at,
+    })); // [{ msg, trigger, at }] — más reciente al final
 
     // ── Estado para análisis de actividad en tiempo real ──────────────────
     this._currentCategory = null;
@@ -161,7 +168,13 @@ class ProactiveEngine {
     // rejected / ignored). Lo usan el registro adaptativo (_buildSituationFrame)
     // y el bookend (_buildBookend) para que Kaoru construya sobre la relación
     // en vez de repetir a ciegas. Tope acotado en el push (gate.js).
-    this._relationLog = [];
+    this._relationLog = (this._store?.getRecentEmissions?.({ limit: 40 }) || []).map((row) => ({
+      proposalId: row.proposalId,
+      trigger: row.type,
+      msg: row.message,
+      at: row.at,
+      outcome: row.outcome,
+    }));
     // Ventana/contenido del bloque de foco actual — el "hito" que focus_block_end
     // usa al comentar cuando el bloque termina (no un contador mid-flow).
     this._lastFocusedWindow = null;

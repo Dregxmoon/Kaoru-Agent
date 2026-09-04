@@ -51,6 +51,29 @@ const CODE_CONTEXT_TRIGGERS = new Set([
 const SYMBOL_TIMEOUT_MS = 1500; // no ralentizar el mensaje por el LSP
 const MAX_SYMBOLS = 10;
 
+/** Bloqueo determinista de repeticiones incluso después de reiniciar la app. */
+function _isNearDuplicate(message, recent) {
+  const terms = (text) =>
+    new Set(
+      String(text || '')
+        .toLowerCase()
+        .normalize('NFD')
+        .replace(/[\u0300-\u036f]/g, '')
+        .replace(/[^a-z0-9\s]/g, ' ')
+        .split(/\s+/)
+        .filter((word) => word.length >= 4)
+    );
+  const current = terms(message);
+  if (current.size < 3) return false;
+  return (recent || []).some((entry) => {
+    const previous = terms(entry?.msg);
+    if (!previous.size) return false;
+    const intersection = [...current].filter((word) => previous.has(word)).length;
+    const union = new Set([...current, ...previous]).size;
+    return union > 0 && intersection / union >= 0.78;
+  });
+}
+
 // Preferencias que conectan con contenido en pantalla (música, anime, comida,
 // juego...). Al seleccionar qué mostrar al LLM se priorizan sobre el ruido
 // (paths de archivos, comandos, capacidades del asistente) que el extractor
@@ -325,6 +348,14 @@ No expliques por qué escribes. No anuncies que eres proactiva. NO muestres tu r
           return null;
         }
         trimmed = retryMsg;
+      }
+
+      if (productionMode && _isNearDuplicate(trimmed, this._recentProactive)) {
+        logger.info(
+          'message-gen',
+          '[proactive] mensaje descartado por repetir una iniciativa reciente'
+        );
+        return null;
       }
 
       // F: registrar la adaptación REAL aplicada para cerrar el loop de

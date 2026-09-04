@@ -12,6 +12,7 @@ const LLMProvider = require('../llm/LLMProvider.js');
 const { estimateDifficulty } = require('../learning/difficulty.js');
 const { MODE_ADVANTAGE } = require('../trust/TrustModel.js');
 const { evaluateTaskOutcome } = require('../learning/OutcomeEvaluator.js');
+const { beginGoal, settleGoal } = require('../memory/GoalLifecycle.js');
 
 const state = require('./state.js');
 
@@ -207,6 +208,21 @@ async function runAgent(userMessage, opts = {}) {
     });
   }
 
+  // Modo automático por intención; el compromiso durable nace antes de
+  // construir contexto para que sobreviva a fallos de grounding/proveedor.
+  const { mode, maxIterations } = resolveAgentMode(effectiveMessage, opts);
+  const projectCwd =
+    state.activeWorkspace ||
+    state.openclawWorkspace ||
+    require('../planner/ActionParser.js').PROJECT_CWD;
+  const goalTextMatch = /(?:^|\n)Objetivo:\s*(.+?)\s*$/m.exec(String(effectiveMessage || ''));
+  const durableGoal = beginGoal({
+    graph: mode === 'smart' ? state.graph : null,
+    sessionId,
+    workspace: projectCwd,
+    goal: goalTextMatch?.[1] || userMessage,
+  });
+
   const context = await buildContext(sessionHistory, null, {
     mode: 'agent',
   });
@@ -217,22 +233,25 @@ async function runAgent(userMessage, opts = {}) {
   }
 
   if (!context || !context.systemPrompt) {
-    return {
+    const contextFailure = {
       response: null,
       iterations: 0,
       toolResults: [],
       error: 'No se pudo construir contexto',
     };
+    try {
+      settleGoal({
+        graph: state.graph,
+        commitment: durableGoal,
+        workspace: projectCwd,
+        result: contextFailure,
+        evaluation: evaluateTaskOutcome(contextFailure),
+      });
+    } catch (_) {}
+    return contextFailure;
   }
 
-  // ── Modo automático por intención: sin override explícito, TaskDetector
-  //    decide entre 'fast' (charla, barato/rápido) y 'smart' (tarea, potente).
-  const { mode, maxIterations } = resolveAgentMode(effectiveMessage, opts);
   const { WorkspaceCheckpoint } = require('../git/WorkspaceCheckpoint.js');
-  const projectCwd =
-    state.activeWorkspace ||
-    state.openclawWorkspace ||
-    require('../planner/ActionParser.js').PROJECT_CWD;
   const checkpoint = new WorkspaceCheckpoint({ cwd: projectCwd });
   const loop = new AgentLoop({
     maxIterations,
@@ -281,7 +300,14 @@ async function runAgent(userMessage, opts = {}) {
   // loop para que re-planifique al retomar la sesión.
   if (!opts.activeIntentions) {
     try {
-      const pending = state.session?.getActiveIntentions?.() || [];
+      let pending =
+        state.graph?.listActiveIntentions?.({
+          limit: 10,
+          workspace: projectCwd,
+        }) || [];
+      if (durableGoal && !durableGoal.resumed) {
+        pending = pending.filter((item) => Number(item.id) !== durableGoal.id);
+      }
       loopOpts.activeIntentions = pending;
     } catch (_) {}
   }
@@ -390,6 +416,27 @@ async function runAgent(userMessage, opts = {}) {
     }
   }
 
+  /**
+   * Cierra o conserva el objetivo con la misma evaluación para cualquier vía
+   * de salida, incluido el modo degradado.
+   * @param {any} finalResult
+   */
+  const settleDurableGoal = (finalResult) => {
+    const evaluation = evaluateTaskOutcome(finalResult);
+    try {
+      settleGoal({
+        graph: state.graph,
+        commitment: durableGoal,
+        workspace: projectCwd,
+        result: finalResult,
+        evaluation,
+      });
+    } catch (e) {
+      logger.warn('agent', '[core] no se pudo cerrar el ciclo durable del objetivo:', e.message);
+    }
+    return evaluation;
+  };
+
   // ── Fase 4: modo degradado (providers caídos / sin herramientas) ─────────
   // Si el loop terminó por fallo de LLM SIN haber ejecutado herramientas útiles,
   // se intenta UNA respuesta de texto con el mejor provider disponible. Si
@@ -409,17 +456,19 @@ async function runAgent(userMessage, opts = {}) {
         { signal: opts.signal }
       );
       if (text && typeof text === 'string') {
-        return {
+        const degradedResult = {
           ...result,
           response: text,
           degraded: true,
           degradedReason: 'providers_degradados',
         };
+        settleDurableGoal(degradedResult);
+        return degradedResult;
       }
     } catch (e) {
       logger.warn('agent', `[core] respuesta degradada tampoco disponible: ${e.message}`);
     }
-    return {
+    const degradedResult = {
       ...result,
       degraded: true,
       degradedReason: 'providers_down',
@@ -427,18 +476,22 @@ async function runAgent(userMessage, opts = {}) {
         'No pude conectar con ningún proveedor de IA (todos en rate-limit o sin API key). ' +
         'Revisá tus credenciales o esperá unos minutos y reintentá.',
     };
+    settleDurableGoal(degradedResult);
+    return degradedResult;
   }
 
-  const evaluatedOutcome = evaluateTaskOutcome(result);
+  const evaluatedOutcome = settleDurableGoal(result);
 
+  // Toda tarea smart se registra desde el inicio y se cierra únicamente con
+  // evidencia observable. También actualiza el hilo del proyecto activo; las
+  // tareas de otros workspaces nunca entran en este ciclo ni en el prompt.
   // ── Fase 3 ítem 1: si la meta queda en vuelo (se agotaron iteraciones o el
   //    usuario canceló), se persiste como intención activa para retomarla al
   //    reanudar la sesión (re-planificación). Las terminadas bien se limpian.
   //    Si el run tuvo un plan explícito, se persisten SUS pasos (no vacío).
   if (
-    result.error === 'max_iterations_reached' ||
-    result.error === 'cancelled' ||
-    result.truncated
+    !durableGoal &&
+    (result.error === 'max_iterations_reached' || result.error === 'cancelled' || result.truncated)
   ) {
     try {
       const g = state.graph;
@@ -482,7 +535,7 @@ async function runAgent(userMessage, opts = {}) {
   //    (ya no queda en vuelo). Solo aplica cuando el prompt efectivo menciona
   //    explícitamente "Objetivo:" — una tarea nueva e independiente no
   //    dispara esto ni completa intenciones ajenas.
-  if (evaluatedOutcome.terminalSuccess && loopOpts.activeIntentions?.length) {
+  if (!durableGoal && evaluatedOutcome.terminalSuccess && loopOpts.activeIntentions?.length) {
     try {
       const goalMatch = /(?:^|\n)Objetivo:\s*(.+?)\s*$/m.exec(String(effectiveMessage || ''));
       if (goalMatch) {

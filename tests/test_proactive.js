@@ -88,11 +88,14 @@ function fakeSensor(getCurrentContext) {
   };
 }
 
+let defaultMessageSeq = 0;
+
 function stubLLM({ provider = 'groq', complete } = {}) {
   const origP = LLMProvider.getActiveProvider;
   const origC = LLMProvider.complete;
   LLMProvider.getActiveProvider = () => provider;
-  LLMProvider.complete = complete || (async () => 'hola, mensaje de prueba');
+  LLMProvider.complete =
+    complete || (async () => `hola, mensaje de prueba variante${++defaultMessageSeq}`);
   return () => {
     LLMProvider.getActiveProvider = origP;
     LLMProvider.complete = origC;

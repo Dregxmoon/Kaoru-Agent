@@ -16,8 +16,8 @@
  *     no (el LLM NUNCA inventa la propuesta).
  *   - Decisiones (aceptar/descartar) → feedback persistido + factor de cooldown
  *     aplicado (tanto por handler directo como por evento 'initiative:decision').
- *   - Slider de autonomía: 'observe' bloquea todo sin consultar al LLM;
- *     'suggest' (default) informa+propone; 'act' hoy se comporta como suggest.
+ *   - Autonomía graduada: `act` sólo ejecuta sin otro clic cuando una política
+ *     persistente y explícita devuelve `allow`; el fallback sigue preguntando.
  */
 
 const path = require('path');
@@ -71,6 +71,8 @@ function fakeSensor() {
   };
 }
 
+let defaultMessageSeq = 0;
+
 function stubLLM({ provider = 'groq', complete } = {}) {
   const origP = LLMProvider.getActiveProvider;
   const origC = LLMProvider.complete;
@@ -78,7 +80,9 @@ function stubLLM({ provider = 'groq', complete } = {}) {
   LLMProvider.getActiveProvider = () => provider;
   LLMProvider.complete = async (...args) => {
     calls++;
-    return complete ? complete(...args) : 'mensaje de propuesta de prueba';
+    return complete
+      ? complete(...args)
+      : `mensaje de propuesta de prueba variante${++defaultMessageSeq}`;
   };
   return {
     calls: () => calls,
@@ -334,12 +338,12 @@ async function testAutonomySlider() {
   );
   stub2.restore();
 
-  // 5c. act → hoy se comporta como suggest (la ejecución llega en Fase B)
+  // 5c. act sin regla explícita sigue proponiendo; nunca convierte un default en permiso.
   const engine3 = makeEngine(store);
   engine3.setAutonomyMode('act');
   const stub3 = stubLLM();
   const res3 = await engine3._tryTrigger({ type: 'long_silence', context: 'x' });
-  assert(res3, 'act → igual que suggest por ahora');
+  assert(res3, 'act → conserva la propuesta cuando no hay autorización explícita');
   stub3.restore();
 
   // 5d. valor inválido → cae a suggest
@@ -419,6 +423,149 @@ function testContextPreferences() {
   engine.stop();
 }
 
+async function testLongitudinalContinuity() {
+  console.log(C.bold('\nTest 7: continuidad relacional y evaluación longitudinal'));
+  const filePath = path.join(tmpDir, 'store-longitudinal.json');
+  const store = new ProposalStore({ filePath });
+  store.reset();
+  const sentAt = Date.now() - 2500;
+  store.recordEmission({
+    proposalId: 'long-1',
+    type: 'project_resume',
+    context: 'work',
+    message: 'Retomamos la prueba del módulo donde quedó el bloqueo.',
+    at: sentAt,
+  });
+  store.resolveEmission('long-1', 'accepted', sentAt + 2000);
+  store.recordEmission({
+    type: 'long_silence',
+    context: 'neutral',
+    message: 'Hay una idea distinta que podríamos revisar después.',
+  });
+
+  const reloaded = new ProposalStore({ filePath });
+  const history = reloaded.getRecentEmissions({ limit: 5 });
+  assert(history.length === 2, 'el historial de iniciativas sobrevive al reinicio');
+  assert(
+    history[0].outcome === 'accepted' && history[0].responseLatencyMs === 2000,
+    'conserva desenlace y latencia de respuesta'
+  );
+  const metrics = reloaded.getLongitudinalStats();
+  assert(
+    metrics.totalEmissions === 2 && metrics.resolved === 1 && metrics.acceptanceRate === 1,
+    'calcula utilidad sobre desenlaces reales sin contar pendientes como rechazo'
+  );
+
+  const engine = new ProactiveEngine(fakeGraph(), { store: reloaded });
+  engine.setOSSensor(fakeSensor());
+  assert(
+    engine._recentProactive.length === 2,
+    'rehidrata el anti-repetición al construir el engine'
+  );
+  const stub = stubLLM({
+    complete: () => 'Retomamos la prueba del módulo donde quedó el bloqueo.',
+  });
+  const duplicate = await engine._generateMessage({
+    type: 'project_resume',
+    context: 'retomar módulo',
+    _gate: { verdict: 'ACT' },
+  });
+  assert(duplicate === null, 'silencia una repetición casi idéntica después de reiniciar');
+  stub.restore();
+  const cleared = engine.clearLongitudinalHistory();
+  assert(cleared.ok && cleared.deleted === 2, 'el usuario puede eliminar el historial relacional');
+  assert(
+    engine._recentProactive.length === 0 && reloaded.getRecentEmissions().length === 0,
+    'la eliminación limpia tanto memoria viva como persistencia'
+  );
+  engine.stop();
+}
+
+async function testGraduatedAutonomy() {
+  console.log(C.bold('\nTest 8: autonomía graduada exige regla allow explícita'));
+  const store = new ProposalStore({ filePath: path.join(tmpDir, 'store-autonomous.json') });
+  store.reset();
+  const executed = [];
+  const executor = {
+    preview: async () => ({ ok: true, preview: 'Añadir .env a .gitignore' }),
+    isDone: () => false,
+    execute: async (action) => {
+      executed.push(action);
+      return { ok: true, detail: 'acción aplicada' };
+    },
+  };
+  const engine = new ProactiveEngine(fakeGraph(), {
+    store,
+    executor,
+    authorizeAction: () => ({
+      action: 'allow',
+      rule: { id: 'gitignore_add:/workspace', action: 'allow' },
+    }),
+  });
+  engine.setOSSensor(fakeSensor());
+  engine.setAutonomyMode('act');
+  engine.start();
+  const stub = stubLLM();
+  let payload = null;
+  const listener = (value) => {
+    payload = value;
+  };
+  getEventBus().on('initiative:trigger', listener);
+  await engine._tryTrigger({
+    type: 'git_redflag',
+    kind: 'env_unignored',
+    file: '.env',
+    context: 'El .env no está ignorado.',
+  });
+  await new Promise((resolve) => setImmediate(resolve));
+  getEventBus().off('initiative:trigger', listener);
+  assert(payload?.proposal?.autonomous === true, 'marca la propuesta como autónoma');
+  assert(payload?.proposal?.requiresConsent === null, 'no pide un segundo consentimiento');
+  assert(executed.length === 1, 'ejecuta después de una regla allow explícita');
+  assert(engine._sentFeedback.size === 0, 'no finge que el usuario aceptó la propuesta');
+  assert(
+    store.getRecentEmissions()[0]?.outcome === 'auto_executed',
+    'distingue ejecución autónoma de aceptación humana'
+  );
+  engine.stop();
+  stub.restore();
+
+  const askExecuted = [];
+  const askEngine = new ProactiveEngine(fakeGraph(), {
+    store: new ProposalStore({ filePath: path.join(tmpDir, 'store-autonomous-ask.json') }),
+    executor: {
+      ...executor,
+      execute: async (action) => {
+        askExecuted.push(action);
+        return { ok: true };
+      },
+    },
+    authorizeAction: () => ({ action: 'allow', rule: null }),
+  });
+  askEngine.setOSSensor(fakeSensor());
+  askEngine.setAutonomyMode('act');
+  askEngine.start();
+  const askStub = stubLLM();
+  let askPayload = null;
+  const askListener = (value) => {
+    askPayload = value;
+  };
+  getEventBus().on('initiative:trigger', askListener);
+  await askEngine._tryTrigger({
+    type: 'git_redflag',
+    kind: 'env_unignored',
+    file: '.env',
+    context: 'El .env no está ignorado.',
+  });
+  await new Promise((resolve) => setImmediate(resolve));
+  getEventBus().off('initiative:trigger', askListener);
+  assert(!askPayload?.proposal?.autonomous, 'un allow por defecto no concede autonomía');
+  assert(askPayload?.proposal?.requiresConsent === 'confirm', 'mantiene el botón de confirmación');
+  assert(askExecuted.length === 0, 'no ejecuta sin regla persistente explícita');
+  askEngine.stop();
+  askStub.restore();
+}
+
 // ── Runner ────────────────────────────────────────────────────────────────────
 
 (async () => {
@@ -430,6 +577,8 @@ function testContextPreferences() {
   await testBusDecision();
   await testAutonomySlider();
   testContextPreferences();
+  await testLongitudinalContinuity();
+  await testGraduatedAutonomy();
 
   console.log('');
   console.log(C.bold(`Resultado: ${C.green(passed + ' ✓')} / ${C.red(failed + ' ✗')}`));
