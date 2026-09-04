@@ -88,6 +88,7 @@ const INVOKE_ALLOWLIST = new Set([
   'intentions-list',
   'intention-complete',
   'intention-drop',
+  'intention-governance-set',
   // OpenClaw / GitHub / stats / proactive
   'openclaw-available',
   'openclaw-status',

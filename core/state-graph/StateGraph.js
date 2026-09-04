@@ -30,6 +30,7 @@ const { IntentionsStore } = require('./stores/IntentionsStore.js');
 const { ObservationStore } = require('./stores/ObservationStore.js');
 const { WorkingMemoryStore } = require('./stores/WorkingMemoryStore.js');
 const { GoalPlanStore } = require('./stores/GoalPlanStore.js');
+const { GoalGovernanceStore } = require('./stores/GoalGovernanceStore.js');
 const { CausalMemoryStore } = require('./stores/CausalMemoryStore.js');
 const { AutobiographicalMemoryStore } = require('./stores/AutobiographicalMemoryStore.js');
 const { MetamemoryStore } = require('./stores/MetamemoryStore.js');
@@ -479,6 +480,7 @@ class StateGraph {
     this._observations = new ObservationStore(this._db, this);
     this._workingMemory = new WorkingMemoryStore(this._db, this);
     this._goalPlans = new GoalPlanStore(this._db, this);
+    this._goalGovernance = new GoalGovernanceStore(this._db, this);
     this._causalMemory = new CausalMemoryStore(this._db, this);
     this._autobiographical = new AutobiographicalMemoryStore(this._db, this);
     this._autobiographical.backfillLegacy(200);
@@ -653,6 +655,27 @@ class StateGraph {
       );
 
       CREATE INDEX IF NOT EXISTS idx_goal_events_intention ON goal_events(intention_id, id DESC);
+
+      CREATE TABLE IF NOT EXISTS goal_governance (
+        intention_id      INTEGER PRIMARY KEY REFERENCES intentions(id) ON DELETE CASCADE,
+        workspace         TEXT    NOT NULL,
+        state             TEXT    NOT NULL DEFAULT 'pending',
+        autonomy          TEXT    NOT NULL DEFAULT 'suggest',
+        priority          INTEGER NOT NULL DEFAULT 50,
+        attempts          INTEGER NOT NULL DEFAULT 0,
+        max_attempts      INTEGER NOT NULL DEFAULT 3,
+        max_runtime_ms    INTEGER NOT NULL DEFAULT 900000,
+        next_run_at       INTEGER,
+        lease_until       INTEGER,
+        last_run_at       INTEGER,
+        last_suggested_at INTEGER,
+        last_error        TEXT,
+        created_at        INTEGER NOT NULL,
+        updated_at        INTEGER NOT NULL
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_goal_governance_runnable
+        ON goal_governance(workspace, state, next_run_at, priority DESC);
 
       CREATE TABLE IF NOT EXISTS task_outcome_evidence (
         id                  INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -1451,6 +1474,28 @@ class StateGraph {
   }
   matchProspectiveGoals(event, payload, now) {
     return this._goalPlans.findCues(event, payload, now);
+  }
+
+  ensureGoalGovernance(intentionId, workspace, options) {
+    return this._goalGovernance.ensure(intentionId, workspace, options);
+  }
+  getGoalGovernance(intentionId) {
+    return this._goalGovernance.get(intentionId);
+  }
+  configureGoalGovernance(intentionId, update) {
+    return this._goalGovernance.configure(intentionId, update);
+  }
+  listRunnableGoals(input) {
+    return this._goalGovernance.listRunnable(input);
+  }
+  claimGoalExecution(intentionId, input) {
+    return this._goalGovernance.claim(intentionId, input);
+  }
+  settleGoalGovernance(intentionId, input) {
+    return this._goalGovernance.settle(intentionId, input);
+  }
+  markGoalSuggested(intentionId, now) {
+    return this._goalGovernance.markSuggested(intentionId, now);
   }
 
   recordTaskOutcomeEvidence(outcome) {

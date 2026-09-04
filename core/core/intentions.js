@@ -18,7 +18,10 @@ function listIntentions({ limit = 10, workspace, all = false } = {}) {
   if (!g) return [];
   try {
     const scope = all ? null : workspace || state.activeWorkspace || null;
-    return g.listActiveIntentions({ limit, workspace: scope });
+    return g.listActiveIntentions({ limit, workspace: scope }).map((intention) => ({
+      ...intention,
+      governance: g.getGoalGovernance?.(intention.id) || null,
+    }));
   } catch (e) {
     logger.warn('intentions', '[core] error listando intenciones:', e.message);
     return [];
@@ -38,6 +41,9 @@ function addIntention({ goal, steps = [], lastProgress = '' } = {}) {
       steps,
       lastProgress,
     });
+    if (id && state.activeWorkspace) {
+      g.ensureGoalGovernance?.(id, state.activeWorkspace);
+    }
     state.bus?.emit('intention:added', { id, goal });
     return id;
   } catch (e) {
@@ -52,7 +58,10 @@ function completeIntention(id) {
   if (!g) return false;
   try {
     const ok = g.completeIntention(id);
-    if (ok) state.bus?.emit('intention:completed', { id });
+    if (ok) {
+      g.settleGoalGovernance?.(id, { state: 'completed', verification: 'user_confirmed' });
+      state.bus?.emit('intention:completed', { id });
+    }
     return ok;
   } catch (e) {
     logger.warn('intentions', '[core] error completando intención:', e.message);
@@ -65,7 +74,9 @@ function dropIntention(id) {
   const g = _graph();
   if (!g) return false;
   try {
-    return g.dropIntention(id);
+    const ok = g.dropIntention(id);
+    if (ok) g.settleGoalGovernance?.(id, { state: 'paused', error: 'discarded_by_user' });
+    return ok;
   } catch (e) {
     logger.warn('intentions', '[core] error descartando intención:', e.message);
     return false;
@@ -111,6 +122,28 @@ function listIntentionEvents(id, opts) {
   return g?.listGoalEvents?.(Number(id), opts || {}) || [];
 }
 
+function getGoalGovernance(id) {
+  const g = _graph();
+  return g?.getGoalGovernance?.(Number(id)) || null;
+}
+
+function configureGoalGovernance(id, update = {}) {
+  const g = _graph();
+  if (!g?.configureGoalGovernance) return null;
+  try {
+    const configured = g.configureGoalGovernance(Number(id), update);
+    if (configured) state.bus?.emit('goal:governance-updated', configured);
+    return configured;
+  } catch (e) {
+    logger.warn('intentions', '[core] error configurando gobernador:', e.message);
+    return null;
+  }
+}
+
+function evaluateGoalGovernor() {
+  return state.goalGovernor?.tick?.() || Promise.resolve({ state: 'idle', reason: 'not_ready' });
+}
+
 module.exports = {
   listIntentions,
   addIntention,
@@ -121,4 +154,7 @@ module.exports = {
   getIntentionResumePoint,
   updateIntentionStep,
   listIntentionEvents,
+  getGoalGovernance,
+  configureGoalGovernance,
+  evaluateGoalGovernor,
 };

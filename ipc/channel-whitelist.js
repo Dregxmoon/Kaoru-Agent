@@ -91,6 +91,7 @@ const INVOKE_ALLOWLIST = new Set([
   'intentions-list',
   'intention-complete',
   'intention-drop',
+  'intention-governance-set',
   // OpenClaw / exec (vía comandos /)
   'openclaw-available',
   'openclaw-status',

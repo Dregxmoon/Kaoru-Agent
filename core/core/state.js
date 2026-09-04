@@ -51,6 +51,7 @@ const state = {
   skillManager: null,
   pluginManager: null,
   permissionManager: null,
+  goalGovernor: null,
 };
 
 module.exports = state;

@@ -221,7 +221,17 @@ async function runAgent(userMessage, opts = {}) {
     sessionId,
     workspace: projectCwd,
     goal: goalTextMatch?.[1] || userMessage,
+    source: opts.executiveRun ? 'governor' : 'interactive',
+    governanceClaimed: Boolean(opts.governanceClaimed),
   });
+  if (durableGoal && !durableGoal.claimed) {
+    return {
+      response: 'Ese objetivo ya está en ejecución. Conservaré el progreso actual sin duplicarlo.',
+      iterations: 0,
+      toolResults: [],
+      error: 'goal_already_running',
+    };
+  }
 
   const context = await buildContext(sessionHistory, null, {
     mode: 'agent',
@@ -311,6 +321,7 @@ async function runAgent(userMessage, opts = {}) {
       loopOpts.activeIntentions = pending;
     } catch (_) {}
   }
+  loopOpts.currentGoalId = durableGoal?.id || null;
 
   // ── Fase 3 ítem 2: lo aprendido (feedback de proactividad + outcomes de
   //    tareas) entra al loop como sección corta. El loop la recorta primero

@@ -31,8 +31,12 @@ function text(value, max = 1000) {
  *   completeGoalPlan?:(id:number,verification:object)=>boolean,
  *   recordGoalEvent?:(id:number,ordinal:number|null,type:string,metadata?:object)=>number|null,
  *   updateProjectCompanion?:(opts:object)=>any,
+ *   ensureGoalGovernance?:(id:number,workspace:string,options?:object)=>any,
+ *   getGoalGovernance?:(id:number)=>any,
+ *   claimGoalExecution?:(id:number,options?:object)=>any,
+ *   settleGoalGovernance?:(id:number,input:object)=>any,
  * }} GoalGraph
- * @typedef {{id:number, goal:string, resumed:boolean}} GoalCommitment
+ * @typedef {{id:number, goal:string, resumed:boolean, claimed:boolean, source:string}} GoalCommitment
  * @typedef {{
  *   terminalSuccess:boolean,
  *   success:boolean,
@@ -44,10 +48,17 @@ function text(value, max = 1000) {
 
 /**
  * Abre o retoma el compromiso exacto del workspace.
- * @param {{graph:GoalGraph|null|undefined,sessionId:string,workspace:string,goal:string}} input
+ * @param {{graph:GoalGraph|null|undefined,sessionId:string,workspace:string,goal:string,source?:string,governanceClaimed?:boolean}} input
  * @returns {GoalCommitment|null}
  */
-function beginGoal({ graph, sessionId, workspace, goal }) {
+function beginGoal({
+  graph,
+  sessionId,
+  workspace,
+  goal,
+  source = 'interactive',
+  governanceClaimed = false,
+}) {
   const normalizedGoal = text(goal);
   if (!graph || graph.usingFallback || !sessionId || !workspace || !normalizedGoal) return null;
   const active = graph.listActiveIntentions?.({ limit: 50, workspace }) || [];
@@ -65,9 +76,18 @@ function beginGoal({ graph, sessionId, workspace, goal }) {
     );
   }
   if (!id) return null;
+  const governance = graph.ensureGoalGovernance?.(id, workspace) || null;
+  const claim = governanceClaimed
+    ? governance
+    : graph.claimGoalExecution?.(id, {
+        source,
+        leaseMs: governance?.maxRuntimeMs,
+      });
+  const claimed = governanceClaimed || !governance || !graph.claimGoalExecution || Boolean(claim);
   graph.recordGoalEvent?.(id, null, prior ? 'goal_resumed' : 'goal_started', {
     workspace,
-    source: 'agent_run',
+    source,
+    claimed,
   });
   graph.updateProjectCompanion?.({
     workspace,
@@ -76,14 +96,21 @@ function beginGoal({ graph, sessionId, workspace, goal }) {
     blocker: null,
     eventType: prior ? 'goal_resumed' : 'goal_started',
   });
-  return { id, goal: normalizedGoal, resumed: Boolean(prior) };
+  return { id, goal: normalizedGoal, resumed: Boolean(prior), claimed, source };
 }
 
 /** @param {GoalGraph} graph @param {number} id @param {any} plan */
 function attachPlan(graph, id, plan) {
-  const steps = Array.isArray(plan?.steps) ? plan.steps : [];
+  const steps = /** @type {string[]} */ (Array.isArray(plan?.steps) ? plan.steps : []);
   if (!steps.length || (graph.getGoalPlan?.(id) || []).length) return;
-  graph.createGoalPlan?.(id, steps);
+  const criteria = Array.isArray(plan?.criteria) ? plan.criteria : [];
+  graph.createGoalPlan?.(
+    id,
+    steps.map((description, index) => ({
+      description,
+      successCriteria: criteria[index] ? [criteria[index]] : [],
+    }))
+  );
 }
 
 /**
@@ -123,6 +150,10 @@ function settleGoal({ graph, commitment, workspace, result, evaluation }) {
       phase: 'paused',
       eventType: 'goal_completed',
     });
+    graph.settleGoalGovernance?.(id, {
+      state: 'completed',
+      verification: evaluation.verificationStatus,
+    });
     return { state: 'completed' };
   }
 
@@ -151,6 +182,28 @@ function settleGoal({ graph, commitment, workspace, result, evaluation }) {
     lastProgress: progress,
     phase: needsVerification ? 'verifying' : interrupted ? 'paused' : 'building',
     eventType: 'goal_needs_attention',
+  });
+  const governance = graph.getGoalGovernance?.(id) || null;
+  const canRetry =
+    governance?.autonomy === 'act' && Number(governance.attempts) < Number(governance.maxAttempts);
+  const governanceState = needsVerification
+    ? 'waiting_verification'
+    : interrupted
+      ? canRetry
+        ? 'retry_scheduled'
+        : result?.cancelled
+          ? 'paused'
+          : 'waiting_user'
+      : 'waiting_user';
+  const retryDelay = Math.min(
+    6 * 60 * 60 * 1000,
+    5 * 60 * 1000 * 2 ** Math.max(0, Number(governance?.attempts || 1) - 1)
+  );
+  graph.settleGoalGovernance?.(id, {
+    state: governanceState,
+    error: result?.error || (needsVerification ? evaluation.verificationReason : null),
+    nextRunAt: governanceState === 'retry_scheduled' ? Date.now() + retryDelay : null,
+    verification: evaluation.verificationStatus,
   });
   return { state: 'active', resumePoint };
 }

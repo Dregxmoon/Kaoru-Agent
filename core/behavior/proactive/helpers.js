@@ -285,6 +285,8 @@ function _triggerDescription(trigger) {
       return `El usuario venía de una sesión de ${Math.round((trigger.streakSec || 0) / 60)} minutos en una categoría de trabajo y acaba de cambiar a otra cosa. Puedes comentar algo sobre lo que estaba haciendo, preguntar cómo le fue, o simplemente no decir nada si no se siente genuino.`;
     case 'project_resume':
       return `El usuario volvió deliberadamente al workspace "${trigger.projectName}" después de varias horas. Retoma sólo el objetivo, bloqueo, avance o siguiente paso comprobado que aparece en el contexto; sé específica y no preguntes un genérico "¿cómo va el proyecto?".`;
+    case 'goal_ready':
+      return `Hay un objetivo pendiente y ejecutable en el workspace actual: "${String(trigger.goal || '').slice(0, 240)}". ${trigger.reason === 'permission_required' ? 'Aún falta una autorización explícita para ejecutarlo de forma autónoma.' : 'Ofrece retomarlo desde el siguiente paso comprobado.'} No afirmes que ya avanzaste ni mezcles otro proyecto.`;
     case 'git_redflag':
       return `Hay una alerta de git en el repositorio del usuario: ${trigger.context} Si es algo que de verdad vale la pena señalar (p. ej. secretos a punto de filtrarse), dilo con naturalidad y sin regaños; si no es el momento o no es genuino, responde NO.`;
     case 'system_warning':

@@ -110,8 +110,17 @@ function _canonicalToolName(tool) {
 // destino que usa StructuredActionParser con MCP_TOOL en el fallback textual.
 const NATIVE_MCP_TOOL_CALL_RE = /^MCP_TOOL:\s*([^.\s]+)\.([^.\s]+)$/;
 
-function _nativeToolCallToAction(tc) {
+function _nativeToolCallToAction(tc, nativeMcpMap = {}) {
   const raw = String(tc.tool || '');
+  const dynamicMcp = nativeMcpMap[raw];
+  if (dynamicMcp) {
+    return {
+      tool: 'mcp',
+      params: { server: dynamicMcp.server, tool: dynamicMcp.tool, args: tc.params || {} },
+      description: `${dynamicMcp.server}.${dynamicMcp.tool}: ${JSON.stringify(tc.params).slice(0, 100)}`,
+      source: 'native_tool_call',
+    };
+  }
   const mcpMatch = NATIVE_MCP_TOOL_CALL_RE.exec(raw);
   if (mcpMatch) {
     return {
@@ -654,6 +663,7 @@ class AgentLoop {
         ).length;
         result.plan = {
           steps: this._plan.steps,
+          criteria: this._plan.criteria,
           done: Math.min(done, this._plan.steps.length),
           total: this._plan.steps.length,
         };
@@ -722,6 +732,8 @@ class AgentLoop {
     // ── Tool resolution (Fase 5): Skill > MCP > OpenClaw ────────────
     let tools = opts.tools || null;
     let toolCatalog = this._toolRegistry.serializeToPrompt(domain);
+    let resolvedSkills = null;
+    let nativeMcpMap = {};
     // Los subagentes con perfil restringido inyectan un catálogo YA filtrado
     // (las tools prohibidas no se anuncian en el prompt del run anidado).
     if (opts.toolCatalog) toolCatalog = opts.toolCatalog;
@@ -740,6 +752,8 @@ class AgentLoop {
         });
         if (resolved.nativeToolSchemas) tools = resolved.nativeToolSchemas;
         if (resolved.promptCatalog) toolCatalog = resolved.promptCatalog;
+        resolvedSkills = resolved.matchedSkills;
+        nativeMcpMap = resolved.nativeMcpMap || {};
         if (resolved.excluded.length > 0) {
           logger.info(
             'AgentLoop',
@@ -779,7 +793,11 @@ class AgentLoop {
     const skillManager = opts.skillManager || null;
     if (skillManager && typeof skillManager.buildInjection === 'function') {
       try {
-        const skillBlock = await skillManager.buildInjection(userMessage, opts.skillDb || null);
+        const skillBlock = await skillManager.buildInjection(
+          userMessage,
+          opts.skillDb || null,
+          resolvedSkills
+        );
         if (skillBlock) {
           agentPrompt = agentPrompt + '\n\n' + skillBlock;
           // Nombres para los chips de resultado (skillManager.lastInjection
@@ -867,6 +885,7 @@ class AgentLoop {
               opts.onPlan({
                 kind: 'created',
                 steps: plan.steps,
+                criteria: plan.criteria,
                 done: 0,
                 total: plan.steps.length,
               });
@@ -1023,7 +1042,7 @@ class AgentLoop {
       // ── Extraer acciones ───────────────────────────────────────────
       let actions = [];
       if (toolCalls && toolCalls.length > 0) {
-        actions = toolCalls.map((tc) => _nativeToolCallToAction(tc));
+        actions = toolCalls.map((tc) => _nativeToolCallToAction(tc, nativeMcpMap));
       } else {
         // Contexto = mensaje actual (el prompt original en i=0, el resultado de la
         // herramienta en iteraciones siguientes). Re-usar el prompt original en i>0
@@ -1455,7 +1474,7 @@ class AgentLoop {
           } else if (action.tool === 'mcp') {
             // Pseudo-tool MCP (de mcp_call / MCP_TOOL en fallback textual):
             // va a MCPManager, NUNCA a OpenClawBridge.
-            result = await this._executeMCP(action);
+            result = await this._executeMCP(action, signal);
           } else if (action.tool === 'plugin') {
             // Pseudo-tool de plugins (de plugin_call en fallback textual).
             result = await this._executePlugin(action);
@@ -1689,6 +1708,7 @@ class AgentLoop {
           opts.onPlan({
             kind: 'progress',
             steps: this._plan.steps,
+            criteria: this._plan.criteria,
             done: Math.min(okProgress, this._plan.steps.length),
             total: this._plan.steps.length,
           });
@@ -2033,7 +2053,7 @@ class AgentLoop {
    * con la lista de tools disponibles — en vez del "Herramienta desconocida:
    * mcp" genérico de OpenClawBridge.
    */
-  async _executeMCP(action) {
+  async _executeMCP(action, signal = null) {
     const t0 = Date.now();
     const { server, tool, args } = action.params || {};
     const toolLabel = `${server || '?'}.${tool || '?'}`;
@@ -2086,7 +2106,7 @@ class AgentLoop {
         };
       }
 
-      const result = await mgr.callTool(server, tool, args || {});
+      const result = await mgr.callTool(server, tool, args || {}, { signal, timeout: 30_000 });
       const text =
         (result?.content || [])
           .filter((c) => c.type === 'text')
@@ -2714,7 +2734,10 @@ class AgentLoop {
     if (opts.planning !== true) return false;
     if (this._mode !== 'smart') return false;
     if (opts.reportMode) return false;
-    if (opts.activeIntentions && opts.activeIntentions.length) return false;
+    const resumed = (opts.activeIntentions || []).find(
+      (intention) => Number(intention.id) === Number(opts.currentGoalId)
+    );
+    if (resumed && Array.isArray(resumed.goal_plan) && resumed.goal_plan.length) return false;
     try {
       const difficulty = estimateDifficulty({ message: userMessage, taskIntent });
       return difficulty >= PLANNING_DIFFICULTY_THRESHOLD;
@@ -2735,7 +2758,7 @@ class AgentLoop {
    * @param {Function} p.llm
    * @param {object} p.llmOpts
    * @param {AbortSignal|null} p.signal
-   * @returns {Promise<{steps: string[], text: string}|null>}
+   * @returns {Promise<{steps: string[], criteria: string[], text: string}|null>}
    */
   async _buildPlan({ userMessage, taskIntent, toolCatalog, llm, llmOpts, signal }) {
     const domain = taskIntent?.domain || null;
@@ -2748,13 +2771,12 @@ class AgentLoop {
       'Vas a ejecutar esta tarea en un bucle agente con herramientas (una por vez).',
       'Antes de empezar, generá un plan de ejecución de 2 a 6 pasos concretos.',
       'Cada paso debe ser UNA línea accionable: qué hacer y con qué',
-      '(archivo/comando/herramienta). No repitas pasos ni añadas verificación',
-      'manual: el bucle ejecuta y observa los resultados reales por sí mismo.',
+      '(archivo/comando/herramienta), seguido de un criterio observable.',
       '',
       'Formato EXACTO (sin texto fuera de este bloque):',
       'PLAN:',
-      '1. <paso 1>',
-      '2. <paso 2>',
+      '1. <paso 1> || VERIFICAR: <evidencia observable de éxito>',
+      '2. <paso 2> || VERIFICAR: <evidencia observable de éxito>',
       '',
     ].join('\n');
 
@@ -2765,6 +2787,8 @@ class AgentLoop {
       `- Entre ${PLANNING_MIN_STEPS} y ${PLANNING_MAX_STEPS} pasos, ordenados y no redundantes.`,
       '- Cada paso menciona el archivo/comando/herramienta a usar. Nada vago',
       '  ("resolver el problema"): algo que el agente pueda ejecutar y verificar.',
+      '- Cada criterio exige evidencia observable (salida, archivo, test o estado),',
+      '  nunca frases subjetivas como "que quede bien".',
       '- No planifiques pasos de "confirmar con el usuario": el agente trabaja solo.',
       '- Si la tarea es trivial de una sola acción, es válido devolver SOLO 2 pasos',
       '  (leer lo necesario → ejecutar).',
@@ -2780,7 +2804,8 @@ class AgentLoop {
       const text = typeof raw === 'string' ? raw : raw?.content || '';
       const steps = this._parsePlanSteps(text);
       if (!steps || steps.length < PLANNING_MIN_STEPS) return null;
-      return { steps, text: this._renderPlanSection(steps) };
+      const criteria = this._parsePlanCriteria(text, steps);
+      return { steps, criteria, text: this._renderPlanSection(steps, criteria) };
     } catch (e) {
       if (e?.code === 'ABORTED' || e?.name === 'AbortError') throw e;
       logger.warn('AgentLoop', `[agent-loop] planificación falló: ${e.message}`);
@@ -2805,22 +2830,56 @@ class AgentLoop {
       }
       if (!inPlan) continue;
       const m = t.match(/^\d+[.)]\s*(.+)$/);
-      if (m && m[1].trim()) steps.push(m[1].trim());
+      if (m && m[1].trim()) {
+        const description = m[1].split(/\s*\|\|\s*VERIFICAR\s*:\s*/i)[0].trim();
+        if (description) steps.push(description);
+      }
       if (steps.length >= PLANNING_MAX_STEPS) break;
     }
     return steps;
   }
 
   /**
+   * Extrae un criterio observable por paso. Los modelos antiguos que todavía
+   * devuelvan solo descripciones reciben un criterio conservador explícito.
+   * @param {string} text
+   * @param {string[]} steps
+   * @returns {string[]}
+   */
+  _parsePlanCriteria(text, steps) {
+    const explicit = [];
+    let inPlan = false;
+    for (const line of String(text || '').split('\n')) {
+      const t = line.trim();
+      if (/^PLAN\s*:?\s*$/i.test(t)) {
+        inPlan = true;
+        continue;
+      }
+      if (!inPlan) continue;
+      const m = t.match(/^\d+[.)]\s*.+?\s*\|\|\s*VERIFICAR\s*:\s*(.+)$/i);
+      if (m && m[1].trim()) explicit.push(m[1].trim());
+      else if (/^\d+[.)]\s*/.test(t)) explicit.push('');
+      if (explicit.length >= PLANNING_MAX_STEPS) break;
+    }
+    return steps.map(
+      (step, index) => explicit[index] || `Confirmar con evidencia observable: ${step}`
+    );
+  }
+
+  /**
    * Renderiza la sección que se inyecta al prompt del bucle.
    * @param {string[]} steps
+   * @param {string[]} [criteria]
    * @returns {string}
    */
-  _renderPlanSection(steps) {
+  _renderPlanSection(steps, criteria = []) {
     const lines = ['# PLAN DE EJECUCIÓN', ''];
     lines.push('Plan generado antes de actuar. Ejecutá los pasos en orden con tus');
     lines.push('herramientas, SIN pedir confirmación; si algo falla, corregilo y seguí:');
-    for (const s of steps) lines.push(`- [ ] ${s}`);
+    for (const [index, step] of steps.entries()) {
+      lines.push(`- [ ] ${step}`);
+      if (criteria[index]) lines.push(`  Evidencia requerida: ${criteria[index]}`);
+    }
     return lines.join('\n');
   }
 

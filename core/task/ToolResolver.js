@@ -43,6 +43,7 @@ async function resolveToolset(context = {}) {
     excluded: [],
     precedence: 'openclaw',
     matchedSkills: [],
+    nativeMcpMap: {},
   };
 
   // 1. Resolve matched skills
@@ -113,9 +114,29 @@ async function resolveToolset(context = {}) {
   // Native tool schemas (for tool-calling API)
   const allSchemas = getToolSchemas();
   if (finalTools.length > 0) {
-    result.nativeToolSchemas = allSchemas.filter((s) =>
-      finalTools.some((ft) => ft.name === s.name)
+    const baseSchemas = allSchemas.filter((schema) =>
+      finalTools.some((tool) => tool.source !== 'mcp' && tool.name === schema.name)
     );
+    const usedNames = new Set(baseSchemas.map((schema) => schema.name));
+    const dynamicMcpSchemas = mcpTools.map((tool, index) => {
+      const safe = (value) =>
+        String(value || 'tool')
+          .replace(/[^a-zA-Z0-9_]/g, '_')
+          .replace(/_+/g, '_');
+      let name = `mcp_${index}_${safe(tool.server)}_${safe(tool.name)}`.slice(0, 64);
+      while (usedNames.has(name)) name = `${name.slice(0, 58)}_${index}`;
+      usedNames.add(name);
+      result.nativeMcpMap[name] = { server: tool.server, tool: tool.name };
+      return {
+        name,
+        description: `[MCP ${tool.server}] ${tool.description || tool.name}`.slice(0, 500),
+        inputSchema:
+          tool.inputSchema && typeof tool.inputSchema === 'object'
+            ? tool.inputSchema
+            : { type: 'object', properties: {} },
+      };
+    });
+    result.nativeToolSchemas = [...baseSchemas, ...dynamicMcpSchemas];
   }
 
   // Prompt catalog (text for system prompt)
@@ -149,6 +170,7 @@ function _getMCPTools(mcpManager) {
             required: t.inputSchema.required?.includes(k) || false,
           }))
         : [],
+      inputSchema: t.inputSchema || { type: 'object', properties: {} },
       available: true,
     }));
   } catch {

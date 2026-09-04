@@ -176,6 +176,18 @@ async function testMCPReplacesOpenClaw() {
 
   assert(result.promptCatalog.includes('MCP'), 'Catalog menciona MCP');
   assert(result.promptCatalog.includes('filesystem'), 'Catalog menciona servidor filesystem');
+  const dynamicSchemas = result.nativeToolSchemas.filter((schema) =>
+    schema.name.startsWith('mcp_')
+  );
+  assert(dynamicSchemas.length === 2, 'cada tool MCP tiene schema nativo dinámico');
+  assert(
+    dynamicSchemas[0].inputSchema.type === 'object',
+    'el schema nativo conserva inputSchema del servidor'
+  );
+  assert(
+    result.nativeMcpMap[dynamicSchemas[0].name].server === 'filesystem',
+    'el nombre nativo se resuelve al servidor exacto'
+  );
 }
 
 // ── Test 4b: filesystem MCP no barre exec/code_execution/git/LSP ─────

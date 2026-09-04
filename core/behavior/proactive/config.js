@@ -290,6 +290,14 @@ const PROPOSAL_HINTS = {
       action: null,
     },
   },
+  goal_ready: {
+    default: {
+      title: 'Continuar un objetivo pendiente',
+      preview: 'Retomar el siguiente paso verificable del objetivo activo.',
+      kind: 'info',
+      action: null,
+    },
+  },
   // Fase D: error de código detectado por el LSP. La propuesta pide un parche;
   // si el LLM no logra generar uno válido, cae a informativa (ver el error).
   lsp_error: {
@@ -346,6 +354,7 @@ const TRIGGER_COOLDOWN_MS = {
   topic_cold: 4 * 60 * 60 * 1000,
   knowledge_gap: 6 * 60 * 60 * 1000,
   project_resume: 12 * 60 * 60 * 1000,
+  goal_ready: 6 * 60 * 60 * 1000,
 };
 
 // Señales de TRABAJO: tienen cupo diario PROPIO (como la curiosidad). Un

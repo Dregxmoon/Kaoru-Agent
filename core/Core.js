@@ -68,6 +68,9 @@ const {
   getIntentionResumePoint,
   updateIntentionStep,
   listIntentionEvents,
+  getGoalGovernance,
+  configureGoalGovernance,
+  evaluateGoalGovernor,
 } = require('./core/intentions.js');
 const {
   getStats,
@@ -191,6 +194,9 @@ module.exports = {
   getIntentionResumePoint,
   updateIntentionStep,
   listIntentionEvents,
+  getGoalGovernance,
+  configureGoalGovernance,
+  evaluateGoalGovernor,
   getLearningData,
   getTaskOutcomes,
   getLearnedWeights,

@@ -105,6 +105,7 @@ module.exports = {
     this._bus.off('lsp:error', this._boundOnLspError);
     this._bus.off('initiative:decision', this._boundOnDecision);
     this._bus.off('workspace:changed', this._boundOnWorkspaceChanged);
+    this._bus.off('goal:ready', this._boundOnGoalReady);
     this._running = false;
     logger.info('lifecycle', '[proactive] detenido');
   },
@@ -133,6 +134,16 @@ module.exports = {
       this._lastProjectFocusWrite = 0;
       this._onProjectWorkspaceChanged?.(payload).catch(() => {});
     };
+    this._boundOnGoalReady = (payload) => {
+      const workspace = this._getWorkspace?.();
+      if (!workspace || payload?.workspace !== workspace) return;
+      this._tryTrigger?.({
+        type: 'goal_ready',
+        goal: String(payload.goal || '').slice(0, 1000),
+        reason: payload.reason,
+        context: `Objetivo pendiente del workspace actual: ${String(payload.goal || '').slice(0, 500)}`,
+      }).catch(() => {});
+    };
 
     this._bus.on('memory:turn-added', this._boundOnTurnAdded);
     this._bus.on('os:app-changed', this._boundOnAppChanged);
@@ -147,5 +158,6 @@ module.exports = {
     this._bus.on('lsp:error', this._boundOnLspError);
     this._bus.on('initiative:decision', this._boundOnDecision);
     this._bus.on('workspace:changed', this._boundOnWorkspaceChanged);
+    this._bus.on('goal:ready', this._boundOnGoalReady);
   },
 };

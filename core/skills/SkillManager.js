@@ -329,10 +329,12 @@ class SkillManager {
   }
 
   // ── Build: match + injectar contenido en string de contexto ──────────
-  async buildInjection(userMessage, db) {
+  async buildInjection(userMessage, db, resolvedMatches = null) {
     db = db || this.db;
     if (!db) return null;
-    const matches = await this.match(userMessage, db);
+    const matches = Array.isArray(resolvedMatches)
+      ? resolvedMatches
+      : await this.match(userMessage, db);
     if (matches.length === 0) return null;
 
     // Presupuesto: cap por skill + telemetría del peso total. Sin esto no hay

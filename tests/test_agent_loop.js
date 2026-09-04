@@ -2416,19 +2416,24 @@ async function testParsePlanSteps() {
   const { AgentLoop } = require('../core/planner/AgentLoop.js');
   const loop = new AgentLoop({});
 
-  const steps = loop._parsePlanSteps(
-    'texto previo\nPLAN:\n1. Leer config.json\n2. Ejecutar tests\n3. Reportar\n'
-  );
+  const planText =
+    'texto previo\nPLAN:\n1. Leer config.json || VERIFICAR: config leído\n2. Ejecutar tests || VERIFICAR: exit 0\n3. Reportar || VERIFICAR: resumen presente\n';
+  const steps = loop._parsePlanSteps(planText);
   assert(steps.length === 3, 'parsea los 3 pasos del bloque PLAN', JSON.stringify(steps));
   assert(steps[0] === 'Leer config.json', 'primer paso correcto');
   assert(steps[2] === 'Reportar', 'tercer paso correcto');
 
+  const criteria = loop._parsePlanCriteria(planText, steps);
+  assert(criteria[0] === 'config leído', 'extrae criterio observable del primer paso');
+  assert(criteria[1] === 'exit 0', 'conserva criterio de prueba del segundo paso');
+
   const garbage = loop._parsePlanSteps('no hay plan acá\n1. paso suelto\n');
   assert(garbage.length === 0, 'sin bloque PLAN → sin pasos', JSON.stringify(garbage));
 
-  const section = loop._renderPlanSection(['A', 'B']);
+  const section = loop._renderPlanSection(['A', 'B'], ['archivo existe', 'test pasa']);
   assert(section.includes('# PLAN DE EJECUCIÓN'), 'render incluye el encabezado');
   assert(section.includes('- [ ] A') && section.includes('- [ ] B'), 'render marca casillas');
+  assert(section.includes('Evidencia requerida: archivo existe'), 'render exige evidencia');
 }
 
 async function testShouldPlanGates() {
@@ -2456,8 +2461,20 @@ async function testShouldPlanGates() {
     'reportMode (subagente) → sin plan'
   );
   assert(
-    !loop._shouldPlan(hard, null, { planning: true, activeIntentions: [{}] }),
-    'intención activa previa → sin plan (ya hay plan persistido)'
+    loop._shouldPlan(hard, null, {
+      planning: true,
+      currentGoalId: 9,
+      activeIntentions: [{ id: 9, goal_plan: [] }],
+    }),
+    'intención activa sin plan → sí planifica'
+  );
+  assert(
+    !loop._shouldPlan(hard, null, {
+      planning: true,
+      currentGoalId: 9,
+      activeIntentions: [{ id: 9, goal_plan: [{ description: 'ya existe' }] }],
+    }),
+    'meta reanudada con plan persistido → no vuelve a planificar'
   );
 
   // ── Incertidumbre de localización (difficulty.js) ─────────────────────────
@@ -2491,7 +2508,8 @@ async function testPlanGeneratedAndInjected() {
   const llm = async (messages, systemPrompt) => {
     calls.push({ systemPrompt });
     const n = calls.length;
-    if (n === 1) return 'PLAN:\n1. Crear paso1.json\n2. Crear paso2.txt';
+    if (n === 1)
+      return 'PLAN:\n1. Crear paso1.json || VERIFICAR: paso1.json existe\n2. Crear paso2.txt || VERIFICAR: paso2.txt existe';
     if (n === 2) {
       return '```action\nACCIÓN: create_file | ARCHIVO: ' + p1 + '\nCONTENIDO: plan paso 1\n```';
     }
@@ -2514,6 +2532,11 @@ async function testPlanGeneratedAndInjected() {
   assert(
     result.plan.total === 2 && result.plan.done === 1,
     'progreso: 1 paso completado de 2',
+    JSON.stringify(result.plan)
+  );
+  assert(
+    result.plan.criteria[0] === 'paso1.json existe',
+    'result.plan conserva el criterio verificable',
     JSON.stringify(result.plan)
   );
   assert(

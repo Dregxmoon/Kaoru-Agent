@@ -21,6 +21,20 @@ function register() {
     if (!Number.isInteger(id)) return { error: 'id inválido' };
     return { ok: Core.dropIntention(id) };
   });
+
+  ipcMain.handle('intention-governance-set', (_e, input = {}) => {
+    const id = Number(input.id);
+    if (!Number.isInteger(id)) return { error: 'id inválido' };
+    const update = {
+      autonomy: input.autonomy,
+      priority: input.priority,
+      maxAttempts: input.maxAttempts,
+      maxRuntimeMs: input.maxRuntimeMs,
+      nextRunAt: input.nextRunAt,
+    };
+    const governance = Core.configureGoalGovernance(id, update);
+    return governance ? { ok: true, governance } : { ok: false, error: 'objetivo no encontrado' };
+  });
 }
 
 module.exports = { register };

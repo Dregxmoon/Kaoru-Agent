@@ -16,6 +16,9 @@ function permissionsSetRule(rule) {
   if (!state.permissionManager) return { ok: false, error: 'permission manager no disponible' };
   try {
     const saved = state.permissionManager.setRule(rule);
+    if (saved.tool === 'goal_run' && saved.action === 'allow') {
+      state.goalGovernor?.tick?.().catch(() => {});
+    }
     return { ok: true, rule: saved, list: state.permissionManager.list() };
   } catch (e) {
     return { ok: false, error: e.message };

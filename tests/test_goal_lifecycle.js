@@ -64,7 +64,12 @@ function main() {
       commitment,
       workspace: workspaceA,
       result: {
-        plan: { steps: ['Editar el módulo', 'Ejecutar pruebas'], done: 1, total: 2 },
+        plan: {
+          steps: ['Editar el módulo', 'Ejecutar pruebas'],
+          criteria: ['diff contiene el cambio', 'suite termina con exit 0'],
+          done: 1,
+          total: 2,
+        },
         toolResults: [{ tool: 'edit', ok: true }],
       },
       evaluation: {
@@ -83,6 +88,14 @@ function main() {
     assert(
       graph.getProjectCompanion(workspaceA)?.phase === 'verifying',
       'el compañero sabe que falta verificación'
+    );
+    assert(
+      graph.getGoalPlan(commitment.id)[1].successCriteria[0] === 'suite termina con exit 0',
+      'persiste el criterio observable de cada paso'
+    );
+    assert(
+      graph.getGoalGovernance(commitment.id)?.attempts === 0,
+      'la ejecución interactiva no consume reintentos autónomos'
     );
 
     const completed = settleGoal({

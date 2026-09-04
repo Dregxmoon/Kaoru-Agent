@@ -385,6 +385,18 @@ Detailed git workflows.`
     const noMatch = await sm.buildInjection('tiempo en paris', db);
     assert(noMatch === null, 'buildInjection sin match devuelve null');
 
+    const chosen = {
+      name: 'skill-resuelta',
+      description: 'Selección única del resolver',
+      content: '# Selección estable\nNo volver a ejecutar matching.',
+    };
+    sm.match = async () => {
+      throw new Error('buildInjection no debe seleccionar skills por segunda vez');
+    };
+    const stable = await sm.buildInjection('mensaje distinto', db, [chosen]);
+    assert(stable.includes('skill-resuelta'), 'inyecta exactamente la selección del resolver');
+    assert(sm.lastInjection.names[0] === 'skill-resuelta', 'telemetría usa la misma selección');
+
     fs.rmSync(skillsDir, { recursive: true, force: true });
   });
 }

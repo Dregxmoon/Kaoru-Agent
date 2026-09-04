@@ -37,6 +37,7 @@ const TaskDetector = require('../task/TaskDetector.js');
 const { getToolRegistry } = require('../task/ToolRegistry.js');
 const { getPluginManager } = require('../plugins/PluginManager.js');
 const { PermissionManager } = require('../security/PermissionManager.js');
+const { GoalGovernor } = require('../goals/GoalGovernor.js');
 const { getIntentDetector } = require('../grounding/IntentDetector.js');
 const LLMProvider = require('../llm/LLMProvider.js');
 const { setUsageTracker, setCatalogCachePath, refreshRemoteCatalog } = LLMProvider;
@@ -346,6 +347,15 @@ function init(app) {
     state.permissionManager = null;
   }
 
+  state.goalGovernor = new GoalGovernor({
+    graph: state.graph,
+    bus: state.bus,
+    getWorkspace: () => state.activeWorkspace,
+    getSessionId: () => state.session?.getSessionId?.() || null,
+    getPermissionManager: () => state.permissionManager,
+    execute: (goal, options) => require('./agent.js').runAgent(goal, options),
+  });
+
   if (state.osSensor) {
     state.grounding.setOSSensor(state.osSensor);
     state.proactive.setOSSensor(state.osSensor);
@@ -485,6 +495,7 @@ function init(app) {
             r.path
           );
           state.proactive.start();
+          state.goalGovernor.start();
           // Fase C: ofrecer retomar lo pendiente (recordatorios) al arrancar.
           state.proactive
             .pendingRecap()

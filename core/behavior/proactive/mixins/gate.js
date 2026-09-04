@@ -34,6 +34,7 @@ const CONTEXTUAL_CONVERSATION_TYPES = new Set([
   'context_switch_thrash',
   'session_end',
   'project_resume',
+  'goal_ready',
   'session_start',
   'followup',
   'media_watching',

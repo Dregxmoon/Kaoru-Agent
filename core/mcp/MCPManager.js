@@ -384,6 +384,38 @@ function _trustMCPResult(result) {
   return out;
 }
 
+/** Validación mínima local para fallar antes de invocar un servidor remoto. */
+function _validateMCPArgs(schema, args) {
+  const value = args && typeof args === 'object' && !Array.isArray(args) ? args : null;
+  if (!value) return 'los argumentos deben ser un objeto';
+  const required = Array.isArray(schema?.required) ? schema.required : [];
+  for (const key of required) {
+    if (!Object.prototype.hasOwnProperty.call(value, key))
+      return `falta el argumento requerido "${key}"`;
+  }
+  const properties =
+    schema?.properties && typeof schema.properties === 'object' ? schema.properties : {};
+  for (const [key, input] of Object.entries(value)) {
+    const rule = properties[key];
+    if (!rule || input == null) continue;
+    const expected = rule.type;
+    const valid =
+      !expected ||
+      (expected === 'array'
+        ? Array.isArray(input)
+        : expected === 'object'
+          ? typeof input === 'object' && !Array.isArray(input)
+          : expected === 'integer'
+            ? Number.isInteger(input)
+            : typeof input === expected);
+    if (!valid) return `el argumento "${key}" debe ser ${expected}`;
+    if (Array.isArray(rule.enum) && !rule.enum.includes(input)) {
+      return `el argumento "${key}" debe ser uno de: ${rule.enum.join(', ')}`;
+    }
+  }
+  return null;
+}
+
 // ── Catálogo estático de respaldo ─────────────────────────────────────────────
 // Se usa si la búsqueda en vivo contra el registro oficial falla (sin
 // internet, el registro está caído, cambió de forma, etc). Un puñado de
@@ -723,11 +755,22 @@ class MCPServerConnection {
     this.tools = [];
   }
 
-  async callTool(toolName, args) {
+  async callTool(toolName, args, options = {}) {
     if (this.status !== 'connected' || !this.client) {
       throw new Error(`Servidor MCP "${this.name}" no está conectado (estado: ${this.status})`);
     }
-    const result = await this.client.callTool({ name: toolName, arguments: args || {} });
+    const definition = this.tools.find((tool) => tool.name === toolName);
+    if (!definition)
+      throw new Error(`Herramienta MCP "${toolName}" no anunciada por "${this.name}"`);
+    const validationError = _validateMCPArgs(definition.inputSchema, args || {});
+    if (validationError)
+      throw new Error(`Argumentos inválidos para ${this.name}.${toolName}: ${validationError}`);
+    const timeout = Math.max(1_000, Math.min(5 * 60 * 1000, Number(options.timeout) || 30_000));
+    const result = await this.client.callTool(
+      { name: toolName, arguments: args || {} },
+      undefined,
+      { signal: options.signal, timeout, maxTotalTimeout: timeout }
+    );
     // Límite de confianza: cualquier resultado de un servidor MCP externo se
     // envuelve como contenido no confiable antes de llegar al pipeline.
     return _trustMCPResult(result);
@@ -862,12 +905,12 @@ class MCPManager {
   }
 
   /** serverRef puede ser el id o el name del servidor — acepta ambos por conveniencia. */
-  async callTool(serverRef, toolName, args) {
+  async callTool(serverRef, toolName, args, options = {}) {
     const conn = [...this._connections.values()].find(
       (c) => c.id === serverRef || c.name === serverRef
     );
     if (!conn) throw new Error(`Servidor MCP "${serverRef}" no encontrado o no conectado`);
-    return conn.callTool(toolName, args);
+    return conn.callTool(toolName, args, options);
   }
 
   _normalizeRegistryResults(servers) {
@@ -1033,4 +1076,4 @@ function getMCPManager() {
   return _instance;
 }
 
-module.exports = { MCPManager, MCPServerConnection, getMCPManager };
+module.exports = { MCPManager, MCPServerConnection, getMCPManager, _validateMCPArgs };

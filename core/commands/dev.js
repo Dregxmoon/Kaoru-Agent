@@ -342,11 +342,46 @@ module.exports = function registerCommands(register) {
           ? '\n    Pasos: ' + steps.map((s) => `\`${s}\``).join(' → ')
           : '';
         const progress = it.last_progress ? `\n    Progreso: ${it.last_progress}` : '';
+        const governance = it.governance
+          ? `\n    Gobernador: ${it.governance.state} · autonomía ${it.governance.autonomy} · prioridad ${it.governance.priority} · intentos ${it.governance.attempts}/${it.governance.maxAttempts}`
+          : '';
         lines.push(
-          `- **#${it.id}** — ${it.goal}${progress}${stepLine}\n    ↳ para retomar: \`/reanudar-tarea ${it.id}\``
+          `- **#${it.id}** — ${it.goal}${progress}${governance}${stepLine}\n    ↳ para retomar: \`/reanudar-tarea ${it.id}\``
         );
       }
       return lines.join('\n');
+    },
+  });
+
+  register({
+    name: 'autonomia-meta',
+    description: 'Configura si una meta se ejecuta manualmente, se sugiere o puede actuar',
+    usage: '/autonomia-meta <id> <manual|suggest|act> [prioridad 0-100]',
+    handler: async (args, ctx) => {
+      const id = Number(args[0]);
+      const autonomy = String(args[1] || '').toLowerCase();
+      const priority = args[2] === undefined ? undefined : Number(args[2]);
+      if (!Number.isInteger(id) || !['manual', 'suggest', 'act'].includes(autonomy)) {
+        return 'Uso: `/autonomia-meta <id> <manual|suggest|act> [prioridad 0-100]`';
+      }
+      if (
+        priority !== undefined &&
+        (!Number.isFinite(priority) || priority < 0 || priority > 100)
+      ) {
+        return 'La prioridad debe estar entre 0 y 100.';
+      }
+      if (!ctx.ipcRenderer) return 'IPC no disponible.';
+      const result = await ctx.ipcRenderer.invoke('intention-governance-set', {
+        id,
+        autonomy,
+        priority,
+      });
+      if (!result?.ok) return `No pude configurar la meta #${id}: ${result?.error || 'error'}.`;
+      const note =
+        autonomy === 'act'
+          ? ' Para ejecución autónoma también necesitas una regla `allow` explícita para `goal_run` en este workspace.'
+          : '';
+      return `Meta #${id}: autonomía **${autonomy}**, prioridad **${result.governance.priority}**.${note}`;
     },
   });
 
