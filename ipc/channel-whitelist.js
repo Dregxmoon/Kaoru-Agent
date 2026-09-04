@@ -104,6 +104,7 @@ const INVOKE_ALLOWLIST = new Set([
   'proactive:get-stats',
   'proactive:set-autonomy',
   'proactive:set-shadow-mode',
+  'proactive:set-context-preference',
   // Chat sandbox:true — lógica del chat movida a main (ipc/chat-handlers.js)
   'chat-run-command',
   'chat-core-sources',

@@ -173,7 +173,8 @@ module.exports = {
     if (decision !== 'accepted' && decision !== 'rejected') return false;
 
     // F-5: la propuesta recibió respuesta → deja de estar "pendiente".
-    if (this._sentFeedback.has(proposalId)) this._sentFeedback.delete(proposalId);
+    const sentInfo = this._sentFeedback.get(proposalId) || null;
+    if (sentInfo) this._sentFeedback.delete(proposalId);
 
     // Fase F: el outcome real del usuario alimenta la receptividad (EMA).
     this._receptivity = receptividad(this._receptivity, {
@@ -195,7 +196,13 @@ module.exports = {
     let state = false;
     if (this._store) {
       try {
-        state = this._store.record({ proposalId, type, decision, reason });
+        state = this._store.record({
+          proposalId,
+          type,
+          decision,
+          reason,
+          context: sentInfo?.context || this._lastContextFocus?.mode || 'neutral',
+        });
         logger.info(
           'proposals',
           `[proactive] feedback ${decision} para "${type}" (factor cooldown ahora ×${this._store.cooldownMultiplier(type)})`

@@ -42,6 +42,13 @@ module.exports = {
     return this._shadowMode;
   },
 
+  setContextPreference(context, level) {
+    if (!this._store?.setContextPreference) {
+      return { ok: false, error: 'store_no_disponible' };
+    }
+    return this._store.setContextPreference(context, level);
+  },
+
   onUserMessage(content = '') {
     this._recordUserTurn();
     this._graph?.captureActiveLearningAnswer?.({ content });

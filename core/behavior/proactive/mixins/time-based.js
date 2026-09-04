@@ -243,7 +243,12 @@ module.exports = {
     const now = Date.now();
     for (const [proposalId, info] of this._sentFeedback) {
       if (now - info.at >= this._ignoredAfterMs) {
-        this._store.record({ proposalId, type: info.type, decision: 'ignored' });
+        this._store.record({
+          proposalId,
+          type: info.type,
+          decision: 'ignored',
+          context: info.context || 'neutral',
+        });
         this._connectCuriosityOutcome?.(proposalId, info.type, 'ignored');
         // Hilo relacional: la propuesta ignorada también se marca en el registro.
         for (const e of this._relationLog) {

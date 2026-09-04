@@ -114,6 +114,12 @@ function setShadowMode(on) {
   return { ok: true, shadowMode: state.proactive.getShadowMode() };
 }
 
+/** Configura presencia por contexto sin conceder autorización operativa. */
+function setProactiveContextPreference(context, level) {
+  if (!state.proactive) return { ok: false, error: 'engine no inicializado' };
+  return state.proactive.setContextPreference(context, level);
+}
+
 // ── Getters ───────────────────────────────────────────────────────────────────
 
 function getGraph() {
@@ -815,6 +821,7 @@ module.exports = {
   getProactiveStats,
   setAutonomyMode,
   setShadowMode,
+  setProactiveContextPreference,
   getGraph,
   getOSSensor,
   getEventBus: getEventBus_,

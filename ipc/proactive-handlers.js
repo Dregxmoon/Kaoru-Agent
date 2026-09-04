@@ -3,12 +3,13 @@
 
 // proactive-handlers.js — canal de control en runtime del ProactiveEngine.
 //
-// Expone al renderer (y al comando /proactive, que corre en el chat) tres
+// Expone al renderer (y al comando /proactive, que corre en el chat) cuatro
 // operaciones vía IPC:
 //   - proactive:get-stats       → stats en vivo (running, autonomía, shadow,
 //                                 presupuesto dinámico, cola QUEUE, SLO...).
 //   - proactive:set-autonomy     → observe | suggest | act (slider en runtime).
 //   - proactive:set-shadow-mode  → on|off: el gate corre pero nada se envía.
+//   - proactive:set-context-preference → presencia por tipo de foco.
 //
 // Los canales se validan en ipc/channel-whitelist.js (INVOKE_ALLOWLIST); un
 // renderer comprometido no puede tocar canales fuera de esa lista.
@@ -34,6 +35,18 @@ function register(ctx) {
     const res = Core.setShadowMode(!!on);
     logger.info('proactive', `[main] shadow mode → ${res.shadowMode ? 'ON' : 'OFF'}`);
     return res;
+  });
+
+  ipcMain.handle('proactive:set-context-preference', (_e, context, level) => {
+    if (!['work', 'browser', 'search', 'media', 'neutral'].includes(context)) {
+      return { ok: false, error: `Contexto inválido: ${context}` };
+    }
+    if (!['auto', 'quiet', 'balanced', 'engaged'].includes(level)) {
+      return { ok: false, error: `Nivel inválido: ${level}` };
+    }
+    const result = Core.setProactiveContextPreference(context, level);
+    logger.info('proactive', `[main] contexto ${context} → ${level}`);
+    return result;
   });
 }
 

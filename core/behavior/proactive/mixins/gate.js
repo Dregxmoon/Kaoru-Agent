@@ -11,6 +11,7 @@ const {
 } = require('../../../decision/DecisionCore.js');
 const { candidateFromTrigger } = require('../../../decision/SignalNormalizer.js');
 const { evaluate: evaluateGate } = require('../../../decision/ContextGate.js');
+const { buildFocusContext } = require('../ContextAlignment.js');
 
 const {
   RECENT_CHAT_MS,
@@ -22,6 +23,23 @@ const {
   CURIOSITY_TYPES,
   WORK_SIGNAL_TYPES,
 } = require('../config.js');
+
+const CONTEXTUAL_CONVERSATION_TYPES = new Set([
+  'long_silence',
+  'late_night',
+  'special_date',
+  'return_from_break',
+  'sustained_focus',
+  'focus_block_end',
+  'context_switch_thrash',
+  'session_end',
+  'project_resume',
+  'session_start',
+  'followup',
+  'media_watching',
+  'clipboard_context',
+  ...CURIOSITY_TYPES,
+]);
 
 // ── Cupo propio de señales de trabajo (espejo del de curiosidad) ────────────
 
@@ -89,8 +107,51 @@ module.exports = {
     // persiste ProposalStore (por trigger.type) ajusta la relevancia. Sin
     // muestras suficientes devuelve la R base sin cambios.
     const typeStats = this._store?.getStats?.()?.byType?.[trigger.type] || null;
-    const score = typeStats ? ajustarScorePorAprendizaje(baseScore, typeStats) : baseScore;
+    let score = typeStats ? ajustarScorePorAprendizaje(baseScore, typeStats) : baseScore;
+    const osCtx = this._osSensor?.getCurrentContext?.() ?? {};
+    const focus = buildFocusContext({
+      osContext: osCtx,
+      workspace: this._getWorkspace?.() ?? null,
+      focusedFile: this._getFocusedFile?.() ?? null,
+      eventContext: trigger?.context || '',
+    });
+    this._lastContextFocus = focus;
+    const contextPolicy = this._store?.getContextPolicy?.(focus.mode) || {
+      context: focus.mode,
+      effective: 'balanced',
+      source: 'default',
+    };
+    trigger._proactivityContext = focus.mode;
+    if (contextPolicy.effective === 'engaged' && !candidate.isCritical) {
+      score = Math.min(1, score + 0.08);
+    }
     candidate.score = score;
+
+    if (
+      contextPolicy.effective === 'quiet' &&
+      CONTEXTUAL_CONVERSATION_TYPES.has(trigger.type) &&
+      !candidate.isCritical
+    ) {
+      const decision = {
+        verdict: 'DROP',
+        reason: 'context_preference_quiet',
+        relevance: score,
+        flow: 'preference',
+      };
+      this._audit.push({
+        sensor: candidate.source.sensor,
+        type: candidate.tipo,
+        kind: candidate.kind,
+        signal: candidate.signal,
+        score,
+        verdict: decision.verdict,
+        reason: decision.reason,
+        contextPreference: contextPolicy,
+        shadow: this._shadowMode,
+        at: now,
+      });
+      return { ...decision, score, candidate, contextPolicy };
+    }
 
     const result = evaluateGate(candidate, ctx);
     const auditEntry = {
@@ -105,6 +166,7 @@ module.exports = {
       flow: result.flow,
       budgetLimit: result.budgetLimit,
       shadow: this._shadowMode,
+      contextPreference: contextPolicy,
       at: now,
     };
     this._audit.push(auditEntry);
@@ -113,7 +175,7 @@ module.exports = {
       this._queue.push(candidate, { now });
     }
 
-    return { ...result.decision, score, flow: result.flow, candidate };
+    return { ...result.decision, score, flow: result.flow, candidate, contextPolicy };
   },
 
   _buildGateContext(now) {
@@ -303,7 +365,11 @@ module.exports = {
       // usuario no responde en el plazo. El barrido de las vencidas lo hace el
       // heartbeat (_evaluateTimeBased → _markIgnoredStale) cada 5 min.
       if (payload.proposalId) {
-        this._sentFeedback.set(payload.proposalId, { type: trigger.type, at: Date.now() });
+        this._sentFeedback.set(payload.proposalId, {
+          type: trigger.type,
+          context: trigger._proactivityContext || this._lastContextFocus?.mode || 'neutral',
+          at: Date.now(),
+        });
       }
 
       return message;
@@ -315,7 +381,10 @@ module.exports = {
   /** Factor de cooldown según rechazos consecutivos persistidos del tipo. */
   _effectiveCooldownMs(type, baseCooldown) {
     const factor = this._store?.cooldownMultiplier(type) ?? 1;
-    return Math.round(baseCooldown * factor);
+    const context = this._lastContextFocus?.mode || 'neutral';
+    const level = this._store?.getContextPolicy?.(context)?.effective || 'balanced';
+    const contextFactor = level === 'engaged' ? 0.75 : level === 'quiet' ? 1.5 : 1;
+    return Math.round(baseCooldown * factor * contextFactor);
   },
 
   getCooldownFor(type) {

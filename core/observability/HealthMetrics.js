@@ -103,7 +103,7 @@ class HealthMetrics {
       activeRequests: this._activeRequests,
       totalRequests: this._totalRequests,
       lastError: this._lastError,
-      memoryMb: Math.round((mem.rss || 0) / (1024 * 1024) * 10) / 10,
+      memoryMb: Math.round(((mem.rss || 0) / (1024 * 1024)) * 10) / 10,
       timestamp: new Date().toISOString(),
     };
   }
@@ -122,7 +122,7 @@ class HealthMetrics {
     for (const ts of this._requestTimestamps.values()) {
       if (ts >= oneHourAgo) recentRequests++;
     }
-    const requestsPerMinute = Math.round(recentRequests / 60 * 10) / 10;
+    const requestsPerMinute = Math.round((recentRequests / 60) * 10) / 10;
 
     // Errores en la última hora
     const oneHourAgo2 = Date.now() - 3600_000;

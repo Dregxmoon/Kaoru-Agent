@@ -38,6 +38,10 @@ function _formatStats(s) {
     `- Hilo de proyecto: ${s.projectCompanion ? `${s.projectCompanion.projectName} · ${s.projectCompanion.phase}` : 'sin estado para el workspace actual'}`,
     `- Categoría actual: ${s.currentCategory || '—'} (${s.categoryStreakSec || 0}s) · Cambios de app: ${s.recentSwitchesCount ?? 0}`,
   ];
+  const policies = (s.contextPolicies || [])
+    .map((p) => `${p.context}=${p.effective}${p.configured !== 'auto' ? '*' : ''}`)
+    .join(' · ');
+  if (policies) lines.push(`- Presencia por contexto: ${policies} (* explícita)`);
   const slo = s.slo;
   if (slo && (slo.total || slo.porTipo)) {
     const total = slo.total ?? 0;
@@ -60,7 +64,8 @@ module.exports = function registerCommands(register) {
   register({
     name: 'proactive',
     description: 'Control del ProactiveEngine en vivo (stats, autonomía, shadow)',
-    usage: '/proactive [autonomy observe|suggest|act | shadow on|off]',
+    usage:
+      '/proactive [autonomy observe|suggest|act | shadow on|off | context work|browser|search|media|neutral auto|quiet|balanced|engaged]',
     handler: async (args, ctx) => {
       const ipc = ctx.ipcRenderer;
       if (!ipc) return 'IPC no disponible.';
@@ -81,8 +86,17 @@ module.exports = function registerCommands(register) {
             : `Error: ${res.error}`;
         }
 
+        if (sub === 'context') {
+          const context = (args[1] || '').toLowerCase();
+          const level = (args[2] || '').toLowerCase();
+          const res = await ipc.invoke('proactive:set-context-preference', context, level);
+          return res.ok
+            ? `Presencia en **${context}** → **${res.effective}** (${res.source})`
+            : `Error: ${res.error}`;
+        }
+
         if (sub) {
-          return `Uso: \`/proactive\` · \`/proactive autonomy observe|suggest|act\` · \`/proactive shadow on|off\``;
+          return `Uso: \`/proactive\` · \`/proactive autonomy observe|suggest|act\` · \`/proactive shadow on|off\` · \`/proactive context work|browser|search|media|neutral auto|quiet|balanced|engaged\``;
         }
 
         return _formatStats(await ipc.invoke('proactive:get-stats'));

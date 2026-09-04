@@ -31,6 +31,15 @@ const MAX_REJECTS_TRACKED = 4;
 const MAX_COOLDOWN_MULTIPLIER = 3;
 // Cuántos días de historial diario de iniciativas se conservan en disco.
 const MAX_DAILY_KEYS = 30;
+const CONTEXT_MODES = new Set(['work', 'browser', 'search', 'media', 'neutral']);
+const CONTEXT_LEVELS = new Set(['auto', 'quiet', 'balanced', 'engaged']);
+const CONTEXT_DEFAULTS = Object.freeze({
+  work: 'balanced',
+  browser: 'balanced',
+  search: 'quiet',
+  media: 'balanced',
+  neutral: 'balanced',
+});
 
 function _localDayKey(ts = Date.now()) {
   const d = new Date(ts);
@@ -40,7 +49,7 @@ function _localDayKey(ts = Date.now()) {
 class ProposalStore {
   constructor({ filePath } = {}) {
     this._filePath = filePath || DEFAULT_PATH;
-    this._data = { byType: {}, decisions: [], byDay: {} };
+    this._data = { byType: {}, decisions: [], byDay: {}, byContext: {}, contextPreferences: {} };
     this._inMem = false; // true si el disco falló → solo RAM
     this._load();
   }
@@ -51,6 +60,8 @@ class ProposalStore {
         const raw = JSON.parse(fs.readFileSync(this._filePath, 'utf-8'));
         if (raw && typeof raw === 'object') this._data = raw;
         if (!this._data.byDay) this._data.byDay = {};
+        if (!this._data.byContext) this._data.byContext = {};
+        if (!this._data.contextPreferences) this._data.contextPreferences = {};
       }
     } catch (e) {
       logger.warn('ProposalStore', '[proposal-store] no se pudo leer feedback previo:', e.message);
@@ -71,9 +82,9 @@ class ProposalStore {
 
   /**
    * Registra una decisión del usuario sobre una propuesta.
-   * @param {{proposalId: string, type: string, decision: 'accepted'|'rejected'|'ignored', reason?: string}} entry
+   * @param {{proposalId: string, type: string, decision: 'accepted'|'rejected'|'ignored', reason?: string, context?:string}} entry
    */
-  record({ proposalId, type, decision, reason } = {}) {
+  record({ proposalId, type, decision, reason, context } = {}) {
     if (!proposalId || !type) return null;
     const d = decision === 'accepted' || decision === 'ignored' ? decision : 'rejected';
 
@@ -96,11 +107,20 @@ class ProposalStore {
     }
     t.lastDecision = d;
 
+    const contextMode = CONTEXT_MODES.has(context) ? context : null;
+    if (contextMode) {
+      const c = (this._data.byContext[contextMode] ||= { accepted: 0, rejected: 0, ignored: 0 });
+      c[d] += 1;
+      c.lastDecision = d;
+      c.updatedAt = Date.now();
+    }
+
     this._data.decisions.push({
       proposalId,
       type,
       decision: d,
       reason: reason || null,
+      context: contextMode,
       ts: Date.now(),
     });
     if (this._data.decisions.length > 500)
@@ -165,18 +185,58 @@ class ProposalStore {
     return this._data.learnedWeights;
   }
 
+  /** Preferencia explícita del usuario; `auto` devuelve el control al aprendizaje. */
+  setContextPreference(context, level) {
+    if (!CONTEXT_MODES.has(context) || !CONTEXT_LEVELS.has(level)) {
+      return { ok: false, error: 'context_preference_invalid' };
+    }
+    this._data.contextPreferences[context] = level;
+    this._persist();
+    return { ok: true, ...this.getContextPolicy(context) };
+  }
+
+  /**
+   * Política efectiva. El aprendizaje sólo cambia el nivel con cuatro muestras;
+   * una preferencia explícita siempre gana.
+   */
+  getContextPolicy(context) {
+    const mode = CONTEXT_MODES.has(context) ? context : 'neutral';
+    const storedPreference = this._data.contextPreferences[mode];
+    const configured = CONTEXT_LEVELS.has(storedPreference) ? storedPreference : 'auto';
+    const stats = this._data.byContext[mode] || { accepted: 0, rejected: 0, ignored: 0 };
+    const samples = stats.accepted + stats.rejected + stats.ignored;
+    const acceptanceRate = samples ? stats.accepted / samples : null;
+    let effective = CONTEXT_DEFAULTS[mode];
+    let source = 'default';
+    if (configured !== 'auto') {
+      effective = configured;
+      source = 'explicit';
+    } else if (samples >= 4) {
+      if (acceptanceRate >= 0.7) effective = 'engaged';
+      else if (acceptanceRate <= 0.2) effective = 'quiet';
+      source = 'learned';
+    }
+    return { context: mode, configured, effective, source, samples, acceptanceRate };
+  }
+
+  getContextPolicies() {
+    return [...CONTEXT_MODES].map((context) => this.getContextPolicy(context));
+  }
+
   getStats() {
     return {
       byType: this._data.byType,
       decisions: this._data.decisions.slice(-20),
       byDay: this._data.byDay,
+      byContext: this._data.byContext,
+      contextPolicies: this.getContextPolicies(),
       filePath: this._filePath,
       inMemoryOnly: this._inMem,
     };
   }
 
   reset() {
-    this._data = { byType: {}, decisions: [], byDay: {} };
+    this._data = { byType: {}, decisions: [], byDay: {}, byContext: {}, contextPreferences: {} };
     this._inMem = false;
     if (this._filePath) {
       try {

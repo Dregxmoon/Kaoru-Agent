@@ -150,7 +150,10 @@ function register(ctx) {
 
       // env viene cifrado desde config.json (ver mcp-add-server) — hay que
       // descifrarlo antes de pasarlo al proceso hijo del servidor MCP.
-      const runtimeCfg = { ...serverCfg, env: SafeStorageCrypto.decryptAllKeys(serverCfg.env || {}) };
+      const runtimeCfg = {
+        ...serverCfg,
+        env: SafeStorageCrypto.decryptAllKeys(serverCfg.env || {}),
+      };
       await Core.mcpToggleServer(id, enabled, runtimeCfg);
 
       const updated = servers.map((s) => (s.id === id ? { ...s, enabled } : s));

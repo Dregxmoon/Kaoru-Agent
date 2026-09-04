@@ -317,18 +317,11 @@ async function testAutonomySlider() {
   const engine2 = makeEngine(store);
   assert(engine2.getAutonomyMode() === 'suggest', 'modo default = suggest');
   const stub2 = stubLLM();
-  let fired2 = null;
-  const bus = getEventBus();
-  const l2 = (p) => {
-    fired2 = p;
-  };
-  bus.on('initiative:trigger', l2);
   await engine2._tryTrigger({
     type: 'git_redflag',
     kind: 'env_unignored',
     context: 'El .env no está en .gitignore.',
   });
-  bus.off('initiative:trigger', l2);
   assert(stub2.calls() === 1, 'suggest → consulta al LLM');
 
   const infoPayload = await engine2._buildPayload(
@@ -358,6 +351,74 @@ async function testAutonomySlider() {
   engine3.stop();
 }
 
+function testContextPreferences() {
+  console.log(C.bold('\nTest 6: presencia adaptativa por contexto'));
+  const filePath = path.join(tmpDir, 'store-context.json');
+  const store = new ProposalStore({ filePath });
+  store.reset();
+
+  assert(store.getContextPolicy('search').effective === 'quiet', 'búsqueda parte en silencio');
+  const explicit = store.setContextPreference('work', 'engaged');
+  assert(
+    explicit.ok && explicit.source === 'explicit',
+    'una preferencia explícita tiene prioridad'
+  );
+  assert(
+    new ProposalStore({ filePath }).getContextPolicy('work').effective === 'engaged',
+    'la preferencia sobrevive al reinicio'
+  );
+
+  for (let i = 0; i < 4; i++) {
+    store.record({
+      proposalId: `media-${i}`,
+      type: 'media_watching',
+      decision: 'accepted',
+      context: 'media',
+    });
+  }
+  const learned = store.getContextPolicy('media');
+  assert(
+    learned.effective === 'engaged' && learned.source === 'learned',
+    'cuatro aceptaciones enseñan que media admite más compañía'
+  );
+
+  const engine = new ProactiveEngine(fakeGraph(), {
+    store,
+    getWorkspace: () => null,
+    getFocusedFile: () => null,
+  });
+  engine.setOSSensor({
+    getCurrentContext: () => ({
+      category: 'browser',
+      app: 'Chrome',
+      title: 'resultados de búsqueda - Google Search',
+      idleSecs: 0,
+    }),
+    getTodaySummary: () => '',
+  });
+  const quiet = engine._evaluateTrigger({ type: 'long_silence', hours: 3, context: 'silencio' });
+  assert(
+    quiet?.verdict === 'DROP' && quiet.reason === 'context_preference_quiet',
+    'el gate calla antes del LLM durante una búsqueda'
+  );
+
+  engine._sentFeedback.set('work-answer', {
+    type: 'project_resume',
+    context: 'work',
+    at: Date.now(),
+  });
+  engine.handleDecision({
+    proposalId: 'work-answer',
+    type: 'project_resume',
+    decision: 'accepted',
+  });
+  assert(
+    store._data.byContext.work.accepted === 1,
+    'el desenlace se atribuye al contexto original'
+  );
+  engine.stop();
+}
+
 // ── Runner ────────────────────────────────────────────────────────────────────
 
 (async () => {
@@ -368,6 +429,7 @@ async function testAutonomySlider() {
   testDecisions();
   await testBusDecision();
   await testAutonomySlider();
+  testContextPreferences();
 
   console.log('');
   console.log(C.bold(`Resultado: ${C.green(passed + ' ✓')} / ${C.red(failed + ' ✗')}`));
