@@ -65,8 +65,9 @@ async function _getEmbedder() {
 
   _embedderPromise = (async () => {
     const { pipeline } = await import('@xenova/transformers');
-    logger.info('IntentDetector', '[intent-detector] Cargando modelo all-MiniLM-L6-v2...');
-    _embedder = await pipeline('feature-extraction', 'Xenova/all-MiniLM-L6-v2', {
+    const { EMBED_MODEL_ID } = require('./EmbedModel.js');
+    logger.info('IntentDetector', `[intent-detector] Cargando modelo ${EMBED_MODEL_ID}...`);
+    _embedder = await pipeline('feature-extraction', EMBED_MODEL_ID, {
       progress_callback: undefined, // silenciar en producción
     });
     logger.info('IntentDetector', '[intent-detector] Modelo listo.');

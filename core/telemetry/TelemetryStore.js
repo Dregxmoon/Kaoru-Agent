@@ -113,7 +113,30 @@ class TelemetryStore {
       agentCancelled: 0,
       agentRunDurationsMs: [],
       agentRunDurationSumMs: 0,
+      // Vía de detección de intención (ver DetectionTelemetry.js): cuántas
+      // tareas salieron por regex vs inferencia. Días viejos en disco no lo
+      // tienen → se normaliza al leer (recordDetectionPath) y al agregar.
+      detectionPaths: { regex: 0, fusion: 0, classifier: 0, arbitrator: 0, none: 0 },
     });
+  }
+
+  /**
+   * Registra por qué vía se detectó una intención (persistente por día).
+   * Vías válidas: regex|fusion|classifier|arbitrator|none. Desconocidas se
+   * ignoran en vez de romper: la telemetría nunca rompe el flujo.
+   * @param {unknown} path
+   */
+  recordDetectionPath(path) {
+    const valid = ['regex', 'fusion', 'classifier', 'arbitrator', 'none'];
+    if (typeof path !== 'string' || !valid.includes(path)) return;
+    const dayKey = _localDayKey(this._now());
+    const day = this._day(dayKey);
+    if (!day.detectionPaths || typeof day.detectionPaths !== 'object') {
+      day.detectionPaths = { regex: 0, fusion: 0, classifier: 0, arbitrator: 0, none: 0 };
+    }
+    day.detectionPaths[path] = (day.detectionPaths[path] || 0) + 1;
+    this._prune();
+    this._persist();
   }
 
   _prune() {
@@ -232,6 +255,7 @@ class TelemetryStore {
       agentApprovalsGranted: 0,
       agentApprovalsDenied: 0,
       agentCancelled: 0,
+      detectionPaths: { regex: 0, fusion: 0, classifier: 0, arbitrator: 0, none: 0 },
       agentRunDurationsMs: [],
       agentRunDurationSumMs: 0,
     };
@@ -260,6 +284,9 @@ class TelemetryStore {
         .concat(d.agentRunDurationsMs || [])
         .slice(-MAX_RUN_DURATION_SAMPLES * 4);
       acc.agentRunDurationSumMs += d.agentRunDurationSumMs || 0;
+      for (const path of ['regex', 'fusion', 'classifier', 'arbitrator', 'none']) {
+        acc.detectionPaths[path] += (d.detectionPaths && d.detectionPaths[path]) || 0;
+      }
     }
 
     const sorted = [...acc.responseTimes].sort((a, b) => a - b);
@@ -287,6 +314,7 @@ class TelemetryStore {
       agentApprovalsGranted: acc.agentApprovalsGranted,
       agentApprovalsDenied: acc.agentApprovalsDenied,
       agentCancelled: acc.agentCancelled,
+      detectionPaths: acc.detectionPaths,
       avgRunDurationMs: acc.agentRuns
         ? Math.round(acc.agentRunDurationSumMs / acc.agentRuns)
         : null,

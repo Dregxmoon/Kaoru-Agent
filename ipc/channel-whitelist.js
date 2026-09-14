@@ -30,6 +30,7 @@ const INVOKE_ALLOWLIST = new Set([
   'pin-clear',
   // Selector modelo-first (nivel opencode)
   'get-model-picker',
+  'search-remote-providers',
   'connect-llm-provider',
   'favorite-model',
   // Workspace

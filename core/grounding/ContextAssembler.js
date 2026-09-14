@@ -159,6 +159,7 @@ class ContextAssembler {
    * @param {string} opts.activeProvider
    * @param {object} opts.toolIntent       — resultado de IntentDetector (Fase 3)
    * @param {boolean} [opts.includeMemory] — incluir memoria persistente en el prompt
+   * @param {object} [opts.language]       — detección de idioma del turno (LanguageProfile)
    */
   build({
     sessionHistory = [],
@@ -166,6 +167,7 @@ class ContextAssembler {
     activeProvider = 'groq',
     toolIntent = null,
     includeMemory = false,
+    language = null,
   }) {
     const identity = getIdentityStore();
     const osCtx = buildOSContext(this._osSensor);
@@ -246,6 +248,7 @@ class ContextAssembler {
       currentMessage: currentMsg,
       toolIntent,
       commStyleHint,
+      language,
     };
 
     const serializer = SERIALIZERS[activeProvider] ?? SERIALIZERS.groq;

@@ -229,6 +229,12 @@ const TOOL_SCHEMAS = [
         type: 'string',
         description: 'external (predeterminado, sesión personal) o managed (aislado y verificable)',
       },
+      {
+        name: 'needsVerification',
+        type: 'boolean',
+        description:
+          'true cuando hay que leer o comprobar algo dentro de la página; fuerza managed',
+      },
     ],
     highImpact: true,
   },
@@ -1290,142 +1296,19 @@ class ToolRegistry {
     }
     if (catalog.tools.length === 0) return null;
 
-    const lines = ['# HERRAMIENTAS DISPONIBLES'];
-
-    if (domain) {
-      lines.push(`Puedes usar estas herramientas para tareas relacionadas con: ${domain.label}`);
-    }
-    lines.push('');
-
-    const openclawTools = catalog.tools.filter((t) => t.source === 'openclaw');
-    const desktopTools = catalog.tools.filter((t) => t.source === 'desktop');
-    const lspTools = catalog.tools.filter((t) => t.source === 'lsp');
-    const gitTools = catalog.tools.filter((t) => t.source === 'git');
-    const githubTools = catalog.tools.filter((t) => t.source === 'github');
-    const mcpTools = catalog.tools.filter((t) => t.source === 'mcp');
-    const pluginTools = catalog.tools.filter((t) => t.source === 'plugin');
-
-    if (openclawTools.length > 0) {
-      lines.push('## Herramientas del sistema (OpenClaw)');
-      for (const t of openclawTools) {
-        let line = `  - ${t.name}`;
-        if (t.description) line += `: ${t.description}`;
-        if (!catalog.openclawAvailable) line += ' (servicio no disponible)';
-        lines.push(line);
-      }
-      lines.push('');
-    }
-
-    if (desktopTools.length > 0) {
-      lines.push('## Control visible del escritorio');
-      for (const t of desktopTools) {
-        let line = `  - ${t.name}`;
-        if (t.description) line += `: ${t.description}`;
-        lines.push(line);
-      }
-      lines.push('');
-    }
-
-    if (lspTools.length > 0) {
-      lines.push('## Herramientas LSP (análisis de código)');
-      for (const t of lspTools) {
-        let line = `  - ${t.name}`;
-        if (t.description) line += `: ${t.description}`;
-        if (!catalog.lspAvailable) line += ' (LSP no activo)';
-        lines.push(line);
-      }
-      lines.push('');
-    }
-
-    if (mcpTools.length > 0) {
-      const usedByOthers =
-        openclawTools.length +
-        desktopTools.length +
-        lspTools.length +
-        gitTools.length +
-        githubTools.length +
-        pluginTools.length;
-      const capped = mcpTools.slice(0, Math.max(0, maxTools - usedByOthers));
-      lines.push('## Herramientas MCP externas');
-      for (const t of capped) {
-        let line = `  - [${t.server}] ${t.name}`;
-        if (t.description) line += ` — ${t.description}`;
-        lines.push(line);
-      }
-      if (mcpTools.length > capped.length) {
-        lines.push(`  ... y ${mcpTools.length - capped.length} herramientas más`);
-      }
-      lines.push('');
-    }
-
-    if (gitTools.length > 0) {
-      lines.push('## Herramientas Git (nativas)');
-      for (const t of gitTools) {
-        let line = `  - ${t.name}`;
-        if (t.description) line += `: ${t.description}`;
-        if (t.highImpact) line += ' (requiere aprobación)';
-        lines.push(line);
-      }
-      lines.push(
-        'Guía de uso: PREFIERE estas herramientas nativas a exec para operaciones de',
-        'git (son más confiables; git_commit ya hace add -A, git_add stagea sin',
-        'commitear). Si usas exec con comandos git: (1) corre git status antes de',
-        'commitear; (2) usa "git add ." salvo que el usuario pida un archivo puntual;',
-        '(3) si no hay cambios staged, AVISA y no inventes un commit; (4) usa el',
-        'mensaje de commit que pidió el usuario; (5) cuando el push confirme éxito',
-        'la tarea está completa — detente.'
-      );
-      lines.push('');
-    }
-
-    if (githubTools.length > 0) {
-      lines.push('## Herramientas GitHub (nativas)');
-      for (const t of githubTools) {
-        let line = `  - ${t.name}`;
-        if (t.description) line += `: ${t.description}`;
-        if (t.highImpact) line += ' (requiere aprobación)';
-        lines.push(line);
-      }
-      lines.push('');
-    }
-
-    if (pluginTools.length > 0) {
-      lines.push('## Herramientas de plugins');
-      for (const t of pluginTools) {
-        let line = `  - ${t.name}`;
-        if (t.description) line += `: ${t.description}`;
-        if (t.highImpact) line += ' (requiere aprobación)';
-        lines.push(line);
-      }
-      lines.push('');
-    }
-
-    lines.push('### Formato de uso');
-    lines.push('Para usar OpenClaw, describe EXACTAMENTE la acción con el formato apropiado:');
-    lines.push('  - Comandos: "Ejecutar: <comando>"');
-    lines.push('  - Leer: "Voy a leer el archivo <ruta>"');
-    lines.push('  - Escribir: "Voy a escribir el archivo <ruta>"');
-    lines.push('  - Editar: "Voy a editar el archivo <ruta>"');
-    lines.push('  - Web: "Buscar en internet: <consulta>"');
-
-    if (mcpTools.length > 0) {
-      lines.push('');
-      lines.push('Para usar herramientas MCP, responde con formato exacto:');
-      lines.push('  ```action');
-      lines.push(
-        '  ACCIÓN: mcp_call | SERVIDOR: <servidor> | HERRAMIENTA: <herramienta> | PARAMS: {...}'
-      );
-      lines.push('  ```');
-    }
-
-    lines.push('');
-    lines.push('### Reglas importantes');
-    lines.push('1. NUNCA inventes resultados de comandos o herramientas');
-    lines.push('2. Anuncia cada acción antes de ejecutarla');
-    lines.push('3. Si una acción requiere aprobación, espera confirmación');
-    lines.push('4. No ejecutes acciones que no te hayan pedido explícitamente');
-
-    return lines.join('\n');
+    // Render único compartido (CatalogRenderer.js): mismo texto que antes.
+    const { renderToolCatalog } = require('./CatalogRenderer.js');
+    return renderToolCatalog(catalog.tools, {
+      domainLabel: domain ? domain.label : null,
+      openclawUnavailableNote: !catalog.openclawAvailable,
+      lspUnavailableNote: !catalog.lspAvailable,
+      openclawTitleSuffix: true,
+      mcpStyle: 'flat-capped',
+      maxTools,
+      includePlugins: true,
+      usageStyle: 'legacy',
+      rulesSection: true,
+    });
   }
 }
 

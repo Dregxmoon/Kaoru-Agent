@@ -18,9 +18,84 @@ const state = require('./state.js');
 
 // FIX: presupuesto de tokens del system prompt COMPLETO — antes vivía
 // dentro de GroqSerializer.js y se aplicaba antes de pegar BehaviorModel,
-// las reglas de OpenClaw y el catálogo MCP. Ahora se aplica aquí, al
+// las reglas de OpenClaw + catálogo MCP. Ahora se aplica aquí, al
 // final de buildContext(), sobre el prompt ya ensamblado del todo.
 const MAX_SYSTEM_CHARS = 14_000; // ~3.5k tokens — conservador pero amplio
+
+// ── Fusión intent→task: tool de OpenClaw → id de dominio (TaskDetector) ───
+// Tabla de datos para sintetizar taskIntent desde IntentDetector cuando el
+// regex no vio tarea (típico en otros idiomas). Sin esta fusión, "open amazon"
+// moriría como charla aunque los embeddings la detecten como open_website.
+const TOOL_DOMAIN_IDS = Object.freeze({
+  launch_app: 'system',
+  open_website: 'web',
+  play_media: 'multimedia',
+  browser: 'web',
+  web_search: 'web',
+  websearch: 'web',
+  webfetch: 'web',
+  desktop_snapshot: 'system',
+  desktop_screenshot: 'system',
+  pointer_click: 'system',
+  window_list: 'system',
+  window_focus: 'system',
+  ui_get_state: 'system',
+  ui_wait: 'system',
+  ui_click: 'system',
+  ui_type: 'system',
+  ui_press: 'system',
+  ui_select: 'system',
+  ui_scroll: 'system',
+  window_close: 'system',
+  desktop_capabilities: 'system',
+  process_list: 'system',
+  process_stop: 'system',
+  camera_status: 'system',
+  open_camera: 'system',
+});
+
+/** @param {unknown} tool @returns {{id: string}|null} dominio mínimo para fusión */
+function _domainForTool(tool) {
+  const id = TOOL_DOMAIN_IDS[String(tool || '')];
+  return id ? { id } : null;
+}
+
+/**
+ * Fusión por inferencia (multilenguaje sin regex por idioma): si el
+ * TaskDetector (regex, español-primero) no vio tarea pero el IntentDetector
+ * (embeddings, catálogo ES+EN) sí detectó una tool de acción con confianza,
+ * sintetiza la intención. Así "open amazon" funciona sin una sola línea de
+ * inglés hardcodeado en patrones: la similitud semántica decide.
+ * @param {object|null} taskIntent resultado de TaskDetector.detect (puede ser null)
+ * @param {object|null} toolIntent resultado de IntentDetector.detect (puede ser null)
+ * @param {unknown} userText mensaje original del usuario
+ * @returns {object|null} taskIntent fusionada o null si no aplica
+ */
+function fuseTaskIntent(taskIntent, toolIntent, userText) {
+  try {
+    if (
+      (!taskIntent || taskIntent.isTask !== true) &&
+      toolIntent &&
+      toolIntent.detected &&
+      (toolIntent.level === 'high' || toolIntent.level === 'medium')
+    ) {
+      const fusedDomain = _domainForTool(toolIntent.tool);
+      if (fusedDomain) {
+        return {
+          isTask: true,
+          confidence: toolIntent.level === 'high' ? 'medium' : 'low',
+          domain: fusedDomain,
+          goal: String(userText || '').slice(0, 200),
+          specificity: 'vague',
+          _debug: { fusedFrom: `intent:${toolIntent.action}`, matchedDomains: [] },
+        };
+      }
+    }
+  } catch (e) {
+    logger.warn('context', '[core] fusión intent→task error:', e.message);
+  }
+  return null;
+}
 const TRUNCATION_SUFFIX = '\n\n[contexto truncado por longitud]';
 const MCP_CATALOG_LIMIT = 40;
 
@@ -384,6 +459,56 @@ async function buildContext(sessionHistory, activeProvider, options = {}) {
     logger.warn('context', '[core] TaskDetector error:', e.message);
   }
 
+  // Fusión por inferencia (multilenguaje sin regex por idioma): ver
+  // fuseTaskIntent(). Así "open amazon" funciona sin una sola línea de inglés
+  // hardcodeado en patrones: la similitud semántica decide.
+  const fused = fuseTaskIntent(taskIntent, toolIntent, userText);
+  if (fused) {
+    taskIntent = fused;
+    logger.info(
+      'context',
+      `[core] taskIntent fusionada por embeddings: ${fused.domain.id} (tool ${toolIntent.tool})`
+    );
+  }
+
+  // Semantic fallback shares the existing embedding service and vector space.
+  let detectionPath = taskIntent?.isTask ? (fused ? 'fusion' : 'regex') : 'none';
+  if (
+    state.detector &&
+    (!taskIntent?.isTask || !taskIntent.domain || taskIntent.confidence === 'none')
+  ) {
+    try {
+      const { classify } = require('../task/IntentClassifier.js');
+      const EmbedService = require('../grounding/EmbedService.js');
+      const classified = await classify(userText, { embedFn: EmbedService.embedText });
+      if (classified.isTask && classified.domain && classified.level !== 'none') {
+        taskIntent = {
+          isTask: true,
+          confidence: 'medium',
+          domain: classified.domain,
+          goal: String(userText || '').slice(0, 200),
+          specificity: 'vague',
+        };
+        detectionPath = 'classifier';
+      }
+    } catch (e) {
+      logger.warn('context', '[core] semantic fallback failed:', e.message);
+    }
+  }
+  const { detectLanguage } = require('../grounding/LanguageProfile.js');
+  const language = detectLanguage(userText, { override: options.languageOverride || null });
+  try {
+    require('../telemetry/DetectionTelemetry.js').recordDetection({
+      path: detectionPath,
+      domain: taskIntent?.domain,
+      confidence: taskIntent?.confidence,
+      lang: language.code,
+    });
+    state.telemetry?.recordDetectionPath?.(detectionPath);
+  } catch (_) {
+    require('../observability/SwallowedErrors.js').swallow('context.detectionTelemetry');
+  }
+
   // GroundingEngine
   let result;
   if (state.grounding) {
@@ -395,11 +520,15 @@ async function buildContext(sessionHistory, activeProvider, options = {}) {
       // sección ya está acotada en el serializer (8 nodos + 3 episodios) y el
       // truncado por presupuesto la protege (context.js → MAX_SYSTEM_CHARS).
       includeMemory: options.includeMemory !== false,
+      languageOverride: options.languageOverride || null,
     });
   } else {
     const Fallback = require('../llm/GroundingMinimo.js');
     result = Fallback.buildContext(sessionHistory);
   }
+
+  result.language = language;
+  result.detectionPath = detectionPath;
 
   // BehaviorModel — inyectar sección
   if (behaviorCtx) {
@@ -833,5 +962,6 @@ module.exports = {
   buildWorkspaceStackSection,
   CODE_VERACITY_RULE,
   truncateSystemPrompt,
+  fuseTaskIntent,
   _prevTurnContext,
 };

@@ -46,6 +46,8 @@ function getStats() {
         }
       : null,
     telemetry: state.telemetry?.getStats() ?? null,
+    detection: require('../telemetry/DetectionTelemetry.js').getStats(),
+    swallowedErrors: require('../observability/SwallowedErrors.js').getStats(),
     eventBus: busEvents,
     provider: LLMProvider.getActiveProvider() ?? 'groq',
     usingFallback: state.graph?.usingFallback ?? false,

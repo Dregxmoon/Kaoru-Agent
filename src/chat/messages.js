@@ -258,6 +258,7 @@ const _picker = {
   selected: -1,
   mode: 'models', // 'models' | 'providers'
   expanded: null, // { providerId, modelId } | { providerId } expandido
+  remoteQuery: null, // término ofrecido para búsqueda remota acotada
 };
 
 function _fmtCtx(n) {
@@ -387,10 +388,54 @@ function _renderPickerList() {
         <span class="picker-badge">${escapeHtml(p.type)}${dot}</span>${note}
       </div>${expanded}`);
     });
-    if (!order.length)
+    if (!order.length) {
       rows.push('<div class="picker-empty">Sin providers — probá otro término.</div>');
+      // Catálogo remoto acotado: si la búsqueda local no da nada, ofrece UNA
+      // búsqueda explícita (máx 12, nunca miles) con el mismo UI de conexión.
+      if (_picker.remoteQuery) {
+        rows.push(
+          `<div class="picker-row" data-remote-search="${escapeHtml(_picker.remoteQuery)}"><span class="picker-model">＋ Buscar '${escapeHtml(_picker.remoteQuery)}' en catálogo remoto</span></div>`
+        );
+      }
+    }
   }
   pickerList.innerHTML = rows.join('');
+  const remoteBtn = pickerList.querySelector('[data-remote-search]');
+  if (remoteBtn) {
+    remoteBtn.addEventListener('click', () => _searchRemote(remoteBtn.dataset.remoteSearch));
+  }
+}
+
+async function _searchRemote(query) {
+  pickerStatus.textContent = 'Buscando en catálogo remoto...';
+  pickerStatus.style.color = 'var(--text-secondary)';
+  try {
+    const found = await ipcRenderer.invoke('search-remote-providers', { query, limit: 12 });
+    if (!Array.isArray(found) || !found.length) {
+      pickerStatus.textContent = 'Sin resultados remotos — probá otro término.';
+      return;
+    }
+    const known = new Set((_picker.data.providers || []).map((p) => p.id));
+    for (const p of found) {
+      if (!known.has(p.id)) {
+        _picker.data.providers.push({ ...p, remote: true });
+        known.add(p.id);
+      }
+      for (const m of p.models || []) {
+        if (
+          !_picker.data.models.some((x) => x.providerId === m.providerId && x.modelId === m.modelId)
+        ) {
+          _picker.data.models.push(m);
+        }
+      }
+    }
+    _picker.remoteQuery = null;
+    _applyFilter();
+    pickerStatus.textContent = `${found.length} remotos — elegí uno para conectar.`;
+  } catch (e) {
+    pickerStatus.textContent = 'Error buscando remoto: ' + ((e && e.message) || e);
+    pickerStatus.style.color = '#ef4444';
+  }
 }
 
 function _applyFilter() {
@@ -424,6 +469,9 @@ function _applyFilter() {
     _picker.view = q
       ? _picker.data.providers.filter((p) => p.name.toLowerCase().includes(q))
       : _picker.data.providers;
+    // Oferta de búsqueda remota solo cuando lo local no alcanza (y una vez
+    // por término: tras fusionar, el término ya matchea y no se re-ofrece).
+    _picker.remoteQuery = q && _picker.view.length === 0 ? q : null;
   }
   _picker.selected = -1;
   _picker.expanded = null;

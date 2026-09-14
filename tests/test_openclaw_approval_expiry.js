@@ -202,7 +202,7 @@ async function testEarlyResponseNoExpired() {
 async function testAlwaysPatternSkipsCard() {
   console.log(C.bold('\n── Test 3: patrón "Siempre" → auto-aprobado sin card ──────────'));
   resetApprovals();
-  addApproval('exec:rm -rf');
+  addApproval('exec:npm install');
   sendLog.length = 0;
   const ctx = makeCtx(60);
   register(ctx);
@@ -210,7 +210,7 @@ async function testAlwaysPatternSkipsCard() {
   mockIpcMain.invokeHandler('agent-run', {}, { text: 'haz algo' }).catch(() => {});
   await new Promise((r) => setImmediate(r));
 
-  const value = await capturedApproval({ tool: 'exec', params: { command: 'rm -rf /' } });
+  const value = await capturedApproval({ tool: 'exec', params: { command: 'npm install' } });
   assert(value === true, 'patrón "Siempre" → true');
   const needed = sendLog.find((x) => x.channel === 'agent-approval-needed');
   assert(!needed, 'no se muestra card');
@@ -335,7 +335,7 @@ async function testAutoApproveSkipsCard() {
   mockIpcMain.invokeHandler('agent-run', {}, { text: 'haz algo' }).catch(() => {});
   await new Promise((r) => setImmediate(r));
 
-  const value = await capturedApproval({ tool: 'exec', params: { command: 'rm -rf /' } });
+  const value = await capturedApproval({ tool: 'exec', params: { command: 'npm install' } });
   assert(value === true, 'autoApprove → true sin mostrar card');
   const needed = sendLog.find((x) => x.channel === 'agent-approval-needed');
   assert(!needed, 'no se envía agent-approval-needed');
@@ -391,6 +391,30 @@ async function testRunStatusAndSteering() {
 
 // ── Run ───────────────────────────────────────────────────────────────────────
 
+async function testIrreversibleIgnoresAlwaysAndAutoApprove() {
+  resetApprovals();
+  sendLog.length = 0;
+  register(makeCtx(40, { autoApprove: true }));
+  const run = mockIpcMain.invokeHandler('agent-run', {}, { text: 'haz algo' });
+  await new Promise((resolve) => setImmediate(resolve));
+  addApproval('exec:rm -rf');
+  const decision = await capturedApproval({
+    tool: 'exec',
+    params: { command: 'rm -rf /tmp/fixture' },
+  });
+  assert(
+    sendLog.some((item) => item.channel === 'agent-approval-needed'),
+    'irreversible pide card aunque autoApprove y Siempre estén activos'
+  );
+  assert(
+    decision?.approved === false && decision.reason === 'timeout',
+    'sin respuesta explícita se bloquea'
+  );
+  mockIpcMain.emit('agent-cancel');
+  await run.catch(() => {});
+  resetApprovals();
+}
+
 async function main() {
   console.log(C.bold(C.cyan('\n════════════════════════════════════════════════════════')));
   console.log(C.bold(C.cyan('  Aprobación con timeout — Test Suite')));
@@ -404,6 +428,7 @@ async function main() {
     await testAgentLoopPlainDenyNoNotice();
     await testAgentLoopObjectDecisionNotApproved();
     await testAutoApproveSkipsCard();
+    await testIrreversibleIgnoresAlwaysAndAutoApprove();
     await testRunStatusAndSteering();
   } finally {
     Module._load = realLoad;

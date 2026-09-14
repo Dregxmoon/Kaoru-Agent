@@ -187,6 +187,10 @@ function register(ctx) {
     return LLMProvider.getModelPickerData();
   });
 
+  ipcMain.handle('search-remote-providers', (_e, { query, limit } = {}) => {
+    return LLMProvider.searchRemoteProviders(query, limit);
+  });
+
   // Conecta un provider (registro si hace falta + key + primary) y asigna el
   // modelo al rol elegido. Persiste en config.json y recarga el pipeline.
   ipcMain.handle(

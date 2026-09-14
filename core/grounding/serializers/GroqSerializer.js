@@ -40,6 +40,7 @@
 'use strict';
 
 const { getIdentity } = require('../../identity/IdentityStore.js');
+const { responseLanguageLine } = require('../LanguageProfile.js');
 const { serializeIdentity, serializeMoodDelta } = require('../../identity/IdentitySerializer.js');
 const { getMoodEngine } = require('../../identity/MoodEngine.js');
 const { getDynamicsConfig } = require('../../identity/DynamicsConfig.js');
@@ -506,6 +507,24 @@ function _buildInferredSection(inferredModel) {
  */
 
 /**
+ * Protocolo canónico de tools: interlingua en inglés técnico, idéntica para
+ * todos los idiomas del usuario. Los ejemplos en español de
+ * `_buildFormatExample` siguen siendo válidos (aliases), pero lo canónico es
+ * esto: el modelo razona en el idioma del usuario e invoca tools en canónico.
+ */
+function _buildCanonicalProtocolNote() {
+  return [
+    '## TOOL PROTOCOL (canonical, same for every user language)',
+    'Reason, chat and questions in the user language. Tool calls ALWAYS in this exact shape:',
+    '```action',
+    'ACTION: <tool> | TARGET: <site or url> | APPLICATION: <app> | QUERY: <search> | URL: <https url>',
+    '```',
+    'Field map: TARGET = website/store/link · APPLICATION (or APP) = desktop app · QUERY = what to search/play · URL = full https · CONTROL = managed (verifiable) or external (just open).',
+    'Spanish aliases are also accepted (ACCIÓN/SITIO/APLICACIÓN/CONTENIDO), but prefer the canonical names above.',
+  ].join('\n');
+}
+
+/**
  * Inyecta la instrucción de formato estructurado cuando hay toolIntent.
  * Esta es la pieza clave que conecta el embedding con el parsing del LLM.
  * @param {ToolIntentData | null | undefined} toolIntent
@@ -548,6 +567,7 @@ class GroqSerializer {
    *   currentMessage?: HistoryTurn | null,
    *   toolIntent?: ToolIntentData | null,
    *   commStyleHint?: string | null,
+   *   language?: { code?: string, name?: string, confidence?: number, source?: string } | null,
    * }} contextPackage
    *
    * @param {{ includeMemory?: boolean }} [opts]
@@ -569,19 +589,22 @@ class GroqSerializer {
       currentMessage = null,
       toolIntent = null,
       commStyleHint = null,
+      language = null,
     } = contextPackage;
     const includeMemory = opts.includeMemory === true;
 
     // Construir secciones del system prompt
     // Identidad: cacheada (se genera UNA VEZ), NO se recalcula por turno
-    // OS/Memoria/Inferencias/Intención: dinámicas, se regeneran cada turno
+    // OS/Memoria/Inferencias/Intención/Idioma: dinámicas, se regeneran cada turno
     const sections = [
       _getSerializedIdentity(),
+      language && language.source !== 'default' ? responseLanguageLine(language) : '',
       _buildOSSection(osContext),
       includeMemory ? _buildMemorySection(persistentMemory) : '',
       includeMemory ? _buildMetamemorySection(metamemory) : '',
       includeMemory ? _buildInferredSection(inferredModel) : '',
       _buildToolIntentSection(toolIntent),
+      _buildCanonicalProtocolNote(),
       _buildMoodSection(),
       commStyleHint ? _buildCommStyleSection(commStyleHint) : '',
     ].filter(Boolean);

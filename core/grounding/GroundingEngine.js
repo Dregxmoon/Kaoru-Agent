@@ -10,6 +10,7 @@ const logger = require('../observability/Logger.js');
  */
 
 const { RetrievalPlanner } = require('./RetrievalPlanner.js');
+const { detectLanguage } = require('./LanguageProfile.js');
 const { ContextAssembler } = require('./ContextAssembler.js');
 const { getIdentity } = require('../identity/IdentityStore.js');
 
@@ -47,6 +48,7 @@ class GroundingEngine {
    * @param {ToolIntent | null} [toolIntent] - resultado de IntentDetector (Fase 3, opcional)
    * @param {object} [opts]
    * @param {boolean} [opts.includeMemory] - incluir memoria persistente en el prompt
+   * @param {string|null} [opts.languageOverride] - idioma fijado por el usuario (gana a la inferencia)
    * @returns {Promise<ContextResult>}
    */
   async buildContext(sessionHistory = [], activeProvider = 'groq', toolIntent = null, opts = {}) {
@@ -54,6 +56,10 @@ class GroundingEngine {
       const currentMsg = sessionHistory[sessionHistory.length - 1];
       const userText = currentMsg?.role === 'user' ? currentMsg.content : '';
       const osCtx = this._osSensor?.getCurrentContext() ?? null;
+      // Idioma del turno: se infiere del mensaje (override de preferencias si
+      // se pasa en opts). Viaja en el resultado para que agent.js lo reuse
+      // (locale del navegador, voz, línea de respuesta) sin re-detectar.
+      const language = detectLanguage(userText, { override: opts.languageOverride || null });
 
       const retrievalResult = await this._planner.plan(
         userText,
@@ -66,9 +72,10 @@ class GroundingEngine {
         activeProvider,
         toolIntent: /** @type {object} */ (toolIntent),
         includeMemory: opts.includeMemory === true,
+        language,
       });
 
-      return result;
+      return { ...result, language };
     } catch (e) {
       logger.error(
         'GroundingEngine',

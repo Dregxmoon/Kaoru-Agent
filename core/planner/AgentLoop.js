@@ -669,6 +669,37 @@ Las acciones que cambian la página deben repetir sessionId, pageId y
 expectedOrigin exactamente como fueron observados. Después de cada acción,
 observa otra vez antes de decidir la siguiente.
 
+## Regla de modo: verificar ⇒ managed (C4)
+
+\`open_website\` tiene dos modos con consecuencias distintas:
+- \`CONTROL: external\` abre el navegador PERSONAL del usuario y Kaoru queda
+  CIEGA (no ve ni puede leer la página). Úsalo SOLO para "solo ábrelo".
+- \`CONTROL: managed\` (o la tool \`browser\` con mode=managed) usa el Chromium
+  propio y VERIFICABLE de Kaoru. Úsalo SIEMPRE que debas leer, buscar o
+  comprobar algo DENTRO de la página (precio, disponibilidad, texto, video).
+Si la petición incluye "busca", "dime si", "verifica", "está disponible" o
+"reproduce", NUNCA uses external: no podrías cumplirla.
+
+## Receta: buscar un producto y verificar disponibilidad (shop-lookup)
+
+Para "abre <tienda> y dime si <producto> está disponible / a qué precio":
+1. \`open_website\` con el nombre de la tienda (se resuelve solo, no necesita URL).
+2. \`browser\` mode=managed: snapshot → type en el buscador → click buscar.
+3. \`browser\` get_text del resultado (precio/disponibilidad) y snapshot si hace falta.
+4. Responde citando la evidencia (precio + URL). Si la página pide CAPTCHA o
+   login, informa y deja el navegador abierto para continuar manual: nunca
+   inventes disponibilidad.
+
+## Receta: escribir en una app de escritorio (office-writer)
+
+Para "abre <app> y escribe <texto>":
+1. \`list_apps\` si no conoces el nombre exacto → \`launch_app\`.
+2. Espera la ventana (\`window_list\`/\`desktop_snapshot\`) antes de actuar.
+3. Escribe por bloques con \`ui_type\` sobre la referencia observada y verifica
+   con \`ui_get_state\`/\`ui_wait\` (expected con el texto esperado).
+4. Guarda y confirma el archivo en disco cuando aplique; si algo no se pudo
+   verificar, dilo explícitamente en el cierre.
+
 \`\`\`action
 ACCIÓN: mcp_call | SERVIDOR: filesystem | HERRAMIENTA: list_directory | PARAMS: {"path": "."}
 \`\`\`
@@ -735,6 +766,11 @@ El resto del texto se mostrará al usuario.
     pasó. No afirmes que algo se "verificó" si la última ejecución real de la
     verificación terminó en error y no hubo un reintento exitoso — si no se
     pudo comprobar, decilo, no lo des por sentado.
+12. SI TE FALTA UN DATO, PREGUNTA UNA COSA CONCRETA (en el idioma del
+    usuario) en vez de adivinar: qué tienda, dónde guardar, cuál de las
+    opciones que te devolvió una herramienta. Si el error de una herramienta
+    lista candidatos ("Vi estas opciones: ..."), ofrécelos tal cual. Una
+    pregunta curiosa y precisa vale más que tres acciones adivinadas.
 
 ## Verificar lógica JS sin shell
 
@@ -1174,6 +1210,30 @@ class AgentLoop {
       max: systemBudget,
       tailSections: TAIL_SECTIONS,
     });
+
+    // ── Idioma de respuesta (multilenguaje por inferencia) ────────────────
+    // Se anexa DESPUÉS del truncado para garantizar su supervivencia: es una
+    // línea, no compite por presupuesto. El protocolo de tools no cambia (la
+    // línea lo dice explícitamente); solo mutan las palabras hacia el usuario.
+    this._responseLanguage =
+      opts.responseLanguage && typeof opts.responseLanguage === 'object'
+        ? opts.responseLanguage
+        : null;
+    try {
+      const { responseLanguageLine, localeFor } = require('../grounding/LanguageProfile.js');
+      if (this._responseLanguage)
+        agentPrompt += '\n\n' + responseLanguageLine(this._responseLanguage);
+      const derived = localeFor(this._responseLanguage?.code || 'es');
+      const BrowserBridge = require('./BrowserBridge.js');
+      if (typeof BrowserBridge.setDefaultLocale === 'function') {
+        BrowserBridge.setDefaultLocale(derived.locale);
+      }
+      if (this._bridge && typeof this._bridge.setLocaleHints === 'function') {
+        this._bridge.setLocaleHints(derived.tldHints);
+      }
+    } catch (_) {
+      require('../observability/SwallowedErrors.js').swallow('AgentLoop.language');
+    }
 
     // ── Fase de plan explícito (mejora de calidad) ─────────────────────────
     // Toda tarea smart de la ruta de producción recibe un plan ANTES de
@@ -1819,7 +1879,9 @@ class AgentLoop {
 
       for (const action of actions) {
         if (maxToolCalls > 0 && toolResults.length >= maxToolCalls) break;
-        const requiresApproval = AP.isHighImpact(action.tool, action.params);
+        const { isIrreversible } = require('../security/IrreversiblePolicy.js');
+        const irreversible = isIrreversible(action);
+        const requiresApproval = irreversible || AP.isHighImpact(action.tool, action.params);
         // Instrumentación: cada tool solicitada por el agente cuenta (aunque
         // luego se bloquee/deniegue/cancele — igual fue pedida).
         this._metrics.trackTool(action.tool);
@@ -1891,6 +1953,8 @@ class AgentLoop {
           };
           continue;
         }
+
+        if (irreversible) permissionAction = 'ask';
 
         // ── Hook de plugins: beforeTool ─────────────────────────────────────
         // Los plugins pueden denegar una herramienta devolviendo

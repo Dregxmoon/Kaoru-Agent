@@ -40,88 +40,13 @@ const http = require('http');
 const BrowserBridge = require('./BrowserBridge.js');
 const { getDesktopControl, SITE_ALIASES, _normalize } = require('../desktop/DesktopControl.js');
 const { getDesktopAutomation } = require('../desktop/DesktopAutomation.js');
+const { WebsiteResolver } = require('../desktop/WebsiteResolver.js');
 const { isUrlSafe } = require('../security/UrlGuard.js');
 
-// ── Resolver universal de destinos web (Fase A1) ────────────────────────────
-// Antes: solo se podían abrir URLs completas o uno de los 8 SITE_ALIASES fijos
-// ("Usa un sitio conocido..."). Cualquier destino nuevo ("amazon", "la web de
-// Renfe") exigía tocar código. Ahora SITE_ALIASES es un ATAJO (evita una
-// búsqueda cuando el destino es muy común), no una lista blanca: si el
-// objetivo no es una URL ni un alias conocido, se resuelve con una búsqueda
-// real (BrowserBridge.executeWebSearch) y se toma el primer resultado que
-// pase por UrlGuard — el mismo candado anti-SSRF que ya protege el resto del
-// flujo. Así ningún destino queda hardcodeado y la tarea guía ("abre X")
-// funciona para cualquier X.
-/**
- * @param {string} rawTarget texto tal como lo pidió el usuario ("amazon", "youtube", "https://...")
- * @param {{webSearch?: typeof BrowserBridge.executeWebSearch, urlGuard?: typeof isUrlSafe}} [deps]
- *   Inyectables solo para tests deterministas; en producción usan los reales.
- * @returns {Promise<{url: string, resolvedBy: 'url'|'alias'|'search', query?: string}>}
- */
-async function _resolveWebsiteTarget(rawTarget, deps = {}) {
-  const webSearch = deps.webSearch || BrowserBridge.executeWebSearch;
-  const urlGuard = deps.urlGuard || isUrlSafe;
-
-  const trimmed = String(rawTarget || '').trim();
-  if (!trimmed || trimmed.length > 2048) throw new Error('Sitio o URL inválido');
-
-  const aliasUrl = SITE_ALIASES[_normalize(trimmed)];
-  const candidate = aliasUrl || trimmed;
-  try {
-    const parsed = new URL(candidate);
-    // Solo lo damos por resuelto aquí si ya es https válida; si no, cae al
-    // fallback de búsqueda en vez de fallar — la validación de protocolo
-    // final (https-only, sin credenciales, UrlGuard) la sigue haciendo el
-    // consumidor (DesktopControl.openWebsite / navigate managed), que es
-    // quien conoce el modo (external vs managed) y debe dar el error preciso.
-    if (parsed.protocol === 'https:') {
-      return { url: parsed.href, resolvedBy: aliasUrl ? 'alias' : 'url' };
-    }
-  } catch (_) {
-    // no era una URL — seguimos al fallback universal
-  }
-
-  // Fallback universal: motor de búsqueda (navegador propio, managed) +
-  // primer resultado que pase el candado de seguridad. Esto es lo que
-  // permite "amazon", "la web de Renfe" o "el manga X" sin estar
-  // predefinidos en código (§2 del plan de autonomía).
-  let searchResults = [];
-  try {
-    const { result } = await webSearch({ query: trimmed, max_results: 5 });
-    searchResults = Array.isArray(result) ? result : [];
-  } catch (searchError) {
-    throw new Error(
-      `No se pudo resolver "${trimmed}": ni es una URL https, ni un sitio conocido, y la ` +
-        `búsqueda falló (${searchError instanceof Error ? searchError.message : String(searchError)})`
-    );
-  }
-
-  for (const item of searchResults) {
-    const candidateUrl = item && typeof item.url === 'string' ? item.url : '';
-    if (!candidateUrl) continue;
-    let parsedResult;
-    try {
-      parsedResult = new URL(candidateUrl);
-    } catch (_) {
-      continue;
-    }
-    if (parsedResult.protocol !== 'https:' || parsedResult.username || parsedResult.password) {
-      continue;
-    }
-    try {
-      const safety = await urlGuard(parsedResult.href, { timeout: 3000 });
-      if (!safety.safe) continue;
-    } catch (_) {
-      continue;
-    }
-    return { url: parsedResult.href, resolvedBy: 'search', query: trimmed };
-  }
-
-  throw new Error(
-    `No encontré un destino seguro para "${trimmed}". Prueba con una URL https completa o ` +
-      `sé más específica (por ejemplo "amazon.es").`
-  );
-}
+// ── Resolución de destinos web (Fase A1 + P0) ───────────────────────────────
+// Tubo único compartido con DesktopControl (`core/desktop/WebsiteResolver.js`):
+// URL https → alias conocido (atajo, no lista blanca) → búsqueda real con
+// scoring de relevancia + UrlGuard. Ningún destino queda hardcodeado.
 
 // G.1: puerto del servidor de control configurable (OPENCLAW_PORT). El bridge
 // lo lee en cada uso para que funcione con el server en puertos alternos
@@ -397,17 +322,46 @@ class OpenClawBridge {
     this._desktopAutomation = options.desktopAutomation || getDesktopAutomation();
     this._mediaResolver = options.mediaResolver || BrowserBridge.findFirstYouTubeVideo;
     this._mediaPlayer = options.mediaPlayer || BrowserBridge.playYouTubeMedia;
+    // Inyectable para tests del guard verificar ⇒ managed (producción: Playwright real).
+    this._managedNavigator =
+      options.managedNavigator || ((input) => BrowserBridge.executeBrowserAction(input));
     // Inyectables solo para tests; en producción caen a BrowserBridge/UrlGuard reales.
     this._webSearch = options.webSearch || BrowserBridge.executeWebSearch;
     this._websiteUrlGuard = options.urlGuard || isUrlSafe;
+    this._websiteResolver = new WebsiteResolver({
+      aliases: SITE_ALIASES,
+      webSearch: this._webSearch,
+      urlGuard: this._websiteUrlGuard,
+    });
+    // P0: el mismo contrato en ambas capas. Si el control de escritorio admite
+    // resolver, se le inyecta este resolver para que `DesktopControl` directo
+    // resuelva igual que el bridge (sin doble búsqueda: el bridge pre-resuelve
+    // a URL https y el control la toma directa).
+    if (
+      this._desktopControl &&
+      typeof this._desktopControl.setWebsiteResolver === 'function' &&
+      typeof this._desktopControl.getWebsiteResolver === 'function' &&
+      !this._desktopControl.getWebsiteResolver()
+    ) {
+      this._desktopControl.setWebsiteResolver(this._websiteResolver);
+    }
   }
 
   /** @param {string} rawTarget */
   _resolveWebsiteTarget(rawTarget) {
-    return _resolveWebsiteTarget(rawTarget, {
-      webSearch: this._webSearch,
-      urlGuard: this._websiteUrlGuard,
-    });
+    return this._websiteResolver.resolve(rawTarget);
+  }
+
+  /**
+   * Preferencias de TLD del usuario (p.ej. ['mx','es'] desde su idioma) para
+   * el scoring del resolver. Lo llama AgentLoop por run; el resolver
+   * compartido beneficia a bridge y DesktopControl a la vez.
+   * @param {string[]} [hints]
+   */
+  setLocaleHints(hints) {
+    if (this._websiteResolver && typeof this._websiteResolver.setLocaleHints === 'function') {
+      this._websiteResolver.setLocaleHints(hints);
+    }
   }
 
   // ── Disponibilidad ──────────────────────────────────────────────────────────
@@ -474,6 +428,7 @@ class OpenClawBridge {
       try {
         let desktopResult;
         let resolvedTargetInfo = null;
+        let forcedManaged = false;
         if (tool === 'open_website' && params && params.target) {
           // Resolución en runtime (Fase A1): reemplaza el target crudo por
           // una URL https ya resuelta (alias o búsqueda) antes de decidir
@@ -483,6 +438,17 @@ class OpenClawBridge {
           const resolved = await this._resolveWebsiteTarget(params.target);
           resolvedTargetInfo = resolved;
           params = { ...params, target: resolved.url };
+          // Guard determinista verificar ⇒ managed: si hay que leer o
+          // comprobar algo dentro de la página, external (navegador personal
+          // ciego) no puede cumplirlo. El MODELO lo pide por inferencia
+          // (needsVerification, en cualquier idioma); el bridge lo impone.
+          if (
+            params.needsVerification === true &&
+            (params.control !== 'managed' || params.browser)
+          ) {
+            params = { ...params, control: 'managed', browser: undefined };
+            forcedManaged = true;
+          }
         }
         if (tool === 'desktop_snapshot') {
           desktopResult = await this._desktopAutomation.snapshot(params);
@@ -510,7 +476,7 @@ class OpenClawBridge {
           if (parsed.protocol !== 'https:' || parsed.username || parsed.password) {
             throw new Error('El navegador administrado solo admite URLs HTTPS sin credenciales');
           }
-          const navigated = await BrowserBridge.executeBrowserAction({
+          const navigated = await this._managedNavigator({
             action: 'navigate',
             mode: 'managed',
             url: parsed.href,
@@ -597,9 +563,16 @@ class OpenClawBridge {
         if (tool === 'open_website' && resolvedTargetInfo && desktopResult) {
           desktopResult = {
             ...desktopResult,
+            ...(forcedManaged ? { forcedManaged: true } : {}),
             resolvedBy: resolvedTargetInfo.resolvedBy,
             ...(resolvedTargetInfo.resolvedBy === 'search'
-              ? { resolvedFromQuery: resolvedTargetInfo.query }
+              ? {
+                  resolvedFromQuery: resolvedTargetInfo.query,
+                  ...(typeof resolvedTargetInfo.score === 'number'
+                    ? { score: resolvedTargetInfo.score }
+                    : {}),
+                  ...(resolvedTargetInfo.cached === true ? { cached: true } : {}),
+                }
               : {}),
           };
         }

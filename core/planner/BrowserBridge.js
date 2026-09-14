@@ -188,14 +188,19 @@ async function _ensureManagedBrowser() {
         throw new Error('Playwright no está instalado; no se puede controlar el navegador');
       }
     }
-    logger.info('BrowserBridge', '[browser-bridge] lanzando navegador visible administrado...');
+    logger.info(
+      'BrowserBridge',
+      `[browser-bridge] lanzando navegador visible administrado (locale ${_defaultLocale})...`
+    );
     _sessionIds.managed = crypto.randomUUID();
     _managedContext = await _playwright.chromium.launchPersistentContext(
       await _managedProfileDir(),
       {
         headless: false,
         viewport: null,
-        locale: 'es-MX',
+        // El locale muta según el idioma del usuario (AgentLoop lo fija por
+        // run desde responseLanguage). Default español, como Kaoru.
+        locale: _defaultLocale,
         serviceWorkers: 'block',
         ignoreDefaultArgs: ['--mute-audio'],
       }
@@ -722,10 +727,8 @@ async function executeBrowserAction(input) {
  * @param {string} input.query
  * @param {number} [input.max_results]
  */
-async function executeWebSearch(input) {
-  const { query, max_results = 5 } = input;
-  if (!query) throw new Error('web_search requiere "query"');
-
+/** @param {string} query @param {number} max_results */
+async function _searchGoogle(query, max_results) {
   const page = await _ensureBrowser();
   const searchUrl = `https://www.google.com/search?q=${encodeURIComponent(query)}&hl=es`;
 
@@ -735,7 +738,7 @@ async function executeWebSearch(input) {
   // Extraer resultados orgánicos del DOM de Google.
   // Los selectores de Google cambian con frecuencia; este es robusto
   // a varias variantes comunes del HTML de resultados.
-  const results = await page.evaluate((max) => {
+  return page.evaluate((max) => {
     const items = [];
     const blocks = document.querySelectorAll('div.g, div[data-sokoban-container]');
 
@@ -756,6 +759,43 @@ async function executeWebSearch(input) {
     }
     return items;
   }, max_results);
+}
+
+let _primaryWebSearch = _searchGoogle;
+
+async function executeWebSearch(input) {
+  const { query, max_results = 5 } = input;
+  if (!query) throw new Error('web_search requiere "query"');
+
+  /** @type {Array<{title: string, url: string, snippet: string}>} */
+  let results = [];
+  try {
+    results = await _primaryWebSearch(query, max_results);
+  } catch (e) {
+    logger.warn(
+      'BrowserBridge',
+      `[browser-bridge] primary search failed: ${e instanceof Error ? e.message : String(e)}`
+    );
+  }
+
+  if (!results.length && _rssFallback) {
+    // Fallback sin DOM ni captchas: Bing RSS por HTTPS plano (verificado en
+    // vivo: Google/DuckDuckGo bloquean scraping desde ciertas redes mientras
+    // Bing RSS responde 200 con resultados). Mantiene vivo el resolver
+    // universal cuando el buscador primario falla.
+    try {
+      const fallback = await _rssFallback(query, max_results);
+      if (Array.isArray(fallback) && fallback.length) {
+        logger.info(
+          'BrowserBridge',
+          `[browser-bridge] web_search: ${fallback.length} resultados (Bing RSS)`
+        );
+        return { result: wrapUntrustedItems(fallback) };
+      }
+    } catch (e) {
+      logger.warn('BrowserBridge', `[browser-bridge] fallback RSS falló: ${e.message}`);
+    }
+  }
 
   if (!results.length) {
     return {
@@ -770,6 +810,98 @@ async function executeWebSearch(input) {
   logger.info('BrowserBridge', `[browser-bridge] web_search: ${results.length} resultados`);
   return { result: wrapUntrustedItems(results) };
 }
+
+/**
+ * Busca vía Bing RSS (HTTPS plano, sin JS ni DOM): `format=rss` devuelve
+ * <item> con title/link/description. Probado en vivo contra bloqueos que
+ * tumban Google y DuckDuckGo. La URL pasa por el mismo candado que el resto.
+ * @param {string} rawQuery
+ * @param {number} maxResults
+ * @returns {Promise<Array<{title: string, url: string, snippet: string}>>}
+ */
+function _fetchBingRss(rawQuery, maxResults) {
+  const https = require('https');
+  const feedUrl = `https://www.bing.com/search?q=${encodeURIComponent(rawQuery)}&format=rss`;
+  return _assertSafeUrl(feedUrl).then(
+    () =>
+      new Promise((resolve, reject) => {
+        const req = https.get(
+          feedUrl,
+          {
+            headers: {
+              'User-Agent':
+                'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36',
+              Accept: 'application/rss+xml',
+            },
+            timeout: 15000,
+          },
+          (res) => {
+            if (res.statusCode !== 200) {
+              res.resume();
+              reject(new Error(`Bing RSS respondió HTTP ${res.statusCode}`));
+              return;
+            }
+            let body = '';
+            res.setEncoding('utf8');
+            res.on('data', (chunk) => {
+              body += chunk;
+              if (body.length > 512 * 1024) {
+                res.destroy();
+                reject(new Error('Bing RSS excedió el tamaño máximo'));
+              }
+            });
+            res.on('end', () => {
+              try {
+                resolve(_parseRssItems(body, maxResults));
+              } catch (e) {
+                reject(e);
+              }
+            });
+          }
+        );
+        req.on('timeout', () => {
+          req.destroy(new Error('Bing RSS agotó el tiempo'));
+        });
+        req.on('error', reject);
+      })
+  );
+}
+
+/** @param {string} xml @param {number} maxResults */
+function _parseRssItems(xml, maxResults) {
+  const items = [];
+  const itemRe = /<item>([\s\S]*?)<\/item>/g;
+  const unescape = (s) =>
+    String(s || '')
+      .replace(/<!\[CDATA\[([\s\S]*?)\]\]>/g, '$1')
+      .replace(/&amp;/g, '&')
+      .replace(/&lt;/g, '<')
+      .replace(/&gt;/g, '>')
+      .replace(/&quot;/g, '"')
+      .replace(/&#39;/g, "'");
+  let match;
+  while ((match = itemRe.exec(xml)) !== null && items.length < maxResults) {
+    const block = match[1];
+    const title = /<title>([\s\S]*?)<\/title>/.exec(block);
+    const link = /<link>([\s\S]*?)<\/link>/.exec(block);
+    const description = /<description>([\s\S]*?)<\/description>/.exec(block);
+    const url = unescape(link && link[1]).trim();
+    if (!/^https:\/\//.test(url)) continue;
+    items.push({
+      title:
+        unescape(title && title[1])
+          .trim()
+          .slice(0, 200) || url,
+      url,
+      snippet: unescape(description && description[1])
+        .trim()
+        .slice(0, 300),
+    });
+  }
+  return items;
+}
+
+let _rssFallback = _fetchBingRss;
 
 function _normalizeMediaQuery(rawQuery) {
   const query = String(rawQuery || '').trim();
@@ -1035,12 +1167,29 @@ async function playYouTubeMedia(rawQuery) {
   };
 }
 
+let _defaultLocale = 'es-MX';
+/**
+ * Fija el locale del navegador managed para el próximo lanzamiento. Lo llama
+ * AgentLoop al arrancar cada run desde responseLanguage (idioma inferido del
+ * usuario). Valida formato BCP-47 simple; cualquier valor raro cae al default.
+ * @param {unknown} locale
+ */
+function setDefaultLocale(locale) {
+  const clean = String(locale || '').trim();
+  _defaultLocale = /^[a-zA-Z]{2,3}(-[a-zA-Z]{2,4})?$/.test(clean) ? clean : 'es-MX';
+}
+
 module.exports = {
   executeBrowserAction,
   executeWebSearch,
   findFirstYouTubeVideo,
   playYouTubeMedia,
   closeBrowser,
+  setDefaultLocale,
+  _parseRssItems,
+  _setPrimarySearchForTests: (search) => {
+    _primaryWebSearch = typeof search === 'function' ? search : _searchGoogle;
+  },
   _youtubeWatchUrl,
   _rankYouTubeCandidates,
   _installNetworkPolicy,
@@ -1048,5 +1197,10 @@ module.exports = {
   _setUrlGuardForTests: (guard) => {
     _urlGuard = typeof guard === 'function' ? guard : isUrlSafe;
     _hostSafetyCache.clear();
+  },
+  _setRssFallbackForTests: (fallback) => {
+    // null explícito = sin fallback (tests deterministas sin red).
+    _rssFallback =
+      fallback === null ? null : typeof fallback === 'function' ? fallback : _fetchBingRss;
   },
 };

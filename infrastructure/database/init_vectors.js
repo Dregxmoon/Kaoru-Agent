@@ -573,13 +573,14 @@ async function getEmbedder() {
 
   await loadPipeline();
 
-  logger.info('init_vectors', '[init-vectors] Cargando modelo all-MiniLM-L6-v2...');
+  const { EMBED_MODEL_ID } = require('../../core/grounding/EmbedModel.js');
+  logger.info('init_vectors', `[init-vectors] Cargando modelo ${EMBED_MODEL_ID}...`);
   logger.info(
     'init_vectors',
     '[init-vectors] Primera carga: ~5-10s. Las siguientes serán instantáneas.'
   );
 
-  _embedder = await pipeline('feature-extraction', 'Xenova/all-MiniLM-L6-v2', {
+  _embedder = await pipeline('feature-extraction', EMBED_MODEL_ID, {
     progress_callback: (info) => {
       if (info.status === 'downloading') {
         process.stdout.write(

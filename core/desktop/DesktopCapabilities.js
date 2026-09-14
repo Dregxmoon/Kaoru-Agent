@@ -16,31 +16,15 @@ const DESKTOP_CAPABILITIES = Object.freeze([
   { id: 'camera', label: 'Cámara' },
 ]);
 
+/**
+ * Mapa tool → familia, DERIVADO de la tabla única (ToolPolicy.js).
+ * No editar a mano: agregar la capability en la tabla y la paridad la
+ * verifica tests/test_tool_policy.js.
+ */
+const { toolCapabilities } = require('../security/ToolPolicy.js');
+
 /** @type {Readonly<Record<string, string>>} */
-const TOOL_CAPABILITIES = Object.freeze({
-  list_apps: 'applications',
-  launch_app: 'applications',
-  window_list: 'applications',
-  window_focus: 'applications',
-  window_close: 'applications',
-  ui_get_state: 'screen',
-  ui_wait: 'screen',
-  open_website: 'browser',
-  play_media: 'browser',
-  browser: 'browser',
-  desktop_snapshot: 'screen',
-  desktop_screenshot: 'screen',
-  pointer_click: 'pointer',
-  ui_click: 'pointer',
-  ui_select: 'pointer',
-  ui_scroll: 'pointer',
-  ui_type: 'keyboard',
-  ui_press: 'keyboard',
-  process_list: 'processes',
-  process_stop: 'processes',
-  camera_status: 'camera',
-  open_camera: 'camera',
-});
+const TOOL_CAPABILITIES = toolCapabilities();
 
 /** @param {unknown} tool @returns {string|null} */
 function capabilityForTool(tool) {

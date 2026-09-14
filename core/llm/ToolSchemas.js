@@ -233,6 +233,11 @@ const TOOL_SCHEMAS = [
           description:
             'external (predeterminado) usa el navegador personal con sus sesiones; managed usa un Chromium aislado controlable',
         },
+        needsVerification: {
+          type: 'boolean',
+          description:
+            'Ponlo true cuando debas leer, buscar o comprobar algo DENTRO de la página (precio, disponibilidad, texto). Fuerza managed aunque pidas external: con external quedarías ciega.',
+        },
       },
       required: ['target'],
     },

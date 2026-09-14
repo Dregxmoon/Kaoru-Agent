@@ -172,11 +172,43 @@ async function testPickerShape() {
     'ningún provider expone campo apiKey'
   );
 
-  const openrouter = data.providers.find((p) => p.id === 'openrouter');
+  // Tope anti-miles: UNA entrada por empresa. Los 400+ remotos de models.dev
+  // NO están en el payload salvo key/custom (ver remoteHidden + búsqueda).
+  assert(!data.providers.some((p) => p.id === 'openrouter'), 'remoto sin key fuera del payload');
   assert(
-    openrouter && openrouter.remote === true && openrouter.connectable === true,
-    'openrouter remoto y conectable'
+    !data.models.some((m) => m.providerId === 'openrouter'),
+    'modelos remotos sin key fuera del payload'
   );
+  assert(
+    data.remoteHidden && data.remoteHidden.providers > 0,
+    `remoteHidden cuenta lo oculto (${JSON.stringify(data.remoteHidden)})`
+  );
+  const curated = [
+    'groq',
+    'gemini',
+    'openai',
+    'anthropic',
+    'xai',
+    'nvidia',
+    'huggingface',
+    'deepseek',
+  ];
+  for (const id of curated) {
+    assert(
+      data.providers.some((p) => p.id === id),
+      `curado presente: ${id}`
+    );
+  }
+}
+
+// ── Test 1b: búsqueda remota acotada ─────────────────────────────────────────
+
+function testRemoteSearch() {
+  console.log(C.bold('\n── Test 1b: searchRemoteProviders (acotada, sin secretos) ────'));
+  const found = LLMProvider.searchRemoteProviders('openrouter');
+  assert(found.length >= 1 && found.length <= 12, `acotada 1..12 (${found.length})`);
+  const openrouter = found.find((p) => p.id === 'openrouter');
+  assert(openrouter && openrouter.connectable === true, 'openrouter remoto y conectable');
   assert(openrouter && openrouter.hasKey === false, 'openrouter sin key al inicio');
   assert(
     openrouter && openrouter.doc === 'https://openrouter.ai/docs',
@@ -186,6 +218,13 @@ async function testPickerShape() {
     openrouter && Array.isArray(openrouter.env) && openrouter.env[0] === 'OPENROUTER_API_KEY',
     'env expuesto (solo nombre de var)'
   );
+  assert(
+    openrouter && Array.isArray(openrouter.models) && openrouter.models.length <= 5,
+    'máx 5 modelos por remoto'
+  );
+  assert(!JSON.stringify(found).includes('apiKey'), 'la búsqueda no expone keys');
+  assert(LLMProvider.searchRemoteProviders('').length === 0, 'query vacía → []');
+  assert(LLMProvider.searchRemoteProviders('zzz-sin-existir').length === 0, 'sin match → []');
 }
 
 // ── Test 2: mapeo npm→tipo de conexión ───────────────────────────────────────
@@ -195,16 +234,21 @@ function testTypeMapping() {
   const data = LLMProvider.getModelPickerData();
   const byId = new Map(data.providers.map((p) => [p.id, p]));
 
-  const openrouter = byId.get('openrouter');
   const anthropic = byId.get('anthropic');
   const gemini = byId.get('gemini');
-  const bedrock = byId.get('amazon-bedrock');
-  const cohere = byId.get('cohere');
-  const mistral = byId.get('mistral');
-
-  assert(openrouter && openrouter.type === 'openai', 'openai-compatible → openai');
   assert(anthropic && anthropic.type === 'anthropic', '@ai-sdk/anthropic → anthropic');
   assert(gemini && gemini.type === 'gemini', '@ai-sdk/google → gemini');
+
+  // Remotos solo vía búsqueda acotada (fuera del payload por defecto).
+  const remote = LLMProvider.searchRemoteProviders('openrouter');
+  const openrouter = remote.find((p) => p.id === 'openrouter');
+  const bedrock = LLMProvider.searchRemoteProviders('bedrock').find(
+    (p) => p.id === 'amazon-bedrock'
+  );
+  const cohere = LLMProvider.searchRemoteProviders('cohere').find((p) => p.id === 'cohere');
+  const mistral = LLMProvider.searchRemoteProviders('mistral').find((p) => p.id === 'mistral');
+
+  assert(openrouter && openrouter.type === 'openai', 'openai-compatible → openai');
   assert(bedrock && bedrock.type === 'other', '@ai-sdk/amazon-bedrock → other');
   assert(bedrock && bedrock.connectable === false, 'amazon-bedrock NO conectable');
   assert(cohere && cohere.connectable === false, 'cohere NO conectable (SDK nicho, pese a api)');
@@ -217,27 +261,24 @@ function testTypeMapping() {
 // ── Test 3: modelos remotos con metadata en el picker ─────────────────────────
 
 function testPickerModels() {
-  console.log(C.bold('\n── Test 3: modelos remotos con metadata ─────────────────────────'));
+  console.log(C.bold('\n── Test 3: modelos con metadata + referencias ──────────────────'));
   const data = LLMProvider.getModelPickerData();
   const providerIds = new Set(data.providers.map((p) => p.id));
 
-  const auto = data.models.find(
-    (m) => m.providerId === 'openrouter' && m.modelId === 'openrouter/auto'
+  // Remotos con metadata llegan por búsqueda acotada (no en el payload base).
+  const remote = LLMProvider.searchRemoteProviders('openrouter');
+  const auto = (remote.find((p) => p.id === 'openrouter') || { models: [] }).models.find(
+    (m) => m.modelId === 'openrouter/auto'
   );
   assert(auto && auto.label === 'OpenRouter Auto', 'label del modelo remoto');
   assert(auto && auto.context === 32000, 'context del modelo remoto');
   assert(auto && auto.tools === true, 'tools del modelo remoto');
-  assert(auto && auto.remote === true, 'marcado como remoto');
-  assert(
-    auto && JSON.stringify(auto.effortOptions) === JSON.stringify(['low', 'medium', 'high']),
-    'modelo compatible expone niveles de esfuerzo reales'
-  );
 
   const sonnet = data.models.find(
     (m) => m.providerId === 'anthropic' && m.modelId === 'claude-sonnet-4'
   );
-  assert(sonnet && sonnet.vision === true, 'visión del modelo remoto');
-  assert(sonnet && sonnet.context === 200000, 'context amplio del modelo remoto');
+  assert(sonnet && sonnet.vision === true, 'visión del modelo curado');
+  assert(sonnet && sonnet.context === 200000, 'context amplio del modelo curado');
   assert(sonnet && sonnet.costIn === 3 && sonnet.costOut === 15, 'costes por M expuestos');
 
   assert(
@@ -376,6 +417,7 @@ function testReasoningEffortPayloads() {
 
 (async () => {
   await testPickerShape();
+  testRemoteSearch();
   testTypeMapping();
   testPickerModels();
   testConnectProvider();

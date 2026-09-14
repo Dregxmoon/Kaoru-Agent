@@ -159,6 +159,37 @@ async function testDesktopDiscovery() {
     'hidden'
   );
   assert(hidden === null, 'omite entradas ocultas');
+
+  // Nombres localizados: el primario muta con el locale, los demás viajan
+  // como aliases para que "calculadora" encuentre Calculator sin listas.
+  fs.writeFileSync(
+    path.join(appDir, 'calc.desktop'),
+    '[Desktop Entry]\nType=Application\nName=Calculator\nName[es]=Calculadora\nExec=x\n'
+  );
+  const controlEs = new DesktopControl({
+    platform: 'linux',
+    homeDir: home,
+    env: { XDG_DATA_HOME: path.join(home, '.local', 'share') },
+    spawnImpl: fakeSpawner([]),
+  });
+  const porAlias = await controlEs.searchApps({ query: 'calculadora' });
+  assert(
+    porAlias.some((app) => app.id === 'calc'),
+    '"calculadora" encuentra Calculator por alias localizado'
+  );
+  const parsed = _parseDesktopEntry(
+    '[Desktop Entry]\nType=Application\nName=Calculator\nName[es]=Calculadora\n',
+    'calc'
+  );
+  assert(
+    parsed !== null &&
+      (parsed.name === 'Calculator' || parsed.name === 'Calculadora') &&
+      Array.isArray(parsed.aliases) &&
+      parsed.aliases.length > 0,
+    'conserva ambas formas (primario + aliases)'
+  );
+  await controlEs.launchApp({ app: 'Calculadora' });
+  assert(true, 'lanza por nombre localizado exacto');
 }
 
 async function testWindowsDiscoveryAndLaunch() {

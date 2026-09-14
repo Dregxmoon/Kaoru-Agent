@@ -24,7 +24,8 @@ const { parentPort } = require('worker_threads');
 (async () => {
   try {
     const { pipeline } = await import('@xenova/transformers');
-    const embedder = await pipeline('feature-extraction', 'Xenova/all-MiniLM-L6-v2', {
+    const { EMBED_MODEL_ID } = require('./EmbedModel.js');
+    const embedder = await pipeline('feature-extraction', EMBED_MODEL_ID, {
       progress_callback: undefined, // silenciar en producción
     });
 

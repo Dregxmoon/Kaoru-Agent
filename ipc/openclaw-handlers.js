@@ -139,39 +139,21 @@ function register(ctx) {
           controller.noteProgress({ phase: 'approval', tool: action.tool, status: 'waiting' });
           return new Promise((resolve) => {
             const pattern = approvalPattern(action);
-            const alwaysPromptTools = new Set([
-              'browser',
-              'desktop_snapshot',
-              'desktop_screenshot',
-              'pointer_click',
-              'window_list',
-              'window_focus',
-              'ui_get_state',
-              'ui_wait',
-              'ui_click',
-              'ui_type',
-              'ui_press',
-              'ui_select',
-              'ui_scroll',
-              'window_close',
-              'desktop_capabilities',
-              'process_list',
-              'process_stop',
-              'camera_status',
-              'open_camera',
-            ]);
+            const { isAlwaysPrompt } = require('../core/security/ToolPolicy.js');
+            const { isIrreversible } = require('../core/security/IrreversiblePolicy.js');
+            const irreversible = isIrreversible(action);
             // Auto-aprobación global (config.json → agent.autoApprove): el
             // agente ejecuta acciones de alto impacto sin mostrar el card.
             // El control interactivo queda excluido: contenido web o una UI
             // comprometida no puede convertir una preferencia global antigua
             // en acceso silencioso al escritorio.
-            if (approvalConfig.autoApprove && !alwaysPromptTools.has(action.tool)) {
+            if (approvalConfig.autoApprove && !isAlwaysPrompt(action.tool) && !irreversible) {
               resolve(true);
               return;
             }
             // Aprobación "Siempre" ya registrada en esta sesión → se aprueba
             // directo, sin mostrar el card (patrón opencode).
-            if (isApproved(pattern)) {
+            if (!irreversible && isApproved(pattern)) {
               resolve(true);
               return;
             }

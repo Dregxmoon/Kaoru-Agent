@@ -246,12 +246,37 @@ async function testWebSearch() {
   assert(!ok.error, 'web_search sin error');
 
   fakePageState.results = [];
+  BrowserBridge._setRssFallbackForTests(null);
   const empty = await BrowserBridge.executeWebSearch({ query: 'nada' });
   assert(
     Array.isArray(empty.result) && empty.result.length === 0,
     'web_search sin resultados → []'
   );
   assert(empty.error && empty.error.length > 0, 'web_search sin resultados → error explicativo');
+
+  // Fallback Bing RSS inyectado: Google vacío + RSS con datos → resultados.
+  BrowserBridge._setRssFallbackForTests(async () => [
+    { title: 'Amazon', url: 'https://www.amazon.com.mx/', snippet: 'tienda' },
+  ]);
+  const rescued = await BrowserBridge.executeWebSearch({ query: 'amazon' });
+  assert(
+    Array.isArray(rescued.result) &&
+      rescued.result.length === 1 &&
+      rescued.result[0].url === 'https://www.amazon.com.mx/' &&
+      !rescued.error,
+    'Google vacío + RSS con datos → rescata resultados sin error'
+  );
+
+  // Fallback que falla → error honesto original, sin crash.
+  BrowserBridge._setRssFallbackForTests(async () => {
+    throw new Error('red caída');
+  });
+  const stillEmpty = await BrowserBridge.executeWebSearch({ query: 'nada' });
+  assert(
+    stillEmpty.result.length === 0 && stillEmpty.error && stillEmpty.error.length > 0,
+    'RSS caído → error explicativo original'
+  );
+  BrowserBridge._setRssFallbackForTests(undefined);
   fakePageState.results = [
     { title: 'Resultado Uno', url: 'https://ejemplo.com/1', snippet: 'snippet uno' },
   ];

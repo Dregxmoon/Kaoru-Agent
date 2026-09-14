@@ -160,13 +160,13 @@ function _buildDescription(action, fields) {
     case 'list_apps':
       return `Listar aplicaciones${f.QUERY ? `: ${f.QUERY}` : ''}`;
     case 'launch_app':
-      return `Abrir aplicación: ${f.APLICACIÓN || f.APLICACION || f.APP || f.NOMBRE || '?'}`;
+      return `Abrir aplicación: ${f.APLICACIÓN || f.APLICACION || f.APP || f.APPLICATION || f.NOMBRE || f.NAME || '?'}`;
     case 'open_website':
-      return `Abrir sitio: ${f.SITIO || f.URL || '?'}`;
+      return `Abrir sitio: ${f.SITIO || f.TARGET || f.URL || '?'}`;
     case 'play_media':
       return `Reproducir en ${f.SERVICIO || 'YouTube'}: ${f.QUERY || '?'}`;
     case 'desktop_snapshot':
-      return `Observar escritorio: ${f.APLICACIÓN || f.APLICACION || f.APP || 'todas las ventanas'}`;
+      return `Observar escritorio: ${f.APLICACIÓN || f.APLICACION || f.APP || f.APPLICATION || 'todas las ventanas'}`;
     case 'desktop_screenshot':
       return `Capturar escritorio: ${f.VENTANA || f.NOMBRE || 'pantalla principal'}`;
     case 'pointer_click':
@@ -223,6 +223,19 @@ function _buildDescription(action, fields) {
 // ADEMÁS del diálogo de aprobación — si por lo que sea ese diálogo se salta,
 // esto igual frena la inyección.
 const SHELL_METACHAR_RE = /["'`$;&|<>\n\r]/;
+
+/**
+ * Bandera booleana desde bloque estructurado: true/1/sí/si → true;
+ * ausente o cualquier otro valor → undefined (no false: ausente significa
+ * "el modelo no lo pidió", y el bridge decide el default).
+ * @param {unknown} value
+ */
+function _parseBooleanFlag(value) {
+  if (value === undefined || value === null) return undefined;
+  const normalized = String(value).trim().toLowerCase();
+  if (['true', '1', 'sí', 'si', 'yes'].includes(normalized)) return true;
+  return undefined;
+}
 
 function _sanitizeShellArg(value) {
   if (typeof value !== 'string') return null;
@@ -526,13 +539,22 @@ function _buildParams(action, fields, userGoal, projectCwd) {
       return { query: fields.QUERY || fields.APLICACIÓN || fields.APLICACION || '' };
 
     case 'launch_app':
-      return { app: fields.APLICACIÓN || fields.APLICACION || fields.APP || fields.NOMBRE };
+      return {
+        app:
+          fields.APLICACIÓN ||
+          fields.APLICACION ||
+          fields.APP ||
+          fields.APPLICATION ||
+          fields.NOMBRE ||
+          fields.NAME,
+      };
 
     case 'open_website':
       return {
-        target: fields.SITIO || fields.URL,
+        target: fields.SITIO || fields.TARGET || fields.URL,
         browser: fields.NAVEGADOR || fields.BROWSER,
         control: fields.CONTROL || 'external',
+        needsVerification: _parseBooleanFlag(fields.VERIFY || fields.VERIFICAR || fields.NEEDS),
       };
 
     case 'play_media':
@@ -546,7 +568,13 @@ function _buildParams(action, fields, userGoal, projectCwd) {
     case 'desktop_snapshot':
     case 'window_list':
       return {
-        application: fields.APLICACIÓN || fields.APLICACION || fields.APP || fields.VENTANA,
+        application:
+          fields.APLICACIÓN ||
+          fields.APLICACION ||
+          fields.APP ||
+          fields.APPLICATION ||
+          fields.VENTANA ||
+          fields.WINDOW,
         maxDepth: fields.PROFUNDIDAD ? Number(fields.PROFUNDIDAD) : undefined,
         maxNodes: fields.LIMITE ? Number(fields.LIMITE) : undefined,
       };
@@ -554,7 +582,7 @@ function _buildParams(action, fields, userGoal, projectCwd) {
     case 'desktop_screenshot':
       return {
         sourceId: fields.SOURCE_ID,
-        sourceName: fields.VENTANA || fields.NOMBRE,
+        sourceName: fields.VENTANA || fields.WINDOW || fields.NOMBRE || fields.NAME,
         width: fields.ANCHO ? Number(fields.ANCHO) : undefined,
         height: fields.ALTO ? Number(fields.ALTO) : undefined,
       };
@@ -790,7 +818,9 @@ class StructuredActionParser {
     // "CONTENIDO:" y continúa hasta la siguiente línea "CLAVE: valor" o el final
     // del bloque. Si se normalizara primero, "||" de JS o "a|b" de regex se
     // volverían saltos de línea y el archivo quedaría escrito corrupto en disco.
-    const contExtracted = _extractFieldSpan(workingContent, 'CONTENIDO');
+    const contExtracted =
+      _extractFieldSpan(workingContent, 'CONTENIDO') ||
+      _extractFieldSpan(workingContent, 'CONTENT');
     if (contExtracted) {
       fields['CONTENIDO'] = contExtracted.value;
       workingContent =
@@ -803,7 +833,9 @@ class StructuredActionParser {
     // línea como hacía el parser genérico. Solo cuando el campo está al inicio
     // de línea: el formato compacto "| COMANDO: x | CWD: y" sigue el camino
     // genérico (allí el valor es de una línea y el "|" separa campos).
-    const cmdExtracted = _extractFieldSpan(workingContent, 'COMANDO', false);
+    const cmdExtracted =
+      _extractFieldSpan(workingContent, 'COMANDO', false) ||
+      _extractFieldSpan(workingContent, 'COMMAND', false);
     if (cmdExtracted) {
       fields['COMANDO'] = cmdExtracted.value;
       workingContent =
@@ -823,6 +855,24 @@ class StructuredActionParser {
       const value = line.slice(colonIdx + 1).trim();
 
       if (key && value) fields[key] = value;
+    }
+
+    // Normalize protocol keys, never free text or file content.
+    const canonicalAliases = {
+      COMMAND: 'COMANDO',
+      CONTENT: 'CONTENIDO',
+      FILE: 'ARCHIVO',
+      PATH: 'RUTA',
+      SERVER: 'SERVIDOR',
+      TOOL: 'HERRAMIENTA',
+      INSTRUCTION: 'INSTRUCCION',
+      APPLICATION: 'APLICACION',
+      WINDOW: 'VENTANA',
+      NAME: 'NOMBRE',
+      NEEDS_VERIFICATION: 'VERIFY',
+    };
+    for (const [english, legacy] of Object.entries(canonicalAliases)) {
+      if (!fields[legacy] && fields[english]) fields[legacy] = fields[english];
     }
 
     // ACCIÓN es obligatorio — salvo que venga MCP_TOOL, que identifica la
@@ -873,7 +923,7 @@ class StructuredActionParser {
       }
     }
 
-    if (['run_command', 'run_script', 'git_action', 'install_package'].includes(action)) {
+    if (['run_command', 'run_script', 'git_action', 'install_package', 'exec'].includes(action)) {
       if (!fields.COMANDO) {
         logger.warn('StructuredActionParser', `[structured-parser] ${action} sin campo COMANDO`);
         return null;
@@ -900,13 +950,15 @@ class StructuredActionParser {
       !fields.APLICACIÓN &&
       !fields.APLICACION &&
       !fields.APP &&
-      !fields.NOMBRE
+      !fields.APPLICATION &&
+      !fields.NOMBRE &&
+      !fields.NAME
     ) {
       logger.warn('StructuredActionParser', '[structured-parser] launch_app sin APLICACIÓN');
       return null;
     }
 
-    if (action === 'open_website' && !fields.SITIO && !fields.URL) {
+    if (action === 'open_website' && !fields.SITIO && !fields.TARGET && !fields.URL) {
       logger.warn('StructuredActionParser', '[structured-parser] open_website sin SITIO o URL');
       return null;
     }

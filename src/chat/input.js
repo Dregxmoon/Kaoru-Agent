@@ -506,16 +506,21 @@ function _mbrRender() {
   }
   const connected = (_pickerData.providers || []).filter((p) => p.hasKey).length;
   const total = _pickerData.models.length;
+  const hidden = _pickerData.remoteHidden || null;
+  const hiddenNote =
+    hidden && hidden.providers > 0
+      ? ` (+${hidden.providers} remotos ocultos: ${_pickerData.providers.length} empresas)`
+      : '';
   const toggleBtn = document.getElementById('mbr-toggle-all');
   toggleBtn.style.display = q ? 'none' : 'inline-block';
   toggleBtn.textContent = _browserShowAll ? 'ver solo conectados' : 'ver todos los proveedores';
   const pl = (n, s, p) => `${n} ${n === 1 ? s : p}`;
   if (q) {
-    modelBrowserCount.textContent = `${pl(rows.length, 'modelo', 'modelos')} de ${total} modelos`;
+    modelBrowserCount.textContent = `${pl(rows.length, 'modelo', 'modelos')} de ${total} modelos${hiddenNote}`;
   } else if (_browserShowAll) {
-    modelBrowserCount.textContent = `${pl(total, 'modelo', 'modelos')}`;
+    modelBrowserCount.textContent = `${pl(total, 'modelo', 'modelos')}${hiddenNote}`;
   } else {
-    modelBrowserCount.textContent = `${pl(connected, 'proveedor conectado', 'proveedores conectados')}`;
+    modelBrowserCount.textContent = `${pl(connected, 'proveedor conectado', 'proveedores conectados')}${hiddenNote}`;
   }
   modelBrowserList.innerHTML = groups
     .map((g) => _mbrGroupHtml(g.providerId, byId.get(g.providerId) || {}, g.models, byId, favs))

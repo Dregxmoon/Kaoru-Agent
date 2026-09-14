@@ -237,33 +237,6 @@ function isHighImpact(tool, params) {
 
   if (tool === 'read' && params.path) return _isOutsideProject(params.path);
 
-  if (
-    tool === 'browser' ||
-    tool === 'list_apps' ||
-    tool === 'launch_app' ||
-    tool === 'open_website' ||
-    tool === 'play_media' ||
-    tool === 'desktop_snapshot' ||
-    tool === 'desktop_screenshot' ||
-    tool === 'pointer_click' ||
-    tool === 'window_list' ||
-    tool === 'window_focus' ||
-    tool === 'ui_get_state' ||
-    tool === 'ui_wait' ||
-    tool === 'ui_click' ||
-    tool === 'ui_type' ||
-    tool === 'ui_press' ||
-    tool === 'ui_select' ||
-    tool === 'ui_scroll' ||
-    tool === 'window_close' ||
-    tool === 'desktop_capabilities' ||
-    tool === 'process_list' ||
-    tool === 'process_stop' ||
-    tool === 'camera_status' ||
-    tool === 'open_camera'
-  )
-    return true;
-
   if (tool === 'edit_file' && params.path)
     return _isSensitivePath(params.path) || _isOutsideProject(params.path);
 
@@ -274,28 +247,21 @@ function isHighImpact(tool, params) {
       _isOutsideProject(params.path)
     );
 
-  if (tool === 'apply_patch') return true;
-  if (tool === 'code_execution') return true;
-
   if (tool === 'mcp') return _mcpRequiresApproval(params);
 
   // ── Plugins: ejecutan código arbitrario del usuario, default = preguntar ──
   if (tool === 'plugin' || (typeof tool === 'string' && tool.startsWith('plugin.'))) return true;
 
-  // ── Git / GitHub nativos (§10): mutadores requieren aprobación ──────────
-  if (tool === 'git_commit' || tool === 'git_merge' || tool === 'git_rebase') return true;
-  if (tool === 'git_push') return true;
+  // ── Git stash y LSP rename dependen de params ───────────────────────────
   if (tool === 'git_stash') return params?.action !== 'list';
-  if (tool === 'git_add') return true;
-
-  // ── LSP: rename muta múltiples archivos vía WorkspaceEdit ────────────────
   if (tool === 'rename' && params?.newName) return true;
-  if (tool === 'github_issue_create') return true;
-  if (tool === 'github_issue_comment') return true;
-  if (tool === 'github_issue_close') return true;
-  if (tool === 'github_pr_create') return true;
-  if (tool === 'github_pr_review') return true;
 
+  // ── Resto estático: tabla única de autoridad (ToolPolicy.js) ─────────────
+  // Misma semántica que la lista inline anterior; la tabla es la que manda y
+  // el test de paridad lo verifica contra todas las tools registradas.
+  const { policyFor } = require('../security/ToolPolicy.js');
+  const policy = policyFor(tool);
+  if (policy) return policy.impact === 'high';
   return false;
 }
 

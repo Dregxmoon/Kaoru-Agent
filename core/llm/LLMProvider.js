@@ -2324,8 +2324,78 @@ function computeDefaultPickerRows(providers, models, favorites) {
   return rows;
 }
 
+/**
+ * Búsqueda acotada en el catálogo remoto (models.dev) para conectar un
+ * proveedor nuevo sin inundar el picker: como máximo `limit` proveedores
+ * (default 12) con sus 5 primeros modelos. Solo lectura, sin secretos.
+ * @param {string} query nombre o id (substring, case-insensitive)
+ * @param {number} [limit]
+ */
+function searchRemoteProviders(query, limit = 12) {
+  const q = String(query || '')
+    .trim()
+    .toLowerCase();
+  if (!q) return [];
+  const cap = Math.floor(Math.min(Math.max(Number(limit) || 12, 1), 25));
+  const out = [];
+  for (const info of getRemoteProviders()) {
+    if (out.length >= cap) break;
+    if (
+      String(info.id || '')
+        .toLowerCase()
+        .includes(q) ||
+      String(info.name || '')
+        .toLowerCase()
+        .includes(q)
+    ) {
+      const metas = (_remoteCatalog && _remoteCatalog[info.id]) || {};
+      const models = Object.entries(metas)
+        .slice(0, 5)
+        .map(([modelId, meta]) => ({
+          providerId: info.id,
+          modelId,
+          label: (meta && meta.label) || modelId,
+          context: (meta && meta.context) || 0,
+          tools: !!(meta && meta.tools),
+          vision: !!(meta && meta.vision),
+        }));
+      out.push({
+        id: info.id,
+        name: info.name,
+        // El índice remoto trae npm/doc/env pero NO el tipo mapeado (eso lo
+        // hacía el picker); se mapea igual acá para UI consistente.
+        type: _mapNpmToType(info.npm),
+        connectable: _mapNpmToType(info.npm) !== 'other',
+        hasKey: !!_getApiKey(info.id),
+        doc: info.doc || null,
+        env: info.env || [],
+        models,
+      });
+    }
+  }
+  return out;
+}
+
 function getModelPickerData() {
-  const providers = _providerPickerStates();
+  const allProviders = _providerPickerStates();
+  // Tope anti-miles: UNA entrada por empresa. El payload solo trae builtins +
+  // customs + remotos con key; los 400+ remotos puros de models.dev quedan
+  // fuera (ver remoteHidden) y se descubren por búsqueda explícita acotada
+  // (searchRemoteProviders). OJO: un builtin enriquecido por el remoto sigue
+  // siendo builtin (remote:true), NO se filtra. Así el picker nunca muestra
+  // miles de filas.
+  const favoriteProviders = new Set(getFavorites().map((key) => key.slice(0, key.indexOf('/'))));
+  const providers = allProviders.filter(
+    (p) => p.builtin || p.custom || p.hasKey || favoriteProviders.has(p.id)
+  );
+  const visibleIds = new Set(providers.map((p) => p.id));
+  let hiddenProviders = 0;
+  let hiddenModels = 0;
+  for (const p of allProviders) {
+    if (visibleIds.has(p.id)) continue;
+    hiddenProviders++;
+    hiddenModels += Number(p.modelCount) || 0;
+  }
   const registry = new Map(getProviders().map((p) => [p.id, p]));
   const models = [];
   const seen = new Set();
@@ -2362,6 +2432,7 @@ function getModelPickerData() {
     providers,
     models,
     defaultModels: computeDefaultPickerRows(providers, models, favorites),
+    remoteHidden: { providers: hiddenProviders, models: hiddenModels },
   };
 }
 
@@ -2552,6 +2623,7 @@ module.exports = {
   resolveModelId,
   getModelPickerData,
   computeDefaultPickerRows,
+  searchRemoteProviders,
   connectProvider,
   setFavoriteModel,
   getFavorites,

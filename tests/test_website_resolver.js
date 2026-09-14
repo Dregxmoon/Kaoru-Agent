@@ -132,6 +132,116 @@ async function testBusquedaFalla() {
   assert(/captcha de Google/.test(result.error), 'propaga el motivo real del fallo', result.error);
 }
 
+async function testScoringRelevancia() {
+  console.log('\n── P1: elige por relevancia, no por orden de llegada ───');
+  const bridge = makeBridge({
+    webSearch: async () => ({
+      result: [
+        { title: 'Directorio genérico de tiendas', url: 'https://directorio.example/tiendas' },
+        { title: 'Amazon España', url: 'https://www.amazon.es/' },
+      ],
+    }),
+    urlGuard: async () => ({ safe: true }),
+  });
+  const result = await bridge.execute('open_website', { target: 'amazon' });
+  assert(
+    result.ok && result.result.url === 'https://www.amazon.es/',
+    'el host que cubre la consulta gana aunque llegue segundo',
+    JSON.stringify(result)
+  );
+  assert(
+    typeof result.result.score === 'number' && result.result.score > 0,
+    'el score viaja como evidencia auditable'
+  );
+}
+
+async function testCache() {
+  console.log('\n── P1: la búsqueda se cachea con TTL ───');
+  let searches = 0;
+  const bridge = makeBridge({
+    webSearch: async () => {
+      searches++;
+      return { result: [{ title: 'Amazon', url: 'https://www.amazon.es/' }] };
+    },
+    urlGuard: async () => ({ safe: true }),
+  });
+  const first = await bridge.execute('open_website', { target: 'amazon tienda' });
+  const second = await bridge.execute('open_website', { target: 'amazon tienda' });
+  assert(first.ok && second.ok, 'ambas resoluciones tienen éxito');
+  assert(searches === 1, 'la segunda resolución no tocó la red (caché)', `búsquedas: ${searches}`);
+  assert(second.result.cached === true, 'se marca cached:true como evidencia');
+}
+
+async function testParidadDesktopControl() {
+  console.log('\n── P0: DesktopControl directo resuelve igual que el bridge ───');
+  const { DesktopControl } = require('../core/desktop/DesktopControl.js');
+  const { WebsiteResolver } = require('../core/desktop/WebsiteResolver.js');
+  const { SITE_ALIASES } = require('../core/desktop/DesktopControl.js');
+  const opened = [];
+  const control = new DesktopControl({
+    platform: 'linux',
+    openExternal: async (url) => opened.push(url),
+    urlGuard: async () => ({ safe: true }),
+  });
+  control.setWebsiteResolver(
+    new WebsiteResolver({
+      aliases: SITE_ALIASES,
+      webSearch: async () => ({ result: [{ title: 'Amazon', url: 'https://www.amazon.es/' }] }),
+      urlGuard: async () => ({ safe: true }),
+    })
+  );
+  const result = await control.openWebsite({ target: 'amazon' });
+  assert(
+    opened[0] === 'https://www.amazon.es/' && result.resolvedBy === 'search',
+    'el control directo abre el destino resuelto con evidencia',
+    JSON.stringify(result)
+  );
+
+  const sinResolver = new DesktopControl({
+    platform: 'linux',
+    openExternal: async () => {},
+    urlGuard: async () => ({ safe: true }),
+  });
+  let mensaje = '';
+  try {
+    await sinResolver.openWebsite({ target: 'amazon' });
+  } catch (error) {
+    mensaje = error instanceof Error ? error.message : String(error);
+  }
+  assert(
+    /sitio conocido/.test(mensaje),
+    'sin resolver inyectado se conserva el error clásico (sin regresión)'
+  );
+}
+
+async function testWindowsLinux() {
+  console.log('\n── Paridad Linux/Windows en apertura resuelta ───');
+  const { DesktopControl } = require('../core/desktop/DesktopControl.js');
+  const { WebsiteResolver } = require('../core/desktop/WebsiteResolver.js');
+  const { SITE_ALIASES } = require('../core/desktop/DesktopControl.js');
+  for (const platform of ['linux', 'win32']) {
+    const launched = [];
+    const control = new DesktopControl({
+      platform,
+      openExternal: async (url) => launched.push(url),
+      urlGuard: async () => ({ safe: true }),
+    });
+    control.setWebsiteResolver(
+      new WebsiteResolver({
+        aliases: SITE_ALIASES,
+        webSearch: async () => ({ result: [{ title: 'Y', url: 'https://www.youtube.com/' }] }),
+        urlGuard: async () => ({ safe: true }),
+      })
+    );
+    const result = await control.openWebsite({ target: 'youtube' });
+    assert(
+      result.url === 'https://www.youtube.com/' && result.resolvedBy === 'alias',
+      `alias en ${platform} no toca la red ni el lanzador`,
+      JSON.stringify(result)
+    );
+  }
+}
+
 (async () => {
   console.log('\x1b[1m\n════ Resolver universal de open_website (Fase A1) ════\x1b[0m');
   await testUrlDirecta();
@@ -139,6 +249,10 @@ async function testBusquedaFalla() {
   await testFallbackBusqueda();
   await testFallbackSinResultadosSeguros();
   await testBusquedaFalla();
+  await testScoringRelevancia();
+  await testCache();
+  await testParidadDesktopControl();
+  await testWindowsLinux();
   console.log(`\nResultado: ${passed} passed  ${failed} failed`);
   process.exit(failed > 0 ? 1 : 0);
 })();

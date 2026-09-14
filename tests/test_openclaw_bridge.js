@@ -6,6 +6,7 @@
 
 const http = require('http');
 const { OpenClawBridge } = require('../core/planner/OpenClawBridge.js');
+const BrowserBridge = require('../core/planner/BrowserBridge.js');
 
 const C = {
   green: (s) => `\x1b[32m${s}\x1b[0m`,
@@ -280,6 +281,8 @@ async function testCloseBrowserShortcut() {
 
 async function main() {
   installFakePlaywright();
+  BrowserBridge._setUrlGuardForTests(async () => ({ safe: true }));
+  BrowserBridge._setRssFallbackForTests(null);
   const { server } = await startMockOpenclaw();
   try {
     await testAvailability();
@@ -291,6 +294,8 @@ async function main() {
     await testCloseBrowserShortcut();
   } finally {
     server.close();
+    BrowserBridge._setUrlGuardForTests(null);
+    BrowserBridge._setRssFallbackForTests(undefined);
   }
 
   console.log(C.bold('\n════════════════════════════════════════════════════════'));

@@ -53,7 +53,7 @@ const MAX_APPS = 250;
 const MAX_DISCOVERED_APPS = 2000;
 
 /** @typedef {{safe: boolean, reason?: string}} UrlSafety */
-/** @typedef {{name: string, id: string, source?: string}} InstalledApp */
+/** @typedef {{name: string, id: string, source?: string, aliases?: string[]}} InstalledApp */
 /** @typedef {(command: string, args: string[], options: object) => import('child_process').ChildProcess} SpawnFn */
 /** @typedef {(url: string) => Promise<unknown>} OpenExternalFn */
 /** @typedef {(url: string, opts?: {timeout?: number}) => Promise<UrlSafety>} UrlGuardFn */
@@ -82,6 +82,19 @@ function _assertSafeLabel(value, field) {
   return text;
 }
 
+/**
+ * Idioma del sistema para nombres localizados (p.ej. "es" desde es_MX.UTF-8).
+ * Genérico: sin listas por idioma, solo prefijo del locale del entorno.
+ */
+function _systemLang() {
+  const raw = String(
+    (typeof process !== 'undefined' && process.env && (process.env.LC_ALL || process.env.LANG)) ||
+      ''
+  ).toLowerCase();
+  const match = /^[a-z]{2,3}/.exec(raw);
+  return match ? match[0] : '';
+}
+
 /** @param {string} content @param {string} id @returns {InstalledApp|null} */
 function _parseDesktopEntry(content, id) {
   let inEntry = false;
@@ -89,7 +102,8 @@ function _parseDesktopEntry(content, id) {
   let hidden = false;
   let noDisplay = false;
   let type = '';
-  let localizedName = '';
+  /** @type {Map<string, string>} lang → nombre (Name[xx]) */
+  const localized = new Map();
   for (const rawLine of content.split(/\r?\n/)) {
     const line = rawLine.trim();
     if (line.startsWith('[')) {
@@ -102,19 +116,36 @@ function _parseDesktopEntry(content, id) {
     const key = line.slice(0, separator);
     const value = line.slice(separator + 1).trim();
     if (key === 'Name' && !name) name = value;
-    else if (key.startsWith('Name[') && !localizedName) localizedName = value;
-    else if (key === 'Type') type = value;
+    else if (key.startsWith('Name[') && key.endsWith(']')) {
+      const lang = key.slice(5, -1).toLowerCase();
+      if (lang && value && !localized.has(lang)) localized.set(lang, value);
+    } else if (key === 'Type') type = value;
     else if (key === 'Hidden') hidden = value.toLowerCase() === 'true';
     else if (key === 'NoDisplay') noDisplay = value.toLowerCase() === 'true';
   }
-  name = name || localizedName;
-  if (!name || type !== 'Application' || hidden || noDisplay) return null;
-  return { name: name.slice(0, 120), id };
+  // El nombre primario muta con el usuario: Name[su idioma] → Name genérico.
+  // Los demás nombres viajan como aliases para que "calculadora" encuentre
+  // Calculator sin listas de apps por idioma en el código.
+  const systemLang = _systemLang();
+  let primary = name;
+  if (systemLang) {
+    primary =
+      localized.get(systemLang) ||
+      [...localized.entries()].find(([lang]) => lang.startsWith(systemLang))?.[1] ||
+      name;
+  }
+  primary = primary || name || [...localized.values()][0] || '';
+  if (!primary || type !== 'Application' || hidden || noDisplay) return null;
+  const aliases = [...new Set([name, ...localized.values()])]
+    .filter((candidate) => candidate && candidate !== primary)
+    .map((candidate) => candidate.slice(0, 120))
+    .slice(0, 8);
+  return { name: primary.slice(0, 120), id, aliases };
 }
 
 class DesktopControl {
   /**
-   * @param {{platform?: NodeJS.Platform, spawnImpl?: SpawnFn, processRunner?: typeof runJsonProcess, openExternal?: OpenExternalFn|null, urlGuard?: UrlGuardFn, homeDir?: string, env?: NodeJS.ProcessEnv, processLister?: (()=>Promise<ProcessList>)|null, killProcess?: ((pid:number)=>Promise<void>|void)|null, cameraStatus?: (()=>Promise<string>|string)|null}} [options]
+   * @param {{platform?: NodeJS.Platform, spawnImpl?: SpawnFn, processRunner?: typeof runJsonProcess, openExternal?: OpenExternalFn|null, urlGuard?: UrlGuardFn, homeDir?: string, env?: NodeJS.ProcessEnv, processLister?: (()=>Promise<ProcessList>)|null, killProcess?: ((pid:number)=>Promise<void>|void)|null, cameraStatus?: (()=>Promise<string>|string)|null, websiteResolver?: {resolve: (target: string) => Promise<{url: string, resolvedBy: string, query?: string}>}|null}} [options]
    */
   constructor(options = {}) {
     this._platform = options.platform || process.platform;
@@ -127,6 +158,20 @@ class DesktopControl {
     this._processLister = options.processLister || null;
     this._killProcess = options.killProcess || null;
     this._cameraStatus = options.cameraStatus || null;
+    this._websiteResolver = options.websiteResolver || null;
+  }
+
+  /**
+   * Inyecta el resolver universal de destinos (mismo contrato que usa
+   * OpenClawBridge). Sin resolver, los destinos desconocidos se rechazan.
+   * @param {{resolve: (target: string) => Promise<{url: string, resolvedBy: string, query?: string}>}|null} resolver
+   */
+  setWebsiteResolver(resolver) {
+    this._websiteResolver = resolver || null;
+  }
+
+  getWebsiteResolver() {
+    return this._websiteResolver;
   }
 
   /** @returns {Promise<InstalledApp[]>} */
@@ -141,10 +186,16 @@ class DesktopControl {
   async searchApps(params = {}) {
     const query = _normalize(params.query);
     const apps = await this.listApps();
-    return (query ? apps.filter((app) => _normalize(app.name).includes(query)) : apps).slice(
-      0,
-      MAX_APPS
-    );
+    return (
+      query
+        ? apps.filter(
+            (app) =>
+              _normalize(app.name).includes(query) ||
+              (Array.isArray(app.aliases) &&
+                app.aliases.some((alias) => _normalize(alias).includes(query)))
+          )
+        : apps
+    ).slice(0, MAX_APPS);
   }
 
   /** @param {{app?: unknown}} params */
@@ -159,7 +210,11 @@ class DesktopControl {
 
     const apps = await this.listApps();
     const matched = apps.find(
-      (app) => _normalize(app.name) === normalized || _normalize(app.id) === normalized
+      (app) =>
+        _normalize(app.name) === normalized ||
+        _normalize(app.id) === normalized ||
+        (Array.isArray(app.aliases) &&
+          app.aliases.some((alias) => _normalize(alias) === normalized))
     );
     if (!matched) {
       throw new Error(`Aplicación no encontrada: ${requested}. Usa list_apps para ver opciones.`);
@@ -181,11 +236,28 @@ class DesktopControl {
     const rawTarget = String((params && params.target) || '').trim();
     if (!rawTarget || rawTarget.length > 2048) throw new Error('Sitio o URL inválido');
     const aliasUrl = SITE_ALIASES[_normalize(rawTarget)];
-    const candidate = aliasUrl || rawTarget;
-    let parsed;
+    let candidate = aliasUrl || rawTarget;
+    /** @type {{url: string, resolvedBy: string, query?: string}|null} */
+    let resolved = aliasUrl ? { url: aliasUrl, resolvedBy: 'alias' } : null;
+    let parsed = null;
     try {
       parsed = new URL(candidate);
     } catch (_) {
+      parsed = null;
+    }
+    if (!parsed && this._websiteResolver) {
+      // P0: mismo contrato que OpenClawBridge — un destino desconocido se
+      // resuelve en runtime (búsqueda + scoring + UrlGuard) en vez de exigir
+      // sitios predefinidos. Ya era URL/alias: no se toca la red.
+      resolved = await this._websiteResolver.resolve(rawTarget);
+      candidate = resolved.url;
+      try {
+        parsed = new URL(candidate);
+      } catch (_) {
+        parsed = null;
+      }
+    }
+    if (!parsed) {
       throw new Error('Usa un sitio conocido (por ejemplo youtube) o una URL https completa');
     }
     if (parsed.protocol !== 'https:') throw new Error('Solo se permiten URLs https');
@@ -205,7 +277,13 @@ class DesktopControl {
 
     parsed.search = '';
     parsed.hash = '';
-    return { kind: 'website', url: parsed.href, browser: browser || 'default' };
+    return {
+      kind: 'website',
+      url: parsed.href,
+      browser: browser || 'default',
+      ...(resolved ? { resolvedBy: resolved.resolvedBy } : {}),
+      ...(resolved && resolved.query ? { resolvedFromQuery: resolved.query } : {}),
+    };
   }
 
   /** @param {{query?: unknown, limit?: unknown}} [params] */

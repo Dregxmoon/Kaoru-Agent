@@ -346,8 +346,15 @@ async function runAgent(userMessage, opts = {}) {
     telemetry: state.telemetry || null,
   });
 
+  // Idioma inferido del turno (GroundingEngine → context.language): el loop
+  // lo usa para la línea de respuesta y el locale del navegador managed.
+  // Si el caller ya trae uno explícito (tests, SDK), ese manda.
+  const responseLanguage =
+    opts.responseLanguage || (context.language?.source !== 'default' ? context.language : null);
+
   const loopOpts = {
     ...opts,
+    responseLanguage,
     tools: context.nativeToolSchemas || null,
     nativeMcpMap: context.nativeMcpMap || {},
     toolCatalog: context.toolCatalog || null,
