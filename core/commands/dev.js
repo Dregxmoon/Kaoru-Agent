@@ -243,30 +243,10 @@ module.exports = function registerCommands(register) {
 
   register({
     name: 'undo',
-    description: 'Revierte el ultimo commit (git)',
+    description: 'Consulta la recuperación de la última tarea',
     usage: '/undo',
-    handler: async (args, ctx) => {
-      if (!ctx.ipcRenderer) return 'IPC no disponible.';
-      try {
-        const stat = await ctx.ipcRenderer.invoke('exec-command', {
-          command: 'git log --oneline -1',
-          timeout: 5,
-        });
-        if (!stat || stat.exitCode !== 0)
-          return 'No hay commits para revertir o no es un repo git.';
-        const lastCommit = (stat.stdout || '').trim();
-        const result = await ctx.ipcRenderer.invoke('exec-command', {
-          command: 'git reset --soft HEAD~1',
-          timeout: 5,
-        });
-        if (result.exitCode === 0) {
-          return `Commit revertido (soft): \`${lastCommit}\`\nLos cambios quedan en staging. Usa \`git reset HEAD .\` para sacarlos si quieres.`;
-        }
-        return `Error al revertir: ${result.stderr || 'desconocido'}`;
-      } catch (e) {
-        return `Error: ${e.message}`;
-      }
-    },
+    handler: async () =>
+      'Para recuperar los cambios de la última tarea usa `/revertir-tarea list` y después `/revertir-tarea [id]`. Para deshacer un commit revisa Git manualmente; Kaoru no ejecuta un reset desde este comando.',
   });
 
   register({

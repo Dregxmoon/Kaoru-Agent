@@ -4,9 +4,9 @@
 
 # Kaoru
 
-### Una presencia inteligente en tu escritorio
+### Tu asistente personal de IA con capacidad de agente
 
-**Observa el contexto · recuerda lo importante · propone antes de actuar**
+**Conversa · recuerda · propone · actúa con tu permiso**
 
 [![CI](https://github.com/Dregxmoon/Kaoru-Agent/actions/workflows/ci.yml/badge.svg?branch=produccion)](https://github.com/Dregxmoon/Kaoru-Agent/actions/workflows/ci.yml)
 [![Electron 28](https://img.shields.io/badge/Electron-28-47848F?logo=electron&logoColor=white)](https://www.electronjs.org/)
@@ -15,7 +15,7 @@
 
 **Español** · [日本語](./docs/i18n/ja/README.md) · [English](./docs/i18n/en/README.md)
 
-[Inicio rápido](#6-inicio-rápido) · [Arquitectura](#2-arquitectura-del-sistema) · [Seguridad](#seguridad) · [Privacidad](./docs/web/privacy.html) · [Términos](./docs/web/terms.html) · [Documentación](#8-documentación)
+[Inicio rápido](#6-inicio-rápido) · [Arquitectura](#2-arquitectura-del-sistema) · [Seguridad](./SECURITY.md) · [Roadmap](./ROADMAP.md) · [Privacidad](./docs/web/privacy.html) · [Documentación](#8-documentación)
 
 </div>
 
@@ -23,7 +23,11 @@
 
 > El español es la fuente canónica. Las demás ediciones ofrecen una portada mantenida y enlazan a la referencia técnica en español cuando todavía no existe una traducción equivalente. Consulta la [política de idiomas](./docs/i18n/README.md).
 
-Una plataforma de asistencia personal que vive en el escritorio del usuario. Combina un avatar Live2D, un modelo de lenguaje conversacional, memoria semántica persistente con decaimiento temporal, percepción en tiempo real del sistema operativo, y un motor de proactividad que decide _cuándo_ hablar, _cuándo_ callar y _cómo_ entregar su ayuda — sin depender de un chatbot reactivo ni de temporizadores ciegos.
+Kaoru es un asistente personal de IA que vive en el escritorio. Conversa, conserva contexto y puede acompañarte por texto, voz y presencia Live2D. Cuando necesitas pasar a la acción, trabaja como agente sobre tu proyecto y las herramientas permitidas: planifica, ejecuta y presenta resultados para revisión.
+
+**Requisitos provisionales:** CLI sin avatar: 4 GB RAM (8 GB recomendados). Aplicación de escritorio
+con Live2D: 8 GB RAM (16 GB recomendados). No exige GPU dedicada con LLM remoto; un modelo local puede
+necesitar hardware adicional. Consulta [medición, CPU, disco y límites por modo](./docs/requisitos.md).
 
 ### Índice
 
@@ -557,28 +561,21 @@ npm run coverage:check    # además valida umbrales (guard de regresión)
 
 ## 7. Estado del proyecto
 
-| Componente                                  | Estado                                                                                                                                                                 |
-| ------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Overlay Live2D + chat                       | ✅ Operativo                                                                                                                                                           |
-| Modo agente/chat con badge y % de contexto  | ✅ Operativo                                                                                                                                                           |
-| Gestos LLM-driven (marcadores `(gesto: x)`) | ✅ Operativo                                                                                                                                                           |
-| Streaming de respuesta con Markdown en vivo | ✅ Operativo                                                                                                                                                           |
-| Memoria semántica persistente               | ✅ Operativo                                                                                                                                                           |
-| Sensor de SO (Windows/Linux)                | ✅ Operativo                                                                                                                                                           |
-| Ejecución de acciones con consentimiento    | ✅ Operativo                                                                                                                                                           |
-| MCP + agentes + skills                      | ✅ Operativo                                                                                                                                                           |
-| Motor de decisión proactiva (Fases F–G)     | ✅ Operativo                                                                                                                                                           |
-| Aprendizaje por feedback (pesos + outcomes) | ✅ Operativo                                                                                                                                                           |
-| Telemetría local                            | ✅ Operativo                                                                                                                                                           |
-| Agente de código profundo (LSP)             | ✅ Operativo                                                                                                                                                           |
-| Plugins y skills                            | ✅ Operativo                                                                                                                                                           |
-| Modelo de confianza del agente              | ✅ Operativo                                                                                                                                                           |
-| Automatización de escritorio                | ✅ Linux (AT-SPI2) · ✅ Windows (UI Automation) · ⚠️ macOS sin paridad de controles semánticos                                                                         |
-| Navegador personal + administrado           | ✅ Apertura en navegador predeterminado · ✅ sesión aislada Playwright para control verificable                                                                        |
-| Permisos por capacidad                      | ✅ Aplicaciones · navegador · pantalla · puntero · teclado · procesos · cámara                                                                                         |
-| Sandbox de proceso                          | ✅ Windows AppContainer · ✅ Linux <code>bwrap</code> cuando está disponible · ⚠️ macOS sin sandbox adicional de OpenClaw. El health check informa el estado efectivo. |
+| Área | Madurez | Límite principal |
+| --- | --- | --- |
+| Conversación, proveedores y streaming | Beta | La calidad, coste y privacidad dependen del proveedor elegido. |
+| Agente de código, LSP y verificación | Beta | Falta validación externa en repositorios y equipos diversos. |
+| Memoria local y proactividad | Beta | Necesita evaluación longitudinal con usuarios externos. |
+| Voz y Live2D | Experimental | Requiere dependencias y assets opcionales con derechos adecuados. |
+| Escritorio Linux y Windows | Beta | La cobertura depende de la accesibilidad de cada aplicación. |
+| Escritorio macOS | Experimental | Sin paridad semántica ni sandbox adicional del ejecutor. |
+| MCP, plugins y skills | Experimental | Cada extensión añade superficie de confianza propia. |
+| Instaladores y actualizaciones | Beta | Faltan firma, notarización y onboarding simplificado. |
+| Permisos y sandbox | Beta | El control efectivo depende de herramienta, política y plataforma. |
 
-El proyecto se desarrolla por fases y se entrega de forma incremental (ver el historial de `git log` para la estrategia completa y las siguientes entregas).
+`Beta` indica un flujo utilizable con pruebas automatizadas y límites conocidos. `Experimental`
+indica cobertura o contratos aún variables. Consulta el [roadmap y sus gates de
+evidencia](./ROADMAP.md); ningún componente se declara todavía `production-ready`.
 
 ---
 
@@ -589,6 +586,11 @@ El proyecto se desarrolla por fases y se entrega de forma incremental (ver el hi
 | [`docs/README.md`](./docs/README.md)               | Centro documental y selector de idioma      |
 | [`docs/arquitectura.md`](./docs/arquitectura.md)   | Diagrama de arquitectura detallado          |
 | [`docs/agente-codigo.md`](./docs/agente-codigo.md) | Flujo de ingeniería, verificación y límites |
+| [`SECURITY.md`](./SECURITY.md)                     | Threat model y divulgación responsable      |
+| [`ROADMAP.md`](./ROADMAP.md)                       | Madurez, evidencia y gates comerciales      |
+| [`CONTRIBUTING.md`](./CONTRIBUTING.md)             | Desarrollo y pruebas externas               |
+| [`docs/requisitos.md`](./docs/requisitos.md)       | RAM, CPU, disco y línea base por modo        |
+| [Revisión interna de seguridad](./docs/security-review-2026-09-14.md) | Hallazgos y pendientes para revisión externa |
 | [Aviso de privacidad](./docs/web/privacy.html)     | Datos, transferencias, retención y derechos |
 | [Términos de uso](./docs/web/terms.html)           | Condiciones, riesgos y terceros             |
 | [`core/`](./core/README.md)                        | Núcleo de inteligencia y orquestación       |

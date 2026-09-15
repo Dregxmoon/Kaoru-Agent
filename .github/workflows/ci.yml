@@ -76,6 +76,42 @@ jobs:
       - name: Regresión completa (incluye web trilingüe)
         run: npm test
 
+  coverage:
+    name: Coverage · planner + decision
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Dependencias del sistema
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential python3
+
+      - name: Instalar dependencias
+        run: npm ci
+
+      - name: Reconstruir better-sqlite3 para Electron
+        run: npm run rebuild
+
+      - name: Indexar intenciones
+        run: npm run init-db
+
+      - name: Medir cobertura y aplicar umbrales
+        run: npm run coverage:check
+
+      - name: Publicar reporte LCOV
+        uses: actions/upload-artifact@v5
+        with:
+          name: coverage-planner-decision
+          path: coverage/lcov.info
+          if-no-files-found: error
+
   test-windows:
     name: Tests completos · Windows
     runs-on: windows-latest
@@ -181,7 +217,7 @@ jobs:
   build:
     name: Build ${{ matrix.os }} · auto-update
     runs-on: ${{ matrix.os }}
-    needs: [quality, test, test-windows, desktop-contracts, e2e-ui]
+    needs: [quality, test, coverage, test-windows, desktop-contracts, e2e-ui]
     timeout-minutes: 60
     permissions:
       contents: write

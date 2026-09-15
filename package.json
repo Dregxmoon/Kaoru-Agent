@@ -130,8 +130,7 @@
       "plugins/**/*",
       "src/**/*",
       "assets/**/*",
-      "models/**/*",
-      "Models/**/*",
+      "models/March 7th/**/*",
       "!data/**/*",
       "!tests/**/*",
       "!benchmarks/**/*"

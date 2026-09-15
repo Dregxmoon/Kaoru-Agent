@@ -1,0 +1,77 @@
+name: Informe de prueba externa
+description: Documenta una sesión de Kaoru en una máquina ajena al entorno del mantenedor.
+title: "[Test externo]: "
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Gracias por probar Kaoru. Elimina claves, datos personales y contenido privado del workspace.
+        Los problemas de seguridad explotables deben enviarse según SECURITY.md, no mediante este formulario.
+  - type: input
+    id: version
+    attributes:
+      label: Versión o commit
+      placeholder: v1.0.0 o SHA
+    validations:
+      required: true
+  - type: textarea
+    id: system
+    attributes:
+      label: Equipo y sistema
+      description: SO, versión, CPU, RAM, GPU y espacio libre.
+    validations:
+      required: true
+  - type: dropdown
+    id: experience
+    attributes:
+      label: Experiencia probada
+      options:
+        - Agente/conversación sin voz ni avatar
+        - Completa con voz y Live2D
+        - Automatización de escritorio o navegador
+    validations:
+      required: true
+  - type: dropdown
+    id: install
+    attributes:
+      label: Instalación
+      options:
+        - Instalador de Windows
+        - Portable de Windows
+        - AppImage
+        - Paquete deb
+        - DMG o ZIP de macOS
+        - Desde el código fuente
+    validations:
+      required: true
+  - type: textarea
+    id: task
+    attributes:
+      label: Tarea exacta
+      description: Incluye el prompt y el resultado esperado sin datos privados.
+    validations:
+      required: true
+  - type: textarea
+    id: result
+    attributes:
+      label: Resultado observado
+      description: Indica si terminó, cuánto tardó, qué permisos pidió y cómo verificaste el resultado.
+    validations:
+      required: true
+  - type: textarea
+    id: resources
+    attributes:
+      label: Recursos observados
+      description: RAM/CPU en reposo y pico, disco ocupado y herramientas usadas para medir.
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs o capturas redactados
+      description: Arrastra archivos sin secretos, tokens, nombres privados ni contenido sensible.
+  - type: checkboxes
+    id: consent
+    attributes:
+      label: Confirmación
+      options:
+        - label: Revisé que este informe no contiene secretos ni información privada.
+          required: true

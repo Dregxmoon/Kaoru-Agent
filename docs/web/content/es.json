@@ -1,9 +1,9 @@
 {
   "lang": "es",
   "name": "Español",
-  "title": "Kaoru — Asistente de escritorio y agente de código",
-  "description": "Trabaja con tu repositorio, ejecuta herramientas y revisa resultados con Kaoru, un asistente de escritorio con memoria, voz y avatar Live2D.",
-  "nav": ["Capacidades", "Cómo trabaja", "Seguridad", "Guía de uso"],
+  "title": "Kaoru — Asistente personal de IA con capacidad de agente",
+  "description": "Conversa, conserva contexto y delega tareas de código y escritorio con Kaoru, un asistente personal de IA con herramientas, memoria, voz y presencia Live2D.",
+  "nav": ["Qué puede hacer", "Cómo trabaja", "Seguridad", "Guía de uso"],
   "pages": {
     "index": "Inicio",
     "guide": "Guía de uso",
@@ -15,16 +15,16 @@
   "menu": "Abrir navegación",
   "language": "Idioma",
   "source": "Código fuente",
-  "start": "Configurar Kaoru",
-  "explore": "Explorar capacidades",
-  "badge": "Código abierto · Asistente de escritorio",
-  "hero": "Tu proyecto, tu escritorio.<br>Kaoru, a tu lado.",
-  "intro": "Un agente de código que inspecciona tu repositorio, prepara un plan, utiliza herramientas y comprueba los cambios. Y una compañera Live2D para conversar, recordar el contexto y trabajar contigo por voz.",
+  "start": "Empezar con Kaoru",
+  "explore": "Descubrir qué puede hacer",
+  "badge": "Código abierto · Asistente personal con capacidad de agente",
+  "hero": "Tu asistente de IA<br>para código y escritorio.",
+  "intro": "Kaoru conversa contigo, recuerda el contexto y te acompaña por texto, voz y presencia Live2D. Cuando necesitas pasar a la acción, puede trabajar como agente: inspecciona tu proyecto, prepara un plan, utiliza herramientas y comprueba los resultados bajo los permisos que configures.",
   "note": "El micrófono se activa al pulsarlo. Sin palabra de activación ni escucha ambiental permanente.",
   "caption": "Avatar Live2D de Kaoru. Puedes elegir otro modelo con sus correspondientes permisos de uso.",
-  "strip": ["Código y herramientas", "Memoria local", "Voz bajo tu control", "Avatar Live2D"],
-  "featuresTitle": "Qué puedes hacer con Kaoru",
-  "featuresIntro": "Desde entender una función hasta trabajar en una tarea de varios pasos. Las capacidades disponibles dependen del proveedor, el sistema operativo y los permisos que configures.",
+  "strip": ["Conversación con contexto", "Tareas con herramientas", "Voz y memoria local", "Presencia Live2D"],
+  "featuresTitle": "Más que un agente de código",
+  "featuresIntro": "Habla con Kaoru, pídele que recuerde lo importante o delega una tarea de varios pasos. Puede ayudarte en tu proyecto y en el escritorio; las capacidades disponibles dependen del proveedor, el sistema operativo y los permisos que configures.",
   "features": [
     [
       "01",
@@ -72,8 +72,8 @@
       "Configura un proveedor compatible o un endpoint local. La calidad, el coste, la visión y la disponibilidad de herramientas dependen del modelo y del servicio seleccionado."
     ]
   ],
-  "flowTitle": "Del pedido a un resultado comprobable",
-  "flowIntro": "Puedes seguir el plan y la actividad de las herramientas desde el chat. La autorización y la verificación forman parte de la ejecución.",
+  "flowTitle": "De conversar a resolver",
+  "flowIntro": "Puedes pedir orientación, continuar una conversación o delegar un resultado concreto. Cuando Kaoru actúa como agente, puedes seguir el plan y la actividad de las herramientas desde el chat; la autorización y la verificación forman parte de la ejecución.",
   "flow": [
     [
       "Reconocer",
@@ -134,8 +134,8 @@
   "galleryTitle": "El producto en tu escritorio",
   "galleryIntro": "Capturas reales del proyecto. La apariencia puede variar según el modelo y la configuración.",
   "gallery": ["Conversación y herramientas en la ventana de chat", "Propuesta de ayuda en Kaoru"],
-  "quickTitle": "Prepara tu primera tarea",
-  "quickIntro": "Elige un proveedor, un proyecto y un resultado pequeño que puedas comprobar. La guía incluye instalación, permisos y límites por plataforma.",
+  "quickTitle": "Empieza conversando. Delega cuando lo necesites.",
+  "quickIntro": "Elige un proveedor y un proyecto. Puedes comenzar con una pregunta o pedir un resultado pequeño que puedas comprobar. La guía incluye instalación, permisos y límites por plataforma.",
   "quickSteps": [
     "Instala y abre Kaoru.",
     "Configura el proveedor y selecciona el workspace.",
@@ -195,10 +195,11 @@
   "installNote": "Ejecuta estos comandos dentro de tu entorno de desarrollo. Después consulta la referencia del repositorio para la configuración inicial, voz y dependencias específicas de tu sistema.",
   "release": "Consultar versiones publicadas",
   "installDocs": "Instrucciones completas de instalación",
+  "requirementsLink": "Requisitos provisionales de RAM, CPU y disco",
   "copy": "Copiar comandos",
   "copied": "Copiado",
   "copyError": "Selecciona y copia el bloque de comandos.",
   "legalIntro": "Información sobre el uso de Kaoru y sus componentes.",
-  "updated": "Revisión de la web: 9 de septiembre de 2026",
+  "updated": "Revisión de la web: 14 de septiembre de 2026",
   "contents": "En esta página"
 }

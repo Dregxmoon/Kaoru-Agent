@@ -142,7 +142,7 @@ async function main() {
     const plain = await noJs.newPage();
     await plain.goto(`${base}/en/index.html`);
     check(
-      await plain.getByRole('heading', { name: 'What you can do with Kaoru' }).isVisible(),
+      await plain.getByRole('heading', { name: 'More than a coding agent' }).isVisible(),
       'content available without JavaScript'
     );
     check(
