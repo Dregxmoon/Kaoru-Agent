@@ -391,6 +391,50 @@ figcaption {
   margin-top: 13px;
   line-height: 1.8;
 }
+.requirements-card {
+  padding: 28px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--panel);
+}
+.requirements-card > p {
+  color: var(--muted);
+  font-size: 14px;
+  margin-top: 10px;
+}
+.requirements-card table {
+  width: 100%;
+  border-collapse: collapse;
+  table-layout: fixed;
+  margin-top: 24px;
+  font-size: 14px;
+  text-align: left;
+}
+.requirements-card th,
+.requirements-card td {
+  padding: 10px 5px;
+  border-bottom: 1px solid var(--line);
+  vertical-align: top;
+}
+.requirements-card thead th {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 500;
+}
+.requirements-card tbody th {
+  font-weight: 500;
+}
+.requirements-card .requirements-gpu {
+  margin-top: 20px;
+  color: var(--ink);
+}
+.requirements-caveat {
+  max-width: 780px;
+  margin: 28px auto 0;
+  color: var(--muted);
+  text-align: center;
+  font-size: 14px;
+}
 .sec-dark {
   --base: #141413;
   --ink: #efefed;
@@ -717,6 +761,12 @@ pre {
   .grid-3,
   .grid-2 {
     grid-template-columns: 1fr;
+  }
+  .requirements-card {
+    padding: 20px;
+  }
+  .requirements-card table {
+    font-size: 12px;
   }
   .flow-grid {
     grid-template-columns: 1fr;

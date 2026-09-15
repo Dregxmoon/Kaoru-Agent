@@ -26,7 +26,8 @@
         >
         <nav class="nav-links" id="site-navigation" aria-label="Home">
           <a href="index.html#features">What it can do</a><a href="index.html#workflow">Workflow</a
-          ><a href="index.html#security">Security</a><a href="guide.html">User guide</a>
+          ><a href="index.html#security">Security</a
+          ><a href="index.html#requirements">Requirements</a><a href="guide.html">User guide</a>
         </nav>
         <div class="nav-actions">
           <button
@@ -95,6 +96,94 @@
         <span>Conversation with context</span><span>Tasks with tools</span
         ><span>Voice and local memory</span><span>Live2D presence</span>
       </div>
+      <section id="requirements" class="section">
+        <div class="container">
+          <div class="section-heading fade-up">
+            <span class="eyebrow">KAORU / Requirements</span>
+            <h2>What your device needs</h2>
+            <p>
+              Provisional minimums for using a remote AI provider. This starting point comes from
+              one Linux x64 measurement and still needs validation on more devices and platforms.
+            </p>
+          </div>
+          <div class="grid-2 requirements-grid">
+            <article class="requirements-card fade-up">
+              <h3>Terminal agent and chat</h3>
+              <p>No windows, voice or avatar. Installed from source.</p>
+              <table>
+                <thead>
+                  <tr>
+                    <th scope="col">Resource</th>
+                    <th scope="col">Minimum</th>
+                    <th scope="col">Recommended</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr>
+                    <th scope="row">RAM</th>
+                    <td>4 GB</td>
+                    <td>8 GB</td>
+                  </tr>
+                  <tr>
+                    <th scope="row">CPU</th>
+                    <td>2 cores</td>
+                    <td>4 cores</td>
+                  </tr>
+                  <tr>
+                    <th scope="row">Free disk</th>
+                    <td>2 GB</td>
+                    <td>4 GB</td>
+                  </tr>
+                </tbody>
+              </table>
+              <p class="requirements-gpu">Dedicated GPU: not required with a remote provider.</p>
+            </article>
+            <article class="requirements-card fade-up">
+              <h3>Desktop with Live2D</h3>
+              <p>Chat, memory and avatar; voice optional.</p>
+              <table>
+                <thead>
+                  <tr>
+                    <th scope="col">Resource</th>
+                    <th scope="col">Minimum</th>
+                    <th scope="col">Recommended</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr>
+                    <th scope="row">RAM</th>
+                    <td>8 GB</td>
+                    <td>16 GB</td>
+                  </tr>
+                  <tr>
+                    <th scope="row">CPU</th>
+                    <td>2 cores</td>
+                    <td>4 cores</td>
+                  </tr>
+                  <tr>
+                    <th scope="row">Free disk</th>
+                    <td>3 GB</td>
+                    <td>5 GB</td>
+                  </tr>
+                </tbody>
+              </table>
+              <p class="requirements-gpu">
+                Dedicated GPU: optional; graphics acceleration improves the avatar.
+              </p>
+            </article>
+          </div>
+          <p class="requirements-caveat">
+            Voice, Chromium and local AI models may need more resources. A local model&#39;s GPU
+            requirement depends on that model; no universal minimum has been measured yet.
+          </p>
+          <p class="section-link">
+            <a href="https://github.com/Dregxmoon/Kaoru-Agent/blob/produccion/docs/requisitos.md"
+              >See measurements and limits behind these provisional figures (Spanish)
+              <span aria-hidden="true">↗</span></a
+            >
+          </p>
+        </div>
+      </section>
       <section id="features" class="section sec-alt">
         <div class="container">
           <div class="section-heading fade-up">

@@ -27,7 +27,7 @@
         <nav class="nav-links" id="site-navigation" aria-label="Inicio">
           <a href="index.html#features">Qué puede hacer</a
           ><a href="index.html#workflow">Cómo trabaja</a><a href="index.html#security">Seguridad</a
-          ><a href="guide.html">Guía de uso</a>
+          ><a href="index.html#requirements">Requisitos</a><a href="guide.html">Guía de uso</a>
         </nav>
         <div class="nav-actions">
           <button
@@ -100,6 +100,96 @@
         <span>Conversación con contexto</span><span>Tareas con herramientas</span
         ><span>Voz y memoria local</span><span>Presencia Live2D</span>
       </div>
+      <section id="requirements" class="section">
+        <div class="container">
+          <div class="section-heading fade-up">
+            <span class="eyebrow">KAORU / Requisitos</span>
+            <h2>Qué necesita tu equipo</h2>
+            <p>
+              Mínimos provisionales para usar un proveedor de IA remoto. Son una referencia inicial
+              basada en una medición local de Linux x64; todavía falta validarla en más equipos y
+              plataformas.
+            </p>
+          </div>
+          <div class="grid-2 requirements-grid">
+            <article class="requirements-card fade-up">
+              <h3>Agente y chat por terminal</h3>
+              <p>Sin ventanas, voz ni avatar. Instalación desde el código fuente.</p>
+              <table>
+                <thead>
+                  <tr>
+                    <th scope="col">Recurso</th>
+                    <th scope="col">Mínimo</th>
+                    <th scope="col">Recomendado</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr>
+                    <th scope="row">RAM</th>
+                    <td>4 GB</td>
+                    <td>8 GB</td>
+                  </tr>
+                  <tr>
+                    <th scope="row">CPU</th>
+                    <td>2 núcleos</td>
+                    <td>4 núcleos</td>
+                  </tr>
+                  <tr>
+                    <th scope="row">Disco libre</th>
+                    <td>2 GB</td>
+                    <td>4 GB</td>
+                  </tr>
+                </tbody>
+              </table>
+              <p class="requirements-gpu">GPU dedicada: no se requiere con un proveedor remoto.</p>
+            </article>
+            <article class="requirements-card fade-up">
+              <h3>Escritorio con Live2D</h3>
+              <p>Chat, memoria y avatar; voz opcional.</p>
+              <table>
+                <thead>
+                  <tr>
+                    <th scope="col">Recurso</th>
+                    <th scope="col">Mínimo</th>
+                    <th scope="col">Recomendado</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr>
+                    <th scope="row">RAM</th>
+                    <td>8 GB</td>
+                    <td>16 GB</td>
+                  </tr>
+                  <tr>
+                    <th scope="row">CPU</th>
+                    <td>2 núcleos</td>
+                    <td>4 núcleos</td>
+                  </tr>
+                  <tr>
+                    <th scope="row">Disco libre</th>
+                    <td>3 GB</td>
+                    <td>5 GB</td>
+                  </tr>
+                </tbody>
+              </table>
+              <p class="requirements-gpu">
+                GPU dedicada: no obligatoria; la aceleración gráfica mejora el avatar.
+              </p>
+            </article>
+          </div>
+          <p class="requirements-caveat">
+            La voz, Chromium y los modelos de IA locales pueden necesitar más recursos. El requisito
+            de GPU para un modelo local depende del modelo elegido; aún no hay un mínimo universal
+            medido.
+          </p>
+          <p class="section-link">
+            <a href="https://github.com/Dregxmoon/Kaoru-Agent/blob/produccion/docs/requisitos.md"
+              >Consulta las mediciones y límites de estos valores provisionales
+              <span aria-hidden="true">↗</span></a
+            >
+          </p>
+        </div>
+      </section>
       <section id="features" class="section sec-alt">
         <div class="container">
           <div class="section-heading fade-up">

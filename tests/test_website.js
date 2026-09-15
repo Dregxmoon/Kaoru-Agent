@@ -102,6 +102,22 @@ async function main() {
           await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth),
           `${route}: mobile width`
         );
+        if (name === 'index') {
+          check(
+            (await page.locator('#requirements .requirements-card').count()) === 2,
+            `${route}: requirements shown for both modes`
+          );
+          const specs = await page.locator('#requirements table tbody').allTextContents();
+          check(
+            specs[0].includes('4 GB') && specs[0].includes('8 GB') && specs[1].includes('16 GB'),
+            `${route}: RAM minimums and recommendations visible`
+          );
+          check(
+            (await page.locator('#site-navigation a[href="index.html#requirements"]').count()) ===
+              1,
+            `${route}: requirements reachable from navigation`
+          );
+        }
         await page.setViewportSize({ width: 1440, height: 1000 });
       }
     }

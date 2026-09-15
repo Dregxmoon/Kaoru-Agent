@@ -3,7 +3,7 @@
   "name": "Español",
   "title": "Kaoru — Asistente personal de IA con capacidad de agente",
   "description": "Conversa, conserva contexto y delega tareas de código y escritorio con Kaoru, un asistente personal de IA con herramientas, memoria, voz y presencia Live2D.",
-  "nav": ["Qué puede hacer", "Cómo trabaja", "Seguridad", "Guía de uso"],
+  "nav": ["Qué puede hacer", "Cómo trabaja", "Seguridad", "Requisitos", "Guía de uso"],
   "pages": {
     "index": "Inicio",
     "guide": "Guía de uso",
@@ -22,7 +22,39 @@
   "intro": "Kaoru conversa contigo, recuerda el contexto y te acompaña por texto, voz y presencia Live2D. Cuando necesitas pasar a la acción, puede trabajar como agente: inspecciona tu proyecto, prepara un plan, utiliza herramientas y comprueba los resultados bajo los permisos que configures.",
   "note": "El micrófono se activa al pulsarlo. Sin palabra de activación ni escucha ambiental permanente.",
   "caption": "Avatar Live2D de Kaoru. Puedes elegir otro modelo con sus correspondientes permisos de uso.",
-  "strip": ["Conversación con contexto", "Tareas con herramientas", "Voz y memoria local", "Presencia Live2D"],
+  "strip": [
+    "Conversación con contexto",
+    "Tareas con herramientas",
+    "Voz y memoria local",
+    "Presencia Live2D"
+  ],
+  "requirementsTitle": "Qué necesita tu equipo",
+  "requirementsIntro": "Mínimos provisionales para usar un proveedor de IA remoto. Son una referencia inicial basada en una medición local de Linux x64; todavía falta validarla en más equipos y plataformas.",
+  "requirementsHeaders": ["Recurso", "Mínimo", "Recomendado"],
+  "requirementsModes": [
+    {
+      "title": "Agente y chat por terminal",
+      "description": "Sin ventanas, voz ni avatar. Instalación desde el código fuente.",
+      "rows": [
+        ["RAM", "4 GB", "8 GB"],
+        ["CPU", "2 núcleos", "4 núcleos"],
+        ["Disco libre", "2 GB", "4 GB"]
+      ],
+      "gpu": "GPU dedicada: no se requiere con un proveedor remoto."
+    },
+    {
+      "title": "Escritorio con Live2D",
+      "description": "Chat, memoria y avatar; voz opcional.",
+      "rows": [
+        ["RAM", "8 GB", "16 GB"],
+        ["CPU", "2 núcleos", "4 núcleos"],
+        ["Disco libre", "3 GB", "5 GB"]
+      ],
+      "gpu": "GPU dedicada: no obligatoria; la aceleración gráfica mejora el avatar."
+    }
+  ],
+  "requirementsCaveat": "La voz, Chromium y los modelos de IA locales pueden necesitar más recursos. El requisito de GPU para un modelo local depende del modelo elegido; aún no hay un mínimo universal medido.",
+  "requirementsDetail": "Consulta las mediciones y límites de estos valores provisionales",
   "featuresTitle": "Más que un agente de código",
   "featuresIntro": "Habla con Kaoru, pídele que recuerde lo importante o delega una tarea de varios pasos. Puede ayudarte en tu proyecto y en el escritorio; las capacidades disponibles dependen del proveedor, el sistema operativo y los permisos que configures.",
   "features": [

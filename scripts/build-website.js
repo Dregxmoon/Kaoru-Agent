@@ -44,7 +44,7 @@ function layout(c, page, body) {
   ${languages.map((lang) => `<link rel="alternate" hreflang="${lang}" href="${prefix}${pagePath(lang, page)}">`).join('')}<link rel="alternate" hreflang="x-default" href="${prefix}${page}.html">
   <link rel="stylesheet" href="${prefix}assets/styles.css"><script src="${prefix}assets/main.js"></script></head><body>
   <a class="skip-link" href="#main">${c.skip}</a><header class="nav"><div class="nav-inner"><a class="nav-logo" href="index.html" aria-label="Kaoru"><span class="logo-mark" aria-hidden="true">k.</span>Kaoru</a>
-  <nav class="nav-links" id="site-navigation" aria-label="${c.pages.index}"><a href="index.html#features">${c.nav[0]}</a><a href="index.html#workflow">${c.nav[1]}</a><a href="index.html#security">${c.nav[2]}</a><a href="guide.html" ${page === 'guide' ? 'aria-current="page"' : ''}>${c.nav[3]}</a></nav>
+  <nav class="nav-links" id="site-navigation" aria-label="${c.pages.index}"><a href="index.html#features">${c.nav[0]}</a><a href="index.html#workflow">${c.nav[1]}</a><a href="index.html#security">${c.nav[2]}</a><a href="index.html#requirements">${c.nav[3]}</a><a href="guide.html" ${page === 'guide' ? 'aria-current="page"' : ''}>${c.nav[4]}</a></nav>
   <div class="nav-actions"><button class="theme-btn" id="theme-toggle" type="button" aria-label="${c.theme}" aria-pressed="false"><span aria-hidden="true">◐</span></button><button class="theme-btn menu-toggle" type="button" aria-label="${c.menu}" aria-controls="site-navigation" aria-expanded="false"><span aria-hidden="true">☰</span></button><a class="btn-dark nav-github" href="${repo}">GitHub <span aria-hidden="true">↗</span></a></div></div>
   <nav class="language-bar" aria-label="${c.language}">${links}</nav></header>
   <main id="main">${body}</main><footer><div class="container footer-top"><a class="nav-logo" href="index.html"><span class="logo-mark" aria-hidden="true">k.</span>Kaoru</a><nav aria-label="${c.pages.terms}">${Object.entries(
@@ -59,11 +59,23 @@ function layout(c, page, body) {
     )}<a href="mailto:dregxmoon@gmail.com">dregxmoon@gmail.com</a></nav></div><div class="container footer-bottom"><p>${c.footer}</p><p>${c.rights}</p></div></footer></body></html>`;
 }
 
+function requirements(c) {
+  const [resource, minimum, recommended] = c.requirementsHeaders;
+  const modes = c.requirementsModes
+    .map(
+      (mode) =>
+        `<article class="requirements-card fade-up"><h3>${escape(mode.title)}</h3><p>${escape(mode.description)}</p><table><thead><tr><th scope="col">${escape(resource)}</th><th scope="col">${escape(minimum)}</th><th scope="col">${escape(recommended)}</th></tr></thead><tbody>${mode.rows.map(([name, min, rec]) => `<tr><th scope="row">${escape(name)}</th><td>${escape(min)}</td><td>${escape(rec)}</td></tr>`).join('')}</tbody></table><p class="requirements-gpu">${escape(mode.gpu)}</p></article>`
+    )
+    .join('');
+  return `<section id="requirements" class="section"><div class="container"><div class="section-heading fade-up"><span class="eyebrow">KAORU / ${escape(c.nav[3])}</span><h2>${escape(c.requirementsTitle)}</h2><p>${escape(c.requirementsIntro)}</p></div><div class="grid-2 requirements-grid">${modes}</div><p class="requirements-caveat">${escape(c.requirementsCaveat)}</p><p class="section-link"><a href="${repo}/blob/produccion/docs/requisitos.md">${escape(c.requirementsDetail)} <span aria-hidden="true">↗</span></a></p></div></section>`;
+}
+
 function home(c) {
   const prefix = c.lang === 'es' ? './' : '../';
   return `<section class="hero container"><div class="badge"><span class="status-dot"></span>${c.badge}</div><h1>${c.hero}</h1><p class="hero-intro">${c.intro}</p><div class="hero-btns"><a class="btn-dark" href="guide.html">${c.start}<span aria-hidden="true">↗</span></a><a class="btn-outline" href="#features">${c.explore}<span aria-hidden="true">↓</span></a></div><p class="hero-note">${c.note}</p>
   <figure class="avatar-preview"><div class="preview-top"><span class="status-dot"></span>Kaoru <span>Live2D</span></div><img src="${prefix}assets/02-overlay-character.png" width="452" height="693" alt="${escape(c.caption)}" fetchpriority="high"><figcaption>${c.caption}</figcaption></figure></section>
   <div class="capability-strip container">${c.strip.map((x) => `<span>${x}</span>`).join('')}</div>
+  ${requirements(c)}
   <section id="features" class="section sec-alt"><div class="container"><div class="section-heading fade-up"><span class="eyebrow">01 / KAORU</span><h2>${c.featuresTitle}</h2><p>${c.featuresIntro}</p></div><div class="grid-3">${cards(c.features)}</div></div></section>
   <section id="workflow" class="section sec-dark"><div class="container"><div class="section-heading fade-up"><span class="eyebrow">02 / KAORU</span><h2>${c.flowTitle}</h2><p>${c.flowIntro}</p></div><ol class="flow-grid">${c.flow.map(([title, text], i) => `<li class="fade-up"><span class="step-number">0${i + 1}</span><h3>${title}</h3><p>${text}</p></li>`).join('')}</ol></div></section>
   <section id="security" class="section"><div class="container"><div class="section-heading fade-up"><span class="eyebrow">03 / KAORU</span><h2>${c.securityTitle}</h2><p>${c.securityIntro}</p></div><div class="grid-2">${cards(c.security, 'security-card')}</div><p class="section-link"><a href="privacy.html">${c.privacyLink} <span aria-hidden="true">↗</span></a></p></div></section>

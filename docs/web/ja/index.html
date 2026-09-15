@@ -27,7 +27,7 @@
         <nav class="nav-links" id="site-navigation" aria-label="ホーム">
           <a href="index.html#features">Kaoruでできること</a
           ><a href="index.html#workflow">作業の流れ</a><a href="index.html#security">セキュリティ</a
-          ><a href="guide.html">使い方</a>
+          ><a href="index.html#requirements">動作要件</a><a href="guide.html">使い方</a>
         </nav>
         <div class="nav-actions">
           <button
@@ -94,6 +94,92 @@
         <span>文脈のある会話</span><span>ツールを使う作業</span><span>音声とローカル記憶</span
         ><span>Live2Dの存在感</span>
       </div>
+      <section id="requirements" class="section">
+        <div class="container">
+          <div class="section-heading fade-up">
+            <span class="eyebrow">KAORU / 動作要件</span>
+            <h2>必要なPCスペック</h2>
+            <p>
+              リモートのAIプロバイダーを使う場合の暫定的な最低要件です。Linux
+              x64の1台で測定した初期目安であり、他の端末やOSでの検証が必要です。
+            </p>
+          </div>
+          <div class="grid-2 requirements-grid">
+            <article class="requirements-card fade-up">
+              <h3>ターミナルのエージェントとチャット</h3>
+              <p>ウィンドウ、音声、アバターなし。ソースからインストール。</p>
+              <table>
+                <thead>
+                  <tr>
+                    <th scope="col">項目</th>
+                    <th scope="col">最低</th>
+                    <th scope="col">推奨</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr>
+                    <th scope="row">RAM</th>
+                    <td>4 GB</td>
+                    <td>8 GB</td>
+                  </tr>
+                  <tr>
+                    <th scope="row">CPU</th>
+                    <td>2コア</td>
+                    <td>4コア</td>
+                  </tr>
+                  <tr>
+                    <th scope="row">空き容量</th>
+                    <td>2 GB</td>
+                    <td>4 GB</td>
+                  </tr>
+                </tbody>
+              </table>
+              <p class="requirements-gpu">専用GPU：リモートプロバイダーを使う場合は不要です。</p>
+            </article>
+            <article class="requirements-card fade-up">
+              <h3>Live2D付きデスクトップ</h3>
+              <p>チャット、記憶、アバターを含み、音声は任意です。</p>
+              <table>
+                <thead>
+                  <tr>
+                    <th scope="col">項目</th>
+                    <th scope="col">最低</th>
+                    <th scope="col">推奨</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr>
+                    <th scope="row">RAM</th>
+                    <td>8 GB</td>
+                    <td>16 GB</td>
+                  </tr>
+                  <tr>
+                    <th scope="row">CPU</th>
+                    <td>2コア</td>
+                    <td>4コア</td>
+                  </tr>
+                  <tr>
+                    <th scope="row">空き容量</th>
+                    <td>3 GB</td>
+                    <td>5 GB</td>
+                  </tr>
+                </tbody>
+              </table>
+              <p class="requirements-gpu">
+                専用GPU：必須ではありませんが、アバターにはGPUアクセラレーションを推奨します。
+              </p>
+            </article>
+          </div>
+          <p class="requirements-caveat">
+            音声、Chromium、ローカルAIモデルを使うと必要なリソースが増える場合があります。ローカルモデルのGPU要件はモデルによって異なり、共通の最低値はまだ測定できていません。
+          </p>
+          <p class="section-link">
+            <a href="https://github.com/Dregxmoon/Kaoru-Agent/blob/produccion/docs/requisitos.md"
+              >暫定値の測定結果と制限を見る（スペイン語） <span aria-hidden="true">↗</span></a
+            >
+          </p>
+        </div>
+      </section>
       <section id="features" class="section sec-alt">
         <div class="container">
           <div class="section-heading fade-up">

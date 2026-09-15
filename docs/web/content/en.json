@@ -3,7 +3,7 @@
   "name": "English",
   "title": "Kaoru — Personal AI assistant with agent capabilities",
   "description": "Talk, keep context and delegate coding and desktop tasks with Kaoru, a personal AI assistant with tools, memory, voice and a Live2D presence.",
-  "nav": ["What it can do", "Workflow", "Security", "User guide"],
+  "nav": ["What it can do", "Workflow", "Security", "Requirements", "User guide"],
   "pages": {
     "index": "Home",
     "guide": "User guide",
@@ -22,7 +22,39 @@
   "intro": "Kaoru talks with you, remembers context and stays with you through text, voice and a Live2D presence. When it is time to act, it can work as an agent: inspecting your project, preparing a plan, using tools and checking results under the permissions you configure.",
   "note": "Press the microphone to start listening. No wake word or continuous ambient listening.",
   "caption": "Kaoru’s Live2D avatar. You can choose another model with the appropriate usage rights.",
-  "strip": ["Conversation with context", "Tasks with tools", "Voice and local memory", "Live2D presence"],
+  "strip": [
+    "Conversation with context",
+    "Tasks with tools",
+    "Voice and local memory",
+    "Live2D presence"
+  ],
+  "requirementsTitle": "What your device needs",
+  "requirementsIntro": "Provisional minimums for using a remote AI provider. This starting point comes from one Linux x64 measurement and still needs validation on more devices and platforms.",
+  "requirementsHeaders": ["Resource", "Minimum", "Recommended"],
+  "requirementsModes": [
+    {
+      "title": "Terminal agent and chat",
+      "description": "No windows, voice or avatar. Installed from source.",
+      "rows": [
+        ["RAM", "4 GB", "8 GB"],
+        ["CPU", "2 cores", "4 cores"],
+        ["Free disk", "2 GB", "4 GB"]
+      ],
+      "gpu": "Dedicated GPU: not required with a remote provider."
+    },
+    {
+      "title": "Desktop with Live2D",
+      "description": "Chat, memory and avatar; voice optional.",
+      "rows": [
+        ["RAM", "8 GB", "16 GB"],
+        ["CPU", "2 cores", "4 cores"],
+        ["Free disk", "3 GB", "5 GB"]
+      ],
+      "gpu": "Dedicated GPU: optional; graphics acceleration improves the avatar."
+    }
+  ],
+  "requirementsCaveat": "Voice, Chromium and local AI models may need more resources. A local model's GPU requirement depends on that model; no universal minimum has been measured yet.",
+  "requirementsDetail": "See measurements and limits behind these provisional figures (Spanish)",
   "featuresTitle": "More than a coding agent",
   "featuresIntro": "Talk with Kaoru, ask it to remember what matters or delegate a multi-step task. It can help across your project and desktop; available capabilities depend on your provider, operating system and permissions.",
   "features": [
