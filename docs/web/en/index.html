@@ -65,8 +65,8 @@
         <h1>Your AI assistant<br />for code and desktop.</h1>
         <p class="hero-intro">
           Kaoru talks with you, remembers context and stays with you through text, voice and a
-          Live2D presence. When it is time to act, it can work as an agent: inspecting your project,
-          preparing a plan, using tools and checking results under the permissions you configure.
+          Live2D presence. It can also work as an agent: investigate your project or chain results
+          across desktop apps, with a visible plan, permissions and checks.
         </p>
         <div class="hero-btns">
           <a class="btn-dark" href="guide.html"
@@ -242,11 +242,13 @@
             </article>
             <article class="card fade-up">
               <span class="card-number">06</span>
-              <h3>Operate your desktop</h3>
+              <h3>Chain desktop tasks</h3>
               <p>
-                Open applications and websites, inspect accessible controls and use enabled screen,
-                pointer or keyboard capabilities. Linux and Windows support semantic controls; macOS
-                does not yet have equivalent coverage.
+                Ask for several results, such as opening a report, creating a reminder and
+                confirming both. Kaoru reviews the plan, asks for initial authorization and checks
+                each result; missing evidence pauses the mission. Beta: tested with scripted
+                scenarios, without external validation yet. Accessibility varies by app, and macOS
+                lacks semantic parity.
               </p>
             </article>
             <article class="card fade-up">
@@ -283,9 +285,9 @@
             <span class="eyebrow">02 / KAORU</span>
             <h2>From conversation to results</h2>
             <p>
-              Ask for guidance, continue a conversation or delegate a concrete result. When Kaoru
-              acts as an agent, you can follow the plan and tool activity in chat; authorization and
-              verification are part of execution.
+              Ask for guidance, continue a conversation or delegate several results in a desktop
+              mission. Kaoru interprets the request with your chosen model and shows its plan and
+              tool activity in chat; permission and verification are decided outside the model.
             </p>
           </div>
           <ol class="flow-grid">
@@ -297,12 +299,15 @@
             <li class="fade-up">
               <span class="step-number">02</span>
               <h3>Plan</h3>
-              <p>Break the objective into steps with observable completion criteria.</p>
+              <p>Break the objective into observable results and review whether any are missing.</p>
             </li>
             <li class="fade-up">
               <span class="step-number">03</span>
               <h3>Authorize</h3>
-              <p>Rules allow, ask about or block actions according to their scope.</p>
+              <p>
+                A desktop mission asks for initial authorization; out-of-scope actions require their
+                own permission.
+              </p>
             </li>
             <li class="fade-up">
               <span class="step-number">04</span>
@@ -312,7 +317,10 @@
             <li class="fade-up">
               <span class="step-number">05</span>
               <h3>Verify</h3>
-              <p>Run checks; a failure can trigger repair or leave work pending.</p>
+              <p>
+                Check each result in the environment; missing evidence pauses the mission with a
+                pending step.
+              </p>
             </li>
           </ol>
         </div>

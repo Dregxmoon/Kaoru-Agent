@@ -19,7 +19,7 @@
   "explore": "Discover what it can do",
   "badge": "Open source · Personal assistant with agent capabilities",
   "hero": "Your AI assistant<br>for code and desktop.",
-  "intro": "Kaoru talks with you, remembers context and stays with you through text, voice and a Live2D presence. When it is time to act, it can work as an agent: inspecting your project, preparing a plan, using tools and checking results under the permissions you configure.",
+  "intro": "Kaoru talks with you, remembers context and stays with you through text, voice and a Live2D presence. It can also work as an agent: investigate your project or chain results across desktop apps, with a visible plan, permissions and checks.",
   "note": "Press the microphone to start listening. No wake word or continuous ambient listening.",
   "caption": "Kaoru’s Live2D avatar. You can choose another model with the appropriate usage rights.",
   "strip": [
@@ -85,8 +85,8 @@
     ],
     [
       "06",
-      "Operate your desktop",
-      "Open applications and websites, inspect accessible controls and use enabled screen, pointer or keyboard capabilities. Linux and Windows support semantic controls; macOS does not yet have equivalent coverage."
+      "Chain desktop tasks",
+      "Ask for several results, such as opening a report, creating a reminder and confirming both. Kaoru reviews the plan, asks for initial authorization and checks each result; missing evidence pauses the mission. Beta: tested with scripted scenarios, without external validation yet. Accessibility varies by app, and macOS lacks semantic parity."
     ],
     [
       "07",
@@ -105,13 +105,19 @@
     ]
   ],
   "flowTitle": "From conversation to results",
-  "flowIntro": "Ask for guidance, continue a conversation or delegate a concrete result. When Kaoru acts as an agent, you can follow the plan and tool activity in chat; authorization and verification are part of execution.",
+  "flowIntro": "Ask for guidance, continue a conversation or delegate several results in a desktop mission. Kaoru interprets the request with your chosen model and shows its plan and tool activity in chat; permission and verification are decided outside the model.",
   "flow": [
     ["Inspect", "Examine the workspace, find relevant paths and consult available symbols."],
-    ["Plan", "Break the objective into steps with observable completion criteria."],
-    ["Authorize", "Rules allow, ask about or block actions according to their scope."],
+    ["Plan", "Break the objective into observable results and review whether any are missing."],
+    [
+      "Authorize",
+      "A desktop mission asks for initial authorization; out-of-scope actions require their own permission."
+    ],
     ["Execute", "Use tools and retain their results as evidence of the work."],
-    ["Verify", "Run checks; a failure can trigger repair or leave work pending."]
+    [
+      "Verify",
+      "Check each result in the environment; missing evidence pauses the mission with a pending step."
+    ]
   ],
   "securityTitle": "Choose what Kaoru can access",
   "securityIntro": "Configure permissions for your task and device. The application separates model proposals from the controls that authorize tools.",
@@ -200,7 +206,7 @@
     [
       "desktop",
       "Voice, browser and operating system",
-      "Voice requires Python and configured ASR/TTS components. The microphone opens through an explicit action; pressing it interrupts Kaoru’s speech. Opening a URL uses your default browser; tasks that inspect pages use managed Chromium with a separate profile. Linux uses AT-SPI2 and Windows uses UI Automation for accessibility; macOS coverage is partial."
+      "For a task across apps, describe the results you want to observe: ‘open the report in the editor, create a reminder and confirm it appears’. Kaoru prepares and reviews a mission, asks for initial authorization and advances result by result; when accessibility cannot verify one, it reports the pending step. Voice requires Python and configured ASR/TTS. Opening a URL uses your default browser; page inspection uses managed Chromium. Linux uses AT-SPI2 and Windows uses UI Automation; macOS coverage is partial."
     ],
     [
       "connections",

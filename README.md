@@ -225,6 +225,8 @@ Cliente MCP propio (stdio), reconexión automática con backoff, namespacing de 
 
 El motor intenta primero accesibilidad semántica: AT-SPI2 en Linux y UI Automation en Windows. Para canvas, juegos o controles sin árbol accesible existe un fallback visual acotado: cada clic debe referirse a una captura vigente, expira a los 30 segundos, se consume una sola vez y exige observar de nuevo. macOS conserva herramientas generales de aplicaciones, procesos y cámara, pero no implementa todavía la misma paridad semántica de UI.
 
+Para una petición con varios resultados en el escritorio, `desktop_mission` crea una misión secuencial. Una revisión con el modelo comprueba que el plan cubra la petición original; la autorización inicial y los permisos de cada herramienta se resuelven fuera del modelo. Cada paso requiere una postcondición de accesibilidad o un título exacto de ventana: si el resultado no aparece, Kaoru pausa la misión y muestra el paso pendiente. La cobertura de accesibilidad depende de la aplicación y la revisión semántica puede equivocarse; estas misiones se han probado con escenarios simulados, no con una muestra de usuarios externos.
+
 Las familias de capacidad —aplicaciones, navegador, pantalla, puntero, teclado, procesos y cámara— pueden activarse o desactivarse por separado. “Cámara” significa consultar estado o abrir la aplicación de cámara; Kaoru no captura foto ni vídeo mediante esa herramienta.
 
 </details>

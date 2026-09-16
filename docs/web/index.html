@@ -66,9 +66,8 @@
         <h1>Tu asistente de IA<br />para código y escritorio.</h1>
         <p class="hero-intro">
           Kaoru conversa contigo, recuerda el contexto y te acompaña por texto, voz y presencia
-          Live2D. Cuando necesitas pasar a la acción, puede trabajar como agente: inspecciona tu
-          proyecto, prepara un plan, utiliza herramientas y comprueba los resultados bajo los
-          permisos que configures.
+          Live2D. También puede trabajar como agente: investigar tu proyecto o encadenar resultados
+          en varias aplicaciones de escritorio, con un plan, permisos y comprobaciones visibles.
         </p>
         <div class="hero-btns">
           <a class="btn-dark" href="guide.html"
@@ -249,11 +248,13 @@
             </article>
             <article class="card fade-up">
               <span class="card-number">06</span>
-              <h3>Operar el escritorio</h3>
+              <h3>Encadenar tareas de escritorio</h3>
               <p>
-                Abre aplicaciones y sitios, inspecciona controles accesibles y utiliza pantalla,
-                puntero o teclado con las capacidades habilitadas. Linux y Windows tienen control
-                semántico; macOS aún no tiene la misma cobertura.
+                Puedes pedir una meta con varios resultados, por ejemplo abrir un informe, crear un
+                recordatorio y confirmar ambos. Kaoru revisa el plan, pide autorización inicial y
+                comprueba cada resultado; si falta evidencia, pausa la misión. Beta: probada con
+                escenarios simulados, aún sin validación externa. La accesibilidad depende de la
+                aplicación y macOS no tiene paridad semántica.
               </p>
             </article>
             <article class="card fade-up">
@@ -292,10 +293,10 @@
             <span class="eyebrow">02 / KAORU</span>
             <h2>De conversar a resolver</h2>
             <p>
-              Puedes pedir orientación, continuar una conversación o delegar un resultado concreto.
-              Cuando Kaoru actúa como agente, puedes seguir el plan y la actividad de las
-              herramientas desde el chat; la autorización y la verificación forman parte de la
-              ejecución.
+              Puedes pedir orientación, continuar una conversación o delegar varios resultados en
+              una misión de escritorio. Kaoru interpreta la petición con el modelo elegido, muestra
+              el plan y la actividad en el chat, y mantiene los permisos y la comprobación fuera de
+              la decisión del modelo.
             </p>
           </div>
           <ol class="flow-grid">
@@ -309,12 +310,15 @@
             <li class="fade-up">
               <span class="step-number">02</span>
               <h3>Planificar</h3>
-              <p>Divide el objetivo en pasos con criterios que se puedan comprobar.</p>
+              <p>Divide el objetivo en resultados observables y revisa si el plan omite alguno.</p>
             </li>
             <li class="fade-up">
               <span class="step-number">03</span>
               <h3>Autorizar</h3>
-              <p>Las reglas permiten, consultan o bloquean cada acción según su alcance.</p>
+              <p>
+                La misión de escritorio pide autorización inicial; las acciones fuera de su alcance
+                requieren su propio permiso.
+              </p>
             </li>
             <li class="fade-up">
               <span class="step-number">04</span>
@@ -325,8 +329,8 @@
               <span class="step-number">05</span>
               <h3>Verificar</h3>
               <p>
-                Ejecuta controles; un fallo puede volver al ciclo de reparación o dejar trabajo
-                pendiente.
+                Comprueba cada resultado en el entorno; si falta evidencia, la misión se pausa con
+                un paso pendiente.
               </p>
             </li>
           </ol>

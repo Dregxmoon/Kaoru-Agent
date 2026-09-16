@@ -19,7 +19,7 @@
   "explore": "Descubrir qué puede hacer",
   "badge": "Código abierto · Asistente personal con capacidad de agente",
   "hero": "Tu asistente de IA<br>para código y escritorio.",
-  "intro": "Kaoru conversa contigo, recuerda el contexto y te acompaña por texto, voz y presencia Live2D. Cuando necesitas pasar a la acción, puede trabajar como agente: inspecciona tu proyecto, prepara un plan, utiliza herramientas y comprueba los resultados bajo los permisos que configures.",
+  "intro": "Kaoru conversa contigo, recuerda el contexto y te acompaña por texto, voz y presencia Live2D. También puede trabajar como agente: investigar tu proyecto o encadenar resultados en varias aplicaciones de escritorio, con un plan, permisos y comprobaciones visibles.",
   "note": "El micrófono se activa al pulsarlo. Sin palabra de activación ni escucha ambiental permanente.",
   "caption": "Avatar Live2D de Kaoru. Puedes elegir otro modelo con sus correspondientes permisos de uso.",
   "strip": [
@@ -85,8 +85,8 @@
     ],
     [
       "06",
-      "Operar el escritorio",
-      "Abre aplicaciones y sitios, inspecciona controles accesibles y utiliza pantalla, puntero o teclado con las capacidades habilitadas. Linux y Windows tienen control semántico; macOS aún no tiene la misma cobertura."
+      "Encadenar tareas de escritorio",
+      "Puedes pedir una meta con varios resultados, por ejemplo abrir un informe, crear un recordatorio y confirmar ambos. Kaoru revisa el plan, pide autorización inicial y comprueba cada resultado; si falta evidencia, pausa la misión. Beta: probada con escenarios simulados, aún sin validación externa. La accesibilidad depende de la aplicación y macOS no tiene paridad semántica."
     ],
     [
       "07",
@@ -105,18 +105,24 @@
     ]
   ],
   "flowTitle": "De conversar a resolver",
-  "flowIntro": "Puedes pedir orientación, continuar una conversación o delegar un resultado concreto. Cuando Kaoru actúa como agente, puedes seguir el plan y la actividad de las herramientas desde el chat; la autorización y la verificación forman parte de la ejecución.",
+  "flowIntro": "Puedes pedir orientación, continuar una conversación o delegar varios resultados en una misión de escritorio. Kaoru interpreta la petición con el modelo elegido, muestra el plan y la actividad en el chat, y mantiene los permisos y la comprobación fuera de la decisión del modelo.",
   "flow": [
     [
       "Reconocer",
       "Inspecciona el workspace, busca rutas relevantes y consulta símbolos disponibles."
     ],
-    ["Planificar", "Divide el objetivo en pasos con criterios que se puedan comprobar."],
-    ["Autorizar", "Las reglas permiten, consultan o bloquean cada acción según su alcance."],
+    [
+      "Planificar",
+      "Divide el objetivo en resultados observables y revisa si el plan omite alguno."
+    ],
+    [
+      "Autorizar",
+      "La misión de escritorio pide autorización inicial; las acciones fuera de su alcance requieren su propio permiso."
+    ],
     ["Ejecutar", "Utiliza herramientas y conserva sus resultados como evidencia del trabajo."],
     [
       "Verificar",
-      "Ejecuta controles; un fallo puede volver al ciclo de reparación o dejar trabajo pendiente."
+      "Comprueba cada resultado en el entorno; si falta evidencia, la misión se pausa con un paso pendiente."
     ]
   ],
   "securityTitle": "Decide a qué puede acceder",
@@ -206,7 +212,7 @@
     [
       "desktop",
       "Voz, navegador y sistema operativo",
-      "La voz requiere Python y los componentes de ASR/TTS configurados. El micrófono se abre por acción explícita; pulsarlo interrumpe la voz de Kaoru. Abrir una URL utiliza el navegador predeterminado; las tareas que inspeccionan páginas usan un Chromium administrado con un perfil separado. Linux usa AT-SPI2 y Windows UI Automation para accesibilidad; macOS tiene cobertura parcial."
+      "Para una tarea entre aplicaciones, describe los resultados que quieres observar: «abre el informe en el editor, crea un recordatorio y comprueba que aparece». Kaoru prepara y revisa una misión, pide autorización inicial y avanza resultado por resultado; si la accesibilidad no permite comprobar uno, informa el paso pendiente. La voz requiere Python y ASR/TTS configurados. Abrir una URL usa el navegador predeterminado; inspeccionar páginas usa Chromium administrado. Linux usa AT-SPI2 y Windows UI Automation; macOS tiene cobertura parcial."
     ],
     [
       "connections",
