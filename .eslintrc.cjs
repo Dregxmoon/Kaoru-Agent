@@ -84,6 +84,7 @@ module.exports = {
         typewriterMarkdown: 'readonly',
         _showApprovalCard: 'readonly',
         _expireApprovalCard: 'readonly',
+        _cancelApprovalCard: 'readonly',
         checkOpenClaw: 'readonly',
         loadModel: 'readonly',
         reloadModel: 'readonly',

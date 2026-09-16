@@ -22,7 +22,7 @@ const logger = require('../../observability/Logger.js');
  * @property {'brief' | 'normal' | 'detailed'} responseLength
  * @property {'casual' | 'neutral' | 'formal'} formality
  * @property {'layman' | 'moderate' | 'expert'} technicalLevel
- * @property {string} emotionalContext - Dominant emotion if any
+ * @property {string|null} emotionalContext - Dominant emotion if any
  * @property {number} emotionalIntensity - [0, 1]
  * @property {string[]} activeTopics - Hot topics to connect with
  * @property {string[]} decliningTopics - Cold topics for curiosity
@@ -33,6 +33,7 @@ const logger = require('../../observability/Logger.js');
 
 // ── Default Profile ──────────────────────────────────────────────────────────
 
+/** @type {AdaptationProfile} */
 const DEFAULT_PROFILE = {
   responseLength: 'normal',
   formality: 'neutral',
@@ -48,10 +49,13 @@ const DEFAULT_PROFILE = {
 
 class AdaptiveResponseEngine {
   /**
-   * @param {import('./TraitLearner.js').TraitLearner} traitLearner
-   * @param {import('./CommunicationStyleProfiler.js').CommunicationStyleProfiler} styleProfiler
-   * @param {import('./TopicMomentumTracker.js').TopicMomentumTracker} topicTracker
-   * @param {import('./FeedbackScorer.js').FeedbackScorer} [feedbackScorer]
+   * @param {{getEmotionalState:()=>{dominant:string|null,intensity:number,recent:string[]}}} traitLearner
+   * @param {{getProfile:()=>{preferredLength:'brief'|'normal'|'detailed',
+   * formalityLevel:'casual'|'neutral'|'formal',technicalLevel:'layman'|'moderate'|'expert',
+   * adaptationConfidence:number},buildStyleHint:()=>string}} styleProfiler
+   * @param {{getHotTopics:(opts:any)=>Array<{topic:string}>,getColdTopics:(opts:any)=>Array<{topic:string}>,
+   * buildTopicHint:()=>string}} topicTracker
+   * @param {{getEffectiveness:(type:string)=>number,recordAdaptation:(type:string,hint:string)=>void}|null} [feedbackScorer]
    */
   constructor(traitLearner, styleProfiler, topicTracker, feedbackScorer = null) {
     this._traitLearner = traitLearner;
@@ -79,6 +83,7 @@ class AdaptiveResponseEngine {
       const coldTopics = this._topicTracker.getColdTopics({ limit: 3, maxMomentum: 0.2 });
 
       // 4. Combine into adaptation profile
+      /** @type {AdaptationProfile} */
       const profile = {
         responseLength: styleProfile.preferredLength,
         formality: styleProfile.formalityLevel,
@@ -95,7 +100,11 @@ class AdaptiveResponseEngine {
       // 5. Apply emotional adjustments
       return this._applyEmotionalAdjustments(profile, emotionalState);
     } catch (e) {
-      logger.warn('AdaptiveResponseEngine', '[adaptive] error building profile:', e.message);
+      logger.warn(
+        'AdaptiveResponseEngine',
+        '[adaptive] error building profile:',
+        e instanceof Error ? e.message : String(e)
+      );
       return { ...DEFAULT_PROFILE };
     }
   }
@@ -103,7 +112,7 @@ class AdaptiveResponseEngine {
   /**
    * Apply emotional state adjustments to the adaptation profile.
    * @param {AdaptationProfile} profile
-   * @param {object} emotionalState
+   * @param {{recent:string[]}} emotionalState
    * @returns {AdaptationProfile}
    * @private
    */
@@ -207,6 +216,7 @@ class AdaptiveResponseEngine {
 
     // Emotional context
     if (profile.emotionalContext && profile.emotionalIntensity > 0.3) {
+      /** @type {Record<string,string>} */
       const emotionDesc = {
         frustration: 'El usuario está frustrado — sé empático y directo',
         confusion: 'El usuario está confudido — aclara con ejemplos',

@@ -76,6 +76,7 @@ const EMOTION_RULES = [
 
 const STYLE_METRICS = {
   // Message length category
+  /** @param {string} text */
   _measureLength(text) {
     const len = text.length;
     if (len < 30) return 0.2; // brief
@@ -86,14 +87,16 @@ const STYLE_METRICS = {
   },
 
   // Question density (questions per sentence)
+  /** @param {string} text */
   _measureQuestionDensity(text) {
-    const sentences = text.split(/[.!?]+/).filter((s) => s.trim().length > 0);
+    const sentences = text.split(/[.!?]+/).filter((/** @type {string} */ s) => s.trim().length > 0);
     const questions = (text.match(/[?¿]/g) || []).length;
     if (sentences.length === 0) return 0;
     return Math.min(1.0, questions / sentences.length);
   },
 
   // Emoji/emoticon usage
+  /** @param {string} text */
   _measureEmojiUsage(text) {
     const emojiPattern =
       /[\u{1F600}-\u{1F64F}\u{1F300}-\u{1F5FF}\u{1F680}-\u{1F6FF}\u{1F1E0}-\u{1F1FF}\u{2600}-\u{26FF}\u{2700}-\u{27BF}]/gu;
@@ -106,6 +109,7 @@ const STYLE_METRICS = {
   },
 
   // Formality indicators
+  /** @param {string} text */
   _measureFormality(text) {
     const informalMarkers =
       /\b(oye|hey|hola|buenas|qué\s+tal|c[oó]mo\s+est[aá]s|gracias|por\s+fa|xD|lol|jaja|jeje)\b/i;
@@ -120,6 +124,7 @@ const STYLE_METRICS = {
   },
 
   // Technical vocabulary density
+  /** @param {string} text */
   _measureTechnicalDensity(text) {
     const techPatterns =
       /\b(c[oó]digo|funci[oó]n|clase|m[eé]todo|variable|import|export|async|await|const|let|var|git|npm|node|python|api|endpoint|query|database|server|client|deploy|build|test|debug)\b/gi;
@@ -231,10 +236,11 @@ class TraitLearner {
 
   /**
    * Get the current emotional state summary.
-   * @returns {object} { dominant: string|null, intensity: number, recent: string[] }
+   * @returns {{dominant:string|null,intensity:number,recent:string[]}}
    */
   getEmotionalState() {
     const profiles = this._store.getAllProfiles();
+    /** @type {Record<string,number>} */
     const emotions = {};
 
     for (const [key, value] of profiles) {

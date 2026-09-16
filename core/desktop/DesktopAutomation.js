@@ -20,6 +20,14 @@ function _safeText(value, max = 300) {
     .slice(0, max);
 }
 
+/** @param {unknown} left @param {unknown} right */
+function _sameApplication(left, right) {
+  return (
+    _safeText(left, 120).normalize('NFKC').toLocaleLowerCase() ===
+    _safeText(right, 120).normalize('NFKC').toLocaleLowerCase()
+  );
+}
+
 /** @param {NodeJS.Platform} platform @returns {AutomationAdapter|null} */
 function _makeAdapter(platform) {
   if (platform === 'linux') return new LinuxAtSpiAdapter();
@@ -311,6 +319,16 @@ class DesktopAutomation {
     };
   }
 
+  /**
+   * Identidad de aplicación de una referencia reciente. La concesión de una
+   * misión usa este valor antes de permitir una acción semántica de UI.
+   * @param {{observationId?:unknown,ref?:unknown}} input
+   */
+  observedApplication(input) {
+    const { target } = this._resolveObservedTarget(input);
+    return String(target.application || '');
+  }
+
   /** @param {{application?: unknown, expected?: unknown, timeout?: unknown}} input */
   async waitFor(input) {
     const application = _safeText(input.application, 120);
@@ -319,7 +337,9 @@ class DesktopAutomation {
         ? /** @type {Record<string, unknown>} */ (input.expected)
         : null;
     if (!expected) throw new Error('ui_wait requiere una postcondición expected');
-    const timeout = Math.min(30_000, Math.max(250, Number(input.timeout) || 8000));
+    // timeout=0 realiza una sola observación; la misión lo usa antes de actuar.
+    const timeout =
+      input.timeout === 0 ? 0 : Math.min(30_000, Math.max(250, Number(input.timeout) || 8000));
     const deadline = this._now() + timeout;
     let lastEvidence = '';
     do {
@@ -419,18 +439,19 @@ class DesktopAutomation {
   async _verifyExpected(application, expected) {
     if (!expected) return { verified: false, evidence: 'No se declaró una postcondición' };
     const snapshot = await this.snapshot({ application, maxDepth: 8, maxNodes: 400 });
+    const scopedNodes = application
+      ? snapshot.nodes.filter((node) => _sameApplication(node.application, application))
+      : snapshot.nodes;
     const name = _safeText(expected.name, 300).toLowerCase();
+    const exactName = expected.exactName === true;
     const role = _safeText(expected.role, 80).toLowerCase();
     const state = _safeText(expected.state, 80).toLowerCase();
     const absent = expected.absent === true;
-    const matched = snapshot.nodes.find((node) => {
-      if (
-        name &&
-        !String(node.name || '')
-          .toLowerCase()
-          .includes(name)
-      )
-        return false;
+    const matched = scopedNodes.find((node) => {
+      if (name) {
+        const observedName = _safeText(node.name, 300).toLowerCase();
+        if (exactName ? observedName !== name : !observedName.includes(name)) return false;
+      }
       if (role && String(node.role || '').toLowerCase() !== role) return false;
       if (
         state &&
@@ -440,7 +461,7 @@ class DesktopAutomation {
         return false;
       return Boolean(name || role || state);
     });
-    const verified = absent ? !matched : Boolean(matched);
+    const verified = absent ? scopedNodes.length > 0 && !matched : Boolean(matched);
     return {
       verified,
       evidence: verified

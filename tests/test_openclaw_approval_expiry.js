@@ -90,7 +90,11 @@ function makeCtx(approvalTimeoutMs, agentConfig = {}) {
 }
 
 const { register } = require('../ipc/openclaw-handlers.js');
-const { addApproval, resetApprovals } = require('../core/security/SessionApprovals.js');
+const {
+  addApproval,
+  approvalPattern,
+  resetApprovals,
+} = require('../core/security/SessionApprovals.js');
 const AP = require('../core/planner/ActionParser.js');
 const { AgentLoop } = require('../core/planner/AgentLoop.js');
 
@@ -430,6 +434,8 @@ async function main() {
     await testAutoApproveSkipsCard();
     await testIrreversibleIgnoresAlwaysAndAutoApprove();
     await testRunStatusAndSteering();
+    await testCancelPendingMissionApproval();
+    await testMissionActionIgnoresAutoApproval();
   } finally {
     Module._load = realLoad;
   }
@@ -444,6 +450,79 @@ async function main() {
   console.log(C.bold('════════════════════════════════════════════════════════\n'));
 
   if (failed > 0) process.exit(1);
+}
+
+async function testCancelPendingMissionApproval() {
+  console.log(C.bold('\n── Test 9: cancelar misión pendiente cierra el diálogo ──────'));
+  sendLog.length = 0;
+  register(makeCtx(4000));
+  const run = mockIpcMain.invokeHandler('agent-run', {}, { text: 'abre dos aplicaciones' });
+  await new Promise((resolve) => setImmediate(resolve));
+  const pending = capturedApproval({
+    tool: 'desktop_mission',
+    params: {
+      goal: 'abre dos aplicaciones',
+      applications: ['Editor', 'Agenda'],
+      steps: Array.from({ length: 12 }, (_, index) => ({
+        description: index === 0 ? 'Abrir Editor' : `Paso ${index + 1}`,
+        expected: { type: 'window_visible', application: 'Editor' },
+      })),
+    },
+  });
+  await new Promise((resolve) => setImmediate(resolve));
+  const needed = sendLog.find((item) => item.channel === 'agent-approval-needed');
+  assert(needed?.payload.allowAlways === false, 'misión no ofrece autorización permanente');
+  assert(
+    needed?.payload.description.includes('Abrir Editor'),
+    'tarjeta muestra los resultados aprobados'
+  );
+  assert(
+    needed?.payload.description.includes('Paso 12'),
+    'tarjeta no oculta los pasos finales de una misión larga'
+  );
+  mockIpcMain.emit('agent-cancel');
+  const decision = await pending;
+  assert(
+    decision?.approved === false && decision.reason === 'cancelled',
+    'cancelación deniega la acción sin esperar timeout'
+  );
+  assert(
+    sendLog.some((item) => item.channel === 'agent-approval-cancelled'),
+    'renderer recibe cierre del diálogo'
+  );
+  assert(
+    mockIpcMain.listenerCount('agent-approval-response') === 0,
+    'no queda listener de una aprobación cancelada'
+  );
+  await run.catch(() => {});
+}
+
+async function testMissionActionIgnoresAutoApproval() {
+  console.log(C.bold('\n── Test 10: acción fuera del paso ignora autoApprove y Siempre ──'));
+  sendLog.length = 0;
+  register(makeCtx(4000, { autoApprove: true }));
+  const run = mockIpcMain.invokeHandler('agent-run', {}, { text: 'abre Editor y Agenda' });
+  await new Promise((resolve) => setImmediate(resolve));
+  const action = {
+    tool: 'launch_app',
+    params: { app: 'Agenda' },
+    _desktopMission: true,
+  };
+  addApproval(approvalPattern(action));
+  const pending = capturedApproval(action);
+  await new Promise((resolve) => setImmediate(resolve));
+  const needed = sendLog.find((item) => item.channel === 'agent-approval-needed');
+  assert(Boolean(needed), 'se muestra un card pese a autoApprove y Siempre');
+  assert(needed?.payload.allowAlways === false, 'acción excepcional tampoco ofrece Siempre');
+  mockIpcMain.emitResponse('agent-approval-response', {
+    id: needed.payload.actionId,
+    approved: false,
+  });
+  const decision = await pending;
+  assert(decision === false, 'sin nueva aprobación la acción no se ejecuta');
+  mockIpcMain.emit('agent-cancel');
+  await run.catch(() => {});
+  resetApprovals();
 }
 
 main();

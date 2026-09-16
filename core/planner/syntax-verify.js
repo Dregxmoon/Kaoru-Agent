@@ -26,11 +26,12 @@ const CHECK_TIMEOUT_MS = 10_000;
 
 // ── utilidades ──────────────────────────────────────────────────────────────
 
-function _runCmd(cmd, args, timeoutMs = CHECK_TIMEOUT_MS) {
+/** @param {string} cmd @param {string[]} args @param {number} [timeoutMs] @param {NodeJS.ProcessEnv} [env] */
+function _runCmd(cmd, args, timeoutMs = CHECK_TIMEOUT_MS, env = process.env) {
   return new Promise((resolve) => {
     let child;
     try {
-      child = spawn(cmd, args, { stdio: ['ignore', 'pipe', 'pipe'] });
+      child = spawn(cmd, args, { stdio: ['ignore', 'pipe', 'pipe'], env });
     } catch {
       return resolve({ ok: false, unavailable: true, error: 'spawn falló' });
     }
@@ -53,6 +54,7 @@ function _runCmd(cmd, args, timeoutMs = CHECK_TIMEOUT_MS) {
 }
 
 /** Python bin con sondaje y caché (ASISTENTE_PYTHON_BIN gana si existe). */
+/** @type {string|null} */
 let _pythonBin = null;
 async function _getPythonBin() {
   if (_pythonBin) return _pythonBin;
@@ -74,6 +76,7 @@ async function _getPythonBin() {
 // ── checkers por extensión ─────────────────────────────────────────────────
 
 /** .js/.mjs/.cjs → node --check usando el propio runtime del proceso. */
+/** @param {string} file */
 async function checkJs(file) {
   // Electron como Node: mismo intérprete que ejecuta la app, sin GUI.
   const r = await _runCmd(process.execPath, ['--input-type=module', '--eval', ''], 3000);
@@ -87,7 +90,7 @@ async function checkJs(file) {
         env,
       });
     } catch (e) {
-      return resolve({ ok: true, skipped: e.message });
+      return resolve({ ok: true, skipped: e instanceof Error ? e.message : String(e) });
     }
     let out = '';
     const timer = setTimeout(() => {
@@ -96,7 +99,9 @@ async function checkJs(file) {
     }, CHECK_TIMEOUT_MS);
     child.stdout?.on('data', (d) => (out += d));
     child.stderr?.on('data', (d) => (out += d));
-    child.on('error', (e) => resolve({ ok: true, skipped: e.message }));
+    child.on('error', (e) =>
+      resolve({ ok: true, skipped: e instanceof Error ? e.message : String(e) })
+    );
     child.on('close', (code) => {
       clearTimeout(timer);
       resolve(
@@ -109,6 +114,7 @@ async function checkJs(file) {
 }
 
 /** .py → compile() embebido (sin escribir __pycache__). */
+/** @param {string} file */
 async function checkPython(file) {
   const py = await _getPythonBin();
   if (!py) return { ok: true, skipped: 'python no disponible' };
@@ -129,16 +135,23 @@ async function checkPython(file) {
 }
 
 /** .json → JSON.parse nativo. */
+/** @param {string} file */
 async function checkJson(file) {
   try {
     JSON.parse(fs.readFileSync(file, 'utf-8'));
     return { ok: true };
   } catch (e) {
-    return { ok: false, errors: [`JSON inválido: ${e.message.slice(0, 200)}`] };
+    return {
+      ok: false,
+      errors: [
+        `JSON inválido: ${e instanceof Error ? e.message.slice(0, 200) : String(e).slice(0, 200)}`,
+      ],
+    };
   }
 }
 
 /** .sh/.bash → bash -n (parse sin ejecutar). */
+/** @param {string} file */
 async function checkShell(file) {
   const r = await _runCmd('bash', ['-n', file]);
   return r.unavailable
@@ -153,6 +166,7 @@ async function checkShell(file) {
  * No valida propiedades (eso requiere parser completo), pero atrapa el caso
  * típico del LLM: regla sin cerrar o cierre de más.
  */
+/** @param {string} file */
 async function checkCss(file) {
   let css = fs.readFileSync(file, 'utf-8');
   css = css.replace(/\/\*[\s\S]*?\*\//g, ''); // comentarios
@@ -173,41 +187,66 @@ async function checkCss(file) {
       };
 }
 
-/** .ts/.tsx → transpilar con typescript si está instalado (reporta sintaxis). */
+/** .ts/.tsx → invocar tsc --noCheck; TypeScript 7 ya no expone transpileModule en CJS. */
+/** @param {string} file */
 async function checkTs(file) {
   try {
-    const ts = require('typescript');
-    const src = fs.readFileSync(file, 'utf-8');
-    const diag = ts.transpileModule(src, {
-      compilerOptions: { jsx: ts.JsxEmit.React },
-      reportDiagnostics: true,
-      fileName: file,
-    }).diagnostics;
-    if (diag && diag.length) {
-      const msgs = diag.slice(0, 3).map((d) => ts.flattenDiagnosticMessageText(d.messageText, ' '));
-      return { ok: false, errors: [`TypeScript inválido: ${msgs.join(' | ')}`] };
-    }
-    return { ok: true };
+    const packageDir = path.dirname(require.resolve('typescript/package.json'));
+    const cli = path.join(packageDir, 'lib', 'tsc.js');
+    if (!fs.existsSync(cli)) return { ok: true, skipped: 'typescript no instalado' };
+    const r = await _runCmd(
+      process.execPath,
+      [
+        cli,
+        '--ignoreConfig',
+        '--noEmit',
+        '--noCheck',
+        '--pretty',
+        'false',
+        '--skipLibCheck',
+        '--target',
+        'ES2022',
+        file,
+      ],
+      CHECK_TIMEOUT_MS,
+      { ...process.env, ELECTRON_RUN_AS_NODE: '1' }
+    );
+    return r.unavailable
+      ? { ok: true, skipped: r.error }
+      : r.ok
+        ? { ok: true }
+        : {
+            ok: false,
+            errors: [`TypeScript inválido: ${(r.output || r.error || '').slice(-300)}`],
+          };
   } catch (_) {
     return { ok: true, skipped: 'typescript no instalado' };
   }
 }
 
 /** .yml/.yaml → js-yaml si está disponible (skip graceful si no). */
+/** @param {string} file */
 async function checkYaml(file) {
   let yaml = null;
   try {
-    yaml = require('js-yaml');
+    const optionalRequire = /** @type {(name:string)=>any} */ (require);
+    yaml = optionalRequire('js-yaml');
   } catch {}
   if (!yaml) return { ok: true, skipped: 'yaml parser no instalado' };
   try {
     yaml.load(fs.readFileSync(file, 'utf-8'));
     return { ok: true };
   } catch (e) {
-    return { ok: false, errors: [`YAML inválido: ${e.message.slice(0, 200)}`] };
+    return {
+      ok: false,
+      errors: [
+        `YAML inválido: ${e instanceof Error ? e.message.slice(0, 200) : String(e).slice(0, 200)}`,
+      ],
+    };
   }
 }
 
+/** @type {Record<string,(file:string)=>Promise<any>>} */
 const CHECKERS = {
   '.js': checkJs,
   '.mjs': checkJs,
@@ -249,7 +288,7 @@ async function verifySyntax(files, { maxFiles = 6 } = {}) {
     try {
       res = await checker(file);
     } catch (e) {
-      res = { ok: true, skipped: `checker falló: ${e.message}` };
+      res = { ok: true, skipped: `checker falló: ${e instanceof Error ? e.message : String(e)}` };
     }
     results.push({
       file,

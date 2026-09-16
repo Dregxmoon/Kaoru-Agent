@@ -105,6 +105,7 @@ const ACTION_TO_TOOL = {
   ui_press: 'ui_press',
   ui_select: 'ui_select',
   ui_scroll: 'ui_scroll',
+  desktop_mission: 'desktop_mission',
   window_close: 'window_close',
   desktop_capabilities: 'desktop_capabilities',
   process_list: 'process_list',
@@ -184,6 +185,8 @@ function _buildDescription(action, fields) {
       return `${action}: ${f.REF || '(sin referencia)'}`;
     case 'ui_wait':
       return `Esperar condición UI: ${f.NOMBRE || f.NAME || f.ESTADO || f.STATE || '?'}`;
+    case 'desktop_mission':
+      return `Misión de escritorio: ${f.META || f.GOAL || '(meta estructurada)'}`;
     case 'desktop_capabilities':
       return 'Consultar capacidades de escritorio';
     case 'process_list':
@@ -410,6 +413,15 @@ function _buildParams(action, fields, userGoal, projectCwd) {
   action = MODERN_ALIASES[action] || action;
 
   switch (action) {
+    case 'desktop_mission': {
+      if (!fields.PARAMS) return null;
+      try {
+        const params = JSON.parse(fields.PARAMS);
+        return params && typeof params === 'object' && !Array.isArray(params) ? params : null;
+      } catch (_) {
+        return null;
+      }
+    }
     case 'create_file':
       return {
         path: fields.ARCHIVO,

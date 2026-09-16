@@ -202,6 +202,62 @@ const TOOL_SCHEMAS = [
     },
   },
   {
+    name: 'desktop_mission',
+    description:
+      'Para una petición compuesta de varias acciones en aplicaciones de escritorio, crea una misión secuencial con resultados verificables. Works with user requests in any language. Kaoru pide una autorización inicial y comprueba cada resultado antes de avanzar; no llames esta tool para una acción sencilla.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        goal: { type: 'string', description: 'Meta completa expresada en el idioma del usuario' },
+        applications: {
+          type: 'array',
+          items: { type: 'string' },
+          description: 'Aplicaciones concretas incluidas en el alcance de la misión',
+        },
+        steps: {
+          type: 'array',
+          description: 'Resultados secuenciales, no una lista de clics',
+          items: {
+            type: 'object',
+            properties: {
+              description: { type: 'string', description: 'Resultado esperado de este paso' },
+              expected: {
+                type: 'object',
+                properties: {
+                  type: { type: 'string', enum: ['ui_visible', 'window_visible'] },
+                  application: {
+                    type: 'string',
+                    description: 'Aplicación declarada en applications',
+                  },
+                  name: {
+                    type: 'string',
+                    description:
+                      'Nombre accesible o título exacto de la ventana; obligatorio para ambos tipos',
+                  },
+                  role: {
+                    type: 'string',
+                    description: 'Rol del resultado; obligatorio si no hay state ni absent',
+                  },
+                  state: {
+                    type: 'string',
+                    description: 'Estado resultante; obligatorio para roles interactivos',
+                  },
+                  absent: {
+                    type: 'boolean',
+                    description: 'true si se espera que el elemento desaparezca',
+                  },
+                },
+                required: ['type', 'application'],
+              },
+            },
+            required: ['description', 'expected'],
+          },
+        },
+      },
+      required: ['goal', 'applications', 'steps'],
+    },
+  },
+  {
     name: 'launch_app',
     description:
       'Abre una aplicación, juego o launcher instalado en el escritorio visible. Requiere aprobación. No admite comandos ni argumentos arbitrarios.',
@@ -345,7 +401,14 @@ const TOOL_SCHEMAS = [
           type: 'object',
           description: 'Postcondición observable: name, role, state o absent',
           properties: {
-            name: { type: 'string' },
+            name: {
+              type: 'string',
+              description: 'Nombre accesible esperado',
+            },
+            exactName: {
+              type: 'boolean',
+              description: 'Comparar el nombre completo literalmente',
+            },
             role: { type: 'string' },
             state: { type: 'string' },
             absent: { type: 'boolean' },
@@ -384,6 +447,7 @@ const TOOL_SCHEMAS = [
           description: 'Postcondición observable: name, role, state o absent',
           properties: {
             name: { type: 'string' },
+            exactName: { type: 'boolean', description: 'Comparar el nombre completo literalmente' },
             role: { type: 'string' },
             state: { type: 'string' },
             absent: { type: 'boolean' },

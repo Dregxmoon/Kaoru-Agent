@@ -354,6 +354,9 @@ async function runAgent(userMessage, opts = {}) {
 
   const loopOpts = {
     ...opts,
+    originalUserMessage: userMessage,
+    sessionId,
+    workspace: projectCwd,
     responseLanguage,
     tools: context.nativeToolSchemas || null,
     nativeMcpMap: context.nativeMcpMap || {},

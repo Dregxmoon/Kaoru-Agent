@@ -185,7 +185,7 @@ function _scanJsonFirstError(raw) {
  * @returns {{ line: number, column: number }}
  */
 function _lineColFromParseError(raw, err) {
-  const msg = String((err && err.message) || err);
+  const msg = String(err instanceof Error ? err.message : err);
   const detailed = msg.match(/at line (\d+) column (\d+)/i);
   if (detailed) return { line: Number(detailed[1]), column: Number(detailed[2]) };
   const posMatch = msg.match(/position (\d+)/i);
@@ -207,6 +207,7 @@ function _lineColFromParseError(raw, err) {
 }
 
 /** ¿Hay ALGUNA API key configurada (config o llavero)? */
+/** @param {any} parsed @param {boolean} keychainHasKeys */
 function _hasAnyApiKey(parsed, keychainHasKeys) {
   if (keychainHasKeys) return true;
   const llm = parsed && typeof parsed === 'object' ? parsed.llm : null;
@@ -227,14 +228,11 @@ function _hasAnyApiKey(parsed, keychainHasKeys) {
 }
 
 /**
- * @param {object} opts
- * @param {string} opts.configPath       Ruta absoluta del config.json del usuario.
- * @param {string|null} [opts.examplePath] Ruta del ejemplo a sugerir copiar.
- * @param {boolean} [opts.keychainHasKeys] true si el llavero del SO tiene keys.
+ * @param {{configPath?:string,examplePath?:string|null,keychainHasKeys?:boolean}} [opts]
  * @returns {{ ok: boolean, issues: Array<{ type: 'missing'|'invalid_json'|'no_keys', message: string }> }}
  */
 function validateStartupConfig({ configPath, examplePath = null, keychainHasKeys = false } = {}) {
-  /** @type {Array<{ type: string, message: string }>} */
+  /** @type {Array<{ type: 'missing'|'invalid_json'|'no_keys', message: string }>} */
   const issues = [];
 
   // ── Caso 1: no existe ──
@@ -269,7 +267,7 @@ function validateStartupConfig({ configPath, examplePath = null, keychainHasKeys
     parsed = JSON.parse(raw);
   } catch (err) {
     const { line, column } = _lineColFromParseError(raw, err);
-    const reason = String((err && err.message) || err)
+    const reason = String(err instanceof Error ? err.message : err)
       .replace(/\s*\n\s*/g, ' ')
       .slice(0, 140);
     issues.push({

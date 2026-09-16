@@ -29,10 +29,7 @@ const {
 const { getSubagentRegistry, _toolAllowed } = require('./SubagentRegistry.js');
 const { buildStepProgress } = require('./StepExecutionLedger.js');
 const { wrapUntrusted } = require('../grounding/untrustedContent.js');
-const {
-  capabilityForTool,
-  capabilityPermissionTool,
-} = require('../desktop/DesktopCapabilities.js');
+const { assessAction, requestActionApproval } = require('../security/AuthorizedToolExecutor.js');
 const {
   MutationJournal,
   isMutatingAction,
@@ -222,6 +219,7 @@ const INTERACTIVE_ACTION_RE =
   /(?:^|\s)(?:abre|abrir|ábreme|lanza|inicia|reproduce|reproducir|pon|poner|haz\s+clic|pulsa|presiona|escribe|selecciona|cierra|open|launch|play|click|press|type|select|close)(?=\s|$|[.,;:!?])/i;
 const UI_TOOLS = new Set([
   'browser',
+  'desktop_mission',
   'list_apps',
   'launch_app',
   'open_website',
@@ -654,6 +652,19 @@ ACCIÓN: open_website | SITIO: youtube | NAVEGADOR: firefox
 Para una petición compuesta de buscar y reproducir, usa una sola acción:
 \`\`\`action
 ACCIÓN: play_media | SERVICIO: youtube | QUERY: video de guitarra | CONTROL: managed
+\`\`\`
+
+Para una meta que encadena varios resultados en aplicaciones de escritorio,
+usa \`desktop_mission\` con la meta completa, las aplicaciones del alcance y
+pasos con postcondiciones observables. Interpreta la petición en el idioma del
+usuario; no dependas de palabras clave. La misión se autoriza como conjunto y
+solo se declara completa si cada postcondición aparece en el entorno real.
+Para una única acción sencilla usa la herramienta directa.
+Si el proveedor no admite llamadas nativas a herramientas, emite el plan
+como JSON en un solo bloque de acción, por ejemplo:
+\`\`\`action
+ACCIÓN: desktop_mission
+PARAMS: {"goal":"Abrir el informe y confirmar la cita","applications":["Editor","Agenda"],"steps":[{"description":"Abrir el informe en Editor","expected":{"type":"window_visible","application":"Editor","name":"Informe - Editor"}},{"description":"Confirmar la cita en Agenda","expected":{"type":"ui_visible","application":"Agenda","name":"Confirmada","role":"label"}}]}
 \`\`\`
 
 Para controlar una aplicación nativa en Linux o Windows, primero usa
@@ -1373,6 +1384,7 @@ class AgentLoop {
     this._currentNativeMcpMap = nativeMcpMap;
 
     const iterationHistory = [...(messages || [])];
+    const desktopMissionReviews = new Map();
     let lastToolResult = null;
     const toolResults = [];
     // Anti-repetición (Fase 2): llamadas ejecutadas en este run (tool + hash de
@@ -1606,6 +1618,21 @@ class AgentLoop {
       if (firstUiAction) actions = [firstUiAction];
 
       if (actions.length === 0) {
+        const latestMission = toolResults
+          .filter((result) => result?.tool === 'desktop_mission')
+          .at(-1);
+        if (latestMission && !latestMission.ok) {
+          const state = latestMission.result || {};
+          const completed = Math.max(0, Number(state.completed) || 0);
+          const total = Math.max(completed, Number(state.total) || 0);
+          const resumePoint = Number(state.resumePoint) || completed + 1;
+          return {
+            response: `La misión de escritorio quedó ${state.status === 'cancelled' ? 'cancelada' : 'pausada'}: ${completed}/${total} resultados verificados. Paso pendiente: ${resumePoint}. Motivo: ${latestMission.error || 'verificación pendiente'}.`,
+            iterations: i + 1,
+            toolResults,
+            error: 'desktop_mission_incomplete',
+          };
+        }
         const mutationExpected = !opts.reportMode && _expectsMutation(userMessage);
         const observableExpected = !opts.reportMode && INTERACTIVE_ACTION_RE.test(userMessage);
         const mutationObserved = toolResults.some(_isSuccessfulMutation);
@@ -1879,19 +1906,69 @@ class AgentLoop {
 
       for (const action of actions) {
         if (maxToolCalls > 0 && toolResults.length >= maxToolCalls) break;
-        const { isIrreversible } = require('../security/IrreversiblePolicy.js');
-        const irreversible = isIrreversible(action);
-        const requiresApproval = irreversible || AP.isHighImpact(action.tool, action.params);
+        if (
+          action.tool === 'desktop_mission' &&
+          action.params &&
+          typeof action.params === 'object'
+        ) {
+          // El modelo define el plan, pero la meta autorizada siempre es la
+          // petición original; un plan influido por contenido externo no puede
+          // sustituir lo que el usuario pidió en el diálogo de autorización.
+          action.params = {
+            ...action.params,
+            goal: opts.originalUserMessage || userMessage,
+          };
+          const {
+            reviewMissionPlan,
+            validatePlanReview,
+          } = require('../desktop/MissionPlanReviewer.js');
+          const reviewKey = JSON.stringify(action.params);
+          let review = desktopMissionReviews.get(reviewKey);
+          if (!review) {
+            const rawReview = await (opts.reviewDesktopMissionPlan || reviewMissionPlan)(
+              action.params,
+              {
+                signal,
+              }
+            );
+            review = validatePlanReview(
+              rawReview,
+              Array.isArray(action.params.steps) ? action.params.steps.length : 0
+            );
+            desktopMissionReviews.set(reviewKey, review);
+          }
+          if (review.covered !== true) {
+            const gaps = [
+              ...(review.gaps || []),
+              ...(review.weakSteps || []).map((n) => `Paso ${n}`),
+            ]
+              .slice(0, 8)
+              .join('; ');
+            const feedback =
+              `[Misión de escritorio bloqueada antes de pedir autorización: ` +
+              `${review.error || 'mission_plan_incomplete'}. ${gaps || 'Revisa cobertura y resultados observables.'} ` +
+              `Reformula el plan completo y sus postcondiciones.]`;
+            iterationHistory.push({ role: 'user', content: feedback });
+            lastToolResult = {
+              ok: false,
+              error: review.error || 'mission_plan_incomplete',
+              tool: 'desktop_mission',
+            };
+            continue;
+          }
+        }
+        const assessment = assessAction(action, {
+          permissionManager: opts.permissionManager || null,
+          workspace: AP.PROJECT_CWD || process.cwd(),
+          missionGrant: opts.missionGrant || null,
+          forceApproval:
+            action.tool === 'desktop_mission' ||
+            Boolean(opts.missionGrant && !opts.missionGrant.allows(action)),
+        });
+        const { requiresApproval, permissionAction } = assessment;
         // Instrumentación: cada tool solicitada por el agente cuenta (aunque
         // luego se bloquee/deniegue/cancele — igual fue pedida).
         this._metrics.trackTool(action.tool);
-
-        // ── Permisos granulares (allow/ask/deny) ─────────────────────────────
-        // Patrón opencode: una regla persistente puede elevar una herramienta
-        // de alto impacto a 'allow' (se ejecuta sin preguntar), bloquearla con
-        // 'deny', o forzar 'ask'. El default es 'ask' solo para alto impacto.
-        const permissionManager = opts.permissionManager || null;
-        let permissionAction = requiresApproval ? 'ask' : 'allow';
 
         // ── Gate de herramientas por perfil de subagente ─────────────────────
         // Los subagentes con tools restringidas (explorador/investigador) solo
@@ -1909,38 +1986,6 @@ class AgentLoop {
           };
           continue;
         }
-        if (permissionManager && typeof permissionManager.check === 'function') {
-          const desktopCapability = capabilityForTool(action.tool);
-          const capabilityPermission = desktopCapability
-            ? permissionManager.check({
-                tool: capabilityPermissionTool(desktopCapability),
-                path: '',
-                defaultAction: 'ask',
-              })
-            : null;
-          const targetPath =
-            action.params?.path || action.params?.filePath || action.params?.cwd || '';
-          const permissionPath = targetPath
-            ? path.resolve(AP.PROJECT_CWD || process.cwd(), targetPath)
-            : '';
-          const perm = permissionManager.check({
-            tool: action.tool,
-            path: permissionPath,
-            defaultAction: requiresApproval ? 'ask' : 'allow',
-          });
-          permissionAction = perm.action;
-          // El interruptor de capacidad es un kill-switch externo al LLM. Un
-          // `deny` de familia siempre gana; `ask`/`allow` no eliminan la
-          // aprobación específica de la herramienta.
-          if (capabilityPermission?.rule?.action === 'deny') permissionAction = 'deny';
-          if (process.env.DEBUG && perm.rule) {
-            logger.info(
-              'AgentLoop',
-              `[agent-loop] permiso "${perm.action}" para ${action.tool} (regla: ${perm.rule.id})`
-            );
-          }
-        }
-
         if (permissionAction === 'deny') {
           iterationHistory.push({
             role: 'user',
@@ -1953,8 +1998,6 @@ class AgentLoop {
           };
           continue;
         }
-
-        if (irreversible) permissionAction = 'ask';
 
         // ── Hook de plugins: beforeTool ─────────────────────────────────────
         // Los plugins pueden denegar una herramienta devolviendo
@@ -2009,37 +2052,33 @@ class AgentLoop {
           }
         }
 
-        if (permissionAction === 'ask' && requiresApproval && opts.onApprovalNeeded) {
-          const decision = await opts.onApprovalNeeded(action);
-          // onApprovalNeeded puede devolver boolean (true/false) o un objeto
-          // rico { approved, reason }. El caso reason === 'timeout' distingue
-          // una aprobación que EXPIRÓ (el usuario no respondió a tiempo) de
-          // una denegación explícita — el cierre del run debe decirlo.
-          const isObject = decision !== null && typeof decision === 'object';
-          const isTimeout = isObject && decision.reason === 'timeout';
-          const approved = isObject ? Boolean(decision.approved) : Boolean(decision);
-          this._metrics.trackApproval(approved);
-          if (!approved) {
-            if (isTimeout) this._approvalExpiredTool = action.tool;
-            iterationHistory.push({
-              role: 'user',
-              content: isTimeout
-                ? `[La herramienta "${action.tool}" NO se ejecutó: el tiempo de aprobación expiró sin tu respuesta — continúa sin ella o busca otra estrategia]`
-                : `[Herramienta "${action.tool}" cancelada por el usuario — continúa sin ella o busca otra estrategia]`,
-            });
-            lastToolResult = {
-              ok: false,
-              error: isTimeout ? 'aprobacion_expirada' : 'cancelada_por_usuario',
-              tool: action.tool,
-            };
-            continue;
-          }
-        } else if (requiresApproval && !opts.onApprovalNeeded && permissionAction !== 'allow') {
+        const approval = await requestActionApproval(assessment, action, {
+          onApprovalNeeded: opts.onApprovalNeeded,
+          missionGrant: opts.missionGrant || null,
+        });
+        if (approval.prompted) this._metrics.trackApproval(approval.approved);
+        if (!approval.approved && approval.reason === 'approval_handler_missing') {
           iterationHistory.push({
             role: 'user',
             content: `[Herramienta "${action.tool}" requiere aprobación pero no hay handler — BLOQUEADA. Continúa sin ella o informa que no puedes ejecutarla.]`,
           });
           lastToolResult = { ok: false, error: 'sin_handler_aprobacion', tool: action.tool };
+          continue;
+        }
+        if (!approval.approved) {
+          const isTimeout = approval.reason === 'timeout';
+          if (isTimeout) this._approvalExpiredTool = action.tool;
+          iterationHistory.push({
+            role: 'user',
+            content: isTimeout
+              ? `[La herramienta "${action.tool}" NO se ejecutó: el tiempo de aprobación expiró sin tu respuesta — continúa sin ella o busca otra estrategia]`
+              : `[Herramienta "${action.tool}" cancelada por el usuario — continúa sin ella o busca otra estrategia]`,
+          });
+          lastToolResult = {
+            ok: false,
+            error: isTimeout ? 'aprobacion_expirada' : 'cancelada_por_usuario',
+            tool: action.tool,
+          };
           continue;
         }
 
@@ -2137,6 +2176,29 @@ class AgentLoop {
           } else if (action.tool === 'memory_log_interaction') {
             // Memory tool: log user interaction
             result = await this._executeMemoryLogInteraction(action);
+          } else if (action.tool === 'desktop_mission') {
+            const { DesktopMissionLoop } = require('../desktop/DesktopMissionLoop.js');
+            const mission = new DesktopMissionLoop({ bridge: this._bridge, graph: this._graph });
+            const missionResult = await mission.run(action.params, {
+              planReview: desktopMissionReviews.get(JSON.stringify(action.params)),
+              systemPrompt,
+              messages,
+              llm: opts.llm,
+              signal,
+              permissionManager: opts.permissionManager || null,
+              onApprovalNeeded: opts.onApprovalNeeded,
+              onProgress: opts.onProgress,
+              onPlan: opts.onPlan,
+              sessionId: opts.sessionId || '',
+              workspace: opts.workspace || AP.PROJECT_CWD || process.cwd(),
+            });
+            result = {
+              ok: missionResult.status === 'completed',
+              result: missionResult,
+              error: missionResult.status === 'completed' ? null : missionResult.error,
+              tool: 'desktop_mission',
+              elapsed: missionResult.elapsedMs || 0,
+            };
           } else if (action.tool === 'read') {
             // Caché por-run de read: mismo archivo + encoding devuelve el
             // mismo resultado mientras no se mute ese archivo (la

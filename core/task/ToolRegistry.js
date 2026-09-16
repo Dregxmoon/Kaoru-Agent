@@ -193,6 +193,25 @@ const TOOL_SCHEMAS = [
     highImpact: true,
   },
   {
+    id: 'desktop.mission',
+    name: 'desktop_mission',
+    domain: ['desktop', 'system'],
+    source: 'desktop',
+    description:
+      'Coordina varios resultados de escritorio por aplicaciones, con autorización inicial, observación, verificación y punto de reanudación. Admite peticiones en cualquier idioma.',
+    params: [
+      { name: 'goal', type: 'string', description: 'Meta completa', required: true },
+      {
+        name: 'applications',
+        type: 'array',
+        description: 'Aplicaciones dentro del alcance',
+        required: true,
+      },
+      { name: 'steps', type: 'array', description: 'Resultados y postcondiciones', required: true },
+    ],
+    highImpact: true,
+  },
+  {
     id: 'desktop.launch_app',
     name: 'launch_app',
     domain: ['desktop', 'system'],

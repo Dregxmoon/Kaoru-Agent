@@ -53,6 +53,7 @@ const state = {
   pluginManager: null,
   permissionManager: null,
   goalGovernor: null,
+  learning: /** @type {{skillStats:(opts:any)=>any}|null} */ (null),
 };
 
 module.exports = state;

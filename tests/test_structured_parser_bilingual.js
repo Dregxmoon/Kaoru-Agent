@@ -49,6 +49,36 @@ en = parseFirst('```action\nACTION: desktop_snapshot | WINDOW: Writer\n```', 'lo
 assert(es && es.params.application === 'Writer', 'ES: APLICACIÓN → application');
 assert(en && en.params.application === 'Writer', 'EN: WINDOW → application');
 
+console.log('\n── desktop_mission sin tool-calling nativo ──');
+const multilingualMission = {
+  goal: 'Open the report y confirmar 予定',
+  applications: ['Editor', 'Agenda'],
+  steps: [
+    {
+      description: 'レポートを開く',
+      expected: { type: 'window_visible', application: 'Editor', name: 'Informe' },
+    },
+  ],
+};
+const missionAction = parseFirst(
+  `\`\`\`action\nACTION: desktop_mission\nPARAMS: ${JSON.stringify(multilingualMission)}\n\`\`\``,
+  multilingualMission.goal
+);
+assert(
+  missionAction &&
+    missionAction.tool === 'desktop_mission' &&
+    missionAction.params.goal === multilingualMission.goal,
+  'fallback conserva la meta multilingüe como JSON'
+);
+assert(
+  missionAction && missionAction.params.steps[0].expected.name === 'Informe',
+  'fallback conserva postcondiciones anidadas'
+);
+assert(
+  parseFirst('```action\nACTION: desktop_mission\nPARAMS: {"goal":\n```', 'do it') === null,
+  'fallback rechaza JSON incompleto sin adivinar la misión'
+);
+
 console.log('\n── Sin regresión: bloques inválidos se siguen rechazando ──');
 const sinCampo = parseFirst('```action\nACCIÓN: open_website\n```', 'abre algo');
 assert(sinCampo === null, 'open_website sin SITIO/TARGET/URL se rechaza');

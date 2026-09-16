@@ -25,15 +25,13 @@ const { performance } = require('perf_hooks');
 
 class HealthMetrics {
   /**
-   * @param {object} [opts]
-   * @param {object} [opts.bridge]        OpenClawBridge para estado de sandbox/disponibilidad.
-   * @param {UsageTracker} [opts.tracker]  UsageTracker para métricas de LLM.
-   * @param {string} [opts.filePath]       ruta del archivo JSONL de métricas.
+   * @param {{bridge?:{getSandboxStatus:()=>{enabled:boolean,reason:string|null}|null,_available:boolean|null},
+   * tracker?:InstanceType<typeof UsageTracker>,filePath?:string}} [opts]
    */
   constructor(opts = {}) {
-    /** @type {object | null} */
+    /** @type {{getSandboxStatus:()=>{enabled:boolean,reason:string|null}|null,_available:boolean|null}|null} */
     this._bridge = opts.bridge || null;
-    /** @type {UsageTracker | null} */
+    /** @type {InstanceType<typeof UsageTracker> | null} */
     this._tracker = opts.tracker || null;
     /** @type {string | null} */
     this._filePath = opts.filePath || null;
@@ -161,7 +159,9 @@ class HealthMetrics {
 }
 
 // Singleton por defecto — los módulos comparten una única instancia.
+/** @type {HealthMetrics|null} */
 let _defaultInstance = null;
+/** @param {ConstructorParameters<typeof HealthMetrics>[0]} [opts] */
 function getHealthMetrics(opts) {
   if (!_defaultInstance || opts) {
     _defaultInstance = new HealthMetrics(opts);

@@ -103,7 +103,7 @@ function checkNativeBindings() {
 let _worker = null;
 /** @type {Promise<import('worker_threads').Worker> | null} */
 let _starting = null;
-/** @type {Map<number, { resolve: (v: Float32Array) => void; reject: (e: Error) => void }>} */
+/** @type {Map<number, { resolve: (v: Float32Array) => void; reject: (e: Error) => void; _text: string }>} */
 let _pending = new Map();
 let _seq = 0;
 let _consecutiveFailures = 0;
@@ -122,6 +122,7 @@ let _workerFactory = null;
 let _child = null;
 let _childStarting = false;
 let _childRecoveryCount = 0;
+/** @type {Map<number, { resolve: (v: Float32Array) => void; reject: (e: Error) => void }>} */
 let _childPending = new Map();
 let _childSeq = 0;
 
@@ -560,6 +561,7 @@ function _request(w, text) {
       if (_pending.delete(id)) reject(new Error('embedding timeout'));
     }, EMBED_TIMEOUT_MS);
     _pending.set(id, {
+      _text: text,
       resolve: (v) => {
         clearTimeout(timer);
         resolve(v);
@@ -659,7 +661,10 @@ async function warmup() {
         logger.info('EmbedService', '[embeddings] child process precalentado');
         return true;
       } catch (e) {
-        logger.warn('EmbedService', `[embeddings] warmup del child process falló: ${e.message}`);
+        logger.warn(
+          'EmbedService',
+          `[embeddings] warmup del child process falló: ${e instanceof Error ? e.message : String(e)}`
+        );
         return false;
       }
     }
@@ -679,7 +684,10 @@ async function warmup() {
         logger.info('EmbedService', '[embeddings] child process precalentado');
         return true;
       } catch (e) {
-        logger.warn('EmbedService', `[embeddings] warmup del child process falló: ${e.message}`);
+        logger.warn(
+          'EmbedService',
+          `[embeddings] warmup del child process falló: ${e instanceof Error ? e.message : String(e)}`
+        );
         return false;
       }
     }
@@ -782,9 +790,11 @@ module.exports = {
   _debug_forceDisable,
   _debug_getState,
   _debug_bindingHint: bindingFailureHint,
+  /** @param {(workerPath: string) => import('child_process').ChildProcess} fn */
   _debug_setChildProcessFactory(fn) {
     _createChildProcessImpl = fn;
   },
+  /** @param {number} ms */
   _debug_setChildProcessBackoff(ms) {
     _childProcessBackoffMs = ms;
   },

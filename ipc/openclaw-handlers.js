@@ -23,6 +23,17 @@ function senderId(event) {
   return Number(event?.sender?.id) || 0;
 }
 
+function describeMissionApproval(params) {
+  const goal = String(params?.goal || '').slice(0, 1000);
+  const applications = (Array.isArray(params?.applications) ? params.applications : [])
+    .map((application) => String(application).slice(0, 120))
+    .join(', ');
+  const steps = (Array.isArray(params?.steps) ? params.steps : [])
+    .map((step, index) => `${index + 1}. ${String(step?.description || '').slice(0, 500)}`)
+    .join('\n');
+  return `Misión de escritorio: ${goal}\nAplicaciones: ${applications}\nResultados:\n${steps}\nAlcance temporal: hasta 60 acciones semánticas durante 15 minutos. Las acciones fuera del paso y la aplicación autorizados se consultan por separado.`;
+}
+
 function register(ctx) {
   const { Core, S, sendToChat } = ctx;
 
@@ -137,8 +148,11 @@ function register(ctx) {
         },
         onApprovalNeeded: async (action) => {
           controller.noteProgress({ phase: 'approval', tool: action.tool, status: 'waiting' });
+          if (abort.signal.aborted) return { approved: false, reason: 'cancelled' };
           return new Promise((resolve) => {
             const pattern = approvalPattern(action);
+            const missionAction =
+              action.tool === 'desktop_mission' || action._desktopMission === true;
             const { isAlwaysPrompt } = require('../core/security/ToolPolicy.js');
             const { isIrreversible } = require('../core/security/IrreversiblePolicy.js');
             const irreversible = isIrreversible(action);
@@ -147,13 +161,18 @@ function register(ctx) {
             // El control interactivo queda excluido: contenido web o una UI
             // comprometida no puede convertir una preferencia global antigua
             // en acceso silencioso al escritorio.
-            if (approvalConfig.autoApprove && !isAlwaysPrompt(action.tool) && !irreversible) {
+            if (
+              approvalConfig.autoApprove &&
+              !missionAction &&
+              !isAlwaysPrompt(action.tool) &&
+              !irreversible
+            ) {
               resolve(true);
               return;
             }
             // Aprobación "Siempre" ya registrada en esta sesión → se aprueba
             // directo, sin mostrar el card (patrón opencode).
-            if (!irreversible && isApproved(pattern)) {
+            if (!missionAction && !irreversible && isApproved(pattern)) {
               resolve(true);
               return;
             }
@@ -168,9 +187,14 @@ function register(ctx) {
               actionId,
               tool: action.tool,
               params: action.params,
+              allowAlways: !missionAction,
               description:
-                action.description ||
-                `${action.tool}: ${JSON.stringify(action.params).slice(0, 100)}`,
+                action.tool === 'desktop_mission'
+                  ? describeMissionApproval(action.params)
+                  : missionAction
+                    ? `Acción fuera del permiso automático de la misión: ${action.description || `${action.tool}: ${JSON.stringify(action.params).slice(0, 100)}`}`
+                    : action.description ||
+                      `${action.tool}: ${JSON.stringify(action.params).slice(0, 100)}`,
               // Vista previa de diff (null cuando no se puede calcular: edit
               // ambiguo, patch que no aplica, write sin content). La UI debe
               // comunicar la ausencia explícitamente, nunca ocultarla.
@@ -183,11 +207,14 @@ function register(ctx) {
             let settled = false;
             const handler = (e2, { id, approved, always }) => {
               if (id !== actionId) return;
+              const expectedSenderId = Number(S.chatWindow?.webContents?.id) || ownerId;
+              if (expectedSenderId && senderId(e2) !== expectedSenderId) return;
               clearTimeout(timer);
+              abort.signal.removeEventListener('abort', onAbort);
               if (settled) return;
               settled = true;
               ipcMain.removeListener('agent-approval-response', handler);
-              if (always) addApproval(pattern);
+              if (always && !missionAction) addApproval(pattern);
               resolve(approved);
             };
             ipcMain.on('agent-approval-response', handler);
@@ -195,6 +222,7 @@ function register(ctx) {
             const timer = setTimeout(() => {
               if (settled) return;
               settled = true;
+              abort.signal.removeEventListener('abort', onAbort);
               ipcMain.removeListener('agent-approval-response', handler);
               sendToChat('agent-approval-expired', { actionId });
               logger.info(
@@ -205,6 +233,15 @@ function register(ctx) {
               // de una denegación explícita (cancelada_por_usuario).
               resolve({ approved: false, reason: 'timeout' });
             }, approvalTimeoutMs);
+            const onAbort = () => {
+              if (settled) return;
+              settled = true;
+              clearTimeout(timer);
+              ipcMain.removeListener('agent-approval-response', handler);
+              sendToChat('agent-approval-cancelled', { actionId });
+              resolve({ approved: false, reason: 'cancelled' });
+            };
+            abort.signal.addEventListener('abort', onAbort, { once: true });
           });
         },
 

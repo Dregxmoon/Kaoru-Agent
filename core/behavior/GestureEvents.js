@@ -42,6 +42,7 @@ const EVENT_MOODS = {
 };
 
 // Dedupe de claves literales (el objeto arriba tiene un duplicado histórico).
+/** @type {Record<string,string|null>} */
 const MOOD_FOR_EVENT = {};
 for (const [k, v] of Object.entries(EVENT_MOODS)) {
   if (!(k in MOOD_FOR_EVENT)) MOOD_FOR_EVENT[k] = v;
@@ -66,8 +67,7 @@ const SAFE_MOODS = new Set([
 
 class GestureEvents {
   /**
-   * @param {object} opts
-   * @param {(mood: string, meta?: object) => void} opts.send - difusor a las UIs
+   * @param {{send?:(mood:string,meta?:object)=>void}} [opts]
    */
   constructor({ send } = {}) {
     this._send = typeof send === 'function' ? send : () => {};
@@ -93,7 +93,7 @@ class GestureEvents {
       mood = meta.ok ? 'happy' : 'sad';
     }
     // Emoción explícita del mensaje generado (passthrough si es segura).
-    if (event === 'response-emotion' && SAFE_MOODS.has(meta.emotion)) {
+    if (event === 'response-emotion' && meta.emotion && SAFE_MOODS.has(meta.emotion)) {
       mood = meta.emotion;
     }
 

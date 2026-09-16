@@ -35,6 +35,7 @@ const TOOL_POLICY = Object.freeze({
   personal_browser_close: { impact: 'high', capability: 'browser', alwaysPrompt: true },
   personal_browser_login: { impact: 'high', capability: 'browser', alwaysPrompt: true },
   // ── Escritorio: aplicaciones ────────────────────────────────────────────
+  desktop_mission: { impact: 'high', capability: null, alwaysPrompt: true },
   list_apps: { impact: 'high', capability: 'applications', alwaysPrompt: false },
   launch_app: { impact: 'high', capability: 'applications', alwaysPrompt: false },
   window_list: { impact: 'high', capability: 'applications', alwaysPrompt: true },

@@ -190,15 +190,21 @@ function setActivityContainer(el) {
   _activityContainerEl = el;
 }
 
-ipcRenderer.on('agent-approval-needed', (e, { actionId, tool, params, description, diff }) => {
-  _showApprovalCard({ id: actionId, tool, params, description, diff });
-});
+ipcRenderer.on(
+  'agent-approval-needed',
+  (e, { actionId, tool, params, description, diff, allowAlways }) => {
+    _showApprovalCard({ id: actionId, tool, params, description, diff, allowAlways });
+  }
+);
 
 // El timeout de aprobación expiró en main (sin respuesta del usuario): el card
 // se marca como expirado en vez de quedar activo aceptando clics que no van a
 // ningún lado. La acción NO se ejecutó.
 ipcRenderer.on('agent-approval-expired', (e, { actionId }) => {
   _expireApprovalCard(actionId);
+});
+ipcRenderer.on('agent-approval-cancelled', (e, { actionId }) => {
+  _cancelApprovalCard(actionId);
 });
 
 // Gestos espontáneos difundidos desde main (generación, tareas agénticas,

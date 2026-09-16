@@ -119,10 +119,8 @@ function _fallbackEmotionDetection(message) {
 
 class LLMEotionDetector {
   /**
-   * @param {import('../../llm/LLMProvider.js')} llmProvider
-   * @param {Object} [opts]
-   * @param {number} [opts.timeoutMs]  timeout para la llamada al LLM
-   * @param {boolean} [opts.enabled]   false = solo regex
+   * @param {{complete:(messages:any[],prompt:string,opts:any)=>Promise<string>}|null} llmProvider
+   * @param {{timeoutMs?:number,enabled?:boolean}} [opts]
    */
   constructor(llmProvider, opts = {}) {
     this._llm = llmProvider;
@@ -136,7 +134,7 @@ class LLMEotionDetector {
   /**
    * Analiza un mensaje y devuelve emociones detectadas.
    * @param {string} message
-   * @param {Object} [context]  contexto adicional (historial, OS, etc.)
+   * @param {{history?:Array<{role:string,content:string}>}} [context]
    * @returns {Promise<Object>} emociones + tone + energy + implicitIntent
    */
   async detect(message, context = {}) {
@@ -163,7 +161,10 @@ class LLMEotionDetector {
       this._cacheSet(cacheKey, result);
       return result;
     } catch (e) {
-      logger.debug('LLMEotionDetector', `LLM fallback: ${e.message}`);
+      logger.debug(
+        'LLMEotionDetector',
+        `LLM fallback: ${e instanceof Error ? e.message : String(e)}`
+      );
       const result = _fallbackEmotionDetection(message);
       this._cacheSet(cacheKey, result);
       return result;
@@ -173,10 +174,11 @@ class LLMEotionDetector {
   /**
    * Análisis con LLM.
    * @param {string} message
-   * @param {Object} context
+   * @param {{history?:Array<{role:string,content:string}>}} context
    * @returns {Promise<Object>}
    */
   async _analyzeWithLLM(message, context) {
+    if (!this._llm) throw new Error('LLM no disponible');
     const contextStr = context.history?.length
       ? `\nHistorial reciente: ${context.history
           .slice(-3)
@@ -264,6 +266,7 @@ Analiza las emociones y responde SOLO con el JSON.`;
       .slice(0, 100);
   }
 
+  /** @param {string} key @param {Record<string,any>} result */
   _cacheSet(key, result) {
     this._cache.set(key, { result, timestamp: Date.now() });
     // Podar si excede el máximo

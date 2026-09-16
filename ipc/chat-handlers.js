@@ -168,6 +168,8 @@ function register(_ctx) {
    * @property {() => Promise<any>} pickWorkspace
    * @property {(next: boolean) => void} setTtsMuted
    * @property {() => boolean} isTtsMuted
+   * @property {() => any[]} mcpServers
+   * @property {() => Record<string,any>} getSkillStats
    * @property {any} gestureConfig
    * @property {{play: (mood: any, opts?: any) => Promise<any>} | null} gestureEngine
    * @property {typeof import('fs')} fs

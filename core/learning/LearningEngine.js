@@ -190,6 +190,9 @@ class LearningEngine {
    * @param {number} [outcome.mutationCount]
    * @param {boolean} [outcome.rollbackAvailable]
    * @param {string[]} [outcome.skills]
+   * @param {string[]} [outcome.capabilities]
+   * @param {string[]} [outcome.toolSequence]
+   * @param {string|null} [outcome.taskDomain]
    * @returns {object} el outcome persistido
    */
   recordTaskOutcome(outcome = {}) {
@@ -382,6 +385,7 @@ class LearningEngine {
         tally.set(key, current);
       }
     }
+    /** @type {Record<string, { uses: number; successRate: number; averageLatencyMs: number|null }>} */
     const stats = {};
     for (const [key, value] of tally) {
       if (value.uses < minUses) continue;
@@ -394,7 +398,9 @@ class LearningEngine {
     return stats;
   }
 
-  /** Recupera una secuencia verificada, sin convertirla en autorización. */
+  /** Recupera una secuencia verificada, sin convertirla en autorización.
+   * @param {{ domain?: string|null; minSuccesses?: number }} [options]
+   */
   recommendStrategy({ domain = null, minSuccesses = 2 } = {}) {
     if (!domain) return null;
     const groups = new Map();
@@ -467,6 +473,7 @@ class LearningEngine {
   /**
    * Sección corta de prompt con lo aprendido. Solo incluye datos con muestras
    * suficientes; si no hay nada significativo devuelve null (no se inyecta).
+   * @param {{ domain?: string|null }} [options]
    * @returns {string|null}
    */
   buildPromptSection(options = {}) {

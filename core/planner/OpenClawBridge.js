@@ -364,6 +364,11 @@ class OpenClawBridge {
     }
   }
 
+  /** Referencia interna para ligar permisos de misión a la aplicación observada. */
+  getDesktopAutomation() {
+    return this._desktopAutomation;
+  }
+
   // ── Disponibilidad ──────────────────────────────────────────────────────────
 
   async isAvailable(force = false) {

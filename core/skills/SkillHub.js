@@ -29,6 +29,7 @@ const GITHUB_API = 'https://api.github.com';
 const DEFAULT_TOPICS = 'agent-skills';
 
 /** Descarga HTTPS con timeout y User-Agent obligatorio de la API de GitHub. */
+/** @param {string} url @param {number} [timeoutMs] @returns {Promise<any>} */
 function _getJson(url, timeoutMs = 12_000) {
   return new Promise((resolve, reject) => {
     const req = https.get(
@@ -46,7 +47,11 @@ function _getJson(url, timeoutMs = 12_000) {
             try {
               resolve(JSON.parse(body));
             } catch (e) {
-              reject(new Error(`respuesta no-JSON de GitHub: ${e.message}`));
+              reject(
+                new Error(
+                  `respuesta no-JSON de GitHub: ${e instanceof Error ? e.message : String(e)}`
+                )
+              );
             }
           }
         });
@@ -77,7 +82,7 @@ async function buscarEnGitHub(query, { limit = 6 } = {}) {
   )}&sort=stars&order=desc&per_page=${limit}`;
   const data = await _getJson(url);
   const items = Array.isArray(data.items) ? data.items : [];
-  return items.map((r) => ({
+  return items.map((/** @type {any} */ r) => ({
     full_name: r.full_name,
     description: String(r.description || '').slice(0, 140),
     stars: r.stargazers_count || 0,
@@ -86,6 +91,7 @@ async function buscarEnGitHub(query, { limit = 6 } = {}) {
 }
 
 /** Valida "owner/repo" y devuelve { owner, repo }. */
+/** @param {string} spec */
 function _parseRepo(spec) {
   const m = String(spec || '')
     .replace(/^https:\/\/github\.com\//i, '')
@@ -96,6 +102,7 @@ function _parseRepo(spec) {
 }
 
 /** Descarga el tarball de la rama default a un archivo temporal. */
+/** @param {string} repoSpec */
 async function descargarTarball(repoSpec) {
   const { owner, repo } = _parseRepo(repoSpec);
   const url = `https://codeload.github.com/${owner}/${repo}/tar.gz/HEAD`;
@@ -125,6 +132,7 @@ async function descargarTarball(repoSpec) {
 }
 
 /** Sanitiza el nombre de carpeta destino de una skill. */
+/** @param {string} name */
 function _sanitizeSkillName(name) {
   return (
     String(name)
@@ -137,6 +145,7 @@ function _sanitizeSkillName(name) {
 }
 
 /** ¿El SKILL.md dado tiene frontmatter con description no vacía? */
+/** @param {string} skillMdPath */
 function _skillMdValida(skillMdPath) {
   try {
     const raw = fs.readFileSync(skillMdPath, 'utf-8');
@@ -149,6 +158,7 @@ function _skillMdValida(skillMdPath) {
 }
 
 /** Extrae un .tar.gz de forma segura (sin traversal, tope de tamaño). */
+/** @param {string} tarPath @param {string} destDir @returns {Promise<void>} */
 function _extractTar(tarPath, destDir) {
   fs.mkdirSync(destDir, { recursive: true });
   return new Promise((resolve, reject) => {
@@ -170,12 +180,16 @@ function _extractTar(tarPath, destDir) {
 
 /**
  * Busca carpetas con SKILL.md bajo extractDir (hasta profundidad 4).
+ * @param {string} extractDir
  * @returns {string[]} rutas de carpetas candidatas
  */
 function findSkillDirs(extractDir) {
+  /** @type {string[]} */
   const found = [];
+  /** @param {string} dir @param {number} depth */
   const walk = (dir, depth) => {
     if (depth > 4) return;
+    /** @type {import('fs').Dirent[]} */
     let entries = [];
     try {
       entries = fs.readdirSync(dir, { withFileTypes: true });

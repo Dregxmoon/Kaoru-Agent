@@ -19,6 +19,8 @@
 
 const logger = require('../../../observability/Logger.js');
 
+/** @typedef {{rules:string[],forbidden:string[],maxTokens:number,reason:string}} Enforcement */
+
 // ── Helper: detección de engagement del usuario ─────────────────────────────
 
 /**
@@ -48,7 +50,8 @@ module.exports = {
   /**
    * Construye el contexto emocional para el prompt del LLM proactivo.
    * Usa LLMEotionDetector si está disponible, fallback a TraitLearner regex.
-   * @param {Object} trigger
+   * @this {any} Host montado dinámicamente en ProactiveEngine.prototype
+   * @param {Record<string,any>} trigger
    * @returns {Promise<string>} sección de texto para el prompt
    */
   async _buildEmotionalContext(trigger) {
@@ -75,7 +78,9 @@ module.exports = {
       // Obtener los últimos 3 turnos del usuario para contexto
       const history = typeof graph.getRecentHistory === 'function' ? graph.getRecentHistory(3) : [];
 
-      const lastUserMsg = history.filter((h) => h.role === 'user').pop();
+      const lastUserMsg = history
+        .filter((/** @type {{role:string}} */ h) => h.role === 'user')
+        .pop();
       if (!lastUserMsg) return '';
 
       const emotions = detector
@@ -84,7 +89,10 @@ module.exports = {
 
       return this._formatEmotionalContext(emotions);
     } catch (e) {
-      logger.debug('adaptive-integration', `[emotional-context] ${e.message}`);
+      logger.debug(
+        'adaptive-integration',
+        `[emotional-context] ${e instanceof Error ? e.message : String(e)}`
+      );
       return '';
     }
   },
@@ -92,7 +100,8 @@ module.exports = {
   /**
    * C: formatea el objeto de emociones a texto de prompt (extraído para poder
    * usarlo tanto desde el trend tracker como desde el detector).
-   * @param {Object} emotions
+   * @this {any}
+   * @param {Record<string,any>} emotions
    * @returns {string}
    */
   _formatEmotionalContext(emotions) {
@@ -125,6 +134,7 @@ module.exports = {
 
       // Intención implícita
       if (emotions.implicitIntent && emotions.implicitIntent !== 'none') {
+        /** @type {Record<string,string>} */
         const intentMap = {
           seeking_help: 'busca ayuda (no lo dice directamente)',
           venting: 'se está desahogando (no necesita solución, necesita que lo escuchen)',
@@ -159,14 +169,18 @@ module.exports = {
 
       return parts.length ? `\nCONTEXTO EMOCIONAL:\n- ${parts.join('\n- ')}` : '';
     } catch (e) {
-      logger.debug('adaptive-integration', `Error en emotional context: ${e.message}`);
+      logger.debug(
+        'adaptive-integration',
+        `Error en emotional context: ${e instanceof Error ? e.message : String(e)}`
+      );
       return '';
     }
   },
 
   /**
    * Construye el contexto de momentum de topics para el prompt.
-   * @param {Object} trigger
+   * @this {any}
+   * @param {Record<string,any>} trigger
    * @returns {string} sección de texto para el prompt
    */
   _buildTopicContext(trigger) {
@@ -182,13 +196,18 @@ module.exports = {
 
       if (hotTopics.length) {
         const hotList = hotTopics
-          .map((t) => `"${t.topic}" (momentum: ${Math.round(t.score * 100)}%)`)
+          .map(
+            (/** @type {{topic:string,score:number}} */ t) =>
+              `"${t.topic}" (momentum: ${Math.round(t.score * 100)}%)`
+          )
           .join(', ');
         parts.push(`Topics de los que ha hablado recientemente y le importan: ${hotList}`);
       }
 
       if (coldTopics.length) {
-        const coldList = coldTopics.map((t) => `"${t.topic}"`).join(', ');
+        const coldList = coldTopics
+          .map((/** @type {{topic:string}} */ t) => `"${t.topic}"`)
+          .join(', ');
         parts.push(`Topics que mencionó antes pero dejó de lado: ${coldList}`);
       }
 
@@ -214,7 +233,7 @@ module.exports = {
   /**
    * Detecta emociones con fallback regex (sin LLM).
    * @param {string} message
-   * @returns {Promise<Object>}
+   * @returns {Promise<Record<string,any>>}
    */
   async _detectEmotionsFallback(message) {
     if (!message)
@@ -277,6 +296,7 @@ module.exports = {
   /**
    * Registra feedback de una adaptación aplicada.
    * Llamado después de que el LLM produce un mensaje y se envía al usuario.
+   * @this {any}
    * @param {string} adaptationType
    * @param {string} styleHint
    */
@@ -286,7 +306,10 @@ module.exports = {
       if (!graph?._feedbackScorer) return;
       graph._feedbackScorer.recordAdaptation(adaptationType, styleHint);
     } catch (e) {
-      logger.debug('adaptive-integration', `Error recording adaptation: ${e.message}`);
+      logger.debug(
+        'adaptive-integration',
+        `Error recording adaptation: ${e instanceof Error ? e.message : String(e)}`
+      );
     }
   },
 
@@ -301,6 +324,7 @@ module.exports = {
   /**
    * Procesa el feedback post-adaptación.
    * Llamado después de recibir respuesta del usuario tras una adaptación.
+   * @this {any}
    */
   _processAdaptationFeedback() {
     try {
@@ -317,12 +341,16 @@ module.exports = {
         );
       }
     } catch (e) {
-      logger.debug('adaptive-integration', `Error processing feedback: ${e.message}`);
+      logger.debug(
+        'adaptive-integration',
+        `Error processing feedback: ${e instanceof Error ? e.message : String(e)}`
+      );
     }
   },
 
   /**
    * Decide si vale la pena adaptar el estilo basado en el historial de efectividad.
+   * @this {any}
    * @param {string} adaptationType
    * @returns {boolean}
    */
@@ -341,9 +369,10 @@ module.exports = {
 
   /**
    * Genera reglas de comportamiento forzadas para el system prompt.
-   * @param {Object} emotionalCtx
-   * @param {Object} topicCtx
-   * @param {string} adaptationType
+   * @this {any}
+   * @param {Record<string,any>} emotionalCtx
+   * @param {Record<string,any>|null} topicCtx
+   * @param {string|null} adaptationType
    * @returns {Promise<{ rules: string[], forbidden: string[], maxTokens: number, reason: string }>}
    */
   async _buildEnforcementRules(emotionalCtx, topicCtx = null, adaptationType = null) {
@@ -354,14 +383,18 @@ module.exports = {
       }
       return graph._promptEnforcer.enforce(emotionalCtx, topicCtx, adaptationType);
     } catch (e) {
-      logger.debug('adaptive-integration', `Error building enforcement: ${e.message}`);
+      logger.debug(
+        'adaptive-integration',
+        `Error building enforcement: ${e instanceof Error ? e.message : String(e)}`
+      );
       return { rules: [], forbidden: [], maxTokens: 150, reason: 'error' };
     }
   },
 
   /**
    * Serializa las reglas de enforcement para el system prompt.
-   * @param {Object} enforcement
+   * @this {any}
+   * @param {Enforcement} enforcement
    * @returns {string}
    */
   _serializeEnforcement(enforcement) {
@@ -377,8 +410,9 @@ module.exports = {
   /**
    * Registra una respuesta de Kaoru para evaluación.
    * @param {string} kaoruResponse
-   * @param {Object} enforcement
-   * @param {Object} emotionalCtx
+   * @this {any}
+   * @param {Enforcement} enforcement
+   * @param {Record<string,any>} emotionalCtx
    * @param {string} adaptationType
    */
   _recordKaoruResponse(kaoruResponse, enforcement, emotionalCtx, adaptationType) {
@@ -392,12 +426,16 @@ module.exports = {
         adaptationType
       );
     } catch (e) {
-      logger.debug('adaptive-integration', `Error recording Kaoru response: ${e.message}`);
+      logger.debug(
+        'adaptive-integration',
+        `Error recording Kaoru response: ${e instanceof Error ? e.message : String(e)}`
+      );
     }
   },
 
   /**
    * Evalúa la calidad de la respuesta y actualiza el FeedbackScorer.
+   * @this {any}
    * @param {number} userEngagement
    * @returns {{ quality: number, feedbackApplied: boolean, violations: string[] }}
    */
@@ -409,7 +447,10 @@ module.exports = {
       }
       return graph._responseEvaluator.evaluate(userEngagement);
     } catch (e) {
-      logger.debug('adaptive-integration', `Error evaluating response: ${e.message}`);
+      logger.debug(
+        'adaptive-integration',
+        `Error evaluating response: ${e instanceof Error ? e.message : String(e)}`
+      );
       return { quality: 0.5, feedbackApplied: false, violations: [] };
     }
   },
@@ -417,8 +458,9 @@ module.exports = {
   /**
    * Evalúa una respuesta sin actualizar (dry-run).
    * @param {string} kaoruResponse
-   * @param {Object} enforcement
-   * @param {Object} emotionalCtx
+   * @this {any}
+   * @param {Enforcement} enforcement
+   * @param {Record<string,any>} emotionalCtx
    * @returns {{ score: number, violations: string[], passed: boolean }}
    */
   _evaluateDryRun(kaoruResponse, enforcement, emotionalCtx) {

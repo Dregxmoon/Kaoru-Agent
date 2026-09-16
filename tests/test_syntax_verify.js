@@ -33,6 +33,15 @@ async function main() {
     'JS roto → detectado'
   );
 
+  // ── TypeScript: la API CommonJS de TS 7 no incluye transpileModule ──
+  const tsOk = await verifySyntax([write('ok.ts', 'const answer: number = 42;')]);
+  t(tsOk.ok === true, 'TS válido → ok');
+  const tsBad = await verifySyntax([write('bad.ts', 'const answer: = 42;')]);
+  t(
+    tsBad.ok === false && /TypeScript inválido/.test(tsBad.results[0].errors.join(' ')),
+    'TS roto → detectado por el CLI'
+  );
+
   // ── JSON ──
   const jsonOk = await verifySyntax([write('ok.json', '{"a": 1}')]);
   t(jsonOk.ok === true, 'JSON válido → ok');

@@ -108,7 +108,9 @@ class FeedbackScorer {
 
     // Estado en memoria para cálculos en tiempo real
     this._lastAdaptation = null; // { type, timestamp, styleHint }
+    /** @type {number[]} */
     this._preAdaptationEngagement = []; // últimos N scores antes de adaptar
+    /** @type {number[]} */
     this._postAdaptationEngagement = []; // últimos N scores después de adaptar
 
     this._initSchema();
@@ -118,7 +120,10 @@ class FeedbackScorer {
     try {
       this._db.exec(FEEDBACK_SCORES_SCHEMA);
     } catch (e) {
-      logger.warn('FeedbackScorer', `Error creando schema: ${e.message}`);
+      logger.warn(
+        'FeedbackScorer',
+        `Error creando schema: ${e instanceof Error ? e.message : String(e)}`
+      );
     }
   }
 
@@ -166,7 +171,7 @@ class FeedbackScorer {
 
   /**
    * Calcula el delta de engagement post vs pre adaptación.
-   * @returns {{ delta: number, pre: number, post: number, sampleSize: number, adaptationType: string }}
+   * @returns {{ delta: number, pre: number, post: number, sampleSize: number, adaptationType: string }|null}
    */
   computeAdaptationDelta() {
     if (!this._lastAdaptation) return null;
@@ -216,7 +221,10 @@ class FeedbackScorer {
           .run(key, key, 0.5 + delta * 0.5, Date.now());
       }
     } catch (e) {
-      logger.warn('FeedbackScorer', `Error actualizando score: ${e.message}`);
+      logger.warn(
+        'FeedbackScorer',
+        `Error actualizando score: ${e instanceof Error ? e.message : String(e)}`
+      );
     }
   }
 
@@ -238,11 +246,12 @@ class FeedbackScorer {
 
   /**
    * Obtiene un reporte completo de efectividad.
-   * @returns {Object}
+   * @returns {Record<string,{effectiveness:number,samples:number,lastUpdated:number}>}
    */
   getReport() {
     try {
       const rows = this._db.prepare('SELECT * FROM feedback_scores ORDER BY ema_value DESC').all();
+      /** @type {Record<string,{effectiveness:number,samples:number,lastUpdated:number}>} */
       const report = {};
       for (const r of rows) {
         report[r.adaptation_type] = {

@@ -17,6 +17,13 @@
 
 const logger = require('../../observability/Logger.js');
 
+/** @typedef {{frustration:number,enthusiasm:number,confusion:number,calm:number,urgency:number,
+ * playfulness:number,tone?:string,energy?:string,implicitIntent?:string,
+ * [key:string]:number|string|undefined}} EmotionValues */
+/** @typedef {{turnIndex:number,emotions:EmotionValues,timestamp:number,messagePreview:string}} HistoryEntry */
+/** @typedef {{trend:'rising'|'falling'|'stable'|'volatile',velocity:number,current:number,
+ * average:number,samples:number}} EmotionTrend */
+
 // ── Schema ──────────────────────────────────────────────────────────────────
 
 const EMOTIONAL_HISTORY_SCHEMA = `
@@ -67,7 +74,8 @@ class EmotionalTrendTracker {
     this._db = store._db;
 
     // Estado en memoria por sesión
-    this._sessionHistory = new Map(); // sessionId → Array<{ emotions, timestamp }>
+    /** @type {Map<string,HistoryEntry[]>} */
+    this._sessionHistory = new Map();
     this._currentSessionId = null;
     this._turnIndex = 0;
 
@@ -78,7 +86,10 @@ class EmotionalTrendTracker {
     try {
       this._db.exec(EMOTIONAL_HISTORY_SCHEMA);
     } catch (e) {
-      logger.warn('EmotionalTrendTracker', `Error creando schema: ${e.message}`);
+      logger.warn(
+        'EmotionalTrendTracker',
+        `Error creando schema: ${e instanceof Error ? e.message : String(e)}`
+      );
     }
   }
 
@@ -106,7 +117,7 @@ class EmotionalTrendTracker {
    * LLM queda como fallback para sesiones sin datos frescos).
    * @param {string} sessionId
    * @param {{ maxAgeMs?: number }} [opts]
-   * @returns {Object|null} { emotions, timestamp } o null si no hay dato fresco
+   * @returns {{emotions:EmotionValues,timestamp:number}|null}
    */
   getLatestEmotions(sessionId, { maxAgeMs = 5 * 60 * 1000 } = {}) {
     if (!sessionId) return null;
@@ -121,7 +132,7 @@ class EmotionalTrendTracker {
   /**
    * Carga el historial de emociones de una sesión desde SQLite.
    * @param {string} sessionId
-   * @returns {Array}
+   * @returns {HistoryEntry[]}
    */
   _loadSessionHistory(sessionId) {
     try {
@@ -154,7 +165,10 @@ class EmotionalTrendTracker {
         messagePreview: row.message_preview || '',
       }));
     } catch (e) {
-      logger.debug('EmotionalTrendTracker', `Error cargando historial: ${e.message}`);
+      logger.debug(
+        'EmotionalTrendTracker',
+        `Error cargando historial: ${e instanceof Error ? e.message : String(e)}`
+      );
       return [];
     }
   }
@@ -162,7 +176,7 @@ class EmotionalTrendTracker {
   /**
    * Registra las emociones de un turno.
    * @param {string} sessionId
-   * @param {Object} emotions  resultado de LLMEotionDetector.detect()
+   * @param {EmotionValues} emotions  resultado de LLMEotionDetector.detect()
    * @param {string} messagePreview  primeros 100 chars del mensaje
    */
   recordTurn(sessionId, emotions, messagePreview = '') {
@@ -176,11 +190,9 @@ class EmotionalTrendTracker {
     };
 
     // Agregar al historial en memoria
-    if (!this._sessionHistory.has(sessionId)) {
-      this._sessionHistory.set(sessionId, []);
-    }
-    const history = this._sessionHistory.get(sessionId);
+    const history = this._sessionHistory.get(sessionId) || [];
     history.push(entry);
+    this._sessionHistory.set(sessionId, history);
 
     // Mantener solo los últimos TURN_WINDOW en memoria
     if (history.length > TREND_WINDOW * 2) {
@@ -194,7 +206,7 @@ class EmotionalTrendTracker {
   /**
    * Persiste un turno en SQLite.
    * @param {string} sessionId
-   * @param {Object} entry
+   * @param {HistoryEntry} entry
    */
   _persistTurn(sessionId, entry) {
     try {
@@ -220,7 +232,10 @@ class EmotionalTrendTracker {
           entry.messagePreview
         );
     } catch (e) {
-      logger.debug('EmotionalTrendTracker', `Error persistiendo turno: ${e.message}`);
+      logger.debug(
+        'EmotionalTrendTracker',
+        `Error persistiendo turno: ${e instanceof Error ? e.message : String(e)}`
+      );
     }
   }
 
@@ -228,7 +243,7 @@ class EmotionalTrendTracker {
    * Obtiene la tendencia de una emoción específica.
    * @param {string} sessionId
    * @param {string} emotion
-   * @returns {{ trend: 'rising'|'falling'|'stable'|'volatile', velocity: number, current: number, average: number, samples: number }}
+   * @returns {EmotionTrend}
    */
   getEmotionTrend(sessionId, emotion) {
     const history = this._sessionHistory.get(sessionId) || [];
@@ -238,7 +253,7 @@ class EmotionalTrendTracker {
       return { trend: 'stable', velocity: 0, current: 0, average: 0, samples: recent.length };
     }
 
-    const values = recent.map((e) => e.emotions[emotion] ?? 0);
+    const values = recent.map((e) => Number(e.emotions[emotion] ?? 0));
     const current = values[values.length - 1];
     const average = values.reduce((a, b) => a + b, 0) / values.length;
 
@@ -257,6 +272,7 @@ class EmotionalTrendTracker {
     const velocity = (n * sumXY - sumX * sumY) / (n * sumX2 - sumX * sumX) || 0;
 
     // Determinar tendencia
+    /** @type {EmotionTrend['trend']} */
     let trend = 'stable';
     if (Math.abs(velocity) > VELOCITY_THRESHOLD) {
       trend = velocity > 0 ? 'rising' : 'falling';
@@ -281,9 +297,10 @@ class EmotionalTrendTracker {
   /**
    * Obtiene el resumen de tendencias para todas las emociones.
    * @param {string} sessionId
-   * @returns {Object}
+   * @returns {Record<string,EmotionTrend>}
    */
   getAllTrends(sessionId) {
+    /** @type {Record<string,EmotionTrend>} */
     const trends = {};
     for (const emotion of TRACKED_EMOTIONS) {
       trends[emotion] = this.getEmotionTrend(sessionId, emotion);

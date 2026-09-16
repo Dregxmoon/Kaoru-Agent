@@ -541,9 +541,9 @@ const _approvalCards = new Map();
 // el cambio.
 const _FILE_MUTATOR_RE = /^(write|edit|edit_file|create_file|apply_patch)$/i;
 
-function _showApprovalCard({ id, tool, params, description, diff }) {
+function _showApprovalCard({ id, tool, params, description, diff, allowAlways = true }) {
   const card = document.createElement('div');
-  card.className = 'approval-card';
+  card.className = tool === 'desktop_mission' ? 'approval-card approval-mission' : 'approval-card';
   const safeDescription = _escapeHtml(description);
   const safeTool = _escapeHtml(tool);
   const safeParams = {
@@ -568,7 +568,7 @@ function _showApprovalCard({ id, tool, params, description, diff }) {
   } else {
     previewHtml = _renderPatchPreview(params?.patch);
   }
-  card.innerHTML = `<div class="approval-title">ACCION DE ALTO IMPACTO — APROBACION REQUERIDA</div><div class="approval-cmd">${safeDescription}</div><div style="font-size:10px;color:var(--text-secondary);margin-bottom:10px">Herramienta: <b>${safeTool}</b>${safeParams.command ? ` · <code>${safeParams.command}</code>` : ''}${safeParams.path ? ` · <code>${safeParams.path}</code>` : ''}</div>${sandboxWarning}${previewHtml}<div class="approval-actions"><button class="btn-approve" id="approve-${id}">Ejecutar</button><button class="btn-always" id="always-${id}">Siempre</button><button class="btn-deny" id="deny-${id}">Cancelar</button></div>`;
+  card.innerHTML = `<div class="approval-title">ACCION DE ALTO IMPACTO — APROBACION REQUERIDA</div><div class="approval-cmd">${safeDescription}</div><div style="font-size:10px;color:var(--text-secondary);margin-bottom:10px">Herramienta: <b>${safeTool}</b>${safeParams.command ? ` · <code>${safeParams.command}</code>` : ''}${safeParams.path ? ` · <code>${safeParams.path}</code>` : ''}</div>${sandboxWarning}${previewHtml}<div class="approval-actions"><button class="btn-approve" id="approve-${id}">${tool === 'desktop_mission' ? 'Autorizar misión' : 'Ejecutar'}</button>${allowAlways ? `<button class="btn-always" id="always-${id}">Siempre</button>` : ''}<button class="btn-deny" id="deny-${id}">Cancelar</button></div>`;
   messagesEl.appendChild(card);
   // Toggle del bloque de diff incrustado en el card (misma interacción que el
   // bloque del feed: clic en el encabezado alterna la clase .open).
@@ -633,6 +633,23 @@ function _expireApprovalCard(id) {
   const note = document.createElement('div');
   note.className = 'approval-expired-note';
   note.textContent = '⏳ Expirada — no se ejecutó (no hubo respuesta a tiempo).';
+  card.appendChild(note);
+  _scrollMessagesToBottom();
+}
+
+function _cancelApprovalCard(id) {
+  const card = _approvalCards.get(id);
+  if (!card) return;
+  _approvalCards.delete(id);
+  card.classList.add('expired');
+  card.style.opacity = '.45';
+  card.style.pointerEvents = 'none';
+  card.querySelectorAll('button').forEach((button) => {
+    button.disabled = true;
+  });
+  const note = document.createElement('div');
+  note.className = 'approval-expired-note';
+  note.textContent = 'Cancelada — no se ejecutó la acción pendiente.';
   card.appendChild(note);
   _scrollMessagesToBottom();
 }

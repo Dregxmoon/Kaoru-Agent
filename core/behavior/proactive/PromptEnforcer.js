@@ -17,6 +17,8 @@
 
 const logger = require('../../observability/Logger.js');
 
+/** @typedef {{rules:string[],forbidden:string[],maxTokens:number,reason:string}} Enforcement */
+
 // ── Reglas de comportamiento por emoción ────────────────────────────────────
 
 const EMOTION_RULES = {
@@ -103,8 +105,9 @@ const TOPIC_RULES = {
 
 class PromptEnforcer {
   /**
-   * @param {import('../state-graph/evolution/FeedbackScorer.js').FeedbackScorer} feedbackScorer
-   * @param {import('../state-graph/evolution/EmotionalTrendTracker.js').EmotionalTrendTracker} [trendTracker]
+   * @param {{getEffectiveness:(type:string)=>number}} feedbackScorer
+   * @param {{getAllTrends:(sessionId:string)=>any,detectRecovery:(sessionId:string)=>any,
+   * detectEscalation:(sessionId:string)=>any}|null} [trendTracker]
    */
   constructor(feedbackScorer, trendTracker = null) {
     this._feedbackScorer = feedbackScorer;
@@ -113,11 +116,11 @@ class PromptEnforcer {
 
   /**
    * Genera reglas de comportamiento forzadas basado en el contexto actual.
-   * @param {Object} emotionalCtx  resultado de LLMEotionDetector.detect()
-   * @param {Object} topicCtx      resultado de TopicMomentumTracker
-   * @param {string} adaptationType  tipo de adaptación aplicada
-   * @param {string} [sessionId]  ID de la sesión actual (para tendencias)
-   * @returns {{ rules: string[], forbidden: string[], maxTokens: number, reason: string }}
+   * @param {Record<string, any>|null} emotionalCtx  resultado de LLMEotionDetector.detect()
+   * @param {{hotTopics?:string[],coldTopics?:string[]}|null} topicCtx
+   * @param {string|null} adaptationType  tipo de adaptación aplicada
+   * @param {string|null} [sessionId]  ID de la sesión actual (para tendencias)
+   * @returns {Enforcement}
    */
   enforce(emotionalCtx, topicCtx = null, adaptationType = null, sessionId = null) {
     const rules = [];
@@ -151,8 +154,9 @@ class PromptEnforcer {
         // Adaptación inefectiva - invertir comportamiento
         const effRules = EFFECTIVENESS_RULES.low_effectiveness;
         rules.push(effRules.instruction);
-        if (effRules.examples[adaptationType]) {
-          rules.push(effRules.examples[adaptationType]);
+        const example = /** @type {Record<string,string>} */ (effRules.examples)[adaptationType];
+        if (example) {
+          rules.push(example);
         }
         reasons.push(`efectividad baja: ${(effectiveness * 100).toFixed(0)}%`);
       } else if (effectiveness > 0.7) {
@@ -184,7 +188,7 @@ class PromptEnforcer {
 
   /**
    * Serializa las reglas para inyectar en el system prompt.
-   * @param {Object} enforcement  resultado de enforce()
+   * @param {Enforcement} enforcement  resultado de enforce()
    * @returns {string} sección de texto para el prompt
    */
   serialize(enforcement) {
@@ -211,10 +215,13 @@ class PromptEnforcer {
    * @returns {{ rules: string[], reasons: string[] }}
    */
   _buildTrendRules(sessionId) {
+    /** @type {string[]} */
     const rules = [];
+    /** @type {string[]} */
     const reasons = [];
 
     try {
+      if (!this._trendTracker) return { rules, reasons };
       const trends = this._trendTracker.getAllTrends(sessionId);
 
       // Frustración creciente
@@ -263,12 +270,14 @@ class PromptEnforcer {
 
   /**
    * Obtiene la emoción dominante del contexto emocional.
-   * @param {Object} emotionalCtx
-   * @returns {string|null}
+   * @param {Record<string, any>} emotionalCtx
+   * @returns {keyof typeof EMOTION_RULES|null}
    */
   _getDominantEmotion(emotionalCtx) {
+    /** @type {Array<keyof typeof EMOTION_RULES>} */
     const emotions = ['frustration', 'enthusiasm', 'confusion', 'urgency', 'calm', 'playfulness'];
     let max = 0;
+    /** @type {keyof typeof EMOTION_RULES|null} */
     let dominant = null;
 
     for (const e of emotions) {

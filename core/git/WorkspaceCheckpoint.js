@@ -67,6 +67,7 @@ function relFrom(fromAbs, toAbs) {
 }
 
 /** Normaliza alias de rutas de Windows (8.3, casing) cuando el path existe. */
+/** @param {string} filePath */
 function canonicalPath(filePath) {
   try {
     return fs.realpathSync.native(filePath);

@@ -27,25 +27,28 @@
       progress_callback: undefined,
     });
 
-    process.send({ type: 'ready' });
+    process.send?.({ type: 'ready' });
 
     let chain = Promise.resolve();
-    process.on('message', (msg) => {
+    process.on('message', (raw) => {
+      const msg =
+        raw && typeof raw === 'object' ? /** @type {{id?:unknown,text?:unknown}} */ (raw) : null;
+      if (!msg || typeof msg.id !== 'number' || typeof msg.text !== 'string') return;
       chain = chain
         .then(async () => {
           const output = await embedder(String(msg.text), { pooling: 'mean', normalize: true });
           const arr = Array.from(output.data);
-          process.send({ type: 'result', id: msg.id, embedding: arr });
+          process.send?.({ type: 'result', id: msg.id, embedding: arr });
         })
         .catch((e) => {
-          process.send({
+          process.send?.({
             type: 'error',
             id: msg.id,
-            message: String((e && e.message) || e),
+            message: String(e instanceof Error ? e.message : e),
           });
         });
     });
   } catch (e) {
-    process.send({ type: 'fatal', message: String((e && e.message) || e) });
+    process.send?.({ type: 'fatal', message: String(e instanceof Error ? e.message : e) });
   }
 })();

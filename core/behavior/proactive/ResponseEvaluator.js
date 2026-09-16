@@ -17,6 +17,8 @@
 
 const logger = require('../../observability/Logger.js');
 
+/** @typedef {{rules:string[],forbidden:string[],maxTokens:number,reason:string}} Enforcement */
+
 // ── Patrones de respuesta inapropiada ──────────────────────────────────────
 
 const INAPPROPRIATE_PATTERNS = {
@@ -39,8 +41,8 @@ const INAPPROPRIATE_PATTERNS = {
 /**
  * Evalúa si una respuesta de Kaoru cumple con las reglas de enforcement.
  * @param {string} kaoruResponse  respuesta de Kaoru
- * @param {Object} enforcement    resultado de PromptEnforcer.enforce()
- * @param {Object} emotionalCtx   contexto emocional detectado
+ * @param {Enforcement} enforcement    resultado de PromptEnforcer.enforce()
+ * @param {Record<string, any>|null} emotionalCtx   contexto emocional detectado
  * @returns {{ score: number, violations: string[], passed: boolean }}
  */
 function _evaluateResponse(kaoruResponse, enforcement, emotionalCtx) {
@@ -64,8 +66,11 @@ function _evaluateResponse(kaoruResponse, enforcement, emotionalCtx) {
   // 2. Verificar patrones inapropiados para la emoción
   if (emotionalCtx) {
     const dominant = _getDominant(emotionalCtx);
-    if (dominant && INAPPROPRIATE_PATTERNS[dominant]) {
-      for (const pattern of INAPPROPRIATE_PATTERNS[dominant]) {
+    const patterns = dominant
+      ? /** @type {Record<string, RegExp[]>} */ (INAPPROPRIATE_PATTERNS)[dominant]
+      : null;
+    if (patterns) {
+      for (const pattern of patterns) {
         if (pattern.test(kaoruResponse)) {
           violations.push(`patrón inapropiado para ${dominant}`);
           score -= 0.3;
@@ -100,7 +105,7 @@ function _evaluateResponse(kaoruResponse, enforcement, emotionalCtx) {
 
 /**
  * Obtiene la emoción dominante.
- * @param {Object} emotionalCtx
+ * @param {Record<string, any>} emotionalCtx
  * @returns {string|null}
  */
 function _getDominant(emotionalCtx) {
@@ -132,7 +137,7 @@ function _computeEngagementDelta(preEngagement, postEngagement) {
 
 class ResponseEvaluator {
   /**
-   * @param {import('../state-graph/evolution/FeedbackScorer.js').FeedbackScorer} feedbackScorer
+   * @param {{updateScore:(type:string,delta:number)=>void}} feedbackScorer
    */
   constructor(feedbackScorer) {
     this._feedbackScorer = feedbackScorer;
@@ -142,8 +147,8 @@ class ResponseEvaluator {
   /**
    * Registra una respuesta de Kaoru para evaluación posterior.
    * @param {string} kaoruResponse
-   * @param {Object} enforcement
-   * @param {Object} emotionalCtx
+   * @param {Enforcement} enforcement
+   * @param {Record<string, any>|null} emotionalCtx
    * @param {string} adaptationType
    * @param {string|number|null} [sessionId]
    */
@@ -163,15 +168,15 @@ class ResponseEvaluator {
    * Llamado después de que el usuario responde.
    * @param {number} userEngagement  engagement del turno del usuario
    * @param {string|number|null} [sessionId]
-   * @returns {{ quality: number, feedbackApplied: boolean }}
+   * @returns {{ quality: number, feedbackApplied: boolean, violations: string[] }}
    */
   evaluate(userEngagement, sessionId = null) {
     if (!this._pendingEvaluation) {
-      return { quality: 0.5, feedbackApplied: false };
+      return { quality: 0.5, feedbackApplied: false, violations: [] };
     }
 
     if (this._pendingEvaluation.sessionId !== sessionId) {
-      return { quality: 0.5, feedbackApplied: false };
+      return { quality: 0.5, feedbackApplied: false, violations: [] };
     }
 
     const { response, enforcement, emotionalCtx, adaptationType } = this._pendingEvaluation;
@@ -203,8 +208,8 @@ class ResponseEvaluator {
   /**
    * Evalúa una respuesta sin actualizar el FeedbackScorer (dry-run).
    * @param {string} kaoruResponse
-   * @param {Object} enforcement
-   * @param {Object} emotionalCtx
+   * @param {Enforcement} enforcement
+   * @param {Record<string, any>|null} emotionalCtx
    * @returns {{ score: number, violations: string[], passed: boolean }}
    */
   evaluateDryRun(kaoruResponse, enforcement, emotionalCtx) {

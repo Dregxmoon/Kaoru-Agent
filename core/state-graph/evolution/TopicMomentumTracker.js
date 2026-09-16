@@ -294,8 +294,14 @@ class TopicMomentumTracker {
 
     return {
       topics,
-      hotTopics: hotTopics.map((t) => ({ topic: t.topic_key, momentum: t.momentum_score })),
-      coldTopics: coldTopics.map((t) => ({ topic: t.topic_key, momentum: t.momentum_score })),
+      hotTopics: hotTopics.map((t) => ({
+        topic: String(t.topic_key || ''),
+        momentum: t.momentum_score,
+      })),
+      coldTopics: coldTopics.map((t) => ({
+        topic: String(t.topic_key || ''),
+        momentum: t.momentum_score,
+      })),
     };
   }
 
@@ -317,7 +323,7 @@ class TopicMomentumTracker {
    */
   getHotTopics(opts = {}) {
     return this._store.getHotTopics(opts).map((t) => ({
-      topic: t.topic_key,
+      topic: String(t.topic_key || ''),
       momentum: t.momentum_score,
       mentions: t.mention_count,
     }));
@@ -330,7 +336,7 @@ class TopicMomentumTracker {
    */
   getColdTopics(opts = {}) {
     return this._store.getColdTopics(opts).map((t) => ({
-      topic: t.topic_key,
+      topic: String(t.topic_key || ''),
       momentum: t.momentum_score,
       mentions: t.mention_count,
     }));

@@ -16,6 +16,8 @@
 
 const ENC_PREFIX = 'enc:v1:';
 
+/** @type {{isEncryptionAvailable:()=>boolean,encryptString:(text:string)=>Buffer,
+ * decryptString:(data:Buffer)=>string}|null} */
 let _safeStorage = null;
 try {
   _safeStorage = require('electron').safeStorage;
@@ -46,6 +48,7 @@ function isAvailable() {
 function encrypt(plaintext) {
   if (!plaintext) return plaintext;
   if (!isAvailable()) return plaintext;
+  if (!_safeStorage) return plaintext;
   try {
     const buf = _safeStorage.encryptString(plaintext);
     return ENC_PREFIX + buf.toString('base64');
@@ -63,6 +66,7 @@ function decrypt(value) {
   if (!value || typeof value !== 'string') return value;
   if (!value.startsWith(ENC_PREFIX)) return value; // compat: texto plano legacy
   if (!isAvailable()) return value; // no se puede descifrar
+  if (!_safeStorage) return value;
   try {
     const b64 = value.slice(ENC_PREFIX.length);
     const buf = Buffer.from(b64, 'base64');
@@ -80,6 +84,7 @@ function decrypt(value) {
  */
 function encryptAllKeys(apiKeys) {
   if (!apiKeys || typeof apiKeys !== 'object') return apiKeys || {};
+  /** @type {Record<string,string>} */
   const result = {};
   for (const [k, v] of Object.entries(apiKeys)) {
     if (v && typeof v === 'string' && !v.startsWith(ENC_PREFIX)) {
@@ -98,6 +103,7 @@ function encryptAllKeys(apiKeys) {
  */
 function decryptAllKeys(apiKeys) {
   if (!apiKeys || typeof apiKeys !== 'object') return apiKeys || {};
+  /** @type {Record<string,string>} */
   const result = {};
   for (const [k, v] of Object.entries(apiKeys)) {
     result[k] = decrypt(v);
@@ -113,6 +119,7 @@ module.exports = {
   decryptAllKeys,
   ENC_PREFIX,
   // Para tests: permitir inyectar un safeStorage falso.
+  /** @param {typeof _safeStorage} ss */
   _setSafeStorage(ss) {
     _safeStorage = ss;
   },

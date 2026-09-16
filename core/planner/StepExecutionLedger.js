@@ -4,6 +4,7 @@
 const crypto = require('crypto');
 
 const DIRECT_EVIDENCE_TOOLS = new Set([
+  'desktop_mission',
   'git_commit',
   'git_push',
   'github_issue_create',
@@ -164,7 +165,10 @@ class StepExecutionLedger {
   applyVerification(verification) {
     if (verification?.status !== 'passed') return;
     for (const step of this.steps) {
-      if (step.status !== 'awaiting_verification' || !step.evidence.some((item) => item.ok))
+      if (
+        step.status !== 'awaiting_verification' ||
+        !step.evidence.some((/** @type {any} */ item) => item.ok)
+      )
         continue;
       if (
         !step.dependsOn.every(
@@ -187,11 +191,12 @@ class StepExecutionLedger {
     }
   }
 
+  /** @param {{steps?:string[],criteria?:string[]}|null} plan */
   snapshot(plan) {
     const stepStates = this.steps.map((step) => ({
       ordinal: step.ordinal,
       status: step.status,
-      evidence: step.evidence.map((item) => ({ ...item })),
+      evidence: step.evidence.map((/** @type {any} */ item) => ({ ...item })),
     }));
     return {
       steps: (plan?.steps || []).slice(),

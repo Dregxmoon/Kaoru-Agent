@@ -19,11 +19,12 @@
 /**
  * Payload del evento agent-plan (tal cual lo emite AgentLoop).
  * @typedef {Object} AgentPlanPayload
- * @property {'created'|'replaced'|'resumed'|'progress'} kind
+ * @property {'created'|'replaced'|'resumed'|'progress'|'mission'} kind
  * @property {number|null} [goalId]
  * @property {AgentPlanStep[]} steps
  * @property {number} done
  * @property {number} total
+ * @property {'running'|'completed'|'paused'|'cancelled'} [status]
  * @property {Array<{ordinal?:number,status?:string}>} [stepStates]
  */
 
@@ -97,14 +98,23 @@ function renderPlanBlock(payload) {
   _lastPlan = { ...payload, steps: [...steps], done, total: steps.length };
 
   if (header) {
-    header.textContent =
-      (done >= steps.length ? 'PLAN COMPLETADO · ' : 'PLAN DE EJECUCIÓN · ') +
-      done +
-      '/' +
-      steps.length;
+    const label =
+      payload.kind === 'mission'
+        ? payload.status === 'paused' || payload.status === 'cancelled'
+          ? 'MISIÓN PAUSADA · '
+          : done >= steps.length
+            ? 'MISIÓN COMPLETADA · '
+            : 'MISIÓN DE ESCRITORIO · '
+        : done >= steps.length
+          ? 'PLAN COMPLETADO · '
+          : 'PLAN DE EJECUCIÓN · ';
+    header.textContent = label + done + '/' + steps.length;
   }
   _planEl.classList.toggle('complete', done >= steps.length);
-  _planEl.classList.remove('paused');
+  _planEl.classList.toggle(
+    'paused',
+    payload.kind === 'mission' && ['paused', 'cancelled'].includes(payload.status || '')
+  );
   if (stepsEl) {
     const rows = steps
       .map((step, idx) => {
@@ -143,7 +153,8 @@ function preservePlanBlock() {
   const done = Math.max(0, Math.min(_lastPlan.done || 0, _lastPlan.steps.length));
   if (done >= _lastPlan.steps.length) return;
   const header = _planEl.querySelector('.plan-block-header');
-  if (header) header.textContent = `PLAN PENDIENTE · ${done}/${_lastPlan.steps.length}`;
+  if (header)
+    header.textContent = `${_lastPlan.kind === 'mission' ? 'MISIÓN' : 'PLAN'} PENDIENTE · ${done}/${_lastPlan.steps.length}`;
   _planEl.classList.add('paused');
 }
 
@@ -153,7 +164,8 @@ function pausePlanBlock() {
   const done = Math.max(0, Math.min(_lastPlan.done || 0, _lastPlan.steps.length));
   if (done >= _lastPlan.steps.length) return;
   const header = _planEl.querySelector('.plan-block-header');
-  if (header) header.textContent = `PLAN PAUSADO · ${done}/${_lastPlan.steps.length}`;
+  if (header)
+    header.textContent = `${_lastPlan.kind === 'mission' ? 'MISIÓN PAUSADA' : 'PLAN PAUSADO'} · ${done}/${_lastPlan.steps.length}`;
   _planEl.classList.add('paused');
 }
 

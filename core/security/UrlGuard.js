@@ -13,12 +13,14 @@ const dns = require('dns');
 
 // ── Control API port (configurable) ──────────────────────────────────────────
 let _controlApiPort = 3131;
+/** @param {number} port */
 function setControlApiPort(port) {
   _controlApiPort = port;
 }
 
 // ── IPv4 range checks ────────────────────────────────────────────────────────
 
+/** @param {string} ip */
 function _ipv4ToNum(ip) {
   const parts = ip.split('.');
   if (parts.length !== 4) return null;
@@ -31,6 +33,7 @@ function _ipv4ToNum(ip) {
   return n >>> 0;
 }
 
+/** @param {string} ip @param {string} cidr */
 function _isInIPv4Cidr(ip, cidr) {
   const [range, bits] = cidr.split('/');
   const mask = ~((1 << (32 - parseInt(bits, 10))) - 1) >>> 0;
@@ -42,6 +45,7 @@ function _isInIPv4Cidr(ip, cidr) {
 
 // ── IPv6 helpers ─────────────────────────────────────────────────────────────
 
+/** @param {string} ipv6 */
 function _expandIPv6(ipv6) {
   let addr = ipv6.split('%')[0];
   if (addr.includes('::')) {
@@ -57,6 +61,7 @@ function _expandIPv6(ipv6) {
   return groups.map((g) => g.padStart(4, '0')).join('');
 }
 
+/** @param {string} ipv6 @param {string} prefix */
 function _isInIPv6Cidr(ipv6, prefix) {
   const [range, bits] = prefix.split('/');
   const expandedIp = _expandIPv6(ipv6);
@@ -94,6 +99,7 @@ const BLOCKED_HOSTNAMES = ['localhost'];
 
 // ── IP check helpers ─────────────────────────────────────────────────────────
 
+/** @param {string} ip */
 function _isBlockedIPv4(ip) {
   for (const cidr of BLOCKED_IPV4_CIDRS) {
     if (_isInIPv4Cidr(ip, cidr)) return true;
@@ -101,6 +107,7 @@ function _isBlockedIPv4(ip) {
   return false;
 }
 
+/** @param {string} ip */
 function _isBlockedIPv6(ip) {
   for (const cidr of BLOCKED_IPV6_CIDRS) {
     if (_isInIPv6Cidr(ip, cidr)) return true;
@@ -108,12 +115,14 @@ function _isBlockedIPv6(ip) {
   return false;
 }
 
+/** @param {string} ip */
 function _isBlockedIp(ip) {
   return _isBlockedIPv4(ip) || _isBlockedIPv6(ip);
 }
 
 // ── Resolve hostname to IP ───────────────────────────────────────────────────
 
+/** @param {string} hostname @param {number} timeout */
 function _resolveHost(hostname, timeout) {
   return new Promise((resolve) => {
     const timer = setTimeout(() => resolve(null), timeout);

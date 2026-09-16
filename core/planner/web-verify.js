@@ -21,7 +21,7 @@
 const path = require('path');
 const logger = require('../observability/Logger.js');
 
-/** @type {import('playwright').Chromium | null} */
+/** @type {{launch:(opts:any)=>Promise<any>} | null} */
 let _chromium = null;
 let _chromiumTried = false;
 
@@ -60,10 +60,10 @@ async function checkPage(filePath, { timeoutMs = 6000, settleMs = 1200 } = {}) {
   try {
     browser = await chromium.launch({ headless: true });
     const page = await browser.newPage();
-    page.on('console', (msg) => {
+    page.on('console', (/** @type {{type:()=>string,text:()=>string}} */ msg) => {
       if (msg.type() === 'error') errors.push(`consola: ${msg.text().slice(0, 200)}`);
     });
-    page.on('pageerror', (err) =>
+    page.on('pageerror', (/** @type {Error} */ err) =>
       errors.push(`excepción: ${String(err?.message || err).slice(0, 200)}`)
     );
 
@@ -75,7 +75,7 @@ async function checkPage(filePath, { timeoutMs = 6000, settleMs = 1200 } = {}) {
     // van a fallar.
     await page.waitForTimeout(settleMs);
   } catch (e) {
-    errors.push(`carga: ${String(e?.message || e).slice(0, 160)}`);
+    errors.push(`carga: ${String(e instanceof Error ? e.message : e).slice(0, 160)}`);
   } finally {
     if (browser) await browser.close().catch(() => {});
   }
