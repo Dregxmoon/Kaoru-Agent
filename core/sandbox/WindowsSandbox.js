@@ -110,13 +110,26 @@ class WindowsSandbox {
       try {
         // Evitar cmd.exe para el self-test: `/s /c` vuelve a interpretar
         // comillas y redirecciones, y una ruta temporal con espacios puede
-        // producir ERROR_INVALID_NAME antes de probar el AppContainer. Usar
-        // el runtime real de Electron valida ejecución + escritura sin shell.
+        // producir ERROR_INVALID_NAME antes de probar el AppContainer. El
+        // ejecutable empaquetado de Electron tampoco es un runner de Node:
+        // sus fuses pueden ignorar ELECTRON_RUN_AS_NODE y abrir otra instancia
+        // completa de Kaoru. PowerShell recibe la ruta como argumento separado
+        // y prueba ejecución + escritura sin interpolarla en un shell.
+        const powershell = WindowsSandbox.findPowerShell();
+        if (!powershell) throw new Error('Windows PowerShell 5.1 no está disponible');
         const probe = await this._runHelper(
-          [process.execPath, '-e', "require('fs').writeFileSync(process.argv[1], 'ok')", marker],
+          [
+            powershell,
+            '-NoLogo',
+            '-NoProfile',
+            '-NonInteractive',
+            '-Command',
+            "[IO.File]::WriteAllText($args[0], 'ok')",
+            marker,
+          ],
           {
             cwd: this._cwd,
-            timeout: 15_000,
+            timeout: 30_000,
           }
         );
         if (!probe.ok || !fs.existsSync(marker)) {
