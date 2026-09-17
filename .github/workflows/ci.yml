@@ -210,10 +210,9 @@ jobs:
           path: tests/e2e/artifacts/
           if-no-files-found: ignore
 
-  # Build de instaladores en cada SO nativo (mejor que wine) + auto-update.
-  # En tags v* publica los binarios y los latest*.yml a GitHub Releases
-  # (electron-builder --publish always) → electron-updater encuentra la
-  # actualización. En produccion (sin tag) solo sube artifacts.
+  # Build de instaladores en cada SO nativo (mejor que wine) + metadatos
+  # de auto-update. Cada runner solo construye y sube artifacts; el job
+  # release publica el conjunto completo después de que todos terminen.
   build:
     name: Build ${{ matrix.os }} · auto-update
     runs-on: ${{ matrix.os }}
@@ -267,7 +266,7 @@ jobs:
         run: npm ci
 
       - name: Empaquetar
-        run: npm run build:${{ matrix.target }}
+        run: npm run build:${{ matrix.target }} -- --publish never
         env:
           # macOS sin firma (identity null en build config); nunca intentar
           # firmar/notarizar desde CI sin certificados.
@@ -306,8 +305,7 @@ jobs:
           path: ${{ matrix.pattern }}
           if-no-files-found: error
 
-  # En tags v* el job build ya publica; este paso solo deja notas y el
-  # cuerpo de la release para cuando electron-builder cree la release.
+  # En tags v* reúne los artifacts validados y publica un único release.
   release:
     name: Release notes (tag v*)
     runs-on: ubuntu-latest
