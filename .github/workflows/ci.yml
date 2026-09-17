@@ -290,7 +290,13 @@ jobs:
           $appExe = Get-ChildItem $installDir -Filter '*.exe' |
             Where-Object { $_.Name -notmatch 'Uninstall' } | Select-Object -First 1
           if (-not $appExe) { throw 'No se encontró el ejecutable instalado' }
-          $smoke = Start-Process -FilePath $appExe.FullName -ArgumentList @('--smoke-test', '--workspace', $PWD.Path) -Wait -PassThru
+          $smokeOut = Join-Path $env:RUNNER_TEMP 'kaoru-smoke.stdout.log'
+          $smokeErr = Join-Path $env:RUNNER_TEMP 'kaoru-smoke.stderr.log'
+          $smoke = Start-Process -FilePath $appExe.FullName `
+            -ArgumentList @('--enable-logging=stderr', '--smoke-test', '--workspace', $PWD.Path) `
+            -RedirectStandardOutput $smokeOut -RedirectStandardError $smokeErr -Wait -PassThru
+          if (Test-Path $smokeOut) { Get-Content -Raw $smokeOut }
+          if (Test-Path $smokeErr) { Get-Content -Raw $smokeErr }
           if ($smoke.ExitCode -ne 0) { throw "Smoke empaquetado falló: $($smoke.ExitCode)" }
 
           $uninstaller = Get-ChildItem $installDir -Filter '*Uninstall*.exe' | Select-Object -First 1
