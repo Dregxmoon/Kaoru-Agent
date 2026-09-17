@@ -851,7 +851,12 @@ async function renderInstalled() {
   if (!container) return;
 
   try {
-    const servers = await assistant.invoke('mcp-list-servers');
+    const [servers, config] = await Promise.all([
+      assistant.invoke('mcp-list-servers'),
+      assistant.invoke('get-config'),
+    ]);
+    const autoConnect = document.getElementById('mcp-autoconnect');
+    if (autoConnect) autoConnect.checked = config?.mcp?.autoConnect === true;
     if (!servers.length) {
       container.innerHTML =
         '<div class="mcp-empty-state">No hay servidores instalados. Ve a la tienda para agregar.</div>';
@@ -939,6 +944,22 @@ document.getElementById('mcp-tab-installed')?.addEventListener('click', () => {
   document.getElementById('mcp-tab-installed').classList.add('active');
   document.getElementById('mcp-tab-store').classList.remove('active');
   renderInstalled();
+});
+
+document.getElementById('mcp-autoconnect')?.addEventListener('change', async (event) => {
+  const enabled = event.target.checked;
+  const result = await assistant.invoke('set-config', { mcp: { autoConnect: enabled } });
+  if (!result || result.ok === false) {
+    event.target.checked = !enabled;
+    showToast(result?.error || 'No se pudo guardar el permiso MCP', 'error');
+    return;
+  }
+  showToast(
+    enabled
+      ? 'Los servidores habilitados podrán conectarse al próximo inicio.'
+      : 'Kaoru no conectará servidores MCP automáticamente.',
+    'success'
+  );
 });
 
 // Search

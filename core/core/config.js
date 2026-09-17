@@ -75,7 +75,8 @@ function reloadLLMConfig() {
 // ── MCP ────────────────────────────────────────────────────────────────────────
 // Los servidores se guardan/editan desde main.js (que ya tiene loadConfig/
 // saveConfig para config.json) — esto solo LEE al arrancar para reconectar
-// automáticamente los que estaban enabled:true en la sesión anterior. No
+// solo cuando el usuario activó mcp.autoConnect. Por defecto se registran
+// como desconectados y requieren una acción explícita en esta instalación. No
 // bloquea init() — si un servidor tarda o falla en conectar, el resto de
 // el asistente sigue funcionando normal (por diseño: MCP es una capacidad extra,
 // nunca un requisito).
@@ -98,7 +99,7 @@ function loadMCPConfig() {
       env: SafeStorageCrypto.decryptAllKeys(s.env || {}),
     }));
     state.mcpReadyPromise = state.mcp
-      .init(servers)
+      .init(servers, { autoConnect: cfg?.mcp?.autoConnect === true })
       .catch((e) => logger.warn('config', '[core] error inicializando servidores MCP:', e.message));
   } catch (e) {
     logger.warn('config', '[core] error leyendo config de MCP:', e.message);

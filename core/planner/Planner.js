@@ -65,7 +65,7 @@
 'use strict';
 const logger = require('../observability/Logger.js');
 
-const { getOpenClawBridge } = require('./OpenClawBridge.js');
+const { getLocalToolBridge } = require('./LocalToolBridge.js');
 const { getStructuredActionParser } = require('./StructuredActionParser.js');
 const AP = require('./ActionParser.js');
 
@@ -376,7 +376,7 @@ function stepId() {
 
 class Planner {
   constructor() {
-    this._bridge = getOpenClawBridge();
+    this._bridge = getLocalToolBridge();
     this._activePlan = null;
     this._planQueue = [];
     this._history = [];

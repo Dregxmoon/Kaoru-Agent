@@ -143,7 +143,7 @@ function testOpenClawServerIntegration() {
   console.log(C.bold('\n── Test 5: openclaw-server aplica el límite de confianza ──'));
 
   const src = require('fs').readFileSync(
-    require('path').join(__dirname, '..', 'openclaw-server.js'),
+    require('path').join(__dirname, '..', 'kaoru-tool-host.js'),
     'utf8'
   );
   assert(src.includes('wrapUntrusted'), 'openclaw-server importa wrapUntrusted');

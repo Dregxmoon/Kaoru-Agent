@@ -34,7 +34,7 @@ const MCP_FORMAT_BLOCK_LINES = [
 
 const LEGACY_USAGE_LINES = [
   '### Formato de uso',
-  'Para usar OpenClaw, describe EXACTAMENTE la acción con el formato apropiado:',
+  'Para usar las herramientas locales de Kaoru, describe EXACTAMENTE la acción con el formato apropiado:',
   '  - Comandos: "Ejecutar: <comando>"',
   '  - Leer: "Voy a leer el archivo <ruta>"',
   '  - Escribir: "Voy a escribir el archivo <ruta>"',
@@ -113,7 +113,9 @@ function renderToolCatalog(tools, opts = {}) {
 
   if (openclawTools.length > 0) {
     lines.push(
-      openclawTitleSuffix ? '## Herramientas del sistema (OpenClaw)' : '## Herramientas del sistema'
+      openclawTitleSuffix
+        ? '## Herramientas del sistema (motor local de Kaoru)'
+        : '## Herramientas del sistema'
     );
     for (const t of openclawTools) {
       let line = `  - ${t.name}`;

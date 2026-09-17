@@ -376,8 +376,8 @@ function testSearchTools() {
   );
 
   // grep encuentra coincidencias en el propio proyecto
-  const g = handlers.grep({ pattern: 'HANDLERS', path: '.', include: 'openclaw-server.js' });
-  assert(g.result && g.result.count > 0, 'grep encuentra HANDLERS en openclaw-server.js');
+  const g = handlers.grep({ pattern: 'HANDLERS', path: '.', include: 'kaoru-tool-host.js' });
+  assert(g.result && g.result.count > 0, 'grep encuentra HANDLERS en kaoru-tool-host.js');
   assert(g.result.matches[0].path && g.result.matches[0].line > 0, 'grep devuelve path y línea');
   assert(g.result.matches[0].text.includes('HANDLERS'), 'grep devuelve el texto de la línea');
 

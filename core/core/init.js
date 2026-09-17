@@ -32,7 +32,7 @@ const { ProactiveExecutor } = require('../behavior/ProactiveExecutor.js');
 const { TelemetryStore } = require('../telemetry/TelemetryStore.js');
 const { BehaviorModel } = require('../behavior/BehaviorModel.js');
 const { getPlanner, setProjectCWD } = require('../planner/Planner.js');
-const { getOpenClawBridge } = require('../planner/OpenClawBridge.js');
+const { getLocalToolBridge } = require('../planner/LocalToolBridge.js');
 const { getMCPManager } = require('../mcp/MCPManager.js');
 const TaskDetector = require('../task/TaskDetector.js');
 const { getToolRegistry } = require('../task/ToolRegistry.js');
@@ -242,7 +242,7 @@ function init(app) {
 
   state.behavior = new BehaviorModel(state.graph);
   state.planner = getPlanner();
-  state.bridge = getOpenClawBridge();
+  state.bridge = getLocalToolBridge();
   state.bridge.setBrowserPreferences?.(readBrowserConfig());
   state.mcp = getMCPManager();
   state.taskDetector = TaskDetector;

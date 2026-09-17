@@ -119,9 +119,10 @@ const SCHEMA = {
   },
   mcp: {
     type: 'object',
-    default: { servers: [] },
+    default: { servers: [], autoConnect: false },
     schema: {
       servers: { type: 'array', default: [], itemType: 'object' },
+      autoConnect: { type: 'boolean', default: false },
     },
   },
   agent: {

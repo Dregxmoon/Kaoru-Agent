@@ -1007,20 +1007,23 @@ class MCPManager {
     }
   }
 
-  /** Conecta todos los servidores marcados enabled:true de la config guardada. */
-  async init(serverConfigs = []) {
-    for (const cfg of serverConfigs.filter((server) => server.enabled === false)) {
+  /** Registra la config guardada y solo reconecta si hubo consentimiento explícito. */
+  async init(serverConfigs = [], options = {}) {
+    const autoConnect = options.autoConnect === true;
+    for (const cfg of serverConfigs) {
       if (!this._connections.has(cfg.id)) {
         const conn = new MCPServerConnection(cfg);
         conn._onStatusChange = () => this._notify();
         this._connections.set(cfg.id, conn);
       }
     }
-    const enabled = serverConfigs.filter((s) => s.enabled !== false);
+    const enabled = autoConnect ? serverConfigs.filter((s) => s.enabled !== false) : [];
     if (!enabled.length) {
       logger.info(
         'MCPManager',
-        '[mcp] sin servidores configurados — el asistente sigue igual que siempre'
+        serverConfigs.length
+          ? '[mcp] servidores registrados sin conexión automática'
+          : '[mcp] sin servidores configurados — el asistente sigue igual que siempre'
       );
       return;
     }

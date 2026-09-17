@@ -171,6 +171,20 @@ function register(ctx) {
       next.agent = agent;
     }
 
+    if (patch.mcp !== undefined) {
+      if (!patch.mcp || typeof patch.mcp !== 'object' || Array.isArray(patch.mcp)) {
+        return { ok: false, error: 'mcp inválido' };
+      }
+      const mcp = { ...(currentCfg.mcp || {}) };
+      if (patch.mcp.autoConnect !== undefined) {
+        if (typeof patch.mcp.autoConnect !== 'boolean') {
+          return { ok: false, error: 'mcp.autoConnect debe ser boolean' };
+        }
+        mcp.autoConnect = patch.mcp.autoConnect;
+      }
+      next.mcp = mcp;
+    }
+
     if (patch.browser !== undefined) {
       if (!patch.browser || typeof patch.browser !== 'object' || Array.isArray(patch.browser)) {
         return { ok: false, error: 'browser inválido' };
@@ -204,8 +218,8 @@ function register(ctx) {
       logger.info('config-handlers', '[config] agent config actualizada');
     }
     if (patch.browser !== undefined) {
-      require('../core/planner/OpenClawBridge.js')
-        .getOpenClawBridge()
+      require('../core/planner/LocalToolBridge.js')
+        .getLocalToolBridge()
         .setBrowserPreferences(next.browser);
       logger.info('config-handlers', '[config] preferencia de navegador actualizada');
     }

@@ -84,6 +84,7 @@ function makeCtx() {
       return {
         autonomy: 'suggest',
         agent: { approvalTimeoutMs: 120000, autoApprove: false, subagent: { enabled: true } },
+        mcp: { servers: [{ id: 'saved', enabled: true }], autoConnect: false },
       };
     },
     loadEffectiveConfig: () => ({ agent: { pinTimeoutMs: 0 } }),
@@ -242,8 +243,27 @@ async function testSetConfigAgent() {
   assert(savedConfigs[1].agent.pinTimeoutMs === 60000, 'pinTimeoutMs=60000 persistido');
 }
 
+async function testSetConfigMcpConsent() {
+  console.log(C.bold('\n── Test 5: consentimiento de autoconexión MCP ─────────────────'));
+  const ctx = makeCtx();
+  savedConfigs.length = 0;
+  registerConfig(ctx);
+
+  const invalid = await mockIpcMain.invokeHandler(
+    'set-config',
+    {},
+    { mcp: { autoConnect: 'yes' } }
+  );
+  assert(invalid.ok === false, 'rechaza autoConnect no booleano');
+
+  const enabled = await mockIpcMain.invokeHandler('set-config', {}, { mcp: { autoConnect: true } });
+  assert(enabled.ok === true, 'acepta consentimiento explícito');
+  assert(savedConfigs[0].mcp.autoConnect === true, 'persiste autoConnect=true');
+  assert(savedConfigs[0].mcp.servers.length === 1, 'conserva servidores instalados');
+}
+
 async function testBrowserAndLlmCredentials() {
-  console.log(C.bold('\n── Test 5: navegador y credenciales LLM ──────────────────────'));
+  console.log(C.bold('\n── Test 6: navegador y credenciales LLM ──────────────────────'));
   const ctx = makeCtx();
   savedConfigs.length = 0;
   registerConfig(ctx);
@@ -339,6 +359,7 @@ async function main() {
     await testLockAfterReload();
     await testSetConfigAutonomy();
     await testSetConfigAgent();
+    await testSetConfigMcpConsent();
     await testBrowserAndLlmCredentials();
     await testGithubStatus();
   } finally {

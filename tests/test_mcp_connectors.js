@@ -171,6 +171,10 @@ async function testToolErrors() {
   await restored.init([{ id: 'disabled', name: 'disabled', command: 'unused', enabled: false }]);
   assert.equal(restored.listServers()[0].status, 'disconnected');
   assert.equal(restored.listAllTools().length, 0);
+  const savedEnabled = new MCPManager();
+  await savedEnabled.init([{ id: 'saved', name: 'saved', command: 'unused', enabled: true }]);
+  assert.equal(savedEnabled.listServers()[0].status, 'disconnected');
+  assert.equal(savedEnabled.listAllTools().length, 0);
 }
 
 async function testRouting() {

@@ -736,7 +736,7 @@ async function buildContext(sessionHistory, activeProvider, options = {}) {
     if (state.bridge?.getStats()?.available) {
       result.systemPrompt +=
         '\n\n# HERRAMIENTAS DISPONIBLES — REGLAS ESTRICTAS\n' +
-        'Tienes acceso a OpenClaw para ejecutar acciones reales en el PC del usuario.\n\n' +
+        'Tienes acceso al motor local de Kaoru para ejecutar acciones reales en el PC del usuario.\n\n' +
         'REGLA 1 — ANUNCIA, NO EJECUTES EN PROSA:\n' +
         'Para ejecutar un comando di EXACTAMENTE: "Ejecutar: git status"\n' +
         'Para leer un archivo di EXACTAMENTE: "Voy a leer el archivo README.md"\n' +
@@ -942,9 +942,9 @@ function buildMCPCatalogPrompt(mcpTools) {
   return (
     '\n\n# HERRAMIENTAS MCP DISPONIBLES\n' +
     'Tienes acceso a estas herramientas de servidores MCP conectados. ' +
-    'SOLO debes usarlas si el comando que necesitas NO se puede ejecutar con OpenClaw ' +
+    'SOLO debes usarlas si el comando que necesitas NO se puede ejecutar con las herramientas locales ' +
     '(Ejecutar: <comando>). Para listar archivos, leer archivos, o escribir archivos ' +
-    'usa SIEMPRE OpenClaw (Ejecutar: ls <ruta>, Ejecutar: cat <archivo>, etc.).\n\n' +
+    'usa SIEMPRE las herramientas locales (Ejecutar: ls <ruta>, Ejecutar: cat <archivo>, etc.).\n\n' +
     'Herramientas disponibles (copia EXACTAMENTE el SERVIDOR y HERRAMIENTA de esta lista):\n' +
     lines.join('\n') +
     '\n\n' +

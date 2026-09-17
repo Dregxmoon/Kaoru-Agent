@@ -1699,6 +1699,24 @@ body {
   border-radius: 4px;
   padding: 3px;
 }
+
+.mcp-autoconnect-option {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 8px;
+  color: var(--text-primary);
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.mcp-autoconnect-help {
+  max-width: 520px;
+  margin-top: 4px;
+  color: var(--text-secondary);
+  font-size: 11px;
+  line-height: 1.4;
+}
 .mcp-tab {
   flex: 1;
   padding: 8px 12px;

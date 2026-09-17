@@ -9,7 +9,7 @@ const crypto = require('crypto');
 const cp = require('child_process');
 const fs = require('fs');
 
-const { getOpenClawBridge } = require('../planner/OpenClawBridge.js');
+const { getLocalToolBridge } = require('../planner/LocalToolBridge.js');
 const { getProjectCWD } = require('../planner/Planner.js');
 
 const state = require('./state.js');
@@ -86,7 +86,7 @@ function killDescendants(signal) {
 // aislamiento de proceso (bwrap) que el server reporta en /health, para que
 // el renderer muestre el aviso persistente cuando no hay sandbox.
 function _statusPayload(available) {
-  const sandbox = getOpenClawBridge().getSandboxStatus?.() || null;
+  const sandbox = getLocalToolBridge().getSandboxStatus?.() || null;
   return {
     available,
     sandbox: sandbox ? sandbox.enabled : null,
@@ -95,9 +95,9 @@ function _statusPayload(available) {
 }
 
 function startOpenClaw(workspacePath) {
-  const serverPath = path.join(__dirname, '..', '..', 'openclaw-server.js');
+  const serverPath = path.join(__dirname, '..', '..', 'kaoru-tool-host.js');
   if (!fs.existsSync(serverPath)) {
-    logger.warn('openclaw', '[core] openclaw-server.js no encontrado — herramientas desactivadas');
+    logger.warn('openclaw', '[core] kaoru-tool-host.js no encontrado — herramientas desactivadas');
     state.bus.emit('openclaw:available', _statusPayload(false));
     return;
   }
@@ -126,6 +126,9 @@ function startOpenClaw(workspacePath) {
     state.openclawProcess = cp.fork(serverPath, [], {
       stdio: 'pipe',
       env: safeChildEnv({
+        KAORU_TOOL_HOST_API_KEY: apiKey,
+        KAORU_TOOL_HOST_ALLOWED_PATH: allowedPath,
+        KAORU_TOOL_HOST_AUDIT_PATH: auditPath,
         OPENCLAW_API_KEY: apiKey,
         OPENCLAW_ALLOWED_PATH: allowedPath,
         OPENCLAW_AUDIT_PATH: auditPath,
@@ -136,7 +139,7 @@ function startOpenClaw(workspacePath) {
     delete process.env.OPENCLAW_API_KEY;
     // Entregar la key al bridge en memoria (el bridge la lee por request)
     try {
-      require('../planner/OpenClawBridge.js').setApiKey(apiKey);
+      require('../planner/LocalToolBridge.js').setApiKey(apiKey);
     } catch (_) {}
 
     state.openclawProcess.stdout?.on('data', (d) => {
@@ -152,7 +155,7 @@ function startOpenClaw(workspacePath) {
     state.openclawProcess.on('exit', (code) => {
       state.openclawStarting = false;
       state.openclawProcess = null;
-      getOpenClawBridge().resetAvailabilityCache();
+      getLocalToolBridge().resetAvailabilityCache();
       state.bus.emit('openclaw:available', _statusPayload(false));
     });
 
@@ -166,8 +169,8 @@ function startOpenClaw(workspacePath) {
     const check = () => {
       state.openclawCheckTimer = null;
       retries++;
-      getOpenClawBridge().resetAvailabilityCache();
-      getOpenClawBridge()
+      getLocalToolBridge().resetAvailabilityCache();
+      getLocalToolBridge()
         .isAvailable()
         .then((available) => {
           if (available) {
@@ -235,7 +238,7 @@ function stopOpenClaw() {
       logger.warn('openclaw', '[core] error deteniendo OpenClaw:', e.message);
     }
   }
-  getOpenClawBridge().resetAvailabilityCache();
+  getLocalToolBridge().resetAvailabilityCache();
 }
 
 /**

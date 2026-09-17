@@ -238,7 +238,12 @@ function testWindowsLauncherFailClosed() {
   const decoded = wrapped
     .slice(separator + 1)
     .map((arg) => Buffer.from(arg, 'base64').toString('utf8'));
-  assertEqual(decoded.join('|'), 'cmd.exe|/d|/s|/c|echo "hola mundo"', 'argv viaja en base64');
+  assert(/(^|[\\/])cmd\.exe$/i.test(decoded[0]), 'normaliza cmd.exe al ejecutable del sistema');
+  assertEqual(
+    decoded.slice(1).join('|'),
+    '/d|/s|/c|echo "hola mundo"',
+    'argv viaja en base64 sin alterar argumentos'
+  );
 
   let outsideRejected = false;
   try {
@@ -257,7 +262,7 @@ function testNativeAppContainerHelper() {
     path.join(__dirname, '..', 'core', 'sandbox', 'compile-windows-sandbox.ps1'),
     'utf8'
   );
-  const server = fs.readFileSync(path.join(__dirname, '..', 'openclaw-server.js'), 'utf8');
+  const server = fs.readFileSync(path.join(__dirname, '..', 'kaoru-tool-host.js'), 'utf8');
 
   assert(helper.includes('CreateAppContainerProfile'), 'crea un perfil AppContainer');
   assert(
@@ -337,8 +342,7 @@ async function testPrebuiltHelperFastPath() {
   sandbox._runHelper = async (args) => {
     const markerArg = args.find((arg) => arg.includes('.kaoru-appcontainer-'));
     if (markerArg) {
-      const marker = markerArg.match(/>"([^"]+)"/)?.[1];
-      if (marker) fs.writeFileSync(marker, 'ok', 'utf8');
+      fs.writeFileSync(markerArg, 'ok', 'utf8');
     }
     return { ok: true, stdout: '', stderr: '', exitCode: 0, signal: null };
   };

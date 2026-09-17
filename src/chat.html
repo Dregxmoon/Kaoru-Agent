@@ -419,7 +419,16 @@
           <!-- VISTA: INSTALADOS -->
           <div id="mcp-installed-view" style="display: none">
             <div class="mcp-toolbar">
-              <div class="mcp-section-title">Tus servidores MCP</div>
+              <div>
+                <div class="mcp-section-title">Tus servidores MCP</div>
+                <label class="mcp-autoconnect-option">
+                  <input type="checkbox" id="mcp-autoconnect" />
+                  Conectar automáticamente al iniciar Kaoru
+                </label>
+                <div class="mcp-autoconnect-help">
+                  Desactivado por defecto. Kaoru no iniciará servidores guardados sin este permiso.
+                </div>
+              </div>
               <button class="btn-save" id="mcp-google-workspace-btn">
                 + Conectar Google Workspace
               </button>

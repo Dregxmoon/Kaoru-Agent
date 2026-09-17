@@ -232,6 +232,7 @@ jobs:
             pattern: |
               dist/*.AppImage
               dist/*.deb
+              dist/*.blockmap
               dist/latest-linux.yml
           - os: macos-latest
             target: mac
@@ -239,12 +240,14 @@ jobs:
             pattern: |
               dist/*.dmg
               dist/*.zip
+              dist/*.blockmap
               dist/latest-mac.yml
           - os: windows-latest
             target: win
             artifact: asistente-win
             pattern: |
               dist/*.exe
+              dist/*.blockmap
               dist/latest.yml
     steps:
       - uses: actions/checkout@v5
@@ -337,5 +340,6 @@ jobs:
             dist/*.dmg
             dist/*.zip
             dist/*.exe
+            dist/*.blockmap
             dist/latest*.yml
           fail_on_unmatched_files: true

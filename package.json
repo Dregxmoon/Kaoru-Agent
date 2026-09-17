@@ -1,6 +1,6 @@
 {
   "name": "asistente-personal",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "description": "Asistente personal de escritorio con avatar Live2D, memoria y proactividad",
   "main": "main.js",
   "bin": {
@@ -14,10 +14,10 @@
     "test": "node tests/run-all.js",
     "coverage": "bash scripts/coverage.sh",
     "coverage:check": "bash scripts/coverage.sh --check",
-    "lint": "eslint main.js openclaw-server.js core infrastructure ipc tests benchmarks src --ext .js",
-    "lint:fix": "eslint --fix main.js openclaw-server.js core infrastructure ipc tests benchmarks src --ext .js",
-    "format": "prettier --write \"main.js\" \"openclaw-server.js\" \"{core,infrastructure,ipc,tests,benchmarks,src}/**/*.js\"",
-    "format:check": "prettier --check \"main.js\" \"openclaw-server.js\" \"{core,infrastructure,ipc,tests,benchmarks,src}/**/*.js\"",
+    "lint": "eslint main.js openclaw-server.js kaoru-tool-host.js core infrastructure ipc tests benchmarks src --ext .js",
+    "lint:fix": "eslint --fix main.js openclaw-server.js kaoru-tool-host.js core infrastructure ipc tests benchmarks src --ext .js",
+    "format": "prettier --write \"main.js\" \"openclaw-server.js\" \"kaoru-tool-host.js\" \"{core,infrastructure,ipc,tests,benchmarks,src}/**/*.js\"",
+    "format:check": "prettier --check \"main.js\" \"openclaw-server.js\" \"kaoru-tool-host.js\" \"{core,infrastructure,ipc,tests,benchmarks,src}/**/*.js\"",
     "typecheck": "tsc --noEmit",
     "init-db": "node scripts/electron-node.js infrastructure/database/init_vectors.js",
     "cli": "node scripts/electron-node.js bin/cli.js",
@@ -122,6 +122,7 @@
     "files": [
       "main.js",
       "openclaw-server.js",
+      "kaoru-tool-host.js",
       "updater.js",
       "bin/**/*",
       "core/**/*",

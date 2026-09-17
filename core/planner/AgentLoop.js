@@ -4,7 +4,7 @@ const logger = require('../observability/Logger.js');
 
 const path = require('path');
 const fs = require('fs');
-const { getOpenClawBridge } = require('./OpenClawBridge.js');
+const { getLocalToolBridge } = require('./LocalToolBridge.js');
 const { getStructuredActionParser } = require('./StructuredActionParser.js');
 const { truncateSystemPrompt } = require('../core/context.js');
 const AP = require('./ActionParser.js');
@@ -820,7 +820,7 @@ const MODE_ALIAS = {
 class AgentLoop {
   constructor(opts = {}) {
     this.maxIterations = opts.maxIterations || MAX_ITERATIONS;
-    this._bridge = opts.bridge || getOpenClawBridge();
+    this._bridge = opts.bridge || getLocalToolBridge();
     this._toolRegistry = getToolRegistry();
     this._llm = opts.llm || null;
     this._lsp = opts.lsp || null;

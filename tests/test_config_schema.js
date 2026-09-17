@@ -96,6 +96,7 @@ function testDefaults() {
   assertEqual(cfg.sensors.git, true, 'sensors.git default true');
   assertEqual(cfg.gestures.cooldownMs, 15000, 'gestures.cooldownMs default');
   assert(Array.isArray(cfg.mcp.servers), 'mcp.servers default []');
+  assertEqual(cfg.mcp.autoConnect, false, 'MCP no se reconecta sin consentimiento');
   assertEqual(cfg.agent.subagent.enabled, true, 'agent.subagent.enabled default true');
   assert(mgr.report && mgr.report.ok, 'report ok sin archivo');
 

@@ -108,10 +108,17 @@ class WindowsSandbox {
 
       const marker = path.join(this._cwd, `.kaoru-appcontainer-${process.pid}.tmp`);
       try {
-        const probe = await this._runHelper(['cmd.exe', '/d', '/s', '/c', `echo ok>"${marker}"`], {
-          cwd: this._cwd,
-          timeout: 15_000,
-        });
+        // Evitar cmd.exe para el self-test: `/s /c` vuelve a interpretar
+        // comillas y redirecciones, y una ruta temporal con espacios puede
+        // producir ERROR_INVALID_NAME antes de probar el AppContainer. Usar
+        // el runtime real de Electron valida ejecución + escritura sin shell.
+        const probe = await this._runHelper(
+          [process.execPath, '-e', "require('fs').writeFileSync(process.argv[1], 'ok')", marker],
+          {
+            cwd: this._cwd,
+            timeout: 15_000,
+          }
+        );
         if (!probe.ok || !fs.existsSync(marker)) {
           throw new Error(probe.error || probe.stderr || 'falló el self-test AppContainer');
         }
@@ -119,16 +126,6 @@ class WindowsSandbox {
         try {
           fs.unlinkSync(marker);
         } catch (_) {}
-      }
-
-      const nodeProbe = await this._runHelper(
-        [process.execPath, '-e', 'process.exit(process.versions.electron ? 0 : 1)'],
-        { cwd: this._cwd, timeout: 15_000 }
-      );
-      if (!nodeProbe.ok) {
-        throw new Error(
-          nodeProbe.error || nodeProbe.stderr || 'Electron no ejecuta Node en AppContainer'
-        );
       }
 
       this._enabled = true;

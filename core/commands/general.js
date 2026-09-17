@@ -77,7 +77,7 @@ module.exports = function registerCommands(register) {
           `- Exitosas: **${stats.ok || 0}**`,
           `- Fallidas: **${stats.failed || 0}**`,
           `- Herramientas: ${(stats.tools || []).join(', ') || 'ninguna'}`,
-          `- OpenClaw disponible: ${stats.available ? 'si' : 'no'}`,
+          `- Motor local de herramientas: ${stats.available ? 'disponible' : 'no disponible'}`,
         ].join('\n');
       } catch (e) {
         return `Error obteniendo estadisticas: ${e.message}`;
