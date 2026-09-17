@@ -358,7 +358,9 @@ async function runAgent(userMessage, opts = {}) {
     sessionId,
     workspace: projectCwd,
     responseLanguage,
+    taskIntent: context.taskIntent || null,
     tools: context.nativeToolSchemas || null,
+    allowedToolNames: context.allowedToolNames || null,
     nativeMcpMap: context.nativeMcpMap || {},
     toolCatalog: context.toolCatalog || null,
     matchedSkills: context.resolvedSkills || null,
@@ -604,44 +606,19 @@ async function runAgent(userMessage, opts = {}) {
     return evaluation;
   };
 
-  // ── Fase 4: modo degradado (providers caídos / sin herramientas) ─────────
-  // Si el loop terminó por fallo de LLM SIN haber ejecutado herramientas útiles,
-  // se intenta UNA respuesta de texto con el mejor provider disponible. Si
-  // tampoco hay conexión, se responde un aviso claro en vez del error técnico
-  // ("Todos los providers fallaron...") que llegaba crudo al usuario.
+  // Si el proveedor falla antes de elegir una herramienta, se devuelve un
+  // diagnóstico determinista. No se le pide al mismo LLM caído que explique
+  // un supuesto "modo degradado": eso producía negativas inventadas y hacía
+  // parecer que Kaoru había perdido capacidades locales que siguen presentes.
   if (result.error === 'llm_failure' && (result.toolResults || []).length === 0) {
-    try {
-      const LLM = require('../llm/LLMProvider.js');
-      const degradedPrompt =
-        'Kaoru está operando en MODO DEGRADADO: las herramientas de sistema ' +
-        'no están disponibles ahora. Responde al usuario de forma breve y honesta, ' +
-        'sin ejecutar herramientas ni escribir código, explicando que podés ayudarlo ' +
-        'en cuanto el proveedor de IA se recupere.';
-      const text = await LLM.complete(
-        [{ role: 'user', content: effectiveMessage }],
-        degradedPrompt,
-        { signal: opts.signal }
-      );
-      if (text && typeof text === 'string') {
-        const degradedResult = {
-          ...result,
-          response: text,
-          degraded: true,
-          degradedReason: 'providers_degradados',
-        };
-        settleDurableGoal(degradedResult);
-        return degradedResult;
-      }
-    } catch (e) {
-      logger.warn('agent', `[core] respuesta degradada tampoco disponible: ${e.message}`);
-    }
     const degradedResult = {
       ...result,
       degraded: true,
-      degradedReason: 'providers_down',
+      degradedReason: 'provider_unavailable',
       response:
-        'No pude conectar con ningún proveedor de IA (todos en rate-limit o sin API key). ' +
-        'Revisá tus credenciales o esperá unos minutos y reintentá.',
+        'No pude iniciar la acción porque el proveedor activo rechazó la solicitud antes de ejecutar el plan. ' +
+        'Las herramientas locales de Kaoru siguen disponibles. Reintenta la tarea o elige en Modelos ' +
+        'otro modelo compatible con herramientas.',
     };
     settleDurableGoal(degradedResult);
     return degradedResult;

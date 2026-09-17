@@ -216,7 +216,9 @@ Cliente MCP propio (stdio), reconexión automática con backoff, namespacing de 
 <details>
 <summary><strong>Automatización de navegador</strong></summary>
 
-`open_website` abre por defecto el navegador personal/predeterminado, por lo que conserva sus sesiones, pero Kaoru solo solicita abrir la URL y no recibe acceso directo a sus cookies o contraseñas. Las tareas que necesitan inspeccionar DOM, buscar, hacer clic y verificar usan Chromium administrado por Playwright con un perfil separado. `play_media` usa ese flujo administrado.
+`open_website` abre por defecto el navegador personal/predeterminado, por lo que conserva sus sesiones, pero Kaoru solo solicita abrir la URL y no recibe acceso directo a sus cookies o contraseñas. Las tareas que necesitan inspeccionar DOM, buscar, hacer clic y verificar usan Chromium administrado por Playwright con un perfil separado.
+
+Para `play_media`, **Permisos → Navegador para multimedia** permite elegir entre el navegador personal y Chromium administrado. El navegador personal es el valor predeterminado: Kaoru resuelve el video exacto, solicita abrirlo con autoplay y conserva la sesión del usuario; YouTube todavía puede exigir un clic por sus políticas de reproducción. El modo administrado permite verificar la reproducción, aunque algunos sitios pueden limitar perfiles automatizados. La preferencia guardada prevalece sobre lo que proponga el modelo y se muestra antes de autorizar la acción.
 
 </details>
 
@@ -485,9 +487,12 @@ En `config.json` (fuente de claves) o `.env` (alternativa):
 | `llm.primary`     | Proveedor principal (`groq` / `gemini` / `openai`)                                                                                   |
 | `llm.apiKeys`     | Claves API por proveedor (o `LLM_KEY_*` en `.env`)                                                                                   |
 | `llm.fallback`    | Cadena de fallback entre proveedores                                                                                                 |
+| `browser.*`       | Navegador personal o administrado para multimedia y navegador personal preferido                                                     |
 | `autonomy`        | `observe` (solo observa) · `suggest` (propone, default) · `act` (actúa con regla `allow` explícita; si no existe, pide confirmación) |
 | `sensors.*`       | Activa/desactiva sensores de señales (git, sistema, título, portapapeles, eventos, LSP)                                              |
 | `mcp.servers`     | Servidores MCP a conectar al arrancar                                                                                                |
+
+Las API keys guardadas se pueden reemplazar o eliminar desde **Ajustes → Credenciales de modelos** sin revelar el valor actual. Si una clave procede de `LLM_KEY_*` en `.env` o del entorno del proceso, la interfaz elimina cualquier copia guardada y avisa que esa variable debe retirarse en su origen.
 
 ### Cambiar el modelo Live2D
 

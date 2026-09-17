@@ -280,6 +280,26 @@ function testProviderToolFormat() {
     geminiTools[0].function_declarations[0].parameters.required.includes('path'),
     'Gemini: required incluye "path"'
   );
+  const incompatibleSchema = LLMProvider._debug_buildGeminiTools([
+    {
+      name: 'schema_test',
+      description: 'schema incompatible',
+      inputSchema: {
+        $schema: 'https://json-schema.org/draft/2020-12/schema',
+        type: 'object',
+        additionalProperties: false,
+        properties: {
+          nested: { type: 'object', additionalProperties: false },
+        },
+      },
+    },
+  ])[0].function_declarations[0].parameters;
+  assert(!('$schema' in incompatibleSchema), 'Gemini elimina $schema no soportado');
+  assert(
+    !('additionalProperties' in incompatibleSchema) &&
+      !('additionalProperties' in incompatibleSchema.properties.nested),
+    'Gemini elimina additionalProperties también en schemas anidados'
+  );
 
   // Formato Anthropic
   const anthropicTools = LLMProvider._debug_buildAnthropicTools([readTool]);
@@ -452,8 +472,10 @@ async function testToolCallingStartsSmart() {
   LLMProvider._setKeychainResolver(false);
 
   const calls = { fast: 0, smart: 0 };
-  LLMProvider._debug_setToolCaller(id, async (_m, _s, mode, _tools, _opts) => {
+  let toolMaxTokens = null;
+  LLMProvider._debug_setToolCaller(id, async (_m, _s, mode, _tools, opts) => {
     calls[mode] = (calls[mode] || 0) + 1;
+    toolMaxTokens = opts.maxTokens;
     if (mode === 'fast') {
       const err = new Error(
         'groq 413: {"error":{"message":"Request too large for model `fast-model` on tokens per minute (TPM): Limit 6000, Requested 8761"}}'
@@ -484,6 +506,7 @@ async function testToolCallingStartsSmart() {
       Array.isArray(result.toolCalls) && result.toolCalls.length === 1,
       'tool-calling resolvió en smart'
     );
+    assert(toolMaxTokens === 1024, 'tool-calling reserva como máximo 1024 tokens');
     assert(result.toolCalls[0].tool === 'read', 'tool call correcto desde el primer intento');
   } catch (e) {
     assert(false, 'tool-calling en smart no lanzó error', e.message);
@@ -513,6 +536,53 @@ async function testToolCallingStartsSmart() {
     fallback.content === 'fallback texto' && fallback.toolCalls === null,
     'un 404 cae a fallback de texto sin toolCalls'
   );
+}
+
+async function testToolModelRecoveryUsesSmartRole() {
+  console.log(C.bold('\n── Test 6b: recuperación de modelo para tools ────────────────'));
+
+  const LLMProvider = require('../core/llm/LLMProvider.js');
+  const id = 'test-tool-model-recovery';
+  LLMProvider.registerProvider({
+    id,
+    name: 'Test Tool Model Recovery',
+    type: 'gemini',
+    baseURL: 'https://example.invalid',
+    models: { fast: 'dead-fast', smart: 'dead-smart' },
+    catalog: ['dead-fast', 'dead-smart', 'audio-only', 'replacement-120b'],
+    modelMeta: {
+      'dead-fast': { tools: true },
+      'dead-smart': { tools: true },
+      'audio-only': { tools: false },
+      'replacement-120b': { tools: true },
+    },
+  });
+  LLMProvider.configure({ llm: { primary: id, fallback: [], apiKeys: { [id]: 'FAKE' } } });
+  LLMProvider._setKeychainResolver(false);
+
+  const attemptedModels = [];
+  LLMProvider._debug_setToolCaller(id, async (_m, _s, mode) => {
+    attemptedModels.push(LLMProvider._debug_resolveModel(id, mode));
+    if (attemptedModels.length === 1) throw new Error('model does not exist');
+    return { content: '', toolCalls: [{ tool: 'read', params: { path: 'ok.txt' } }] };
+  });
+
+  const result = await LLMProvider.completeWithTools(
+    [{ role: 'user', content: 'lee ok.txt' }],
+    'sys',
+    [{ name: 'read', description: 'lee', inputSchema: { type: 'object' } }],
+    'fast'
+  );
+  assert(attemptedModels[0] === 'dead-smart', 'tool-calling detecta el modelo smart retirado');
+  assert(
+    attemptedModels[1] === 'replacement-120b',
+    'reintenta inmediatamente con un modelo para tools'
+  );
+  assert(
+    LLMProvider._debug_resolveModel(id, 'fast') === 'dead-fast',
+    'la recuperación no modifica por error el rol fast'
+  );
+  assert(result.toolCalls?.[0]?.tool === 'read', 'la acción continúa tras recuperar el modelo');
 }
 
 // ── Test 7: Fallback a texto inyecta la nota "sin herramientas" ──────────────
@@ -600,6 +670,7 @@ async function main() {
   testEdgeCases();
   testSchemaConsistency();
   await testToolCallingStartsSmart();
+  await testToolModelRecoveryUsesSmartRole();
   await testToolFallbackPromptInjection();
 
   console.log(C.bold('\n════════════════════════════════════════════════════════'));

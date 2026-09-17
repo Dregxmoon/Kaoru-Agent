@@ -322,6 +322,7 @@ class OpenClawBridge {
     this._desktopAutomation = options.desktopAutomation || getDesktopAutomation();
     this._mediaResolver = options.mediaResolver || BrowserBridge.findFirstYouTubeVideo;
     this._mediaPlayer = options.mediaPlayer || BrowserBridge.playYouTubeMedia;
+    this._browserPreferences = { mediaControl: null, preferred: 'default' };
     // Inyectable para tests del guard verificar ⇒ managed (producción: Playwright real).
     this._managedNavigator =
       options.managedNavigator || ((input) => BrowserBridge.executeBrowserAction(input));
@@ -362,6 +363,37 @@ class OpenClawBridge {
     if (this._websiteResolver && typeof this._websiteResolver.setLocaleHints === 'function') {
       this._websiteResolver.setLocaleHints(hints);
     }
+  }
+
+  /** La preferencia del usuario prevalece sobre la propuesta del modelo. */
+  setBrowserPreferences(preferences = {}) {
+    const mediaControl = String(preferences.mediaControl || '').toLowerCase();
+    const preferred = String(preferences.preferred || 'default').toLowerCase();
+    this._browserPreferences = {
+      mediaControl: ['external', 'managed'].includes(mediaControl) ? mediaControl : null,
+      preferred: ['default', 'brave', 'chrome', 'chromium', 'edge', 'firefox'].includes(preferred)
+        ? preferred
+        : 'default',
+    };
+  }
+
+  /** Normaliza la acción antes del permiso para que el consentimiento describa la ejecución real. */
+  applyUserPreferences(action) {
+    if (!action || action.tool !== 'play_media' || !this._browserPreferences.mediaControl) {
+      return action;
+    }
+    const external = this._browserPreferences.mediaControl === 'external';
+    return {
+      ...action,
+      params: {
+        ...(action.params || {}),
+        control: this._browserPreferences.mediaControl,
+        browser:
+          external && this._browserPreferences.preferred !== 'default'
+            ? this._browserPreferences.preferred
+            : undefined,
+      },
+    };
   }
 
   /** Referencia interna para ligar permisos de misión a la aplicación observada. */
@@ -503,7 +535,9 @@ class OpenClawBridge {
           if ([...query].some((character) => character.charCodeAt(0) < 32)) {
             throw new Error('La consulta multimedia contiene caracteres no permitidos');
           }
-          const control = String(params.control || 'managed').toLowerCase();
+          const control = String(
+            this._browserPreferences.mediaControl || params.control || 'managed'
+          ).toLowerCase();
           if (!['managed', 'external'].includes(control)) {
             throw new Error(`Modo de control multimedia no permitido: ${control}`);
           }
@@ -515,7 +549,7 @@ class OpenClawBridge {
                   service,
                   query,
                   url: await this._mediaResolver(query),
-                  browser: params.browser || 'default',
+                  browser: this._browserPreferences.preferred,
                   playing: false,
                   verified: false,
                 };
@@ -530,9 +564,13 @@ class OpenClawBridge {
           }
           mediaUrl.searchParams.set('autoplay', '1');
           if (control === 'external') {
+            const preferredBrowser =
+              this._browserPreferences.preferred !== 'default'
+                ? this._browserPreferences.preferred
+                : undefined;
             const opened = await this._desktopControl.execute('open_website', {
               target: mediaUrl.href,
-              browser: params.browser,
+              browser: preferredBrowser,
             });
             desktopResult = {
               ...playback,
@@ -540,6 +578,7 @@ class OpenClawBridge {
               openedUrl: opened.url,
               browser: opened.browser,
               autoplayRequested: true,
+              opened: true,
               requiresUserAction: true,
             };
           } else {

@@ -2,7 +2,7 @@
 'use strict';
 
 // Capa de recomendación de modelos (nivel opencode). El usuario elige QUÉ
-// quiere hacer (charla, tareas de agente, imágenes, económico) y aquí se
+// quiere priorizar (respuesta rápida, acciones, imágenes, económico) y aquí se
 // resuelve provider+modelo según la METADATA del catálogo — nunca por IDs
 // crudos. Internamente mapea al modo del pipeline ('fast'/'smart').
 
@@ -25,14 +25,14 @@ const LLMProvider = require('./LLMProvider.js');
  */
 const TASKS = {
   chat: {
-    label: 'Charla',
+    label: 'Respuesta rápida',
     mode: 'fast',
     requireTools: false,
     requireVision: false,
     preferFree: false,
   },
   agent: {
-    label: 'Tareas de agente',
+    label: 'Acciones y razonamiento',
     mode: 'smart',
     requireTools: true,
     requireVision: false,
@@ -70,7 +70,7 @@ function _matchesTask(meta, spec) {
  * @param {import('./catalog.js').ModelMeta} meta
  */
 function _reason(task, meta) {
-  if (task === 'agent') return meta.tools ? 'Soporta herramientas (agente)' : 'Sin tools';
+  if (task === 'agent') return meta.tools ? 'Soporta acciones con herramientas' : 'Sin tools';
   if (task === 'vision') return 'Acepta imágenes';
   if (task === 'cheap') return meta.free ? 'Gratis' : 'Bajo coste';
   return 'Respuestas rápidas';

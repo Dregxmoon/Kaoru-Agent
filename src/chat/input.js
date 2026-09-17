@@ -332,9 +332,9 @@ input.addEventListener('input', () => {
 });
 // ── Browser de modelos inline (/model): TODOS los modelos, empresa debajo ────
 // Al escribir /model el div del input se expande y lista los modelos del
-// catálogo + models.dev (favoritos primero). Enter usa el modelo en Charla,
-// Ctrl+Enter en Agente (provider ya conectado); si no, expande la fila para
-// pegar la API key y conectar. Esc cierra.
+// catálogo + models.dev (favoritos primero). Enter lo asigna a respuestas
+// rápidas y Ctrl+Enter a acciones/razonamiento; el flujo elige automáticamente.
+// Si el proveedor no está conectado, la fila permite pegar la API key. Esc cierra.
 const modelBrowser = document.getElementById('model-browser');
 const modelBrowserList = document.getElementById('model-browser-list');
 const modelBrowserCount = document.getElementById('model-browser-count');
@@ -347,6 +347,10 @@ let _browserQuery = '';
 let _browserExpanded = null; // { providerId, modelId }
 let _browserShowAll = false; // toggle "ver todos los proveedores"
 let _collapsedGroups = new Set(); // providerIds colapsados
+
+document.addEventListener('llm-credentials-changed', () => {
+  _pickerData = null;
+});
 
 async function _ensurePickerData() {
   if (_pickerData) return _pickerData;
@@ -402,15 +406,15 @@ function _mbrRowHtml(m, i, byId, favs) {
         ${
           connected
             ? `<div class="mbr-actions">
-               <button class="mbr-btn" data-act="use" data-mode="fast">Usar en Charla</button>
-               <button class="mbr-btn" data-act="use" data-mode="smart">Usar en Agente</button>
+               <button class="mbr-btn" data-act="use" data-mode="fast">Usar para respuestas rápidas</button>
+               <button class="mbr-btn" data-act="use" data-mode="smart">Usar para acciones y razonamiento</button>
              </div>`
             : p.connectable === false
               ? '<div style="font-size:10px;color:#f59e0b;font-family:var(--font-mono)">No conectable automáticamente.</div>'
               : `<input class="mbr-key" type="password" placeholder="${escapeHtml(p.name)} API key" autocomplete="off" />
              <div class="mbr-actions">
-               <button class="mbr-btn" data-act="connect" data-mode="fast">Conectar y usar en Charla</button>
-               <button class="mbr-btn" data-act="connect" data-mode="smart">Conectar y usar en Agente</button>
+               <button class="mbr-btn" data-act="connect" data-mode="fast">Conectar para respuestas rápidas</button>
+               <button class="mbr-btn" data-act="connect" data-mode="smart">Conectar para acciones y razonamiento</button>
              </div>`
         }
       </div>`
@@ -529,7 +533,7 @@ function _mbrRender() {
     modelBrowserStatus.textContent =
       rows.length > _browserRows.length
         ? `mostrando ${_browserRows.length} de ${rows.length} — escribí para filtrar`
-        : '↑↓ navegar · Enter Charla · Ctrl+Enter Agente · Esc cerrar';
+        : '↑↓ navegar · Enter respuesta rápida · Ctrl+Enter acciones · Esc cerrar';
   } else if (_browserShowAll) {
     modelBrowserStatus.textContent = `catálogo completo (${total} modelos) · ↑↓ navegar · Enter usar · Esc cerrar`;
   } else {

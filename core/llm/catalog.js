@@ -11,7 +11,7 @@
 // Internamente el pipeline usa los modos 'fast'/'smart' (plumbing, intacto);
 // en comandos y UI se muestran estos rótulos. Los aliases permiten escribir
 // ambas nomenclaturas.
-const ROLE_LABELS = { fast: 'Charla', smart: 'Tareas de agente' };
+const ROLE_LABELS = { fast: 'Respuesta rápida', smart: 'Acciones y razonamiento' };
 
 /** @type {Record<string, 'fast'|'smart'>} */
 const ROLE_ALIASES = {
@@ -19,11 +19,15 @@ const ROLE_ALIASES = {
   chat: 'fast',
   rapido: 'fast',
   rapida: 'fast',
+  rápido: 'fast',
+  rápida: 'fast',
   fast: 'fast',
   agente: 'smart',
   tareas: 'smart',
   smart: 'smart',
   tools: 'smart',
+  acciones: 'smart',
+  completo: 'smart',
 };
 
 /** @param {string} token */

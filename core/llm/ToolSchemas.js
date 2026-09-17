@@ -301,7 +301,7 @@ const TOOL_SCHEMAS = [
   {
     name: 'play_media',
     description:
-      'Para órdenes compuestas como "abre YouTube, busca un video de guitarra y reprodúcelo". Usa por defecto el navegador visible administrado por Kaoru, pulsa reproducir y verifica que el video esté reproduciéndose. Requiere aprobación.',
+      'Para órdenes como "busca esta canción en YouTube y reprodúcela". La preferencia del usuario decide si abre su navegador personal o el Chromium administrado; el modelo no puede cambiarla. Requiere aprobación.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -310,9 +310,8 @@ const TOOL_SCHEMAS = [
         control: {
           type: 'string',
           enum: ['managed', 'external'],
-          default: 'managed',
           description:
-            'managed permite controlar y verificar; external solo abre el navegador elegido y no puede garantizar reproducción',
+            'Sugerencia opcional; la preferencia guardada del usuario prevalece. managed controla y verifica; external abre el navegador personal y puede requerir un clic para reproducir',
         },
         browser: {
           type: 'string',

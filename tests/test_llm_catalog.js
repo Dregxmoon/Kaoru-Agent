@@ -118,14 +118,19 @@ function testResolveModelId() {
 
 function testRoles() {
   console.log(C.bold('\n── Test 4: ROLE_LABELS + resolveRole ─────────────────────────────'));
-  assert(catalog.ROLE_LABELS.fast === 'Charla', 'fast → "Charla"');
-  assert(catalog.ROLE_LABELS.smart === 'Tareas de agente', 'smart → "Tareas de agente"');
+  assert(catalog.ROLE_LABELS.fast === 'Respuesta rápida', 'fast → "Respuesta rápida"');
+  assert(
+    catalog.ROLE_LABELS.smart === 'Acciones y razonamiento',
+    'smart → "Acciones y razonamiento"'
+  );
   assert(catalog.resolveRole('charla') === 'fast', 'charla → fast');
   assert(catalog.resolveRole('agente') === 'smart', 'agente → smart');
+  assert(catalog.resolveRole('acciones') === 'smart', 'acciones → smart');
   assert(catalog.resolveRole('fast') === 'fast', 'fast → fast (backward compat)');
   assert(catalog.resolveRole('smart') === 'smart', 'smart → smart (backward compat)');
   assert(catalog.resolveRole('otra-cosa') === null, 'palabra inválida → null');
   assert(LLMProvider.resolveRole('rapido') === 'fast', 'alias "rapido" → fast');
+  assert(LLMProvider.resolveRole('rápido') === 'fast', 'alias "rápido" → fast');
 }
 
 // ── Test 5: recommend() por capacidad ────────────────────────────────────────

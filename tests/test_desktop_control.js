@@ -7,7 +7,11 @@ const { EventEmitter } = require('events');
 const { DesktopControl, _parseDesktopEntry } = require('../core/desktop/DesktopControl.js');
 const { OpenClawBridge } = require('../core/planner/OpenClawBridge.js');
 const { ToolRegistry } = require('../core/task/ToolRegistry.js');
-const { resolveToolset } = require('../core/task/ToolResolver.js');
+const {
+  resolveToolset,
+  shouldPreferDesktopOrchestrators,
+} = require('../core/task/ToolResolver.js');
+const TaskDetector = require('../core/task/TaskDetector.js');
 const { getToolSchemas } = require('../core/llm/ToolSchemas.js');
 const { isHighImpact } = require('../core/planner/ActionParser.js');
 const { StructuredActionParser } = require('../core/planner/StructuredActionParser.js');
@@ -315,6 +319,43 @@ async function testPipelineIntegration() {
     desktopNames.every((name) => resolvedNames.has(name)),
     'ToolResolver conserva escritorio cuando OpenClaw está apagado'
   );
+  const scopedRegistry = new ToolRegistry();
+  scopedRegistry.setOpenClawBridge({ getStats: () => ({ available: true }) });
+  const autonomyPrompt =
+    'Abre el navegador y reproduce música instrumental. Después abre la calculadora, calcula 438 × 17, abre el editor y guarda el resultado en Documentos.';
+  const autonomyIntent = TaskDetector.detect(autonomyPrompt);
+  const autonomyDomains = (autonomyIntent._debug?.matchedDomains || []).map((item) => item.domain);
+  const scoped = await resolveToolset({
+    toolRegistry: scopedRegistry,
+    domain: autonomyIntent.domain,
+    domains: autonomyDomains,
+    preferOrchestrators: shouldPreferDesktopOrchestrators(autonomyIntent),
+  });
+  const scopedNames = new Set((scoped.nativeToolSchemas || []).map((schema) => schema.name));
+  assert(scopedNames.has('desktop_mission'), 'tarea compuesta conserva el orquestador desktop');
+  assert(scopedNames.has('play_media'), 'tarea compuesta conserva reproducción multimedia');
+  assert(!scopedNames.has('exec'), 'tarea desktop compuesta no puede simular la UI con shell');
+  assert(
+    !scopedNames.has('read') && !scopedNames.has('write'),
+    'archivos solicitados dentro de apps quedan a cargo de desktop_mission'
+  );
+  assert(!scopedNames.has('ui_click'), 'controles UI internos no se duplican en el loop padre');
+  assert(!scopedNames.has('git_commit'), 'excluye dominios ajenos a la petición');
+  assert(scopedNames.size <= 6, 'catálogo compuesto queda limitado a orquestadores');
+  assert(
+    scoped.allowedToolNames instanceof Set &&
+      [...scoped.allowedToolNames].every((name) => scopedNames.has(name)),
+    'el allowlist de runtime coincide con el catálogo estricto'
+  );
+  assert(
+    shouldPreferDesktopOrchestrators({
+      isTask: true,
+      domain: { id: 'system' },
+      confidence: 'medium',
+      _debug: { fusedFrom: 'intent:launch_app', matchedDomains: [] },
+    }),
+    'la intención semántica multilingüe también usa orquestadores sin regex adicional'
+  );
   assert(isHighImpact('list_apps', {}), 'listar aplicaciones exige aprobación por privacidad');
   assert(isHighImpact('launch_app', { app: 'steam' }), 'abrir aplicaciones exige aprobación');
   assert(isHighImpact('open_website', { target: 'youtube' }), 'abrir sitios exige aprobación');
@@ -380,6 +421,35 @@ async function testPipelineIntegration() {
   assert(media.ok && media.result.kind === 'media', 'play_media resuelve y abre el video');
   assert(media.result.autoplayRequested === true, 'play_media registra solicitud de autoplay');
   assert(media.result.verified === true, 'play_media exige evidencia de reproducción');
+  bridge.setBrowserPreferences({ mediaControl: 'external', preferred: 'default' });
+  const defaultBrowserAction = bridge.applyUserPreferences({
+    tool: 'play_media',
+    params: { query: 'otra canción', control: 'managed', browser: 'chrome' },
+  });
+  assert(
+    defaultBrowserAction.params.browser === undefined,
+    'el navegador predeterminado guardado también prevalece sobre el modelo'
+  );
+
+  bridge.setBrowserPreferences({ mediaControl: 'external', preferred: 'firefox' });
+  const normalizedMedia = bridge.applyUserPreferences({
+    tool: 'play_media',
+    params: { query: 'video de guitarra', control: 'managed' },
+  });
+  assert(
+    normalizedMedia.params.control === 'external' && normalizedMedia.params.browser === 'firefox',
+    'la preferencia se aplica antes del permiso y prevalece sobre el modelo'
+  );
+  const personalMedia = await bridge.execute('play_media', { query: 'video de guitarra' });
+  assert(personalMedia.ok && personalMedia.result.opened, 'preferencia personal abre el video');
+  assert(
+    personalMedia.result.browser === 'firefox' && personalMedia.result.requiresUserAction,
+    'usa el navegador elegido y reconoce que YouTube puede exigir interacción'
+  );
+  assert(
+    personalMedia.result.verified === false,
+    'no afirma que el navegador personal comenzó a reproducir'
+  );
   const hostileBridge = new OpenClawBridge({
     desktopControl: { execute: async () => ({ url: '', browser: 'default' }) },
     mediaPlayer: async () => ({

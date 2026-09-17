@@ -47,6 +47,7 @@ function testSchemaShape() {
     'activeModel',
     'chatTheme',
     'autonomy',
+    'browser',
     'llm',
     'sensors',
     'gestures',
@@ -83,6 +84,12 @@ function testDefaults() {
   const mgr = new ConfigManager(null, { verbose: false });
   const cfg = mgr.load();
   assertEqual(cfg.autonomy, 'suggest', 'autonomy default "suggest"');
+  assertEqual(
+    cfg.browser.mediaControl,
+    'external',
+    'multimedia usa navegador personal por defecto'
+  );
+  assertEqual(cfg.browser.preferred, 'default', 'respeta el navegador predeterminado del sistema');
   assertEqual(cfg.activeModel, 'March 7th', 'activeModel default "March 7th"');
   assertEqual(cfg.chatTheme, 'dark', 'chatTheme default "dark"');
   assertEqual(cfg.llm.primary, 'groq', 'llm.primary default "groq"');

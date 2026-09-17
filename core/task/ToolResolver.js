@@ -32,6 +32,45 @@ const FILESYSTEM_MCP_EQUIVALENTS = {
   glob: new Set(['glob', 'find_files', 'search_files']),
 };
 
+// Una misión compuesta solo necesita las entradas de alto nivel en el loop
+// padre. DesktopMissionLoop posee su propio catálogo acotado de controles UI;
+// repetirlo aquí infla cada request y hace que providers con TPM bajo rechacen
+// la llamada antes de ejecutar la primera herramienta.
+const DESKTOP_ORCHESTRATORS = new Set([
+  'list_apps',
+  'desktop_mission',
+  'launch_app',
+  'open_website',
+  'play_media',
+  'desktop_capabilities',
+]);
+
+/** @param {unknown} value @returns {string|null} */
+function _domainId(value) {
+  if (typeof value === 'string') return value || null;
+  if (value && typeof value === 'object' && typeof value.id === 'string') return value.id || null;
+  return null;
+}
+
+/**
+ * Decide si una intención estructurada debe entrar al loop padre de escritorio.
+ * Usa dominios y procedencia del detector, no palabras del mensaje, para que la
+ * misma política funcione con detección por embeddings en cualquier idioma.
+ * @param {any} taskIntent
+ * @returns {boolean}
+ */
+function shouldPreferDesktopOrchestrators(taskIntent) {
+  if (!taskIntent?.isTask) return false;
+  const matchedDomains = (taskIntent?._debug?.matchedDomains || [])
+    .map((item) => _domainId(item?.domain))
+    .filter(Boolean);
+  if (matchedDomains.length > 1) return true;
+  if (_domainId(taskIntent.domain) !== 'system') return false;
+  const cameFromSemanticDetection =
+    Boolean(taskIntent?._debug?.fusedFrom) || taskIntent?._debug === undefined;
+  return taskIntent.confidence === 'high' || cameFromSemanticDetection;
+}
+
 function _mcpReplacesOpenClaw(tool, mcpTools) {
   const domains = tool.domain || [];
   if (!domains.includes('filesystem')) return false;
@@ -56,6 +95,8 @@ async function resolveToolset(context = {}) {
     db = null,
     matchedSkills = null,
     capabilityStatsProvider = null,
+    domains = [],
+    preferOrchestrators = false,
   } = context;
 
   const registry = toolRegistry || getToolRegistry();
@@ -68,6 +109,7 @@ async function resolveToolset(context = {}) {
     matchedSkills: [],
     nativeMcpMap: {},
     routing: [],
+    allowedToolNames: null,
   };
 
   // 1. Resolve matched skills
@@ -144,14 +186,28 @@ async function resolveToolset(context = {}) {
   });
 
   // 5. Build result
-  const ranked = router.rank([
+  const requestedDomains = new Set(
+    [domain, ...(Array.isArray(domains) ? domains : [])].map(_domainId).filter(Boolean)
+  );
+  const candidates = [
     ...filteredOpenclaw,
     ...desktopTools,
     ...lspTools,
     ...gitTools,
     ...githubTools,
     ...mcpTools,
-  ]);
+  ].filter((tool) => {
+    if (requestedDomains.size === 0) return true;
+    if ((tool.domain || []).some((item) => requestedDomains.has(item))) return true;
+    // SYSTEM es el dominio semántico de una tarea entre aplicaciones. Sus
+    // entradas web/multimedia de alto nivel también deben estar disponibles
+    // aunque sus tools no declaren literalmente el dominio system.
+    return requestedDomains.has('system') && DESKTOP_ORCHESTRATORS.has(tool.name);
+  });
+  const routedCandidates = preferOrchestrators
+    ? candidates.filter((tool) => DESKTOP_ORCHESTRATORS.has(tool.name))
+    : candidates;
+  const ranked = router.rank(routedCandidates);
   const finalTools = ranked.filter((item) => !item.route.unavailable).map((item) => item.tool);
   result.routing = ranked.map((item) => ({
     source: item.tool.source,
@@ -190,6 +246,9 @@ async function resolveToolset(context = {}) {
         };
       });
     result.nativeToolSchemas = [...baseSchemas, ...dynamicMcpSchemas];
+    if (preferOrchestrators) {
+      result.allowedToolNames = new Set(result.nativeToolSchemas.map((schema) => schema.name));
+    }
   }
 
   // Prompt catalog (text for system prompt)
@@ -243,4 +302,4 @@ function _buildPromptCatalog(tools, domain, flags) {
   });
 }
 
-module.exports = { resolveToolset };
+module.exports = { resolveToolset, shouldPreferDesktopOrchestrators };

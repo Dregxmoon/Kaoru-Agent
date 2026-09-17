@@ -492,11 +492,28 @@ console.log(C.bold(C.cyan('═════════════════�
           window.getComputedStyle(tool).fontFamily ===
             window.getComputedStyle(document.body).fontFamily,
         closeCentered: Math.abs(close.width - close.height) < 1,
+        browserPreferences:
+          document.getElementById('media-browser-control')?.value === 'external' &&
+          document.getElementById('media-browser-preferred')?.value === 'default',
       };
     });
     assert(permsUi.sameFont, 'campos y placeholders de permisos usan la tipografía terminal');
     assert(permsUi.closeCentered, 'la X de Permisos está centrada');
+    assert(
+      permsUi.browserPreferences,
+      'Permisos expone navegador personal/administrado y navegador preferido'
+    );
     await chat.evaluate(() => document.getElementById('perms-close-x').click());
+
+    await chat.evaluate(() => document.getElementById('settings-btn').click());
+    await sleep(200);
+    const credentialsUi = await chat.evaluate(() => ({
+      open: document.getElementById('prefs-modal').classList.contains('visible'),
+      credentials: Boolean(document.getElementById('prefs-llm-credentials')),
+    }));
+    assert(credentialsUi.open, 'Ajustes abre el panel de preferencias');
+    assert(credentialsUi.credentials, 'Ajustes incluye gestión de credenciales LLM');
+    await chat.evaluate(() => document.getElementById('prefs-close').click());
 
     await chat.fill('#msg-input', '');
     await chat.evaluate(() => document.getElementById('commands-btn').click());

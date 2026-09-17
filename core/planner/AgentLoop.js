@@ -10,6 +10,7 @@ const { truncateSystemPrompt } = require('../core/context.js');
 const AP = require('./ActionParser.js');
 const LLMProvider = require('../llm/LLMProvider.js');
 const { getToolRegistry } = require('../task/ToolRegistry.js');
+const { shouldPreferDesktopOrchestrators } = require('../task/ToolResolver.js');
 const { getGitManager } = require('../git/GitManager.js');
 const { WorkspaceCheckpoint, MUTATOR_TOOLS } = require('../git/WorkspaceCheckpoint.js');
 const { verifyHtmlFiles } = require('./web-verify.js');
@@ -651,7 +652,7 @@ ACCIÓN: open_website | SITIO: youtube | NAVEGADOR: firefox
 
 Para una petición compuesta de buscar y reproducir, usa una sola acción:
 \`\`\`action
-ACCIÓN: play_media | SERVICIO: youtube | QUERY: video de guitarra | CONTROL: managed
+ACCIÓN: play_media | SERVICIO: youtube | QUERY: video de guitarra
 \`\`\`
 
 Para una meta que encadena varios resultados en aplicaciones de escritorio,
@@ -687,9 +688,13 @@ observa otra vez antes de decidir la siguiente.
   CIEGA (no ve ni puede leer la página). Úsalo SOLO para "solo ábrelo".
 - \`CONTROL: managed\` (o la tool \`browser\` con mode=managed) usa el Chromium
   propio y VERIFICABLE de Kaoru. Úsalo SIEMPRE que debas leer, buscar o
-  comprobar algo DENTRO de la página (precio, disponibilidad, texto, video).
+  comprobar algo DENTRO de la página (precio, disponibilidad o texto).
 Si la petición incluye "busca", "dime si", "verifica", "está disponible" o
-"reproduce", NUNCA uses external: no podrías cumplirla.
+equivalentes en cualquier idioma, no uses external: no podrías cumplirla.
+\`play_media\` es la excepción: resuelve el video y aplica la preferencia de
+navegador guardada por el usuario. Con navegador personal puede abrir el video
+exacto, pero debe informar si YouTube exige un clic y no afirmar reproducción
+verificada.
 
 ## Receta: buscar un producto y verificar disponibilidad (shop-lookup)
 
@@ -1071,9 +1076,9 @@ class AgentLoop {
     // del perfil).
     this._onSubagentProgress =
       typeof opts.onSubagentProgress === 'function' ? opts.onSubagentProgress : null;
-    // Gate de herramientas por perfil de subagente: si está definido, las tools
-    // fuera del conjunto se bloquean en runtime (defensa en profundidad sobre el
-    // filtrado de schemas/catálogo).
+    // Gate de herramientas por ejecución: si está definido, las tools fuera del
+    // conjunto se bloquean en runtime (defensa en profundidad sobre el filtrado
+    // de schemas/catálogo y sobre el fallback textual).
     this._allowedToolNames = opts.allowedToolNames instanceof Set ? opts.allowedToolNames : null;
     this._readCache.clear();
     this._execCache.clear();
@@ -1113,6 +1118,10 @@ class AgentLoop {
         const resolved = await toolResolver.resolveToolset({
           userMessage,
           domain,
+          domains: (taskIntent?._debug?.matchedDomains || [])
+            .map((item) => item?.domain)
+            .filter(Boolean),
+          preferOrchestrators: shouldPreferDesktopOrchestrators(taskIntent),
           toolRegistry: this._toolRegistry,
           skillManager: opts.skillManager || null,
           mcpManager: opts.mcpManager || null,
@@ -1122,6 +1131,9 @@ class AgentLoop {
         });
         if (resolved.nativeToolSchemas) tools = resolved.nativeToolSchemas;
         if (resolved.promptCatalog) toolCatalog = resolved.promptCatalog;
+        if (resolved.allowedToolNames instanceof Set) {
+          this._allowedToolNames = resolved.allowedToolNames;
+        }
         resolvedSkills = resolved.matchedSkills;
         nativeMcpMap = resolved.nativeMcpMap || {};
         if (resolved.excluded.length > 0) {
@@ -1144,6 +1156,15 @@ class AgentLoop {
       '\n\n' +
       AGENT_LOOP_SYSTEM.trim() +
       (toolCatalog ? '\n\n' + toolCatalog : '');
+
+    if (this._allowedToolNames) {
+      agentPrompt +=
+        '\n\n# ALCANCE DE HERRAMIENTAS DE ESTA EJECUCIÓN\n' +
+        `Solo puedes usar: ${[...this._allowedToolNames].join(', ')}.\n` +
+        'Para una tarea que encadena varias aplicaciones usa desktop_mission; ' +
+        'para reproducir contenido usa play_media. No sustituyas acciones visibles ' +
+        'de escritorio por comandos de terminal ni inventes herramientas fuera de esta lista.';
+    }
 
     // ── Memoria semántica (§12): contexto relevante de sesiones anteriores ──
     // Se inyecta al prompt (no a la historia) para reconstruir contexto en
@@ -1518,6 +1539,17 @@ class AgentLoop {
           if (e?.code === 'ABORTED' || e?.name === 'AbortError') {
             return this._makeAbortResponse(i + 1, toolResults);
           }
+          if (e?.code === 'RATE_LIMITED') {
+            return {
+              response: this._withExpiredApprovalNotice(
+                this._completedSummary(toolResults) +
+                  `La ejecución quedó pausada por el límite del proveedor. ${e.message}`
+              ),
+              iterations: i + 1,
+              toolResults,
+              error: 'llm_rate_limited',
+            };
+          }
           logger.warn(
             'AgentLoop',
             '[agent-loop] tool-calling nativo falló, usando fallback texto:',
@@ -1641,7 +1673,9 @@ class AgentLoop {
         const observableExecutionObserved = mediaPlaybackExpected
           ? toolResults.some(
               (result) =>
-                result?.ok && result?.tool === 'play_media' && result?.result?.verified === true
+                result?.ok &&
+                result?.tool === 'play_media' &&
+                (result?.result?.verified === true || result?.result?.opened === true)
             )
           : toolResults.some(_isVerifiedInteractiveResult);
         const permissionStopped = toolResults.some(
@@ -1683,7 +1717,7 @@ class AgentLoop {
             content:
               '[EJECUCIÓN PENDIENTE] La petición original exige una acción observable, pero todavía no ejecutaste ninguna herramienta correctamente. ' +
               'No respondas con conversación genérica ni pidas repetir la solicitud: selecciona la herramienta adecuada del catálogo y ejecútala. ' +
-              'Para buscar y reproducir un video de YouTube usa play_media con control managed en una sola llamada. Abrir la portada o los resultados no completa la reproducción.',
+              'Para buscar y reproducir un video de YouTube usa play_media en una sola llamada. Respeta la preferencia de navegador configurada; abrir la portada o los resultados no completa la solicitud.',
           });
           logger.warn(
             'AgentLoop',
@@ -1906,6 +1940,12 @@ class AgentLoop {
 
       for (const action of actions) {
         if (maxToolCalls > 0 && toolResults.length >= maxToolCalls) break;
+        if (this._bridge && typeof this._bridge.applyUserPreferences === 'function') {
+          const preferredAction = this._bridge.applyUserPreferences(action);
+          if (preferredAction && preferredAction !== action) {
+            action.params = preferredAction.params;
+          }
+        }
         if (
           action.tool === 'desktop_mission' &&
           action.params &&
@@ -1970,18 +2010,17 @@ class AgentLoop {
         // luego se bloquee/deniegue/cancele — igual fue pedida).
         this._metrics.trackTool(action.tool);
 
-        // ── Gate de herramientas por perfil de subagente ─────────────────────
-        // Los subagentes con tools restringidas (explorador/investigador) solo
-        // pueden ejecutar tools permitidas, aunque el parser o el LLM intente
-        // llamar otra (defensa en profundidad sobre el catálogo filtrado).
+        // ── Gate de herramientas de la ejecución ─────────────────────────────
+        // Aplica tanto a subagentes restringidos como a misiones de escritorio
+        // acotadas, incluso si el fallback textual intenta pedir otra tool.
         if (this._allowedToolNames && !this._allowedToolNames.has(action.tool)) {
           iterationHistory.push({
             role: 'user',
-            content: `[Herramienta "${action.tool}" no está permitida en este perfil de subagente — continúa sin ella o busca otra estrategia]`,
+            content: `[Herramienta "${action.tool}" fuera del alcance de esta ejecución — usa una de las herramientas permitidas]`,
           });
           lastToolResult = {
             ok: false,
-            error: 'bloqueada_por_perfil',
+            error: 'bloqueada_por_alcance',
             tool: action.tool,
           };
           continue;
@@ -4241,11 +4280,33 @@ class AgentLoop {
   _completedSummary(toolResults) {
     const done = (toolResults || []).filter((r) => r && r.ok);
     if (done.length === 0) return '';
-    return (
-      'Acciones completadas antes de la interrupción:\n\n' +
-      done.map((r) => `✓ ${r.tool}`).join('\n') +
-      '\n\n'
-    );
+    const labels = {
+      desktop_mission: 'Misión de escritorio',
+      play_media: 'Reproducción multimedia',
+      launch_app: 'Aplicación abierta',
+      open_website: 'Sitio abierto',
+      exec: 'Comando ejecutado',
+      read: 'Archivo leído',
+      write: 'Archivo escrito',
+      edit: 'Archivo editado',
+    };
+    const lines = done.map((r) => {
+      const action = r._action || {};
+      const params = action.params || r.params || {};
+      const target =
+        params.query ||
+        params.app ||
+        params.target ||
+        params.path ||
+        params.file_path ||
+        params.command;
+      const evidence = this._summarizeResult(r).replace(/\s+/g, ' ').trim().slice(0, 180);
+      const parts = [`✓ ${labels[r.tool] || r.tool}`];
+      if (target) parts.push(String(target).slice(0, 140));
+      if (evidence && evidence !== 'Sin resultado.') parts.push(`Evidencia: ${evidence}`);
+      return parts.join(' — ');
+    });
+    return 'Acciones completadas antes de la interrupción:\n\n' + lines.join('\n') + '\n\n';
   }
 
   /**

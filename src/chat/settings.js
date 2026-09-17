@@ -34,6 +34,70 @@ async function _loadPrefs() {
 
   _loadPinStatus();
   _loadGhStatus();
+  _loadLlmCredentials();
+}
+
+async function _loadLlmCredentials() {
+  const container = document.getElementById('prefs-llm-credentials');
+  const statusEl = document.getElementById('prefs-llm-status');
+  statusEl.textContent = '';
+  try {
+    const data = await window.assistant.invoke('get-model-picker');
+    const connected = (data.providers || []).filter((provider) => provider.hasKey);
+    if (!connected.length) {
+      container.innerHTML = '<div class="llm-credentials-empty">No hay API keys guardadas.</div>';
+      return;
+    }
+    container.innerHTML = connected
+      .map(
+        (provider) => `<div class="llm-credential-row" data-provider="${escapeHtml(provider.id)}">
+          <strong>${escapeHtml(provider.name || provider.id)}</strong>
+          <input type="password" autocomplete="off" placeholder="Nueva API key" aria-label="Nueva API key para ${escapeHtml(provider.name || provider.id)}" />
+          <button class="btn-save" data-action="replace">Reemplazar</button>
+          <button class="btn-cancel" data-action="remove">Eliminar</button>
+        </div>`
+      )
+      .join('');
+  } catch (error) {
+    container.innerHTML = '';
+    statusEl.textContent = error.message || 'No se pudieron cargar las credenciales.';
+    statusEl.style.color = '#ef4444';
+  }
+}
+
+async function _replaceLlmKey(row) {
+  const providerId = row.dataset.provider;
+  const input = row.querySelector('input');
+  const statusEl = document.getElementById('prefs-llm-status');
+  const apiKey = input.value.trim();
+  if (!apiKey) {
+    statusEl.textContent = 'Escribe la nueva API key.';
+    statusEl.style.color = '#f59e0b';
+    return;
+  }
+  const saved = await window.assistant.invoke('replace-llm-key', {
+    providerId,
+    apiKey,
+    useKeychain: document.getElementById('use-keychain').checked,
+  });
+  if (!saved?.ok) throw new Error(saved?.error || 'No se pudo reemplazar la API key.');
+  input.value = '';
+  statusEl.textContent = `Clave de ${providerId} reemplazada.`;
+  statusEl.style.color = '#10b981';
+  document.dispatchEvent(new CustomEvent('llm-credentials-changed'));
+}
+
+async function _removeLlmKey(row) {
+  const providerId = row.dataset.provider;
+  if (!window.confirm(`¿Eliminar la API key guardada de ${providerId}?`)) return;
+  const statusEl = document.getElementById('prefs-llm-status');
+  const result = await window.assistant.invoke('remove-llm-key', { providerId });
+  document.dispatchEvent(new CustomEvent('llm-credentials-changed'));
+  await _loadLlmCredentials();
+  statusEl.textContent = result?.ok
+    ? `Clave de ${providerId} eliminada.`
+    : result?.error || 'No se pudo eliminar la clave.';
+  statusEl.style.color = result?.ok ? '#10b981' : '#f59e0b';
 }
 
 async function _loadPinStatus() {
@@ -99,6 +163,23 @@ function attachPrefsEvents() {
 
   prefsModal.addEventListener('click', (e) => {
     if (e.target === prefsModal) closePrefs();
+  });
+
+  document.getElementById('prefs-llm-credentials').addEventListener('click', async (event) => {
+    const button = event.target.closest('button[data-action]');
+    if (!button) return;
+    const row = button.closest('.llm-credential-row');
+    button.disabled = true;
+    try {
+      if (button.dataset.action === 'replace') await _replaceLlmKey(row);
+      else await _removeLlmKey(row);
+    } catch (error) {
+      const statusEl = document.getElementById('prefs-llm-status');
+      statusEl.textContent = error.message || 'No se pudo actualizar la credencial.';
+      statusEl.style.color = '#ef4444';
+    } finally {
+      button.disabled = false;
+    }
   });
 
   document.querySelectorAll('#prefs-autonomy .prefs-seg').forEach((seg) => {

@@ -51,6 +51,7 @@ const {
   loadMCPConfig,
   readSensorsConfig,
   readAutonomyConfig,
+  readBrowserConfig,
 } = require('./config.js');
 const { startOpenClaw } = require('./openclaw.js');
 const { scheduleDailyPrune } = require('./stats.js');
@@ -242,6 +243,7 @@ function init(app) {
   state.behavior = new BehaviorModel(state.graph);
   state.planner = getPlanner();
   state.bridge = getOpenClawBridge();
+  state.bridge.setBrowserPreferences?.(readBrowserConfig());
   state.mcp = getMCPManager();
   state.taskDetector = TaskDetector;
   state.toolRegistry = getToolRegistry();

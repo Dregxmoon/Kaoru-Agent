@@ -42,7 +42,15 @@ async function renderPermsList() {
   statusEl.textContent = '';
   let rules = [];
   try {
-    rules = await window.assistant.invoke('permissions-list');
+    const [loadedRules, config] = await Promise.all([
+      window.assistant.invoke('permissions-list'),
+      window.assistant.invoke('get-config'),
+    ]);
+    rules = loadedRules;
+    const browser = config?.browser || {};
+    document.getElementById('media-browser-control').value =
+      browser.mediaControl === 'managed' ? 'managed' : 'external';
+    document.getElementById('media-browser-preferred').value = browser.preferred || 'default';
   } catch (e) {
     console.error('[perms] error listando reglas:', e.message || e);
     listEl.innerHTML = '<div class="session-error">No se pudieron cargar los permisos.</div>';
@@ -139,6 +147,24 @@ function attachPermsEvents() {
         renderPermsList();
       } catch (error) {
         document.getElementById('perms-status').textContent = error.message || 'error';
+      }
+    });
+  }
+
+  for (const id of ['media-browser-control', 'media-browser-preferred']) {
+    document.getElementById(id)?.addEventListener('change', async () => {
+      const statusEl = document.getElementById('perms-status');
+      const patch = {
+        browser: {
+          mediaControl: document.getElementById('media-browser-control').value,
+          preferred: document.getElementById('media-browser-preferred').value,
+        },
+      };
+      try {
+        const result = await window.assistant.invoke('set-config', patch);
+        statusEl.textContent = result?.ok ? 'Preferencia de navegador guardada.' : result?.error;
+      } catch (error) {
+        statusEl.textContent = error.message || 'No se pudo guardar la preferencia.';
       }
     });
   }

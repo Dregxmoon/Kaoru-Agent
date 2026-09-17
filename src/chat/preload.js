@@ -32,6 +32,8 @@ const INVOKE_ALLOWLIST = new Set([
   'get-model-picker',
   'search-remote-providers',
   'connect-llm-provider',
+  'remove-llm-key',
+  'replace-llm-key',
   'favorite-model',
   // Settings (§9) / PIN (§11.1)
   'set-config',

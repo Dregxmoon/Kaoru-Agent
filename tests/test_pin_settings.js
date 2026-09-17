@@ -75,6 +75,7 @@ function makeCtx() {
   return {
     Core: {
       setAutonomyMode: (mode) => ({ ok: true, mode }),
+      reloadLLMConfig: () => {},
       permissionsList: () => [],
       permissionsSetRule: () => ({ ok: true }),
       permissionsRemoveRule: () => ({ ok: true }),
@@ -241,7 +242,57 @@ async function testSetConfigAgent() {
   assert(savedConfigs[1].agent.pinTimeoutMs === 60000, 'pinTimeoutMs=60000 persistido');
 }
 
-// ── Test 5: github-status (panel de credenciales) ─────────────────────────────
+async function testBrowserAndLlmCredentials() {
+  console.log(C.bold('\n── Test 5: navegador y credenciales LLM ──────────────────────'));
+  const ctx = makeCtx();
+  savedConfigs.length = 0;
+  registerConfig(ctx);
+
+  const invalid = await mockIpcMain.invokeHandler(
+    'set-config',
+    {},
+    {
+      browser: { mediaControl: 'inseguro' },
+    }
+  );
+  assert(invalid.ok === false, 'rechaza un modo de navegador desconocido');
+  const valid = await mockIpcMain.invokeHandler(
+    'set-config',
+    {},
+    {
+      browser: { mediaControl: 'external', preferred: 'firefox' },
+    }
+  );
+  assert(valid.ok === true, 'acepta navegador personal configurado');
+  assert(savedConfigs.at(-1).browser.preferred === 'firefox', 'persiste el navegador preferido');
+
+  keyStore.set('groq', 'secret-never-returned');
+  const removed = await mockIpcMain.invokeHandler('remove-llm-key', {}, { providerId: 'groq' });
+  assert(removed.ok === true && removed.removed === true, 'elimina una credencial LLM');
+  assert(!keyStore.has('groq'), 'borra la clave del llavero');
+  assert(!JSON.stringify(removed).includes('secret-never-returned'), 'nunca devuelve el secreto');
+
+  const replaced = await mockIpcMain.invokeHandler(
+    'replace-llm-key',
+    {},
+    {
+      providerId: 'openai',
+      apiKey: 'new-secret-never-returned',
+      useKeychain: true,
+    }
+  );
+  assert(replaced.ok === true, 'reemplaza una credencial desde Ajustes');
+  assert(
+    keyStore.get('openai') === 'new-secret-never-returned',
+    'guarda la nueva clave en llavero'
+  );
+  assert(
+    !JSON.stringify(replaced).includes('new-secret-never-returned'),
+    'no devuelve la nueva clave'
+  );
+}
+
+// ── Test 6: github-status (panel de credenciales) ─────────────────────────────
 
 async function testGithubStatus() {
   console.log(C.bold('\n── Test 5: github-status — panel de credenciales ──────────────'));
@@ -288,6 +339,7 @@ async function main() {
     await testLockAfterReload();
     await testSetConfigAutonomy();
     await testSetConfigAgent();
+    await testBrowserAndLlmCredentials();
     await testGithubStatus();
   } finally {
     Module._load = realLoad;

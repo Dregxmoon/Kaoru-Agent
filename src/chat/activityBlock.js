@@ -503,7 +503,7 @@ function _detailHtml(progress) {
       out += `<div class="activity-block-exit">exit ${_escapeHtml(String(exitCode))}</div>`;
     }
     if (!out) {
-      out = `<div class="activity-block-exec">${_escapeHtml(String(r).slice(0, 3000))}</div>`;
+      out = '<div class="activity-block-exec">Comando completado sin salida.</div>';
     }
     return `<div class="activity-block-detail">${out}</div>`;
   }

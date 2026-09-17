@@ -1182,6 +1182,38 @@ body {
 .desktop-capability.disabled strong {
   color: var(--term-error);
 }
+.browser-preferences {
+  margin-bottom: 14px;
+  padding: 10px;
+  border: 1px solid var(--border);
+  background: var(--bg-input);
+}
+.browser-preferences label {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 8px;
+  color: var(--text-primary);
+  font-family: var(--font-mono);
+  font-size: 9px;
+}
+.browser-preferences select,
+.llm-credential-row input {
+  border: 1px solid var(--border);
+  background: var(--bg-panel);
+  color: var(--text-primary);
+  font-family: var(--font-mono);
+  font-size: 10px;
+  padding: 6px 8px;
+}
+.browser-preferences p {
+  margin: 3px 0 0;
+  color: var(--text-secondary);
+  font-family: var(--font-mono);
+  font-size: 9px;
+  line-height: 1.5;
+}
 
 /* ── Sesiones pasadas (picker) ─────────────────────────────────────────────── */
 #sessions-modal {
@@ -4415,6 +4447,23 @@ body {
   min-height: 16px;
   color: var(--text-secondary);
 }
+.llm-credential-row {
+  display: grid;
+  grid-template-columns: minmax(90px, 0.7fr) minmax(130px, 1fr) auto auto;
+  gap: 6px;
+  align-items: center;
+  margin-bottom: 8px;
+  font-family: var(--font-mono);
+  font-size: 10px;
+}
+.llm-credential-row input {
+  min-width: 0;
+}
+.llm-credentials-empty {
+  color: var(--text-secondary);
+  font-family: var(--font-mono);
+  font-size: 10px;
+}
 .prefs-gh-status {
   font-family: var(--font-mono);
   font-size: 11px;
@@ -5263,6 +5312,13 @@ summary:focus-visible {
   .header-tool:first-child,
   .header-tool:nth-child(3) {
     display: none;
+  }
+  .llm-credential-row {
+    grid-template-columns: 1fr 1fr;
+  }
+  .llm-credential-row strong,
+  .llm-credential-row input {
+    grid-column: 1 / -1;
   }
 }
 

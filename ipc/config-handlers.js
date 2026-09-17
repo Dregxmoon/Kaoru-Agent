@@ -99,9 +99,14 @@ function register(ctx) {
     }
     const currentCfg = loadConfig();
     const providers = { ...(currentCfg.llm?.providers || {}) };
+    const currentModel = providers[provider]?.model;
+    const modelRoles =
+      currentModel && typeof currentModel === 'object' && !Array.isArray(currentModel)
+        ? currentModel
+        : {};
     providers[provider] = {
       ...(providers[provider] || {}),
-      model: { ...(providers[provider]?.model || {}), [mode]: model },
+      model: { ...modelRoles, [mode]: model },
       reasoningEffort: {
         ...(providers[provider]?.reasoningEffort || {}),
         ...(reasoningEffort ? { [model]: reasoningEffort } : {}),
@@ -166,6 +171,30 @@ function register(ctx) {
       next.agent = agent;
     }
 
+    if (patch.browser !== undefined) {
+      if (!patch.browser || typeof patch.browser !== 'object' || Array.isArray(patch.browser)) {
+        return { ok: false, error: 'browser inválido' };
+      }
+      const browser = { ...(currentCfg.browser || {}) };
+      if (patch.browser.mediaControl !== undefined) {
+        if (!['external', 'managed'].includes(patch.browser.mediaControl)) {
+          return { ok: false, error: 'mediaControl inválido' };
+        }
+        browser.mediaControl = patch.browser.mediaControl;
+      }
+      if (patch.browser.preferred !== undefined) {
+        if (
+          !['default', 'brave', 'chrome', 'chromium', 'edge', 'firefox'].includes(
+            patch.browser.preferred
+          )
+        ) {
+          return { ok: false, error: 'navegador preferido inválido' };
+        }
+        browser.preferred = patch.browser.preferred;
+      }
+      next.browser = browser;
+    }
+
     saveConfig(next);
     if (patch.autonomy !== undefined) {
       Core.setAutonomyMode(patch.autonomy);
@@ -173,6 +202,12 @@ function register(ctx) {
     }
     if (patch.agent !== undefined) {
       logger.info('config-handlers', '[config] agent config actualizada');
+    }
+    if (patch.browser !== undefined) {
+      require('../core/planner/OpenClawBridge.js')
+        .getOpenClawBridge()
+        .setBrowserPreferences(next.browser);
+      logger.info('config-handlers', '[config] preferencia de navegador actualizada');
     }
     return { ok: true };
   });
@@ -209,7 +244,11 @@ function register(ctx) {
       newProviders[providerId] = {
         ...(newProviders[providerId] || {}),
         model: {
-          ...((newProviders[providerId] && newProviders[providerId].model) || {}),
+          ...(newProviders[providerId]?.model &&
+          typeof newProviders[providerId].model === 'object' &&
+          !Array.isArray(newProviders[providerId].model)
+            ? newProviders[providerId].model
+            : {}),
           ...activeModel,
         },
       };
@@ -221,6 +260,7 @@ function register(ctx) {
         else ctx.KeychainManager.deleteKey(providerId);
         delete apiKeys[providerId];
       } else if (apiKey && typeof apiKey === 'string' && apiKey.trim()) {
+        ctx.KeychainManager.deleteKey(providerId);
         // Cifrar con safeStorage si el keychain nativo no está disponible.
         apiKeys[providerId] = SafeStorageCrypto.encrypt(apiKey.trim());
       }
@@ -262,6 +302,78 @@ function register(ctx) {
       return res;
     }
   );
+
+  ipcMain.handle('remove-llm-key', (_e, { providerId } = {}) => {
+    const id = String(providerId || '')
+      .trim()
+      .toLowerCase();
+    if (!id || !/^[a-z0-9][a-z0-9._-]{0,80}$/.test(id)) {
+      return { ok: false, error: 'provider inválido' };
+    }
+    const currentCfg = loadConfig();
+    const providers = { ...(currentCfg.llm?.providers || {}) };
+    const apiKeys = { ...(currentCfg.llm?.apiKeys || {}) };
+    if (providers[id]) {
+      providers[id] = { ...providers[id] };
+      delete providers[id].apiKey;
+    }
+    delete apiKeys[id];
+    ctx.KeychainManager.deleteKey(id);
+    saveConfig({
+      llm: {
+        ...(currentCfg.llm || {}),
+        providers,
+        apiKeys,
+      },
+    });
+    Core.reloadLLMConfig();
+    const environmentManaged = Object.entries(process.env).some(([name, value]) => {
+      const match = name.match(/^LLM_KEY_(.+)$/);
+      return match && match[1].toLowerCase() === id && typeof value === 'string' && value.trim();
+    });
+    logger.info('config-handlers', `[config] credencial LLM eliminada: ${id}`);
+    return {
+      ok: !environmentManaged,
+      removed: true,
+      ...(environmentManaged
+        ? { error: 'La clave guardada se eliminó, pero existe otra en .env o el entorno.' }
+        : {}),
+    };
+  });
+
+  ipcMain.handle('replace-llm-key', (_e, { providerId, apiKey, useKeychain } = {}) => {
+    const id = String(providerId || '')
+      .trim()
+      .toLowerCase();
+    const key = String(apiKey || '').trim();
+    if (!id || !/^[a-z0-9][a-z0-9._-]{0,80}$/.test(id)) {
+      return { ok: false, error: 'provider inválido' };
+    }
+    if (!key || key.length > 8192) return { ok: false, error: 'API key inválida' };
+    const currentCfg = loadConfig();
+    const providers = { ...(currentCfg.llm?.providers || {}) };
+    const apiKeys = { ...(currentCfg.llm?.apiKeys || {}) };
+    const keychainActive = !!useKeychain && ctx.KeychainManager.isAvailable();
+    if (keychainActive) {
+      ctx.KeychainManager.setKey(id, key);
+      delete apiKeys[id];
+    } else {
+      ctx.KeychainManager.deleteKey(id);
+      apiKeys[id] = SafeStorageCrypto.encrypt(key);
+    }
+    providers[id] = { ...(providers[id] || {}) };
+    delete providers[id].apiKey;
+    saveConfig({
+      llm: {
+        ...(currentCfg.llm || {}),
+        providers,
+        apiKeys,
+      },
+    });
+    Core.reloadLLMConfig();
+    logger.info('config-handlers', `[config] credencial LLM reemplazada: ${id}`);
+    return { ok: true };
+  });
 
   // Favoritos del picker: alterna y persiste llm.favorites.
   ipcMain.handle('favorite-model', (e, { modelKey, on }) => {

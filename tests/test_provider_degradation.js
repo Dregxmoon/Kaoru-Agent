@@ -162,6 +162,32 @@ function testDegradedFallback() {
   );
 }
 
+// ── Test 6: retry-after y ventana de cuota de Gemini ────────────────────────
+
+function testGeminiRateLimitMetadata() {
+  console.log(C.bold('\n── Test 6: metadatos de rate-limit de Gemini ───────────────'));
+
+  const minuteError = new Error(
+    'Google Gemini 429: Please retry in 20.731s. GenerateRequestsPerMinutePerProjectPerModel-FreeTier'
+  );
+  assert(
+    LLMProvider._debug_parseRetryAfter(minuteError) === 20731,
+    'parsea "Please retry in" con segundos decimales'
+  );
+  assert(
+    LLMProvider._debug_rateLimitWindow(minuteError) === 'minute',
+    'identifica límite por minuto'
+  );
+
+  const dailyError = new Error(
+    'quota exceeded: GenerateRequestsPerDayPerProjectPerModel-FreeTier; "retryDelay":"59s"'
+  );
+  assert(
+    LLMProvider._debug_rateLimitWindow(dailyError) === 'daily',
+    'identifica cuota diaria sin inferirla por el tiempo de espera'
+  );
+}
+
 // ── Runner ───────────────────────────────────────────────────────────────────
 
 function main() {
@@ -172,6 +198,7 @@ function main() {
   testDegradationExpires();
   testMarkDuration();
   testDegradedFallback();
+  testGeminiRateLimitMetadata();
 
   console.log(C.bold('\n════════════════════════════════════════════════════════'));
   const total = passed + failed;

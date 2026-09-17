@@ -168,6 +168,10 @@ registerProvider({
 
 // ── Límites ────────────────────────────────────────────────────────────────────
 const MAX_OUTPUT = { fast: 1024, smart: 8192 };
+// Una decisión de herramienta debe ser breve. Reservar 8192 tokens de salida
+// en tool-calling cuenta contra el TPM de Groq aunque la respuesta real sea un
+// JSON pequeño, provocando HTTP 413 antes de ejecutar nada.
+const MAX_TOOL_OUTPUT = { fast: 1024, smart: 1024 };
 const TIMEOUT_MS = { fast: 15_000, smart: 60_000 };
 const FAST_HISTORY_LIMIT = 8;
 const VALID_MODES = new Set(['fast', 'smart']);
@@ -354,9 +358,44 @@ let _config = {
 // (Date.now). Permite aplicar el TTL sin re-consultar la API en cada uso.
 const _catalogRefreshedAt = {};
 
-function configure(cfg) {
+function _normalizeModelRoles(model) {
+  if (typeof model === 'string' && model.trim()) {
+    return { fast: model.trim(), smart: model.trim() };
+  }
+  if (!model || typeof model !== 'object' || Array.isArray(model)) return {};
+  const roles = {};
+  if (typeof model.fast === 'string' && model.fast.trim()) roles.fast = model.fast.trim();
+  if (typeof model.smart === 'string' && model.smart.trim()) roles.smart = model.smart.trim();
+  // Versiones anteriores podían expandir accidentalmente un string como
+  // {0:'l',1:'l',...}. Se reconstruye solo cuando los índices son contiguos.
+  const indexed = Object.keys(model)
+    .filter((key) => /^\d+$/.test(key))
+    .map(Number)
+    .sort((a, b) => a - b);
+  if (indexed.length > 0 && indexed.every((value, index) => value === index)) {
+    const legacy = indexed.map((index) => model[index]).join('');
+    if (legacy.trim() && !roles.fast) roles.fast = legacy.trim();
+    if (legacy.trim() && !roles.smart) roles.smart = legacy.trim();
+  }
+  return roles;
+}
+
+/**
+ * @param {any} cfg
+ * @param {{resetApiKeys?: boolean}} [options]
+ */
+function configure(cfg, options = {}) {
   if (!cfg) return;
   const llm = cfg.llm || cfg;
+  // La configuración persistida es la fuente de verdad. Una recarga debe
+  // retirar credenciales eliminadas en Ajustes en vez de conservarlas en el
+  // objeto global de una configuración anterior. Los parches parciales que
+  // solo cambian el provider o el modelo conservan las credenciales actuales.
+  if (options.resetApiKeys) {
+    for (const provider of Object.values(_config.providers)) {
+      if (provider && typeof provider === 'object') delete provider.apiKey;
+    }
+  }
   if (llm.primary) _config.primary = llm.primary;
   if (llm.fallback) _config.fallback = llm.fallback;
   if (llm.queue) {
@@ -376,7 +415,11 @@ function configure(cfg) {
   }
   if (llm.providers) {
     for (const [id, p] of Object.entries(llm.providers)) {
-      _config.providers[id] = { ...(_config.providers[id] || {}), ...p };
+      const incoming = p && typeof p === 'object' && !Array.isArray(p) ? { ...p } : {};
+      if (p && typeof p === 'object' && Object.prototype.hasOwnProperty.call(p, 'model')) {
+        incoming.model = _normalizeModelRoles(p.model);
+      }
+      _config.providers[id] = { ...(_config.providers[id] || {}), ...incoming };
     }
   }
   if (llm.customProviders) {
@@ -528,9 +571,10 @@ function _isModelUnavailableError(msg) {
  * Reemplaza en memoria un modelo muerto por uno vivo del mismo provider.
  * @param {string} providerId
  * @param {string} mode 'fast' | 'smart'
+ * @param {{requireTools?: boolean}} [options]
  * @returns {Promise<boolean>} true si encontró reemplazo
  */
-async function _recoverDecommissionedModel(providerId, mode) {
+async function _recoverDecommissionedModel(providerId, mode, options = {}) {
   const dead = _resolveModel(providerId, mode);
   if (!dead || _deadModels.has(`${providerId}:${dead}`)) return false;
   let live = [];
@@ -539,9 +583,11 @@ async function _recoverDecommissionedModel(providerId, mode) {
   } catch {
     /* catálogo estático como fallback */
   }
-  const candidates = (Array.isArray(live) ? live : []).filter(
-    (m) => m && m !== dead && !_deadModels.has(`${providerId}:${m}`)
-  );
+  const candidates = (Array.isArray(live) ? live : []).filter((modelId) => {
+    if (!modelId || modelId === dead || _deadModels.has(`${providerId}:${modelId}`)) return false;
+    if (!options.requireTools) return true;
+    return getModelMeta(providerId, modelId)?.tools === true;
+  });
   if (candidates.length === 0) {
     logger.warn(
       'LLMProvider',
@@ -1205,7 +1251,7 @@ async function callGeminiProvider(providerId, messages, systemPrompt, mode = 'fa
 
   const safeMode = _resolveMode(mode);
   const model = _resolveModel(providerId, safeMode);
-  const maxTokens = MAX_OUTPUT[safeMode];
+  const maxTokens = Number(opts?.maxTokens) > 0 ? Number(opts.maxTokens) : MAX_OUTPUT[safeMode];
   const timeoutMs = TIMEOUT_MS[safeMode] ?? TIMEOUT_MS.fast;
   const history = _trimHistoryForMode(messages, safeMode);
   const contents = history.map((m) => ({
@@ -1340,7 +1386,7 @@ async function callAnthropic(providerId, messages, systemPrompt, mode = 'fast', 
 
   const safeMode = _resolveMode(mode);
   const model = _resolveModel(providerId, safeMode);
-  const maxTokens = MAX_OUTPUT[safeMode];
+  const maxTokens = Number(opts?.maxTokens) > 0 ? Number(opts.maxTokens) : MAX_OUTPUT[safeMode];
   const timeoutMs = TIMEOUT_MS[safeMode] ?? TIMEOUT_MS.fast;
   const history = _trimHistoryForMode(messages, safeMode);
   const startedAt = Date.now();
@@ -1415,7 +1461,8 @@ async function callAnthropicWithTools(providerId, messages, systemPrompt, mode, 
 
   const safeMode = _resolveMode(mode);
   const model = _resolveModel(providerId, safeMode);
-  const maxTokens = MAX_OUTPUT[safeMode];
+  const maxTokens =
+    Number(opts?.maxTokens) > 0 ? Number(opts.maxTokens) : MAX_TOOL_OUTPUT[safeMode];
   const timeoutMs = def.timeoutMs?.[safeMode] ?? TIMEOUT_MS[safeMode] ?? TIMEOUT_MS.fast;
   const history = _trimHistoryForMode(messages, safeMode);
 
@@ -1504,13 +1551,26 @@ function _buildOpenAITools(tools) {
   }));
 }
 
+function _sanitizeGeminiSchema(value) {
+  if (Array.isArray(value)) return value.map(_sanitizeGeminiSchema);
+  if (!value || typeof value !== 'object') return value;
+  const clean = {};
+  for (const [key, nested] of Object.entries(value)) {
+    // Gemini FunctionDeclaration usa un subconjunto de OpenAPI y rechaza
+    // estas claves de JSON Schema incluso dentro de objetos anidados.
+    if (key === '$schema' || key === 'additionalProperties') continue;
+    clean[key] = _sanitizeGeminiSchema(nested);
+  }
+  return clean;
+}
+
 function _buildGeminiTools(tools) {
   return [
     {
       function_declarations: tools.map((t) => ({
         name: t.name,
         description: (t.description || '').slice(0, 1024),
-        parameters: t.inputSchema,
+        parameters: _sanitizeGeminiSchema(t.inputSchema),
       })),
     },
   ];
@@ -1620,7 +1680,8 @@ async function callOpenAIWithTools(providerId, messages, systemPrompt, mode, too
 
   const safeMode = _resolveMode(mode);
   const model = _resolveModel(providerId, safeMode);
-  const maxTokens = MAX_OUTPUT[safeMode];
+  const maxTokens =
+    Number(opts?.maxTokens) > 0 ? Number(opts.maxTokens) : MAX_TOOL_OUTPUT[safeMode];
   const timeoutMs = def.timeoutMs?.[safeMode] ?? TIMEOUT_MS[safeMode] ?? TIMEOUT_MS.fast;
   const history = _trimHistoryForMode(messages, safeMode);
   const msgs = [
@@ -1700,7 +1761,8 @@ async function callGeminiWithTools(providerId, messages, systemPrompt, mode, too
 
   const safeMode = _resolveMode(mode);
   const model = _resolveModel(providerId, safeMode);
-  const maxTokens = MAX_OUTPUT[safeMode];
+  const maxTokens =
+    Number(opts?.maxTokens) > 0 ? Number(opts.maxTokens) : MAX_TOOL_OUTPUT[safeMode];
   const timeoutMs = TIMEOUT_MS[safeMode] ?? TIMEOUT_MS.fast;
   const history = _trimHistoryForMode(messages, safeMode);
   const contents = history.map((m) => ({
@@ -1824,14 +1886,33 @@ function _parseRetryAfter(err) {
   // OJO: el patrón m+s NO debe capturar "80ms" (milisegundos) como minutos —
   // el regex de minutos exige un dígito tras la m, así "80ms" cae en el caso
   // de milisegundos y devuelve 80ms, no 80 minutos.
-  const both = msg.match(/try again in (\d+(?:\.\d+)?)m(\d+(?:\.\d+)+)s/i);
+  const both = msg.match(/(?:try again|retry) in (\d+(?:\.\d+)?)m(\d+(?:\.\d+)+)s/i);
   if (both) return Math.ceil((parseFloat(both[1]) * 60 + parseFloat(both[2])) * 1000);
-  const mins = msg.match(/try again in (\d+(?:\.\d+)?)m\b/i);
+  const mins = msg.match(/(?:try again|retry) in (\d+(?:\.\d+)?)m\b/i);
   if (mins) return Math.ceil(parseFloat(mins[1]) * 60 * 1000);
-  const millis = msg.match(/try again in (\d+(?:\.\d+)?)ms/i);
+  const millis = msg.match(/(?:try again|retry) in (\d+(?:\.\d+)?)ms/i);
   if (millis) return Math.ceil(parseFloat(millis[1]));
-  const secs = msg.match(/try again in (\d+(?:\.\d+)?)s/i);
+  const secs = msg.match(/(?:try again|retry) in (\d+(?:\.\d+)?)s/i);
   return secs ? Math.ceil(parseFloat(secs[1]) * 1000) : 0;
+}
+
+function _rateLimitWindow(err) {
+  const msg = String(err?.message || '');
+  if (/PerDay|requests_per_day/i.test(msg)) return 'daily';
+  if (/PerMinute|requests_per_minute/i.test(msg)) return 'minute';
+  return 'unknown';
+}
+
+function _rateLimitMessage(rateLimits) {
+  const daily = rateLimits.find((item) => item.window === 'daily');
+  if (daily) {
+    return `${daily.provider} alcanzó la cuota diaria de este modelo; cambia de modelo o proveedor para continuar hoy.`;
+  }
+  const worst = [...rateLimits].sort((a, b) => b.waitMs - a.waitMs)[0];
+  if (worst?.waitMs > 0) {
+    return `${worst.provider} alcanzó el límite temporal; vuelve a intentar en ~${Math.max(1, Math.ceil(worst.waitMs / 1000))} s o cambia de proveedor.`;
+  }
+  return `${worst?.provider || 'El proveedor'} alcanzó su límite; revisa su cuota o cambia de proveedor.`;
 }
 
 // ── Fase 4: estado de degradación por provider ───────────────────────────────
@@ -1934,12 +2015,18 @@ async function _callWithFallback(messages, systemPrompt, mode = 'fast', opts = {
             tried.push(providerName);
             break;
           }
-          const waitMs = ra > 0 ? ra : _backoffWithJitter(attempt - 1);
-          logger.info(
-            'LLMProvider',
-            `[llm] reintentando ${providerName} en ${waitMs}ms (intento ${attempt + 1}/${MAX_RETRIES_PER_PROVIDER + 1})...`
-          );
-          await _sleepAbortable(waitMs, opts.signal);
+          const waitMs = _isModelUnavailableError(lastErr?.message)
+            ? 0
+            : ra > 0
+              ? ra
+              : _backoffWithJitter(attempt - 1);
+          if (waitMs > 0) {
+            logger.info(
+              'LLMProvider',
+              `[llm] reintentando ${providerName} en ${waitMs}ms (intento ${attempt + 1}/${MAX_RETRIES_PER_PROVIDER + 1})...`
+            );
+            await _sleepAbortable(waitMs, opts.signal);
+          }
         }
         logger.info(
           'LLMProvider',
@@ -1961,7 +2048,11 @@ async function _callWithFallback(messages, systemPrompt, mode = 'fast', opts = {
           `[llm] ${providerName} falló${retryable ? ' (transitorio)' : ' (no reintentable)'}: ${e.message}`
         );
         if (retryable && /(\b429\b|rate limit|quota|too many requests)/i.test(e.message)) {
-          rateLimits.push({ provider: providerName, waitMs: _parseRetryAfter(e) });
+          rateLimits.push({
+            provider: providerName,
+            waitMs: _parseRetryAfter(e),
+            window: _rateLimitWindow(e),
+          });
           // Fase 4: espera larga → marcar degradado para que las próximas
           // requests vayan directo al fallback en vez de martillar el provider.
           const waitMs = _parseRetryAfter(e);
@@ -1992,13 +2083,7 @@ async function _callWithFallback(messages, systemPrompt, mode = 'fast', opts = {
   if (tried.length > 0) {
     let msg = `Todos los providers fallaron: ${tried.join(', ')}`;
     if (rateLimits.length > 0) {
-      rateLimits.sort((a, b) => b.waitMs - a.waitMs);
-      const worst = rateLimits[0];
-      const when =
-        worst.waitMs > 0
-          ? `vuelve a intentar en ~${Math.ceil(worst.waitMs / 60000)} min`
-          : 'su cuota diaria puede estar agotada (los tiers gratis tienen límites)';
-      msg += `. ${worst.provider} está en rate-limit — ${when} o cambia de proveedor con /model.`;
+      msg += `. ${_rateLimitMessage(rateLimits)}`;
     }
     throw new Error(msg);
   }
@@ -2017,6 +2102,7 @@ async function _callWithFallbackTools(messages, systemPrompt, mode = 'smart', to
   const order = _rotationOrder();
   const tried = [];
   const missingKeys = [];
+  const rateLimits = [];
 
   for (const providerName of order) {
     const fn = PROVIDERS_WITH_TOOLS[providerName];
@@ -2041,12 +2127,23 @@ async function _callWithFallbackTools(messages, systemPrompt, mode = 'smart', to
             tried.push(providerName);
             break;
           }
-          const waitMs = ra > 0 ? ra : _backoffWithJitter(attempt - 1);
-          await _sleepAbortable(waitMs, opts.signal);
+          const waitMs = _isModelUnavailableError(lastErr?.message)
+            ? 0
+            : ra > 0
+              ? ra
+              : _backoffWithJitter(attempt - 1);
+          if (waitMs > 0) await _sleepAbortable(waitMs, opts.signal);
         }
+        const toolOpts = {
+          ...opts,
+          maxTokens:
+            Number(opts.maxTokens) > 0
+              ? Number(opts.maxTokens)
+              : MAX_TOOL_OUTPUT[_resolveMode(callMode)],
+        };
         const result = await _enqueueProviderCall(
           providerName,
-          () => fn(messages, systemPrompt, callMode, tools, opts),
+          () => fn(messages, systemPrompt, callMode, tools, toolOpts),
           opts
         );
         return { ...result, content: _stripForbiddenPhrases(result.content) };
@@ -2061,6 +2158,11 @@ async function _callWithFallbackTools(messages, systemPrompt, mode = 'smart', to
         // Fase 4: espera larga en tool-calling → marcar degradado también aquí.
         if (retryable && /(\b429\b|rate limit|quota|too many requests)/i.test(e.message)) {
           const waitMs = _parseRetryAfter(e);
+          rateLimits.push({
+            provider: providerName,
+            waitMs,
+            window: _rateLimitWindow(e),
+          });
           if (waitMs >= DEGRADED_TRIGGER_MS) {
             _markProviderDegraded(providerName, 'rate-limit (tool-calling)', waitMs);
           }
@@ -2069,7 +2171,9 @@ async function _callWithFallbackTools(messages, systemPrompt, mode = 'smart', to
         let modelRecovered = false;
         if (_isModelUnavailableError(e.message)) {
           try {
-            modelRecovered = await _recoverDecommissionedModel(providerName, mode);
+            modelRecovered = await _recoverDecommissionedModel(providerName, callMode, {
+              requireTools: true,
+            });
           } catch (_) {
             /* recuperación best-effort */
           }
@@ -2086,6 +2190,11 @@ async function _callWithFallbackTools(messages, systemPrompt, mode = 'smart', to
     'LLMProvider',
     `[llm] tool-calling falló en todos los providers (${tried.join(', ')})${missingKeys.length ? ` — sin key: ${missingKeys.join(', ')}` : ''}, fallback a texto`
   );
+  if (rateLimits.length > 0) {
+    const error = new Error(_rateLimitMessage(rateLimits));
+    error.code = 'RATE_LIMITED';
+    throw error;
+  }
   // Fallback sin tools: el system prompt original enmarca al modelo como agente
   // con herramientas. Sin capacidad real de ejecutar nada, "sigue en personaje"
   // y narra acciones que nunca ejecutó. Se inyecta una nota que le obliga a
@@ -2659,6 +2768,8 @@ module.exports = {
   _debug_isProviderDegraded: _isProviderDegraded,
   _debug_degradedProviders: _degradedProviders,
   _debug_callWithFallbackTools: _callWithFallbackTools,
+  _debug_parseRetryAfter: _parseRetryAfter,
+  _debug_rateLimitWindow: _rateLimitWindow,
   _debug_stripForbiddenPhrases: _stripForbiddenPhrases,
   setNoEmojis,
   _debug_setToolCaller(providerId, fn) {

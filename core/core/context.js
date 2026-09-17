@@ -8,7 +8,7 @@ const logger = require('../observability/Logger.js');
 const LLMProvider = require('../llm/LLMProvider.js');
 const { BehaviorModel } = require('../behavior/BehaviorModel.js');
 const { buildRulesSection } = require('../rules/ProjectRules.js');
-const { resolveToolset } = require('../task/ToolResolver.js');
+const { resolveToolset, shouldPreferDesktopOrchestrators } = require('../task/ToolResolver.js');
 const { getProjectCWD } = require('../planner/Planner.js');
 const { buildGestureSection } = require('../behavior/GestureVocabulary.js');
 const { readGesturesConfig } = require('./config.js');
@@ -586,9 +586,14 @@ async function buildContext(sessionHistory, activeProvider, options = {}) {
   let toolCatalog = null;
   let resolvedTools = null;
   try {
+    const matchedDomains = (taskIntent?._debug?.matchedDomains || [])
+      .map((item) => item?.domain)
+      .filter(Boolean);
     resolvedTools = await resolveToolset({
       userMessage: userText,
       domain: taskIntent?.domain || null,
+      domains: matchedDomains,
+      preferOrchestrators: shouldPreferDesktopOrchestrators(taskIntent),
       toolRegistry: state.toolRegistry,
       skillManager: state.skillManager || null,
       mcpManager: state.mcp || null,
@@ -648,6 +653,7 @@ async function buildContext(sessionHistory, activeProvider, options = {}) {
       mode,
       nativeToolSchemas: resolvedTools?.nativeToolSchemas || null,
       nativeMcpMap: resolvedTools?.nativeMcpMap || {},
+      allowedToolNames: resolvedTools?.allowedToolNames || null,
       toolCatalog,
       resolvedSkills: resolvedTools?.matchedSkills || null,
     };
@@ -817,6 +823,7 @@ async function buildContext(sessionHistory, activeProvider, options = {}) {
     taskIntent,
     mode,
     nativeToolSchemas: resolvedTools?.nativeToolSchemas || null,
+    allowedToolNames: resolvedTools?.allowedToolNames || null,
   };
 }
 

@@ -162,6 +162,37 @@ function main() {
     assert(Object.keys(fake._store).length === 0, 'el llavero simulado queda intacto');
   }
 
+  // ── 9. Recargar sin key limpia la credencial anterior de memoria ──────
+  {
+    LLM.addCustomProvider({
+      id: 'test-key-removal',
+      name: 'Test Key Removal',
+      type: 'openai',
+      baseURL: 'https://example.invalid/v1',
+      models: { fast: 'test-fast', smart: 'test-smart' },
+      catalog: ['test-fast', 'test-smart'],
+    });
+    LLM._setKeychainResolver(makeFakeKeychain({}));
+    LLM.configure({ llm: { apiKeys: { 'test-key-removal': 'TEMPORAL' } } });
+    assert(
+      LLM.getResolvedApiKey('test-key-removal') === 'TEMPORAL',
+      'configure carga la credencial temporal'
+    );
+    LLM.configure({ llm: { primary: 'test-key-removal' } });
+    assert(
+      LLM.getResolvedApiKey('test-key-removal') === 'TEMPORAL',
+      'un parche parcial conserva las credenciales actuales'
+    );
+    LLM.configure(
+      { llm: { providers: { 'test-key-removal': { model: { fast: 'test-fast' } } } } },
+      { resetApiKeys: true }
+    );
+    assert(
+      LLM.getResolvedApiKey('test-key-removal') === null,
+      'configure retira de memoria una credencial eliminada'
+    );
+  }
+
   LLM._setKeychainResolver(null);
 
   console.log(C.bold('\n════════════════════════════════════════════════════════'));

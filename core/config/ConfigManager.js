@@ -48,6 +48,18 @@ const SCHEMA = {
   activeModel: { type: 'string', default: 'March 7th' },
   chatTheme: { type: 'string', default: 'dark' },
   autonomy: { type: 'string', default: 'suggest', enum: AUTONOMY_MODES },
+  browser: {
+    type: 'object',
+    default: { mediaControl: 'external', preferred: 'default' },
+    schema: {
+      mediaControl: { type: 'string', default: 'external', enum: ['external', 'managed'] },
+      preferred: {
+        type: 'string',
+        default: 'default',
+        enum: ['default', 'brave', 'chrome', 'chromium', 'edge', 'firefox'],
+      },
+    },
+  },
   llm: {
     type: 'object',
     default: { primary: 'groq', fallback: ['gemini'], apiKeys: {}, providers: {} },

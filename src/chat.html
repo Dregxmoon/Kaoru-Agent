@@ -286,6 +286,33 @@
         <div class="desktop-capabilities-title">CAPACIDADES DE ESCRITORIO</div>
         <div id="desktop-capabilities" class="desktop-capabilities"></div>
 
+        <div class="desktop-capabilities-title">NAVEGADOR PARA MULTIMEDIA</div>
+        <div class="browser-preferences">
+          <label>
+            <span>Dónde abrir YouTube</span>
+            <select id="media-browser-control">
+              <option value="external">Mi navegador personal</option>
+              <option value="managed">Chromium administrado por Kaoru</option>
+            </select>
+          </label>
+          <label>
+            <span>Navegador personal</span>
+            <select id="media-browser-preferred">
+              <option value="default">Predeterminado del sistema</option>
+              <option value="brave">Brave</option>
+              <option value="chrome">Chrome</option>
+              <option value="chromium">Chromium</option>
+              <option value="edge">Edge</option>
+              <option value="firefox">Firefox</option>
+            </select>
+          </label>
+          <p>
+            El navegador personal conserva tus sesiones. Kaoru abre el video exacto con autoplay,
+            pero YouTube puede exigir que pulses reproducir. El administrado permite comprobar la
+            reproducción, aunque algunos sitios pueden limitarlo.
+          </p>
+        </div>
+
         <div class="perms-form">
           <input
             id="perms-tool"
@@ -500,6 +527,16 @@
             <input type="number" id="prefs-pin-timeout" min="0" step="1000" />
           </label>
           <div class="prefs-status" id="prefs-pin-status"></div>
+        </div>
+
+        <div class="prefs-section">
+          <div class="prefs-label">Credenciales de modelos</div>
+          <div class="prefs-hint">
+            Reemplaza o elimina una API key sin mostrar el valor guardado. Una clave definida en
+            <code>.env</code> debe quitarse desde ese archivo o variable de entorno.
+          </div>
+          <div id="prefs-llm-credentials"></div>
+          <div class="prefs-status" id="prefs-llm-status"></div>
         </div>
 
         <div class="prefs-section">

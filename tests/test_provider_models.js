@@ -163,6 +163,24 @@ function testConfigureMerge() {
   LLMProvider.configure({ llm: { providers: { gemini: { apiKey: 'x' } } } });
   const resolved = LLMProvider._debug_resolveModel('gemini', 'smart');
   assert(resolved === 'gemini-2.5-pro', 'el override smart sobrevive a configure() de keys');
+
+  LLMProvider.configure({
+    llm: {
+      providers: {
+        groq: {
+          model: { 0: 'l', 1: 'e', 2: 'g', 3: 'a', 4: 'c', 5: 'y', smart: 'smart-ok' },
+        },
+      },
+    },
+  });
+  assert(
+    LLMProvider._debug_resolveModel('groq', 'fast') === 'legacy',
+    'normaliza una configuración legacy expandida como caracteres'
+  );
+  assert(
+    LLMProvider._debug_resolveModel('groq', 'smart') === 'smart-ok',
+    'conserva el rol smart válido al normalizar configuración legacy'
+  );
 }
 
 // ── Test 6: catálogo NVIDIA sin modelos no desplegados ────────────────────────

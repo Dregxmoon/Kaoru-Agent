@@ -312,8 +312,8 @@ function _expandedPanel() {
     return `<div class="picker-expanded">
       ${effortControl}
       <div class="picker-exp-actions">
-        <button class="picker-btn" data-act="use" data-mode="fast">Usar en Charla</button>
-        <button class="picker-btn" data-act="use" data-mode="smart">Usar en Agente</button>
+        <button class="picker-btn" data-act="use" data-mode="fast">Usar para respuestas rápidas</button>
+        <button class="picker-btn" data-act="use" data-mode="smart">Usar para acciones y razonamiento</button>
         <button class="picker-btn ghost" data-act="fav">${isFav ? '★ Quitar favorito' : '☆ Favorito'}</button>
       </div>
     </div>`;
@@ -327,8 +327,8 @@ function _expandedPanel() {
         ? `<div class="picker-warn">No conectable automáticamente. Usá /provider add.</div>`
         : `<input class="picker-key-input" type="password" placeholder="${escapeHtml(p.name)} ${escapeHtml(env)}" autocomplete="off" />
          <div class="picker-exp-actions">
-           <button class="picker-btn" data-act="connect" data-mode="fast">Conectar y usar en Charla</button>
-           <button class="picker-btn" data-act="connect" data-mode="smart">Conectar y usar en Agente</button>
+           <button class="picker-btn" data-act="connect" data-mode="fast">Conectar para respuestas rápidas</button>
+           <button class="picker-btn" data-act="connect" data-mode="smart">Conectar para acciones y razonamiento</button>
          </div>`
     }
   </div>`;

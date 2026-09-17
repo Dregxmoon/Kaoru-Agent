@@ -886,8 +886,8 @@ async function testLLMFailureKeepsCompletedTools() {
       result.response
     );
     assert(
-      result.response.includes('✓ write'),
-      'response menciona la tool exitosa',
+      result.response.includes('✓ Archivo escrito'),
+      'response describe la acción exitosa para el usuario',
       result.response
     );
     assert(
@@ -901,7 +901,8 @@ async function testLLMFailureKeepsCompletedTools() {
       result.response
     );
     assert(
-      result.response.indexOf('✓ write') < result.response.indexOf('se detuvo porque el proveedor'),
+      result.response.indexOf('✓ Archivo escrito') <
+        result.response.indexOf('se detuvo porque el proveedor'),
       'las acciones verificadas aparecen antes del error final',
       result.response
     );
@@ -916,7 +917,92 @@ async function testLLMFailureKeepsCompletedTools() {
   teardown();
 }
 
-// ── Test 7c: precedencia mcp + tool-calling nativo caído → MCP_TOOL en texto ─
+async function testRateLimitDoesNotBurnTextFallback() {
+  console.log(C.bold('\n── Test 7c: rate-limit pausa sin gastar fallback textual ─────'));
+
+  const { AgentLoop } = require('../core/planner/AgentLoop.js');
+  const LLMProvider = require('../core/llm/LLMProvider.js');
+  const originalCompleteWithTools = LLMProvider.completeWithTools;
+  let fallbackCalls = 0;
+  LLMProvider.completeWithTools = async () => {
+    const error = new Error('gemini alcanzó la cuota diaria');
+    error.code = 'RATE_LIMITED';
+    throw error;
+  };
+
+  try {
+    const loop = new AgentLoop({
+      maxIterations: 3,
+      llm: async () => {
+        fallbackCalls++;
+        return 'respuesta que no debe pedirse';
+      },
+      bridge: createMockBridge(setup()),
+    });
+    const result = await loop.run('abre la calculadora', 'Eres un asistente.', [], {
+      tools: [
+        {
+          name: 'desktop_mission',
+          description: 'ejecuta una misión visible',
+          inputSchema: { type: 'object', properties: {} },
+        },
+      ],
+    });
+    assert(result.error === 'llm_rate_limited', 'rate-limit conserva un error específico');
+    assert(fallbackCalls === 0, 'no consume otra solicitud de texto sin herramientas');
+    assert(result.response.includes('quedó pausada'), 'explica que la ejecución puede reanudarse');
+  } finally {
+    LLMProvider.completeWithTools = originalCompleteWithTools;
+    teardown();
+  }
+}
+
+async function testDesktopScopeBlocksShellFallback() {
+  console.log(C.bold('\n── Test 7d: alcance desktop bloquea fallback de shell ─────────'));
+
+  const { AgentLoop } = require('../core/planner/AgentLoop.js');
+  let calls = 0;
+  let bridgeCalls = 0;
+  let capturedPrompt = '';
+  const loop = new AgentLoop({
+    maxIterations: 3,
+    llm: async (_messages, systemPrompt) => {
+      capturedPrompt = systemPrompt;
+      calls++;
+      if (calls === 1) {
+        return '```action\nACCIÓN: exec | COMANDO: echo simulacion\n```';
+      }
+      return 'La herramienta de terminal quedó fuera del alcance de esta misión.';
+    },
+    bridge: {
+      execute: async () => {
+        bridgeCalls++;
+        return { ok: true, result: 'no debe ejecutarse' };
+      },
+    },
+  });
+
+  const result = await loop.run('continúa con la misión de escritorio', 'Eres Kaoru.', [], {
+    allowedToolNames: new Set(['desktop_mission']),
+    tools: [
+      {
+        name: 'desktop_mission',
+        description: 'ejecuta una misión visible',
+        inputSchema: { type: 'object', properties: {} },
+      },
+    ],
+  });
+
+  assert(bridgeCalls === 0, 'exec queda bloqueado antes de llegar al bridge');
+  assert(result.toolResults.length === 0, 'una tool fuera de alcance no cuenta como ejecutada');
+  assert(calls === 2, 'el loop pide una estrategia permitida después del bloqueo');
+  assert(
+    capturedPrompt.includes('Solo puedes usar: desktop_mission'),
+    'el prompt anuncia el mismo alcance que aplica el runtime'
+  );
+}
+
+// ── Test 7e: precedencia mcp + tool-calling nativo caído → MCP_TOOL en texto ─
 
 async function testMCPToolTextFallback() {
   console.log(C.bold('\n── Test 7c: precedencia mcp, tool-calling nativo caído → MCP_TOOL ─'));
@@ -2894,6 +2980,8 @@ async function main() {
   await testNativeToolCallEmptyContent();
   await testNativeToolCallAlias();
   await testLLMFailureKeepsCompletedTools();
+  await testRateLimitDoesNotBurnTextFallback();
+  await testDesktopScopeBlocksShellFallback();
   await testMCPToolTextFallback();
   await testMCPCallClassicRouting();
   await testNativeMCPToolCallNormalization();
