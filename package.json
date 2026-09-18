@@ -7,6 +7,7 @@
     "asistente": "./bin/asistente.js"
   },
   "license": "MIT",
+  "author": "Dregxmoon",
   "scripts": {
     "start": "electron .",
     "postinstall": "node fix-electron.js && node scripts/link-asistente.js",
@@ -99,8 +100,9 @@
         }
       ],
       "category": "public.app-category.utilities",
-      "hardenedRuntime": true,
-      "notarize": true
+      "identity": null,
+      "hardenedRuntime": false,
+      "notarize": false
     },
     "linux": {
       "target": [
