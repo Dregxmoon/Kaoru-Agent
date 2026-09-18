@@ -268,9 +268,17 @@ jobs:
       - name: Empaquetar
         run: npm run build:${{ matrix.target }} -- --publish never
         env:
-          # macOS sin firma (identity null en build config); nunca intentar
-          # firmar/notarizar desde CI sin certificados.
-          CSC_IDENTITY_AUTO_DISCOVERY: false
+          # Sin estos secrets electron-builder conserva el build unsigned.
+          # Al configurarlos, el mismo workflow firma Windows y
+          # firma/notariza macOS sin guardar certificados en el repositorio.
+          WIN_CSC_LINK: ${{ secrets.WIN_CSC_LINK }}
+          WIN_CSC_KEY_PASSWORD: ${{ secrets.WIN_CSC_KEY_PASSWORD }}
+          CSC_LINK: ${{ secrets.MAC_CSC_LINK }}
+          CSC_KEY_PASSWORD: ${{ secrets.MAC_CSC_KEY_PASSWORD }}
+          CSC_IDENTITY_AUTO_DISCOVERY: ${{ secrets.MAC_CSC_LINK != '' }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
 
       - name: Instalar y probar el release de Windows
         if: runner.os == 'Windows'

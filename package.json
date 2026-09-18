@@ -99,7 +99,8 @@
         }
       ],
       "category": "public.app-category.utilities",
-      "identity": null
+      "hardenedRuntime": true,
+      "notarize": true
     },
     "linux": {
       "target": [

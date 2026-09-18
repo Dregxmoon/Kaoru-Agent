@@ -4,7 +4,9 @@ const logger = require('../core/observability/Logger.js');
 const LLMProvider = require('../core/llm/LLMProvider.js');
 const SafeStorageCrypto = require('../infrastructure/config/SafeStorageCrypto.js');
 
-const { ipcMain } = require('electron');
+const fs = require('fs/promises');
+const path = require('path');
+const { app, BrowserWindow, dialog, ipcMain } = require('electron');
 
 const MASKED_KEY_VALUE = '***';
 
@@ -143,6 +145,19 @@ function register(ctx) {
       next.autonomy = patch.autonomy;
     }
 
+    if (patch.onboarding !== undefined) {
+      if (!patch.onboarding || typeof patch.onboarding !== 'object') {
+        return { ok: false, error: 'onboarding inválido' };
+      }
+      if (typeof patch.onboarding.completed !== 'boolean') {
+        return { ok: false, error: 'onboarding.completed debe ser boolean' };
+      }
+      next.onboarding = {
+        completed: patch.onboarding.completed,
+        version: 1,
+      };
+    }
+
     if (patch.agent !== undefined) {
       if (!patch.agent || typeof patch.agent !== 'object') {
         return { ok: false, error: 'agent inválido' };
@@ -224,6 +239,67 @@ function register(ctx) {
       logger.info('config-handlers', '[config] preferencia de navegador actualizada');
     }
     return { ok: true };
+  });
+
+  ipcMain.handle('maintenance-reset-permissions', () => {
+    const rules = Core.permissionsList();
+    let removed = 0;
+    for (const rule of Array.isArray(rules) ? rules : []) {
+      const result = Core.permissionsRemoveRule({ tool: rule.tool, path: rule.path || '' });
+      if (result?.ok !== false) removed++;
+    }
+    return { ok: true, removed };
+  });
+
+  ipcMain.handle('maintenance-clear-cache', async () => {
+    const userData = app.getPath('userData');
+    const targets = [
+      path.join(userData, 'llm-catalog.json'),
+      path.join(userData, 'repository-intelligence.json'),
+      path.join(userData, 'logs'),
+      path.join(userData, 'crash.log'),
+    ];
+    const failed = [];
+    for (const target of targets) {
+      try {
+        await fs.rm(target, { recursive: true, force: true });
+      } catch (error) {
+        failed.push({ path: target, error: error.message || String(error) });
+      }
+    }
+    try {
+      await fs.mkdir(path.join(userData, 'logs'), { recursive: true });
+    } catch (_) {}
+    return { ok: failed.length === 0, cleared: targets.length - failed.length, failed };
+  });
+
+  ipcMain.handle('maintenance-factory-reset', async (event, { confirmation } = {}) => {
+    if (confirmation !== 'BORRAR TODO') {
+      return { ok: false, error: 'Escribe BORRAR TODO para confirmar.' };
+    }
+    const owner = BrowserWindow.fromWebContents(event.sender);
+    const options = {
+      type: 'warning',
+      title: 'Restablecer Kaoru',
+      message: '¿Borrar todos los datos locales de Kaoru?',
+      detail:
+        'Se eliminarán configuración, memoria, sesiones, permisos, cachés y credenciales de Kaoru. Tus proyectos y Documentos no se tocarán.',
+      buttons: ['Cancelar', 'Borrar y reiniciar'],
+      defaultId: 0,
+      cancelId: 0,
+      noLink: true,
+    };
+    const choice = owner
+      ? await dialog.showMessageBox(owner, options)
+      : await dialog.showMessageBox(options);
+    if (choice.response !== 1) return { ok: false, cancelled: true };
+    const args = process.argv
+      .slice(1)
+      .filter((arg) => arg !== '--kaoru-factory-reset')
+      .concat('--kaoru-factory-reset');
+    app.relaunch({ args });
+    setTimeout(() => app.exit(0), 100);
+    return { ok: true, restarting: true };
   });
 
   ipcMain.handle('get-python-bin', () => ctx.PYTHON_BIN);

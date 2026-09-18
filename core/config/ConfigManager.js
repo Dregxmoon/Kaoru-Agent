@@ -48,6 +48,14 @@ const SCHEMA = {
   activeModel: { type: 'string', default: 'March 7th' },
   chatTheme: { type: 'string', default: 'dark' },
   autonomy: { type: 'string', default: 'suggest', enum: AUTONOMY_MODES },
+  onboarding: {
+    type: 'object',
+    default: { completed: false, version: 1 },
+    schema: {
+      completed: { type: 'boolean', default: false },
+      version: { type: 'number', default: 1 },
+    },
+  },
   browser: {
     type: 'object',
     default: { mediaControl: 'external', preferred: 'default' },

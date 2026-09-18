@@ -510,9 +510,19 @@ console.log(C.bold(C.cyan('═════════════════�
     const credentialsUi = await chat.evaluate(() => ({
       open: document.getElementById('prefs-modal').classList.contains('visible'),
       credentials: Boolean(document.getElementById('prefs-llm-credentials')),
+      recovery:
+        Boolean(document.getElementById('prefs-reset-permissions-btn')) &&
+        Boolean(document.getElementById('prefs-factory-reset-btn')) &&
+        Boolean(document.getElementById('prefs-previous-versions-btn')),
+      onboarding:
+        Boolean(document.getElementById('onboarding-models')) &&
+        Boolean(document.getElementById('onboarding-permissions')) &&
+        Boolean(document.getElementById('onboarding-finish')),
     }));
     assert(credentialsUi.open, 'Ajustes abre el panel de preferencias');
     assert(credentialsUi.credentials, 'Ajustes incluye gestión de credenciales LLM');
+    assert(credentialsUi.recovery, 'Ajustes incluye recuperación, borrado y versiones anteriores');
+    assert(credentialsUi.onboarding, 'el primer arranque guía modelos, permisos y primera tarea');
     await chat.evaluate(() => document.getElementById('prefs-close').click());
 
     await chat.fill('#msg-input', '');

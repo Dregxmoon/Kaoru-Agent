@@ -4,6 +4,7 @@
 // GitHub. Todo persiste vía IPC al main (set-config / pin-* / github-status).
 
 const prefsModal = document.getElementById('prefs-modal');
+const onboardingModal = document.getElementById('onboarding-modal');
 
 let _prefs = null; // config actual (redactada) desde get-config
 
@@ -14,6 +15,21 @@ function openPrefs() {
 
 function closePrefs() {
   prefsModal.classList.remove('visible');
+}
+
+async function _completeOnboarding() {
+  const result = await window.assistant.invoke('set-config', {
+    onboarding: { completed: true },
+  });
+  if (!result?.ok) throw new Error(result?.error || 'No se pudo guardar el onboarding.');
+  onboardingModal.classList.remove('visible');
+}
+
+async function _showOnboardingIfNeeded() {
+  try {
+    const config = await window.assistant.invoke('get-config');
+    if (!config?.onboarding?.completed) onboardingModal.classList.add('visible');
+  } catch (_) {}
 }
 
 async function _loadPrefs() {
@@ -273,6 +289,66 @@ function attachPrefsEvents() {
       errorEl.textContent = (e && e.message) || String(e);
     }
   });
+
+  document.getElementById('onboarding-models').addEventListener('click', () => {
+    onboardingModal.classList.remove('visible');
+    openSettings();
+  });
+  document.getElementById('onboarding-permissions').addEventListener('click', () => {
+    onboardingModal.classList.remove('visible');
+    openPermsModal();
+  });
+  document.getElementById('onboarding-later').addEventListener('click', () => {
+    onboardingModal.classList.remove('visible');
+  });
+  document.getElementById('onboarding-finish').addEventListener('click', async (event) => {
+    event.currentTarget.disabled = true;
+    try {
+      await _completeOnboarding();
+    } finally {
+      event.currentTarget.disabled = false;
+    }
+  });
+
+  document.getElementById('prefs-reset-permissions-btn').addEventListener('click', async () => {
+    const status = document.getElementById('prefs-maintenance-status');
+    if (!window.confirm('¿Reiniciar todas las reglas de permisos de Kaoru?')) return;
+    const result = await window.assistant.invoke('maintenance-reset-permissions');
+    status.textContent = result?.ok
+      ? `Permisos reiniciados (${result.removed} reglas eliminadas).`
+      : result?.error || 'No se pudieron reiniciar los permisos.';
+  });
+
+  document.getElementById('prefs-clear-cache-btn').addEventListener('click', async () => {
+    const status = document.getElementById('prefs-maintenance-status');
+    const result = await window.assistant.invoke('maintenance-clear-cache');
+    status.textContent = result?.ok
+      ? 'Cachés y logs eliminados.'
+      : 'La limpieza fue parcial; reinicia Kaoru e inténtalo de nuevo.';
+  });
+
+  document.getElementById('prefs-previous-versions-btn').addEventListener('click', async () => {
+    await window.assistant.invoke('update:open-releases');
+  });
+
+  document.getElementById('prefs-factory-reset-btn').addEventListener('click', async () => {
+    const status = document.getElementById('prefs-maintenance-status');
+    const confirmation = document.getElementById('prefs-factory-confirm').value.trim();
+    if (confirmation !== 'BORRAR TODO') {
+      status.textContent = 'Escribe BORRAR TODO para confirmar.';
+      status.style.color = '#ef4444';
+      return;
+    }
+    if (!window.confirm('Esta acción es irreversible. ¿Borrar todos los datos locales de Kaoru?')) {
+      return;
+    }
+    const result = await window.assistant.invoke('maintenance-factory-reset', { confirmation });
+    status.textContent = result?.ok
+      ? 'Reiniciando Kaoru para completar la limpieza…'
+      : result?.error || 'No se pudo iniciar la limpieza.';
+  });
+
+  _showOnboardingIfNeeded();
 }
 
 if (document.readyState === 'loading') {

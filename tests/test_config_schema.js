@@ -47,6 +47,7 @@ function testSchemaShape() {
     'activeModel',
     'chatTheme',
     'autonomy',
+    'onboarding',
     'browser',
     'llm',
     'sensors',
@@ -84,6 +85,8 @@ function testDefaults() {
   const mgr = new ConfigManager(null, { verbose: false });
   const cfg = mgr.load();
   assertEqual(cfg.autonomy, 'suggest', 'autonomy default "suggest"');
+  assertEqual(cfg.onboarding.completed, false, 'onboarding aparece en una instalación limpia');
+  assertEqual(cfg.onboarding.version, 1, 'onboarding usa versión de contrato 1');
   assertEqual(
     cfg.browser.mediaControl,
     'external',

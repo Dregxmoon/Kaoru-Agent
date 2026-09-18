@@ -21,6 +21,7 @@ compartido y generar las páginas.
 | conocer el proyecto o instalarlo | [README principal](../README.md)                       |
 | entender procesos, Core y flujos | [Arquitectura](./arquitectura.md)                      |
 | entender el agente de ingeniería | [Agente de código](./agente-codigo.md)                 |
+| distribuir a testers o usuarios  | [Distribución](./distribucion.md)                      |
 | trabajar en el núcleo            | [Core](../core/README.md)                              |
 | revisar renderer, preload e IPC  | [Interfaz](../src/README.md) y [IPC](../ipc/README.md) |
 | entender sensores y servicios    | [Infraestructura](../infrastructure/README.md)         |

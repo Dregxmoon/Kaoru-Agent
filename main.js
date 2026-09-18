@@ -29,6 +29,7 @@ function _workspaceFromArgv(argv) {
 
 const REQUESTED_WORKSPACE = _workspaceFromArgv(process.argv);
 const PACKAGED_SMOKE_TEST = process.argv.includes('--smoke-test');
+const FACTORY_RESET_REQUESTED = process.argv.includes('--kaoru-factory-reset');
 if (REQUESTED_WORKSPACE) process.env.ASISTENTE_WORKSPACE = REQUESTED_WORKSPACE;
 
 const Core = require('./core/Core.js');
@@ -1205,8 +1206,20 @@ async function _autoInitProject() {
 }
 
 // App init
-app.whenReady().then(() => {
+app.whenReady().then(async () => {
   const userDataPath = app.getPath('userData');
+  if (FACTORY_RESET_REQUESTED) {
+    const { performFactoryReset } = require('./infrastructure/config/FactoryReset.js');
+    const result = await performFactoryReset({
+      userData: userDataPath,
+      keychain: KeychainManager,
+      platform: process.platform,
+      localAppData: process.env.LOCALAPPDATA,
+    });
+    if (result.failed.length > 0) {
+      logger.warn('factory-reset', `limpieza parcial: ${JSON.stringify(result.failed)}`);
+    }
+  }
   dotenv.config({ path: path.join(userDataPath, '.env'), override: true });
 
   ensureLLMConfig();

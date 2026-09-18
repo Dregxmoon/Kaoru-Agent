@@ -27,6 +27,17 @@ El proyecto intentará confirmar la recepción, evaluar severidad y acordar una 
 Los tiempos dependen de la disponibilidad del mantenedor y no constituyen un SLA. Si el informe afecta
 a una dependencia, también puede ser necesario coordinar con su responsable.
 
+## Borrado local y desinstalación
+
+El restablecimiento completo está disponible en **Ajustes → Recuperación y datos locales** y exige la
+frase `BORRAR TODO` más una confirmación visual. Borra exclusivamente rutas propiedad de Kaoru y las
+credenciales conocidas de sus proveedores; no acepta rutas proporcionadas por el renderer y no toca
+workspaces, proyectos ni Documentos. Las credenciales impuestas mediante `.env`, variables de entorno
+o cuentas externas deben revocarse en su fuente.
+
+El desinstalador interactivo de Windows ofrece la misma elección. El modo silencioso conserva datos
+para evitar una eliminación destructiva sin consentimiento.
+
 ## Modelo de amenazas
 
 ### Activos protegidos

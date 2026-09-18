@@ -388,6 +388,13 @@ de `@electron/rebuild` (sin depender de `npx` en el PATH). Localmente: `bash scr
 
 ### Instalación
 
+Para una instalación normal usa el instalador de la
+[última versión publicada](https://github.com/Dregxmoon/Kaoru-Agent/releases/latest). En el primer
+arranque Kaoru muestra una guía para conectar un modelo, revisar permisos, elegir el navegador y
+probar una tarea. No hace falta editar archivos de configuración.
+
+La instalación desde el repositorio está orientada a desarrollo:
+
 ```bash
 npm install            # instala dependencias y electron (postinstall)
 npm run rebuild        # opcional: fuerza de nuevo el rebuild de better-sqlite3
@@ -455,6 +462,18 @@ instancia existente cambia de workspace y muestra el chat.
 Si el enlace del clone falló por permisos, ejecuta `npm link` dentro del
 proyecto. En Windows, abre una terminal nueva después de instalar para que el
 PATH actualizado quede visible.
+
+### Recuperación y desinstalación
+
+En **Ajustes → Recuperación y datos locales** puedes reiniciar permisos, limpiar cachés y logs, o
+restablecer Kaoru por completo. El restablecimiento completo requiere escribir `BORRAR TODO`,
+elimina configuración, memoria, sesiones, permisos, cachés y credenciales locales, y reinicia la
+aplicación. Nunca elimina proyectos, Documentos ni workspaces.
+
+El desinstalador interactivo de Windows pregunta si también quieres borrar los datos locales. Una
+desinstalación silenciosa conserva los datos para no destruirlos sin consentimiento. En macOS y
+Linux, donde el sistema elimina el paquete por fuera de Kaoru, usa primero el restablecimiento desde
+Ajustes si quieres una desinstalación limpia.
 
 En `config.json` (fuente de claves) o `.env` (alternativa):
 
@@ -577,7 +596,7 @@ npm run coverage:check    # además valida umbrales (guard de regresión)
 | Escritorio Linux y Windows | Beta | La cobertura depende de la accesibilidad de cada aplicación. |
 | Escritorio macOS | Experimental | Sin paridad semántica ni sandbox adicional del ejecutor. |
 | MCP, plugins y skills | Experimental | Cada extensión añade superficie de confianza propia. |
-| Instaladores y actualizaciones | Beta | Faltan firma, notarización y onboarding simplificado. |
+| Instaladores y actualizaciones | Beta | Onboarding y limpieza local disponibles; faltan firma y notarización. |
 | Permisos y sandbox | Beta | El control efectivo depende de herramienta, política y plataforma. |
 
 `Beta` indica un flujo utilizable con pruebas automatizadas y límites conocidos. `Experimental`

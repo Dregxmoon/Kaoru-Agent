@@ -15,7 +15,7 @@
 //
 // El renderer recibe eventos vía 'update-status' (payload con state + info).
 
-const { app, dialog, ipcMain } = require('electron');
+const { app, dialog, ipcMain, shell } = require('electron');
 const { autoUpdater } = require('electron-updater');
 
 let _sendToWindows = null;
@@ -158,6 +158,10 @@ function initUpdater(deps) {
       info: _lastInfo,
       error: _lastError,
     };
+  });
+  ipcMain.handle('update:open-releases', async () => {
+    await shell.openExternal('https://github.com/Dregxmoon/Kaoru-Agent/releases');
+    return { status: 'opened' };
   });
 
   // Check silencioso al arrancar (solo app empaquetada).

@@ -236,6 +236,39 @@
       </section>
     </div>
 
+    <div id="onboarding-modal" aria-modal="true" role="dialog">
+      <div id="onboarding-box">
+        <div class="settings-title">Bienvenido a Kaoru</div>
+        <div class="settings-sub">ASISTENTE PERSONAL · AGENTE DE HERRAMIENTAS · CONTROL LOCAL</div>
+        <p class="onboarding-lead">
+          Kaoru conversa contigo y también puede encadenar tareas con archivos, terminal,
+          navegador y aplicaciones. Tú decides los permisos y el proveedor de IA.
+        </p>
+        <div class="onboarding-grid">
+          <button id="onboarding-models" class="onboarding-card" type="button">
+            <strong>1. Conecta un modelo</strong>
+            <span>Elige un proveedor, pega tu API key y asigna un modelo para tareas.</span>
+          </button>
+          <button id="onboarding-permissions" class="onboarding-card" type="button">
+            <strong>2. Revisa permisos</strong>
+            <span>Configura navegador, escritorio y qué acciones deben preguntarte.</span>
+          </button>
+          <div class="onboarding-card static">
+            <strong>3. Prueba una tarea</strong>
+            <span>Pídele crear un archivo, abrir una aplicación y verificar el resultado.</span>
+          </div>
+        </div>
+        <div class="onboarding-privacy">
+          La memoria y configuración se guardan localmente. El contenido enviado al modelo se rige
+          por el proveedor que elijas. Puedes borrar todos los datos desde Ajustes.
+        </div>
+        <div class="settings-actions">
+          <button class="btn-cancel" id="onboarding-later" type="button">Ahora no</button>
+          <button class="btn-save" id="onboarding-finish" type="button">Empezar con Kaoru</button>
+        </div>
+      </div>
+    </div>
+
     <!-- Modal Select model (modelo-first, nivel opencode) -->
     <div id="settings-modal">
       <div id="settings-box" class="picker-box">
@@ -560,6 +593,37 @@
             </button>
           </div>
           <div class="prefs-status" id="prefs-gh-error"></div>
+        </div>
+
+        <div class="prefs-section">
+          <div class="prefs-label">Recuperación y datos locales</div>
+          <div class="prefs-hint">
+            Estas acciones solo afectan datos de Kaoru. Nunca eliminan tus proyectos, Documentos o
+            workspaces.
+          </div>
+          <div class="prefs-maintenance-actions">
+            <button class="btn-cancel" id="prefs-reset-permissions-btn" type="button">
+              Reiniciar permisos
+            </button>
+            <button class="btn-cancel" id="prefs-clear-cache-btn" type="button">
+              Limpiar cachés y logs
+            </button>
+            <button class="btn-cancel" id="prefs-previous-versions-btn" type="button">
+              Versiones anteriores
+            </button>
+          </div>
+          <div class="prefs-danger-zone">
+            <strong>Restablecimiento completo</strong>
+            <span
+              >Borra configuración, memoria, sesiones, permisos, cachés y credenciales de Kaoru, y
+              reinicia la aplicación.</span
+            >
+            <input id="prefs-factory-confirm" placeholder="Escribe BORRAR TODO" autocomplete="off" />
+            <button class="btn-danger" id="prefs-factory-reset-btn" type="button">
+              Borrar todos los datos de Kaoru
+            </button>
+          </div>
+          <div class="prefs-status" id="prefs-maintenance-status"></div>
         </div>
 
         <div class="settings-actions">

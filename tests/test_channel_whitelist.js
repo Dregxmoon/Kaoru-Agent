@@ -62,11 +62,6 @@ function readAllowlists(file) {
   };
 }
 
-// Canales que el renderer usa vía `ipcRenderer.*` pero que apuntan a
-// funcionalidad aún NO conectada a un handler de main (botones de auto-update).
-// Se excluyen explícitamente para no contaminar el chequeo de cobertura.
-const KNOWN_RAW_UNWIRED = new Set(['update:download', 'update:install']);
-
 function scanRendererChannels() {
   const files = fs.readdirSync(path.join(ROOT, 'src', 'chat')).filter((f) => f.endsWith('.js'));
   const used = { invoke: new Set(), send: new Set(), on: new Set() };
@@ -78,7 +73,6 @@ function scanRendererChannels() {
     while ((m = re.exec(src))) {
       const kind = m[1] === 'on' ? 'on' : m[1] === 'send' ? 'send' : 'invoke';
       const channel = m[2];
-      if (KNOWN_RAW_UNWIRED.has(channel)) continue;
       used[kind].add(channel);
     }
   }
@@ -117,6 +111,10 @@ async function main() {
   assert(
     chatPreload.on.has('agent-subagent-progress') && globalWl.on.has('agent-subagent-progress'),
     "'agent-subagent-progress' permitido para on() en ambas allowlists"
+  );
+  assert(
+    chatPreload.invoke.has('update:download') && chatPreload.invoke.has('update:install'),
+    'los controles de auto-update llegan al main desde el chat'
   );
 
   const total = passed + failed;
