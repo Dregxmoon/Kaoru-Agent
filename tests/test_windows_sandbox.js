@@ -343,9 +343,11 @@ async function testPrebuiltHelperFastPath() {
   WindowsSandbox.findPowerShell = () =>
     'C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe';
   let probeArgs = [];
-  sandbox._runHelper = async (args) => {
+  let probeEnv = {};
+  sandbox._runHelper = async (args, opts) => {
     probeArgs = args;
-    const markerArg = args.find((arg) => arg.includes('.kaoru-appcontainer-'));
+    probeEnv = opts.env || {};
+    const markerArg = probeEnv.KAORU_SANDBOX_PROBE;
     if (markerArg) {
       fs.writeFileSync(markerArg, 'ok', 'utf8');
     }
@@ -366,6 +368,10 @@ async function testPrebuiltHelperFastPath() {
     assert(
       probeArgs[0].toLowerCase().endsWith('powershell.exe'),
       'el self-test empaquetado usa PowerShell en vez de relanzar Electron'
+    );
+    assert(
+      String(probeEnv.KAORU_SANDBOX_PROBE).includes('.kaoru-appcontainer-'),
+      'la ruta del marcador viaja como entorno y no como código PowerShell'
     );
   } finally {
     WindowsSandbox.findPowerShell = originalFindPowerShell;

@@ -113,8 +113,9 @@ class WindowsSandbox {
         // producir ERROR_INVALID_NAME antes de probar el AppContainer. El
         // ejecutable empaquetado de Electron tampoco es un runner de Node:
         // sus fuses pueden ignorar ELECTRON_RUN_AS_NODE y abrir otra instancia
-        // completa de Kaoru. PowerShell recibe la ruta como argumento separado
-        // y prueba ejecución + escritura sin interpolarla en un shell.
+        // completa de Kaoru. PowerShell recibe la ruta por una variable de
+        // entorno efímera y prueba ejecución + escritura sin interpolarla en
+        // el código que analiza su parser.
         const powershell = WindowsSandbox.findPowerShell();
         if (!powershell) throw new Error('Windows PowerShell 5.1 no está disponible');
         const probe = await this._runHelper(
@@ -124,12 +125,12 @@ class WindowsSandbox {
             '-NoProfile',
             '-NonInteractive',
             '-Command',
-            "[IO.File]::WriteAllText($args[0], 'ok')",
-            marker,
+            "[IO.File]::WriteAllText($env:KAORU_SANDBOX_PROBE, 'ok')",
           ],
           {
             cwd: this._cwd,
             timeout: 30_000,
+            env: { KAORU_SANDBOX_PROBE: marker },
           }
         );
         if (!probe.ok || !fs.existsSync(marker)) {
@@ -187,7 +188,7 @@ class WindowsSandbox {
    * Lanza una excepción si el aislamiento no está listo: nunca degrada a una
    * ejecución directa silenciosa.
    * @param {string[]} commandArgs
-   * @param {{ cwd?: string, timeout?: number }} [opts]
+   * @param {{ cwd?: string, timeout?: number, env?: NodeJS.ProcessEnv }} [opts]
    * @returns {string[]}
    */
   wrap(commandArgs, opts = {}) {
@@ -230,7 +231,7 @@ class WindowsSandbox {
   /**
    * @private
    * @param {string[]} commandArgs
-   * @param {{ cwd?: string, timeout?: number }} [opts]
+   * @param {{ cwd?: string, timeout?: number, env?: NodeJS.ProcessEnv }} [opts]
    * @returns {Promise<SandboxResult>}
    */
   _runHelper(commandArgs, opts = {}) {
@@ -242,7 +243,12 @@ class WindowsSandbox {
     } finally {
       this._enabled = wasEnabled;
     }
-    return this._runProcess(wrapped[0], wrapped.slice(1), opts.timeout || DEFAULT_TIMEOUT);
+    return this._runProcess(
+      wrapped[0],
+      wrapped.slice(1),
+      opts.timeout || DEFAULT_TIMEOUT,
+      opts.env
+    );
   }
 
   /**
@@ -250,16 +256,17 @@ class WindowsSandbox {
    * @param {string} executable
    * @param {string[]} args
    * @param {number} timeout
+   * @param {NodeJS.ProcessEnv} [extraEnv]
    * @returns {Promise<SandboxResult>}
    */
-  _runProcess(executable, args, timeout) {
+  _runProcess(executable, args, timeout, extraEnv = {}) {
     return new Promise((resolve) => {
       let settled = false;
       let stdout = '';
       let stderr = '';
       const child = this._spawn(executable, args, {
         cwd: this._cwd,
-        env: WindowsSandbox.minimalWindowsEnv(),
+        env: { ...WindowsSandbox.minimalWindowsEnv(), ...extraEnv },
         shell: false,
         windowsHide: true,
         stdio: ['ignore', 'pipe', 'pipe'],
