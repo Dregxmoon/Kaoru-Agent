@@ -352,8 +352,10 @@ async function testPrebuiltHelperFastPath() {
   const sandbox = new WindowsSandbox({ platform: 'win32', cwd: workspace, cacheDir });
   sandbox._prebuiltHelperPath = prebuilt;
   let probeArgs = [];
-  sandbox._runHelper = async (args) => {
+  let probeOpts = {};
+  sandbox._runHelper = async (args, opts) => {
     probeArgs = args;
+    probeOpts = opts;
     const markerArg = Buffer.from(args[2], 'base64').toString('utf8');
     if (markerArg) {
       fs.writeFileSync(markerArg, 'ok', 'utf8');
@@ -379,6 +381,11 @@ async function testPrebuiltHelperFastPath() {
     assert(
       Buffer.from(probeArgs[2], 'base64').toString('utf8').includes('.kaoru-appcontainer-'),
       'la ruta del marcador viaja codificada y no como código de shell'
+    );
+    assertEqual(
+      probeOpts.timeout,
+      120_000,
+      'tolera el costo del primer perfil, ACL y análisis de Defender'
     );
   } finally {
     fs.rmSync(root, { recursive: true, force: true });

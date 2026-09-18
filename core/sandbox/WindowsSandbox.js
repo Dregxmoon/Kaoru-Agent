@@ -16,6 +16,7 @@ const os = require('os');
 const path = require('path');
 
 const DEFAULT_TIMEOUT = 30_000;
+const SELF_TEST_TIMEOUT = 120_000;
 const PROFILE_PREFIX = 'KaoruAgent.OpenClaw';
 const CACHE_VERSION = 2;
 const TOOL_NAMES = ['node.exe', 'npm.cmd', 'npx.cmd', 'git.exe', 'python.exe', 'py.exe'];
@@ -121,7 +122,10 @@ class WindowsSandbox {
           [probeExecutable, '--probe-write64', Buffer.from(marker, 'utf8').toString('base64')],
           {
             cwd: this._cwd,
-            timeout: 30_000,
+            // El primer arranque puede incluir creación del perfil, ACL y el
+            // análisis del helper sin firma por Windows Defender. Ese trabajo
+            // ocurre dentro del proceso launcher y comparte este timeout.
+            timeout: SELF_TEST_TIMEOUT,
           }
         );
         if (!probe.ok || !fs.existsSync(marker)) {
