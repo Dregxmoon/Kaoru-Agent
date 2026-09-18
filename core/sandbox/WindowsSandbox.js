@@ -108,22 +108,14 @@ class WindowsSandbox {
 
       const marker = path.join(this._cwd, `.kaoru-appcontainer-${process.pid}.tmp`);
       try {
-        // Evitar cmd.exe para el self-test: `/s /c` vuelve a interpretar
-        // comillas y redirecciones, y una ruta temporal con espacios puede
-        // producir ERROR_INVALID_NAME antes de probar el AppContainer. El
-        // ejecutable empaquetado de Electron tampoco es un runner de Node:
-        // sus fuses pueden ignorar ELECTRON_RUN_AS_NODE y abrir otra instancia
-        // completa de Kaoru. cmd recibe la ruta por una variable de entorno
-        // efímera; sin `/s` no vuelve a reinterpretar las comillas exteriores.
-        // Esto conserva un probe rápido incluso en el primer arranque del
-        // paquete, donde PowerShell puede tardar decenas de segundos.
-        const commandProcessor = process.env.ComSpec || process.env.COMSPEC || 'cmd.exe';
+        // El helper se relanza a sí mismo dentro del AppContainer. Su modo de
+        // probe escribe la marca sin cmd, PowerShell, Electron ni redirecciones,
+        // por lo que rutas con espacios/metacaracteres no pasan por un parser.
         const probe = await this._runHelper(
-          [commandProcessor, '/d', '/c', 'echo ok>"%KAORU_SANDBOX_PROBE%"'],
+          [this._helperPath, '--probe-write64', Buffer.from(marker, 'utf8').toString('base64')],
           {
             cwd: this._cwd,
             timeout: 15_000,
-            env: { KAORU_SANDBOX_PROBE: marker },
           }
         );
         if (!probe.ok || !fs.existsSync(marker)) {
@@ -181,7 +173,7 @@ class WindowsSandbox {
    * Lanza una excepción si el aislamiento no está listo: nunca degrada a una
    * ejecución directa silenciosa.
    * @param {string[]} commandArgs
-   * @param {{ cwd?: string, timeout?: number, env?: NodeJS.ProcessEnv }} [opts]
+   * @param {{ cwd?: string, timeout?: number }} [opts]
    * @returns {string[]}
    */
   wrap(commandArgs, opts = {}) {
@@ -224,7 +216,7 @@ class WindowsSandbox {
   /**
    * @private
    * @param {string[]} commandArgs
-   * @param {{ cwd?: string, timeout?: number, env?: NodeJS.ProcessEnv }} [opts]
+   * @param {{ cwd?: string, timeout?: number }} [opts]
    * @returns {Promise<SandboxResult>}
    */
   _runHelper(commandArgs, opts = {}) {
@@ -236,12 +228,7 @@ class WindowsSandbox {
     } finally {
       this._enabled = wasEnabled;
     }
-    return this._runProcess(
-      wrapped[0],
-      wrapped.slice(1),
-      opts.timeout || DEFAULT_TIMEOUT,
-      opts.env
-    );
+    return this._runProcess(wrapped[0], wrapped.slice(1), opts.timeout || DEFAULT_TIMEOUT);
   }
 
   /**
@@ -249,17 +236,16 @@ class WindowsSandbox {
    * @param {string} executable
    * @param {string[]} args
    * @param {number} timeout
-   * @param {NodeJS.ProcessEnv} [extraEnv]
    * @returns {Promise<SandboxResult>}
    */
-  _runProcess(executable, args, timeout, extraEnv = {}) {
+  _runProcess(executable, args, timeout) {
     return new Promise((resolve) => {
       let settled = false;
       let stdout = '';
       let stderr = '';
       const child = this._spawn(executable, args, {
         cwd: this._cwd,
-        env: { ...WindowsSandbox.minimalWindowsEnv(), ...extraEnv },
+        env: WindowsSandbox.minimalWindowsEnv(),
         shell: false,
         windowsHide: true,
         stdio: ['ignore', 'pipe', 'pipe'],

@@ -277,6 +277,10 @@ function testNativeAppContainerHelper() {
   assert(helper.includes('CREATE_SUSPENDED'), 'asigna el Job Object antes de ejecutar');
   assert(helper.includes('S-1-15-3-1'), 'concede internetClient igual que el sandbox de Linux');
   assert(helper.includes('GrantReadAccess'), 'concede solo lectura a runtimes y toolchains');
+  assert(
+    helper.includes('--probe-write64'),
+    'el self-test evita shells y relanza el helper aislado'
+  );
   const afterPack = fs.readFileSync(path.join(__dirname, '..', 'scripts', 'after-pack.js'), 'utf8');
   assert(
     afterPack.includes('Kaoru.WindowsSandbox.exe'),
@@ -312,7 +316,7 @@ async function testNativeAppContainerRuntime() {
     const initialized = await sandbox.initialize();
     assert(
       initialized,
-      'compila, inicia y prueba Electron dentro del AppContainer',
+      'compila, inicia y prueba el helper dentro del AppContainer',
       sandbox.sandboxReason()
     );
     if (!initialized) return;
@@ -340,11 +344,9 @@ async function testPrebuiltHelperFastPath() {
   const sandbox = new WindowsSandbox({ platform: 'win32', cwd: workspace, cacheDir });
   sandbox._prebuiltHelperPath = prebuilt;
   let probeArgs = [];
-  let probeEnv = {};
-  sandbox._runHelper = async (args, opts) => {
+  sandbox._runHelper = async (args) => {
     probeArgs = args;
-    probeEnv = opts.env || {};
-    const markerArg = probeEnv.KAORU_SANDBOX_PROBE;
+    const markerArg = Buffer.from(args[2], 'base64').toString('utf8');
     if (markerArg) {
       fs.writeFileSync(markerArg, 'ok', 'utf8');
     }
@@ -363,12 +365,12 @@ async function testPrebuiltHelperFastPath() {
       'registra hashes para reutilizarlo en próximos arranques'
     );
     assert(
-      probeArgs[0].toLowerCase().endsWith('cmd.exe') && !probeArgs.includes('/s'),
-      'el self-test empaquetado usa cmd sin reinterpretación /s'
+      probeArgs[0].endsWith('Kaoru.WindowsSandbox.exe') && probeArgs[1] === '--probe-write64',
+      'el self-test relanza el helper nativo sin shell'
     );
     assert(
-      String(probeEnv.KAORU_SANDBOX_PROBE).includes('.kaoru-appcontainer-'),
-      'la ruta del marcador viaja como entorno y no como código de shell'
+      Buffer.from(probeArgs[2], 'base64').toString('utf8').includes('.kaoru-appcontainer-'),
+      'la ruta del marcador viaja codificada y no como código de shell'
     );
   } finally {
     fs.rmSync(root, { recursive: true, force: true });

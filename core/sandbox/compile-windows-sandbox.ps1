@@ -377,6 +377,15 @@ namespace KaoruSandbox
             IntPtr job = IntPtr.Zero;
             try
             {
+                // Modo mínimo usado por el self-test: el mismo binario se
+                // relanza dentro del AppContainer y demuestra que el proceso
+                // aislado puede escribir únicamente donde la ACL lo permite.
+                if (args.Length == 2 && args[0] == "--probe-write64")
+                {
+                    File.WriteAllText(Decode(args[1]), "ok");
+                    return 0;
+                }
+
                 int commandIndex;
                 Dictionary<string, string> options = ParseOptions(args, out commandIndex);
                 if (commandIndex < 0 || commandIndex >= args.Length)
