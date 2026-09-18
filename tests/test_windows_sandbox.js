@@ -373,8 +373,8 @@ async function testPrebuiltHelperFastPath() {
       'registra hashes para reutilizarlo en próximos arranques'
     );
     assert(
-      probeArgs[0].endsWith('Kaoru.WindowsSandbox.exe') && probeArgs[1] === '--probe-write64',
-      'el self-test relanza el helper nativo sin shell'
+      probeArgs[0] === prebuilt && probeArgs[1] === '--probe-write64',
+      'el self-test del release usa el helper de resources sin shell'
     );
     assert(
       Buffer.from(probeArgs[2], 'base64').toString('utf8').includes('.kaoru-appcontainer-'),

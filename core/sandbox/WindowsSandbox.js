@@ -111,11 +111,17 @@ class WindowsSandbox {
         // El helper se relanza a sí mismo dentro del AppContainer. Su modo de
         // probe escribe la marca sin cmd, PowerShell, Electron ni redirecciones,
         // por lo que rutas con espacios/metacaracteres no pasan por un parser.
+        // En releases se usa la copia de resources: ya está bajo la raíz de
+        // instalación legible y no exige atravesar %LOCALAPPDATA% desde el
+        // contenedor. Los clones usan el helper compilado en caché.
+        const probeExecutable = fs.existsSync(this._prebuiltHelperPath)
+          ? this._prebuiltHelperPath
+          : this._helperPath;
         const probe = await this._runHelper(
-          [this._helperPath, '--probe-write64', Buffer.from(marker, 'utf8').toString('base64')],
+          [probeExecutable, '--probe-write64', Buffer.from(marker, 'utf8').toString('base64')],
           {
             cwd: this._cwd,
-            timeout: 15_000,
+            timeout: 30_000,
           }
         );
         if (!probe.ok || !fs.existsSync(marker)) {
@@ -197,7 +203,11 @@ class WindowsSandbox {
         (systemRoot ? path.join(systemRoot, 'System32', 'cmd.exe') : normalizedArgs[0]);
     }
     const readRoots = [
-      ...new Set([path.dirname(this._helperPath), ...WindowsSandbox.toolReadRoots()]),
+      ...new Set([
+        path.dirname(this._helperPath),
+        path.dirname(this._prebuiltHelperPath),
+        ...WindowsSandbox.toolReadRoots(),
+      ]),
     ];
     return [
       this._helperPath,
