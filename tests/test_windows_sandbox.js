@@ -262,6 +262,10 @@ function testNativeAppContainerHelper() {
     path.join(__dirname, '..', 'core', 'sandbox', 'compile-windows-sandbox.ps1'),
     'utf8'
   );
+  const launcher = fs.readFileSync(
+    path.join(__dirname, '..', 'core', 'sandbox', 'WindowsSandbox.js'),
+    'utf8'
+  );
   const server = fs.readFileSync(path.join(__dirname, '..', 'kaoru-tool-host.js'), 'utf8');
 
   assert(helper.includes('CreateAppContainerProfile'), 'crea un perfil AppContainer');
@@ -280,6 +284,10 @@ function testNativeAppContainerHelper() {
   assert(
     helper.includes('--probe-write64'),
     'el self-test evita shells y relanza el helper aislado'
+  );
+  assert(
+    launcher.includes('path.dirname(this._helperPath)'),
+    'concede lectura al directorio del helper cacheado'
   );
   const afterPack = fs.readFileSync(path.join(__dirname, '..', 'scripts', 'after-pack.js'), 'utf8');
   assert(

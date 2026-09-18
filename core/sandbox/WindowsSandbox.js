@@ -196,6 +196,9 @@ class WindowsSandbox {
         process.env.COMSPEC ||
         (systemRoot ? path.join(systemRoot, 'System32', 'cmd.exe') : normalizedArgs[0]);
     }
+    const readRoots = [
+      ...new Set([path.dirname(this._helperPath), ...WindowsSandbox.toolReadRoots()]),
+    ];
     return [
       this._helperPath,
       '--profile',
@@ -205,7 +208,7 @@ class WindowsSandbox {
       '--cwd64',
       Buffer.from(cwd, 'utf8').toString('base64'),
       '--readroots64',
-      Buffer.from(WindowsSandbox.toolReadRoots().join('\n'), 'utf8').toString('base64'),
+      Buffer.from(readRoots.join('\n'), 'utf8').toString('base64'),
       '--timeout',
       String(timeout),
       '--',
