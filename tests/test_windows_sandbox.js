@@ -339,9 +339,6 @@ async function testPrebuiltHelperFastPath() {
   fs.writeFileSync(prebuilt, 'prebuilt-helper', 'utf8');
   const sandbox = new WindowsSandbox({ platform: 'win32', cwd: workspace, cacheDir });
   sandbox._prebuiltHelperPath = prebuilt;
-  const originalFindPowerShell = WindowsSandbox.findPowerShell;
-  WindowsSandbox.findPowerShell = () =>
-    'C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe';
   let probeArgs = [];
   let probeEnv = {};
   sandbox._runHelper = async (args, opts) => {
@@ -366,15 +363,14 @@ async function testPrebuiltHelperFastPath() {
       'registra hashes para reutilizarlo en próximos arranques'
     );
     assert(
-      probeArgs[0].toLowerCase().endsWith('powershell.exe'),
-      'el self-test empaquetado usa PowerShell en vez de relanzar Electron'
+      probeArgs[0].toLowerCase().endsWith('cmd.exe') && !probeArgs.includes('/s'),
+      'el self-test empaquetado usa cmd sin reinterpretación /s'
     );
     assert(
       String(probeEnv.KAORU_SANDBOX_PROBE).includes('.kaoru-appcontainer-'),
-      'la ruta del marcador viaja como entorno y no como código PowerShell'
+      'la ruta del marcador viaja como entorno y no como código de shell'
     );
   } finally {
-    WindowsSandbox.findPowerShell = originalFindPowerShell;
     fs.rmSync(root, { recursive: true, force: true });
   }
 }

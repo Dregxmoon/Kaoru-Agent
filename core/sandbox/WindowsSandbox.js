@@ -113,23 +113,16 @@ class WindowsSandbox {
         // producir ERROR_INVALID_NAME antes de probar el AppContainer. El
         // ejecutable empaquetado de Electron tampoco es un runner de Node:
         // sus fuses pueden ignorar ELECTRON_RUN_AS_NODE y abrir otra instancia
-        // completa de Kaoru. PowerShell recibe la ruta por una variable de
-        // entorno efímera y prueba ejecución + escritura sin interpolarla en
-        // el código que analiza su parser.
-        const powershell = WindowsSandbox.findPowerShell();
-        if (!powershell) throw new Error('Windows PowerShell 5.1 no está disponible');
+        // completa de Kaoru. cmd recibe la ruta por una variable de entorno
+        // efímera; sin `/s` no vuelve a reinterpretar las comillas exteriores.
+        // Esto conserva un probe rápido incluso en el primer arranque del
+        // paquete, donde PowerShell puede tardar decenas de segundos.
+        const commandProcessor = process.env.ComSpec || process.env.COMSPEC || 'cmd.exe';
         const probe = await this._runHelper(
-          [
-            powershell,
-            '-NoLogo',
-            '-NoProfile',
-            '-NonInteractive',
-            '-Command',
-            "[IO.File]::WriteAllText($env:KAORU_SANDBOX_PROBE, 'ok')",
-          ],
+          [commandProcessor, '/d', '/c', 'echo ok>"%KAORU_SANDBOX_PROBE%"'],
           {
             cwd: this._cwd,
-            timeout: 30_000,
+            timeout: 15_000,
             env: { KAORU_SANDBOX_PROBE: marker },
           }
         );
