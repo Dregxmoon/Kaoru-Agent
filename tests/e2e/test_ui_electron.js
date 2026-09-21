@@ -197,7 +197,22 @@ console.log(C.bold(C.cyan('═════════════════�
         hasKeysBanner: !!document.getElementById('keys-banner'),
         hasTaskDock: !!document.getElementById('task-dock'),
         hasNoViewIndicator: !document.getElementById('view-indicator'),
-        unifiedMode: document.getElementById('agent-mode-badge')?.textContent.trim() === 'AUTO',
+        hasStatusBtn: !!document.getElementById('status-btn'),
+        workspaceIsButton: title?.tagName === 'BUTTON',
+        headerRows: (() => {
+          const workspace = title?.getBoundingClientRect();
+          const model = document.getElementById('models-btn')?.getBoundingClientRect();
+          const actions = document.querySelector('.header-actions')?.getBoundingClientRect();
+          return !!(
+            workspace &&
+            model &&
+            actions &&
+            model.top > workspace.top &&
+            actions.left > workspace.left &&
+            Math.abs(actions.top - workspace.top) < 15
+          );
+        })(),
+        unifiedMode: document.getElementById('agent-mode-badge')?.textContent.trim() === 'Auto',
         title: title ? title.textContent.trim() : null,
       };
     });
@@ -217,7 +232,26 @@ console.log(C.bold(C.cyan('═════════════════�
     assert(headerOk.hasKeysBanner, 'banner de API keys presente');
     assert(headerOk.hasTaskDock, 'espacio persistente para el plan presente');
     assert(headerOk.hasNoViewIndicator, 'el label temporal de pose Live2D fue eliminado');
+    assert(headerOk.hasStatusBtn, 'la barra ofrece un resumen de estado');
+    assert(headerOk.workspaceIsButton, 'el workspace se puede cambiar desde el título');
+    assert(headerOk.headerRows, 'acciones arriba a la derecha y modelo en la segunda línea');
     assert(headerOk.unifiedMode, 'la UI expone un flujo AUTO único, sin selector chat/agente');
+
+    await chat.evaluate(() => document.getElementById('status-btn').click());
+    const statusSummary = await chat.evaluate(() => ({
+      visible: !document.getElementById('status-popover').hidden,
+      expanded: document.getElementById('status-btn').getAttribute('aria-expanded') === 'true',
+      hasModel: !!document.getElementById('status-model').textContent.trim(),
+      hasMode: !!document.getElementById('agent-mode-badge').textContent.trim(),
+    }));
+    assert(
+      statusSummary.visible &&
+        statusSummary.expanded &&
+        statusSummary.hasModel &&
+        statusSummary.hasMode,
+      'estado abre el resumen de modelo y modo'
+    );
+    await chat.evaluate(() => document.getElementById('status-btn').click());
 
     const executionUi = await chat.evaluate(() => {
       renderPlanBlock({
@@ -349,8 +383,6 @@ console.log(C.bold(C.cyan('═════════════════�
       window.animateAvatarPresence('working');
       await new Promise((resolve) => setTimeout(resolve, 500));
       const animatedRect = container.getBoundingClientRect();
-      const animatedStyle = window.getComputedStyle(container);
-      const protruding = container.classList.contains('avatar-protruding');
       return {
         visible: window.getComputedStyle(panel).display !== 'none',
         validSize:
@@ -359,10 +391,7 @@ console.log(C.bold(C.cyan('═════════════════�
           restingOverflow === 'hidden' &&
           Math.abs(restingRect.left - panelRect.left) < 2 &&
           Math.abs(restingRect.width - panelRect.width) < 2,
-        escapesFrame:
-          window.getComputedStyle(panel).overflow === 'visible' &&
-          (animatedRect.left < panelRect.left ||
-            (protruding && animatedStyle.transitionProperty.includes('left'))),
+        staysFixed: Math.abs(animatedRect.left - restingRect.left) < 2,
         animated: container.classList.contains('avatar-working'),
       };
     });
@@ -375,8 +404,8 @@ console.log(C.bold(C.cyan('═════════════════�
       'Live2D queda alineado y contenido cuando está en reposo'
     );
     assert(
-      compactAvatar.escapesFrame,
-      'Live2D solo desborda ligeramente durante una animación',
+      compactAvatar.staysFixed,
+      'Live2D conserva su posición horizontal durante una animación',
       JSON.stringify(compactAvatar)
     );
     assert(compactAvatar.animated, 'Live2D activa estados visuales de presencia');

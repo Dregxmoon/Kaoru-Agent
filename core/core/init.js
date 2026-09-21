@@ -298,7 +298,13 @@ function init(app) {
       .catch((e) => logger.warn('init', '[core] error escaneando skills:', e.message));
   }
 
-  const projectCWD = app ? app.getAppPath() : process.cwd();
+  // app.getAppPath() apunta a app.asar en un ejecutable instalado: es un archivo,
+  // no un workspace escribible, y el self-test de AppContainer falla allí.
+  const projectCWD = app
+    ? app.isPackaged
+      ? app.getPath('documents')
+      : app.getAppPath()
+    : process.cwd();
   setProjectCWD(projectCWD);
 
   // ── Plugins locales ─────────────────────────────────────────────────────────

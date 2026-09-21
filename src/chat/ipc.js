@@ -94,7 +94,7 @@ function updateUnifiedModeBadge(executionMode = null) {
   const routed = executionMode === 'fast' || executionMode === 'smart' ? executionMode : null;
   const badge = document.getElementById('agent-mode-badge');
   if (badge) {
-    badge.textContent = routed ? `AUTO·${routed.toUpperCase()}` : 'AUTO';
+    badge.textContent = routed ? `Auto ${routed === 'fast' ? 'Fast' : 'Smart'}` : 'Auto';
     badge.classList.remove('chat');
     badge.title =
       'Flujo unificado: Kaoru decide automáticamente si esta solicitud necesita respuesta rápida o ejecución completa.';

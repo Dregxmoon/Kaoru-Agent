@@ -31,15 +31,11 @@
   <body>
     <div id="app">
       <header id="header">
-        <span class="header-title" id="workspace-title">~/workspace</span>
-        <div class="header-spacer"></div>
-        <span id="header-model" class="header-model" title=""></span>
-        <span
-          id="agent-mode-badge"
-          class="agent-mode-badge"
-          title="Flujo unificado: Kaoru elige automáticamente entre respuesta rápida y ejecución completa."
-          >AUTO</span
-        >
+        <div class="header-main">
+          <button class="header-title" id="workspace-title" type="button" title="Cambiar workspace">
+            ~/workspace
+          </button>
+        </div>
         <div id="sessions-modal">
           <div id="sessions-box">
             <div class="sessions-head">
@@ -49,74 +45,78 @@
             <div id="sessions-list"></div>
           </div>
         </div>
-        <nav class="header-tools" aria-label="Herramientas de Kaoru">
-          <button id="models-btn" class="header-tool" type="button" title="Modelos de IA">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" aria-hidden="true">
-              <path d="M12 3 4 7l8 4 8-4-8-4Z" />
-              <path d="m4 12 8 4 8-4M4 17l8 4 8-4" />
-            </svg>
-            <span>/modelos</span>
+        <nav class="header-actions" aria-label="Herramientas de Kaoru">
+          <button
+            id="status-btn"
+            class="header-action"
+            type="button"
+            aria-expanded="false"
+            aria-controls="status-popover"
+          >
+            estado
           </button>
-          <button id="mcp-btn" class="header-tool" type="button" title="Conexiones MCP">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" aria-hidden="true">
-              <path d="M8 12h8M12 8v8" />
-              <circle cx="12" cy="12" r="9" />
-            </svg>
-            <span>/mcp</span>
+          <button id="mcp-btn" class="header-action" type="button" title="Conexiones MCP">
+            conexiones
           </button>
-          <button id="perms-btn" class="header-tool" type="button" title="Permisos de herramientas">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" aria-hidden="true">
-              <path d="M12 3 5 6v5c0 4.5 2.8 8.4 7 10 4.2-1.6 7-5.5 7-10V6l-7-3Z" />
-              <path d="m9 12 2 2 4-4" />
+          <button id="settings-btn" title="Ajustes" aria-label="Ajustes" class="header-btn">
+            <svg
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2"
+              width="14"
+              height="14"
+            >
+              <circle cx="12" cy="12" r="3" />
+              <path
+                d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09a1.65 1.65 0 0 0-1-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09a1.65 1.65 0 0 0 1.51-1 1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33h.01a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51h.01a1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82v.01a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"
+              />
             </svg>
-            <span>/permisos</span>
-          </button>
-          <button id="commands-btn" class="header-tool" type="button" title="Explorar comandos">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" aria-hidden="true">
-              <path d="m5 7 4 5-4 5M11 17h8" />
-            </svg>
-            <span>/comandos</span>
           </button>
         </nav>
-        <button
-          id="theme-toggle"
-          type="button"
-          role="switch"
-          aria-checked="false"
-          aria-label="Usar tema claro"
-          title="Cambiar a tema claro"
-        >
-          <span class="theme-toggle-icon" aria-hidden="true"></span>
-          <span class="sr-only">Cambiar tema</span>
+        <button id="models-btn" class="header-model-button" type="button" title="Elegir modelo">
+          <span id="header-model" class="header-model">sin modelo</span>
+          <span aria-hidden="true">▾</span>
         </button>
-        <button id="settings-btn" title="Ajustes" class="header-btn">
-          <svg
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            stroke-width="2"
-            width="14"
-            height="14"
-          >
-            <circle cx="12" cy="12" r="3" />
-            <path
-              d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09a1.65 1.65 0 0 0-1-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09a1.65 1.65 0 0 0 1.51-1 1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33h.01a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51h.01a1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82v.01a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"
-            />
-          </svg>
-        </button>
-        <button id="close-btn" title="Cerrar y salir">
-          <svg
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            stroke-width="2"
-            width="14"
-            height="14"
-          >
-            <line x1="18" y1="6" x2="6" y2="18" />
-            <line x1="6" y1="6" x2="18" y2="18" />
-          </svg>
-        </button>
+        <div id="status-popover" class="status-popover" hidden>
+          <div class="status-row"><span>Modelo</span><span id="status-model">sin modelo</span></div>
+          <div class="status-row">
+            <span>Modo</span><span id="agent-mode-badge" class="agent-mode-badge">AUTO</span>
+          </div>
+          <div class="status-row">
+            <span>MCP</span
+            ><span><span id="mcp-count">0</span> <span id="mcp-count-label">conectados</span></span>
+          </div>
+          <div class="status-row"><span>Permisos</span><span id="status-permissions">—</span></div>
+          <div class="status-links">
+            <button id="perms-btn" type="button">Permisos</button>
+            <button id="commands-btn" type="button">Comandos</button>
+            <button
+              id="theme-toggle"
+              type="button"
+              role="switch"
+              aria-checked="false"
+              aria-label="Usar tema claro"
+              title="Cambiar a tema claro"
+            >
+              <span class="theme-toggle-icon" aria-hidden="true"></span
+              ><span class="sr-only">Cambiar tema</span>
+            </button>
+            <button id="close-btn" title="Cerrar y salir" aria-label="Cerrar y salir">
+              <svg
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="2"
+                width="14"
+                height="14"
+              >
+                <line x1="18" y1="6" x2="6" y2="18" />
+                <line x1="6" y1="6" x2="18" y2="18" />
+              </svg>
+            </button>
+          </div>
+        </div>
       </header>
 
       <section id="chat-panel">
@@ -241,8 +241,8 @@
         <div class="settings-title">Bienvenido a Kaoru</div>
         <div class="settings-sub">ASISTENTE PERSONAL · AGENTE DE HERRAMIENTAS · CONTROL LOCAL</div>
         <p class="onboarding-lead">
-          Kaoru conversa contigo y también puede encadenar tareas con archivos, terminal,
-          navegador y aplicaciones. Tú decides los permisos y el proveedor de IA.
+          Kaoru conversa contigo y también puede encadenar tareas con archivos, terminal, navegador
+          y aplicaciones. Tú decides los permisos y el proveedor de IA.
         </p>
         <div class="onboarding-grid">
           <button id="onboarding-models" class="onboarding-card" type="button">
@@ -618,7 +618,11 @@
               >Borra configuración, memoria, sesiones, permisos, cachés y credenciales de Kaoru, y
               reinicia la aplicación.</span
             >
-            <input id="prefs-factory-confirm" placeholder="Escribe BORRAR TODO" autocomplete="off" />
+            <input
+              id="prefs-factory-confirm"
+              placeholder="Escribe BORRAR TODO"
+              autocomplete="off"
+            />
             <button class="btn-danger" id="prefs-factory-reset-btn" type="button">
               Borrar todos los datos de Kaoru
             </button>
@@ -659,5 +663,6 @@
     <script src="chat/asr.js"></script>
     <script src="chat/live2d.js"></script>
     <script src="chat/ipc.js"></script>
+    <script src="chat/header.js"></script>
   </body>
 </html>

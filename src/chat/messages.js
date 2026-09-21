@@ -122,8 +122,27 @@ function _applyWorkspaceUI(fullPath) {
   const title = document.getElementById('workspace-title');
   if (title) {
     title.textContent = '~/' + _workspaceName(fullPath);
+    title.title = fullPath ? `${fullPath} — cambiar workspace` : 'Cambiar workspace';
   }
 }
+
+document.getElementById('workspace-title').addEventListener('click', async () => {
+  const title = document.getElementById('workspace-title');
+  title.disabled = true;
+  try {
+    const result = await ipcRenderer.invoke('pick-workspace-folder');
+    if (result && !result.ok)
+      addMessage('assistant', `No se pudo cambiar el workspace: ${result.error}`);
+  } catch (error) {
+    addMessage('assistant', `No se pudo cambiar el workspace: ${error.message}`);
+  } finally {
+    title.disabled = false;
+  }
+});
+
+ipcRenderer.on('workspace-changed', (_event, payload) => {
+  if (payload && payload.path) _applyWorkspaceUI(payload.path);
+});
 
 ipcRenderer
   .invoke('get-workspace')
@@ -165,21 +184,28 @@ function updateKeysBanner(activeProvider) {
 }
 
 // ── Header: modelo/provider activo (dato real) ───────────────────────────────
-// Formato "provider/modelo" (p.ej. "nvidia/minimax-m3"). Sin keys o sin LLM
-// activo, cae a "sin modelo".
+// Nombre legible del modelo activo. Sin keys o sin LLM activo, cae a "sin modelo".
 function updateHeaderModel() {
   const el = document.getElementById('header-model');
   if (!el) return;
   const active = LLMProvider.getActiveProvider();
   if (!active) {
     el.textContent = 'sin modelo';
-    el.title = '';
+    document.getElementById('status-model').textContent = 'sin modelo';
     return;
   }
   const p = LLMProvider.getAvailableProviders().find((x) => x.id === active);
   const model = p?.activeModel?.smart || p?.models?.smart || '';
-  el.textContent = model ? `${p.id}/${model}` : p.id;
-  el.title = `${p?.name || active} · ${p?.free ? 'gratis' : 'pago'}`;
+  const label = model
+    ? model
+        .replace(/^.*\//, '')
+        .split(/[-_\s]+/)
+        .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+        .join(' ')
+    : p?.name || active;
+  el.textContent = label;
+  el.title = `${p?.name || active} · ${model} · ${p?.free ? 'gratis' : 'pago'}`;
+  document.getElementById('status-model').textContent = label;
 }
 
 async function refreshFooterSession() {
@@ -656,11 +682,6 @@ function closePicker() {
 
 pickerCloseBtn.addEventListener('click', closePicker);
 document.getElementById('open-settings-btn').addEventListener('click', openSettings);
-const headerModelEl = document.getElementById('header-model');
-if (headerModelEl) {
-  headerModelEl.addEventListener('click', openPicker);
-  headerModelEl.style.cursor = 'pointer';
-}
 const modelsBtn = document.getElementById('models-btn');
 if (modelsBtn) modelsBtn.addEventListener('click', openPicker);
 pickerModal.addEventListener('click', (e) => {

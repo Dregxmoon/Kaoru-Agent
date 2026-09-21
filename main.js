@@ -1163,7 +1163,7 @@ async function _autoInitProject() {
     // El workspace sigue el directorio de la app (o ASISTENTE_WORKSPACE);
     // ya no se impone el activeWorkspace persistido de config.json.
     const workspace = process.env.ASISTENTE_WORKSPACE;
-    const root = workspace || app.getAppPath() || process.cwd();
+    const root = workspace || Core.getWorkspace() || process.cwd();
     if (!root || !fs.existsSync(root)) return;
 
     let summary = `Proyecto activo: ${root}`;
