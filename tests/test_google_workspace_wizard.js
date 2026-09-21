@@ -245,7 +245,7 @@ async function testIpcPersistence() {
       'mcp-google-workspace-connect',
       'mcp-google-workspace-console',
     ])
-      assert(text.includes(`'${channel}'`));
+      assert(!text.includes(`'${channel}'`), `${channel} no debe exponerse en producción`);
   }
 }
 (async () => {

@@ -50,8 +50,9 @@ function read(relativePath) {
     'el panel permite desborde únicamente durante una animación'
   );
   assert(
-    /transition:\s*left 320ms cubic-bezier/.test(css) && /avatar-protruding/.test(live2d),
-    'la capa entra y vuelve con una transición suave'
+    /#model-canvas-container\s*\{[^}]*left:\s*0;[^}]*transition:\s*none;/.test(css) &&
+      /avatar-protruding/.test(live2d),
+    'el modelo mantiene su posición mientras cambia la presencia'
   );
   assert(/avatar-working-out/.test(css), 'existe animación de trabajo fuera del marco');
   assert(/function animateAvatarPresence/.test(live2d), 'Live2D expone estados de presencia');
