@@ -189,7 +189,10 @@ console.log(C.bold(C.cyan('═════════════════�
         hasNoSendBtn: !document.getElementById('send-btn'),
         hasThemeToggle: !!document.getElementById('theme-toggle'),
         hasModelsBtn: !!document.getElementById('models-btn'),
-        hasMcpBtn: !!document.getElementById('mcp-btn'),
+        hasNoMcpUi:
+          !document.getElementById('mcp-btn') &&
+          !document.getElementById('mcp-modal') &&
+          !document.getElementById('mcp-count'),
         hasPermsBtn: !!document.getElementById('perms-btn'),
         hasCommandsBtn: !!document.getElementById('commands-btn'),
         hasCloseBtn: !!document.getElementById('close-btn'),
@@ -224,7 +227,7 @@ console.log(C.bold(C.cyan('═════════════════�
     assert(headerOk.hasNoSendBtn, 'sin botón enviar — envío con Enter (diseño minimizado)');
     assert(headerOk.hasThemeToggle, 'toggle de tema presente');
     assert(headerOk.hasModelsBtn, 'acceso directo a modelos presente');
-    assert(headerOk.hasMcpBtn, 'acceso directo a MCP presente');
+    assert(headerOk.hasNoMcpUi, 'MCP no aparece en la experiencia de producción');
     assert(headerOk.hasPermsBtn, 'acceso directo a permisos presente');
     assert(headerOk.hasCommandsBtn, 'acceso directo a comandos presente');
     assert(headerOk.hasCloseBtn, 'botón de cerrar presente');
@@ -474,33 +477,6 @@ console.log(C.bold(C.cyan('═════════════════�
     assert(settingsClosed, 'picker de modelos se cierra con ×');
 
     // ── Accesos directos a módulos ───────────────────────────────────────
-    await chat.evaluate(() => document.getElementById('mcp-btn').click());
-    await sleep(200);
-    assert(
-      await chat.evaluate(() => document.getElementById('mcp-modal').classList.contains('visible')),
-      'acceso MCP abre su módulo'
-    );
-    const mcpUi = await chat.evaluate(() => {
-      const close = document.getElementById('mcp-close').getBoundingClientRect();
-      const row = document.querySelector('#mcp-box .settings-title-row, #mcp-box .mcp-title-row');
-      const frame = row ? row.getBoundingClientRect() : close;
-      return {
-        noLogos: !document.querySelector('#mcp-modal .mcp-card-icon'),
-        noCategoryIcons: !document.querySelector('#mcp-modal .mcp-cat-icon'),
-        closeInside: close.left >= frame.left && close.right <= frame.right + 1,
-        closeCentered: Math.abs(close.width - close.height) < 1,
-      };
-    });
-    assert(
-      mcpUi.noLogos && mcpUi.noCategoryIcons,
-      'MCP no muestra logos ni emojis fuera de las tarjetas'
-    );
-    assert(
-      mcpUi.closeInside && mcpUi.closeCentered,
-      'la X de MCP queda centrada dentro del encabezado'
-    );
-    await chat.evaluate(() => document.getElementById('mcp-close').click());
-
     await chat.evaluate(() => document.getElementById('perms-btn').click());
     await sleep(200);
     assert(

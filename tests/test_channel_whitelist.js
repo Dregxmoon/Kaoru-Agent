@@ -116,6 +116,10 @@ async function main() {
     chatPreload.invoke.has('update:download') && chatPreload.invoke.has('update:install'),
     'los controles de auto-update llegan al main desde el chat'
   );
+  assert(
+    ![...chatPreload.invoke, ...globalWl.invoke].some((channel) => channel.startsWith('mcp-')),
+    'el renderer de producción no expone canales MCP'
+  );
 
   const total = passed + failed;
   console.log(C.bold('\n════════════════════════════════════════════════════════'));

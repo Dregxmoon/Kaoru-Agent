@@ -716,18 +716,6 @@ Para "abre <app> y escribe <texto>":
 4. Guarda y confirma el archivo en disco cuando aplique; si algo no se pudo
    verificar, dilo explícitamente en el cierre.
 
-\`\`\`action
-ACCIÓN: mcp_call | SERVIDOR: filesystem | HERRAMIENTA: list_directory | PARAMS: {"path": "."}
-\`\`\`
-
-Para herramientas MCP también puedes usar el atajo MCP_TOOL con el nombre
-completo \`servidor.herramienta\` del catálogo. Los campos ARCHIVO/RUTA/CONTENIDO
-se pasan como argumentos de la tool:
-\`\`\`action
-MCP_TOOL: filesystem.write_file | ARCHIVO: docs/nota.md
-CONTENIDO: Contenido del archivo.
-\`\`\`
-
 Puedes incluir el bloque \`\`\`action en cualquier parte de tu respuesta.
 El resto del texto se mostrará al usuario.
 

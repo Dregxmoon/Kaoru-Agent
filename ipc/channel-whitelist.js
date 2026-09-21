@@ -71,20 +71,6 @@ const INVOKE_ALLOWLIST = new Set([
   'overlay-tts-stream',
   // Skills / plugins
   'list-skills',
-  // MCP
-  'mcp-google-workspace-info',
-  'mcp-google-workspace-console',
-  'mcp-google-workspace-connect',
-  'mcp-add-server',
-  'mcp-list-servers',
-  'mcp-remove-server',
-  'mcp-search-registry',
-  'mcp-toggle-server',
-  'mcp-get-featured',
-  'mcp-get-categories',
-  'mcp-get-oauth-providers',
-  'mcp-oauth-start',
-  'mcp-oauth-check',
   // Permisos
   'permissions-list',
   'permissions-remove',

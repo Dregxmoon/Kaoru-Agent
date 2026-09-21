@@ -29,7 +29,6 @@ const CATEGORIES = {
   telemetria: 'General',
   proactive: 'General',
   sesiones: 'General',
-  mcp: 'General',
   permisos: 'General',
   dir: 'General',
   uso: 'IA / LLM',

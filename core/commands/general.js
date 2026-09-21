@@ -219,49 +219,6 @@ module.exports = function registerCommands(register) {
   });
 
   register({
-    name: 'mcp',
-    description: 'Lista los servidores MCP (estado y tools que ve el agente) y abre su panel',
-    usage: '/mcp',
-    handler: async (args, ctx) => {
-      // Listado inline: servidores, estado de conexión y tools expuestas al
-      // AgentLoop. Antes esta info solo vivía en logs/panel.
-      let servers = [];
-      try {
-        servers = typeof ctx.mcpServers === 'function' ? ctx.mcpServers() : [];
-      } catch {}
-
-      let listado;
-      if (!servers.length) {
-        listado = 'No hay servidores MCP configurados.';
-      } else {
-        const ICON = {
-          connected: '🟢',
-          connecting: '🟡',
-          reconnecting: '🟡',
-          error: '🔴',
-          disconnected: '⚪',
-        };
-        const rows = servers.map((s) => {
-          const icon = ICON[s.status] || '⚪';
-          const err = s.status === 'error' && s.error ? ` — ${String(s.error).slice(0, 60)}` : '';
-          return `- ${icon} **${s.name}** — ${s.status} · ${s.toolCount} tool(s)${err}`;
-        });
-        const totalTools = servers
-          .filter((s) => s.status === 'connected')
-          .reduce((acc, s) => acc + s.toolCount, 0);
-        const conectados = servers.filter((s) => s.status === 'connected').length;
-        listado =
-          `**Servidores MCP:** ${conectados}/${servers.length} conectados · ` +
-          `${totalTools} tools disponibles para el agente\n${rows.join('\n')}`;
-      }
-
-      // El panel sigue disponible para gestionarlos (agregar/quitar/toggle).
-      if (typeof ctx.openMcp === 'function') ctx.openMcp();
-      return listado;
-    },
-  });
-
-  register({
     name: 'permisos',
     description: 'Abre el panel de permisos de herramientas (allow/ask/deny)',
     usage: '/permisos',

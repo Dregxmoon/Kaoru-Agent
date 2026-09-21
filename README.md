@@ -57,18 +57,18 @@ Los asistentes de escritorio tradicionales son **reactivos**: esperan a que el u
 
 ### Segmentos objetivo
 
-| Segmento                   | Valor entregado                                                                                                                                                                                                             |
-| -------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **Desarrolladores**        | Asistente de código proactivo: detecta errores LSP en el editor, propone parches con diff y verificación real, cuida la higiene del repo (`.env`, conflictos, commits) y ejecuta tareas vía MCP/OpenClaw con control total. |
-| **Usuarios de escritorio** | Compañero persistente con memoria: retoma hilos pendientes, recuerda lo que importa y ofrece ayuda contextual con controles separados para aplicaciones, navegador, pantalla, puntero, teclado, procesos y cámara.          |
-| **Creadores y streamers**  | Overlay Live2D en tiempo real con voz sintetizada (Edge TTS), reconocimiento de voz offline (Vosk) y personalidad consistente.                                                                                              |
+| Segmento                   | Valor entregado                                                                                                                                                                                                    |
+| -------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| **Desarrolladores**        | Asistente de código proactivo: detecta errores LSP en el editor, propone parches con diff y verificación real, cuida la higiene del repo (`.env`, conflictos, commits) y ejecuta tareas con herramientas locales.  |
+| **Usuarios de escritorio** | Compañero persistente con memoria: retoma hilos pendientes, recuerda lo que importa y ofrece ayuda contextual con controles separados para aplicaciones, navegador, pantalla, puntero, teclado, procesos y cámara. |
+| **Creadores y streamers**  | Overlay Live2D en tiempo real con voz sintetizada (Edge TTS), reconocimiento de voz offline (Vosk) y personalidad consistente.                                                                                     |
 
 ### Diferenciadores
 
 1. **Decisión auditable.** Las señales normalizadas de sensores pasan por un núcleo determinista (<code>DecisionCore</code>) con <em>reason codes</em>: su admisión puede rastrearse hasta puntuación, pesos y política. El LLM redacta el contenido una vez admitidas; los triggers heredados o no sensoriales se documentan por separado.
 2. **Datos locales con transferencias explícitas.** Memoria, embeddings, telemetría y preferencias se guardan localmente. El contenido necesario para responder se envía al proveedor LLM configurado; capturas, contexto del SO y resultados de herramientas pueden incluirse cuando la tarea lo requiere y el permiso lo permite.
 3. **Soberanía de proveedores.** El catálogo de proveedores se resuelve desde la implementación y admite fallback configurable, reintento exponencial y modelos locales cuando están disponibles.
-4. **Extensible por MCP.** Cliente Model Context Protocol propio: cualquier servidor de herramientas del ecosistema se conecta sin tocar el núcleo.
+4. **Herramientas locales.** El agente ejecuta tareas sobre el workspace con permisos y verificación según el tipo de acción.
 5. **Autonomía calibrada por datos.** Un slider de autonomía (`observe | suggest | act`) más un modelo de receptividad que ajusta la frecuencia y el presupuesto según la respuesta real del usuario.
 
 ---
@@ -108,7 +108,7 @@ flowchart TD
     subgraph PERC["Percepción y acción"]
         SENSORS["Sensores<br/>SO · Git · LSP · título · eventos"]
         LLM["LLM Providers<br/>Groq / Gemini / OpenAI"]
-        TOOLS["OpenClaw · MCP · Browser · Desktop"]
+        TOOLS["Herramientas locales · Browser · Desktop"]
     end
 
     OVERLAY --> CHAT
@@ -209,7 +209,7 @@ Proveedores configurables con cadena de fallback, reintento exponencial con jitt
 <details>
 <summary><strong>Model Context Protocol (MCP)</strong></summary>
 
-Cliente MCP propio (stdio), reconexión automática con backoff, namespacing de herramientas por servidor y catálogo dinámico inyectado al prompt del LLM.
+La interfaz y la conexión de servidores MCP están desactivadas en `produccion`. La rama `testing` conserva esta experiencia para su desarrollo y validación.
 
 </details>
 
@@ -509,7 +509,7 @@ En `config.json` (fuente de claves) o `.env` (alternativa):
 | `browser.*`       | Navegador personal o administrado para multimedia y navegador personal preferido                                                     |
 | `autonomy`        | `observe` (solo observa) · `suggest` (propone, default) · `act` (actúa con regla `allow` explícita; si no existe, pide confirmación) |
 | `sensors.*`       | Activa/desactiva sensores de señales (git, sistema, título, portapapeles, eventos, LSP)                                              |
-| `mcp.servers`     | Servidores MCP a conectar al arrancar                                                                                                |
+| `mcp.servers`     | Configuración conservada, sin conexión automática en `produccion`                                                                    |
 
 Las API keys guardadas se pueden reemplazar o eliminar desde **Ajustes → Credenciales de modelos** sin revelar el valor actual. Si una clave procede de `LLM_KEY_*` en `.env` o del entorno del proceso, la interfaz elimina cualquier copia guardada y avisa que esa variable debe retirarse en su origen.
 
@@ -587,17 +587,17 @@ npm run coverage:check    # además valida umbrales (guard de regresión)
 
 ## 7. Estado del proyecto
 
-| Área | Madurez | Límite principal |
-| --- | --- | --- |
-| Conversación, proveedores y streaming | Beta | La calidad, coste y privacidad dependen del proveedor elegido. |
-| Agente de código, LSP y verificación | Beta | Falta validación externa en repositorios y equipos diversos. |
-| Memoria local y proactividad | Beta | Necesita evaluación longitudinal con usuarios externos. |
-| Voz y Live2D | Experimental | Requiere dependencias y assets opcionales con derechos adecuados. |
-| Escritorio Linux y Windows | Beta | La cobertura depende de la accesibilidad de cada aplicación. |
-| Escritorio macOS | Experimental | Sin paridad semántica ni sandbox adicional del ejecutor. |
-| MCP, plugins y skills | Experimental | Cada extensión añade superficie de confianza propia. |
-| Instaladores y actualizaciones | Beta | Onboarding y limpieza local disponibles; faltan firma y notarización. |
-| Permisos y sandbox | Beta | El control efectivo depende de herramienta, política y plataforma. |
+| Área                                  | Madurez      | Límite principal                                                      |
+| ------------------------------------- | ------------ | --------------------------------------------------------------------- |
+| Conversación, proveedores y streaming | Beta         | La calidad, coste y privacidad dependen del proveedor elegido.        |
+| Agente de código, LSP y verificación  | Beta         | Falta validación externa en repositorios y equipos diversos.          |
+| Memoria local y proactividad          | Beta         | Necesita evaluación longitudinal con usuarios externos.               |
+| Voz y Live2D                          | Experimental | Requiere dependencias y assets opcionales con derechos adecuados.     |
+| Escritorio Linux y Windows            | Beta         | La cobertura depende de la accesibilidad de cada aplicación.          |
+| Escritorio macOS                      | Experimental | Sin paridad semántica ni sandbox adicional del ejecutor.              |
+| Plugins y skills                      | Experimental | Cada extensión añade superficie de confianza propia.                  |
+| Instaladores y actualizaciones        | Beta         | Onboarding y limpieza local disponibles; faltan firma y notarización. |
+| Permisos y sandbox                    | Beta         | El control efectivo depende de herramienta, política y plataforma.    |
 
 `Beta` indica un flujo utilizable con pruebas automatizadas y límites conocidos. `Experimental`
 indica cobertura o contratos aún variables. Consulta el [roadmap y sus gates de
@@ -607,25 +607,25 @@ evidencia](./ROADMAP.md); ningún componente se declara todavía `production-rea
 
 ## 8. Documentación
 
-| Documento                                          | Contenido                                   |
-| -------------------------------------------------- | ------------------------------------------- |
-| [`docs/README.md`](./docs/README.md)               | Centro documental y selector de idioma      |
-| [`docs/arquitectura.md`](./docs/arquitectura.md)   | Diagrama de arquitectura detallado          |
-| [`docs/agente-codigo.md`](./docs/agente-codigo.md) | Flujo de ingeniería, verificación y límites |
-| [`SECURITY.md`](./SECURITY.md)                     | Threat model y divulgación responsable      |
-| [`ROADMAP.md`](./ROADMAP.md)                       | Madurez, evidencia y gates comerciales      |
-| [`CONTRIBUTING.md`](./CONTRIBUTING.md)             | Desarrollo y pruebas externas               |
-| [`docs/requisitos.md`](./docs/requisitos.md)       | RAM, CPU, disco y línea base por modo        |
+| Documento                                                             | Contenido                                    |
+| --------------------------------------------------------------------- | -------------------------------------------- |
+| [`docs/README.md`](./docs/README.md)                                  | Centro documental y selector de idioma       |
+| [`docs/arquitectura.md`](./docs/arquitectura.md)                      | Diagrama de arquitectura detallado           |
+| [`docs/agente-codigo.md`](./docs/agente-codigo.md)                    | Flujo de ingeniería, verificación y límites  |
+| [`SECURITY.md`](./SECURITY.md)                                        | Threat model y divulgación responsable       |
+| [`ROADMAP.md`](./ROADMAP.md)                                          | Madurez, evidencia y gates comerciales       |
+| [`CONTRIBUTING.md`](./CONTRIBUTING.md)                                | Desarrollo y pruebas externas                |
+| [`docs/requisitos.md`](./docs/requisitos.md)                          | RAM, CPU, disco y línea base por modo        |
 | [Revisión interna de seguridad](./docs/security-review-2026-09-14.md) | Hallazgos y pendientes para revisión externa |
-| [Aviso de privacidad](./docs/web/privacy.html)     | Datos, transferencias, retención y derechos |
-| [Términos de uso](./docs/web/terms.html)           | Condiciones, riesgos y terceros             |
-| [`core/`](./core/README.md)                        | Núcleo de inteligencia y orquestación       |
-| [`core/desktop/`](./core/desktop/README.md)        | Automatización y permisos de escritorio     |
-| [`core/github/`](./core/github/README.md)          | Cliente REST de GitHub y OAuth              |
-| [`infrastructure/`](./infrastructure/README.md)    | Capa de bajo nivel                          |
-| [`ipc/`](./ipc/README.md)                          | Capa IPC (renderer ↔ núcleo)                |
-| [`src/`](./src/README.md)                          | Interfaz de usuario                         |
-| [`tests/`](./tests/README.md)                      | Estrategia de pruebas                       |
+| [Aviso de privacidad](./docs/web/privacy.html)                        | Datos, transferencias, retención y derechos  |
+| [Términos de uso](./docs/web/terms.html)                              | Condiciones, riesgos y terceros              |
+| [`core/`](./core/README.md)                                           | Núcleo de inteligencia y orquestación        |
+| [`core/desktop/`](./core/desktop/README.md)                           | Automatización y permisos de escritorio      |
+| [`core/github/`](./core/github/README.md)                             | Cliente REST de GitHub y OAuth               |
+| [`infrastructure/`](./infrastructure/README.md)                       | Capa de bajo nivel                           |
+| [`ipc/`](./ipc/README.md)                                             | Capa IPC (renderer ↔ núcleo)                 |
+| [`src/`](./src/README.md)                                             | Interfaz de usuario                          |
+| [`tests/`](./tests/README.md)                                         | Estrategia de pruebas                        |
 
 ---
 

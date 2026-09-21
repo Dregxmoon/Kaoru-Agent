@@ -31,12 +31,11 @@ Interfaz completa de conversación con el asistente.
 
 | Sección               | Propósito                                                                                                                                                    |
 | --------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| Header                | Indicador de estado, selector de modo, **badge AGENTE con % de contexto**, badge OpenClaw/MCP, tema, botón de cancelar flujo                                 |
+| Header                | Workspace, modelo, estado, ajustes y botón de cancelar flujo                                                                                                 |
 | Messages              | Burbujas con **streaming markdown incremental**, preview HTML en frame `sandbox`, chips de archivos, divisores de sesión, toast de **copiar al seleccionar** |
 | Input area            | Texto con autocompletado de `/comando` y de `@archivo` (filtra mientras escribes), adjuntar, STT, enviar                                                     |
 | Model panel           | Canvas Live2D integrado (vistas full / half / head) con **gestos LLM-driven** (`(gesto: x)`)                                                                 |
 | Settings modal        | Proveedor/modelo, credenciales y permisos por capacidad: aplicaciones, navegador, pantalla, puntero, teclado, procesos y cámara                              |
-| MCP modal             | Administración de servidores MCP (biblioteca + JSON manual)                                                                                                  |
 | Propuestas proactivas | Burbujas de iniciativa con botones aceptar / descartar + resultado de ejecución                                                                              |
 
 **Eventos IPC principales:**
@@ -82,7 +81,7 @@ flowchart LR
     subgraph WIN2["chat.html — chat"]
         MSG["Mensajes<br/>(markdown + DOMPurify)"]
         PROPS["Propuestas proactivas"]
-        SET["Settings · MCP modals"]
+        SET["Ajustes y permisos"]
     end
 
     WIN1 <-->|"IPC"| CORE

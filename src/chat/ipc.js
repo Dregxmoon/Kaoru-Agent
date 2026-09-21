@@ -475,8 +475,6 @@ assistant.onUiCall(({ id, fn, args }) => {
           return openNodes();
         case 'hideNodes':
           return hideNodes();
-        case 'openMcp':
-          return openMcpModal();
         case 'openPerms':
           return openPermsModal();
         case 'pickWorkspace':

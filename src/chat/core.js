@@ -260,6 +260,21 @@ function updateSandboxBanner() {
   }
 }
 
+async function checkOpenClaw() {
+  try {
+    const status = await assistant.invoke('openclaw-status');
+    if (status) {
+      openclawAvailable = Boolean(status.available);
+      openclawSandbox =
+        status.sandbox === undefined || status.sandbox === null ? null : Boolean(status.sandbox);
+      openclawSandboxReason = status.sandboxReason || null;
+      updateSandboxBanner();
+    }
+  } catch {
+    openclawAvailable = false;
+  }
+}
+
 // Flujo unificado: toda entrada usa Core.runAgent → AgentLoop. `fast`/`smart`
 // siguen existiendo como routing interno automático, no como dos productos
 // que el usuario deba alternar manualmente.
@@ -496,7 +511,6 @@ themeToggle.addEventListener('click', () =>
 document.addEventListener('keydown', (event) => {
   if (event.key !== 'Escape') return;
   const openModal = [
-    ['#mcp-modal.visible', '#mcp-close'],
     ['#perms-modal.visible', '#perms-close-x'],
     ['#prefs-modal.visible', '#prefs-close'],
     ['#sessions-modal.visible', '#sessions-close'],

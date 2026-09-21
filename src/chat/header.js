@@ -5,20 +5,7 @@ const statusButton = document.getElementById('status-btn');
 const statusPopover = document.getElementById('status-popover');
 
 async function refreshHeaderStatus() {
-  const [servers, rules] = await Promise.allSettled([
-    window.assistant.invoke('mcp-list-servers'),
-    window.assistant.invoke('permissions-list'),
-  ]);
-  const count = document.getElementById('mcp-count');
-  if (servers.status === 'fulfilled' && Array.isArray(servers.value)) {
-    const connected = servers.value.filter((server) => server.status === 'connected').length;
-    count.textContent = String(connected);
-    document.getElementById('mcp-count-label').textContent =
-      connected === 1 ? 'conectado' : 'conectados';
-    document.getElementById('mcp-btn').classList.toggle('active', connected > 0);
-  } else {
-    count.textContent = '?';
-  }
+  const [rules] = await Promise.allSettled([window.assistant.invoke('permissions-list')]);
   const permissions = document.getElementById('status-permissions');
   if (rules.status === 'fulfilled' && Array.isArray(rules.value)) {
     const custom = rules.value.filter((rule) => !String(rule.tool || '').startsWith('capability:'));

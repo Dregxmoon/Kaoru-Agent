@@ -7,8 +7,7 @@
  *   1. MCPManager.js usa fetch() de Node.js, no require('server-fetch').
  *   2. package.json no depende de server-fetch.
  *   3. Las llamadas al registro MCP usan AbortSignal.timeout().
- *   4. El catálogo de src/chat/mcp.js solo lista server-fetch como opción,
- *      sin importarlo ni dependender de él.
+ *   4. La tienda MCP no se carga en la ventana de producción.
  *
  * Correr igual que las demás suites (Node de Electron):
  *   ELECTRON_RUN_AS_NODE=1 ./node_modules/electron/dist/electron tests/test_server_fetch.js
@@ -90,22 +89,14 @@ function testFetchTimeout() {
   );
 }
 
-// ── Test 4: src/chat/mcp.js solo lista, no importa ──────────
+// ── Test 4: la tienda MCP no forma parte del chat de producción ──────────
 
 function testCatalogOnly() {
-  console.log(C.bold('\n── Test 4: Catálogo solo lista server-fetch ───────────'));
+  console.log(C.bold('\n── Test 4: tienda MCP fuera de producción ───────────'));
 
-  const content = fs.readFileSync(path.join(__dirname, '..', 'src', 'chat', 'mcp.js'), 'utf8');
-
-  // server-fetch aparece en el catálogo como opción disponible.
-  assert(
-    content.includes('@modelcontextprotocol/server-fetch'),
-    'Catálogo incluye server-fetch como opción'
-  );
-
-  // Pero no lo importa ni lo requiere.
-  assert(!content.includes("require('server-fetch')"), 'Catálogo no requiere server-fetch');
-  assert(!content.includes('import'), 'Catálogo no usa import (CommonJS puro)');
+  const chatHtml = fs.readFileSync(path.join(__dirname, '..', 'src', 'chat.html'), 'utf8');
+  assert(!chatHtml.includes('chat/mcp.js'), 'El chat no carga la tienda MCP');
+  assert(!chatHtml.includes('mcp-modal'), 'El chat no muestra la tienda MCP');
 }
 
 // ── Test 5: fetch() es global de Node >= 18 ────────────────

@@ -24,23 +24,6 @@ async function setActiveWorkspace(newPath) {
   setProjectCWD(resolved);
   state.activeWorkspace = resolved;
 
-  if (state.mcp) {
-    try {
-      const fsServer = state.mcp.listServers().find((s) => s.name === 'filesystem');
-      if (fsServer) await state.mcp.removeServer(fsServer.id);
-      await state.mcp.addServer({
-        name: 'filesystem',
-        command: 'npx',
-        args: ['-y', '@modelcontextprotocol/server-filesystem', resolved],
-        env: {},
-      });
-    } catch (error) {
-      // El servidor MCP es opcional. El workspace principal y el anuncio a la
-      // UI deben quedar sincronizados aunque esa integración esté caída.
-      logger.warn('workspace', '[core] MCP filesystem no disponible:', error.message);
-    }
-  }
-
   // ── LSP: arrancar servidor para el nuevo workspace ─────────────────
   if (state.lspManager) {
     (async () => {

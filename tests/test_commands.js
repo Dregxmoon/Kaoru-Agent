@@ -77,6 +77,7 @@ function testRegisteredCommands() {
   assert(names.includes('clear'), 'clear registrado');
   assert(!names.includes('mode'), 'mode eliminado (modo automático por intención)');
   assert(names.includes('model'), 'model registrado');
+  assert(!names.includes('mcp'), 'MCP no aparece en los comandos de producción');
   assert(names.includes('memory'), 'memory registrado');
   assert(names.includes('memoria'), 'memoria registrado');
   assert(names.includes('retry'), 'retry registrado');

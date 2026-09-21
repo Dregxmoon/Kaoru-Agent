@@ -48,7 +48,6 @@ const logger = require('../observability/Logger.js');
 const state = require('./state.js');
 const {
   loadLLMConfig,
-  loadMCPConfig,
   readSensorsConfig,
   readAutonomyConfig,
   readBrowserConfig,
@@ -484,7 +483,6 @@ function init(app) {
 
   scheduleDailyPrune();
   loadLLMConfig();
-  loadMCPConfig();
 
   // Catálogo remoto (models.dev): best-effort, NO bloquea el init — si la red
   // falla degrada en silencio al catálogo curado o al cache en disco.
@@ -500,7 +498,7 @@ function init(app) {
 
   startOpenClaw(_initialWorkspace);
 
-  // Workspace inicial async (MCP filesystem)
+  // Workspace inicial async; el resto de motores arranca tras validarlo.
   if (_initialWorkspace) {
     let backgroundStarted = false;
     const startBackgroundEngines = () => {
@@ -532,9 +530,8 @@ function init(app) {
         }
       })
       .catch((e) => {
-        logger.error('init', '[core] fallo preparando workspace/MCP:', e.message);
-        // OS, recordatorios y telemetría proactiva pueden operar degradados sin
-        // MCP. El watcher LSP hará no-op hasta que exista un workspace válido.
+        logger.error('init', '[core] fallo preparando workspace:', e.message);
+        // OS, recordatorios y telemetría proactiva pueden operar degradados.
         startBackgroundEngines();
       });
   }

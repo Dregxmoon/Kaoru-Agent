@@ -37,7 +37,6 @@ const LLMProvider = require('../core/llm/LLMProvider.js');
 const CommandRegistry = require('../core/commands/CommandRegistry.js');
 const FileResolver = require('../core/commands/FileResolver.js');
 const PathGuard = require('../core/security/PathGuard.js');
-const { getMCPManager } = require('../core/mcp/MCPManager.js');
 const state = require('../core/core/state.js');
 const AgentManager = require('../core/agents/AgentManager.js');
 const ModelAugmenter = require('../core/behavior/ModelAugmenter.js');
@@ -163,12 +162,10 @@ function register(_ctx) {
    * @property {() => void} openSessions
    * @property {() => void} openNodes
    * @property {() => void} hideNodes
-   * @property {() => void} openMcp
    * @property {() => void} openPerms
    * @property {() => Promise<any>} pickWorkspace
    * @property {(next: boolean) => void} setTtsMuted
    * @property {() => boolean} isTtsMuted
-   * @property {() => any[]} mcpServers
    * @property {() => Record<string,any>} getSkillStats
    * @property {any} gestureConfig
    * @property {{play: (mood: any, opts?: any) => Promise<any>} | null} gestureEngine
@@ -215,9 +212,6 @@ function register(_ctx) {
       hideNodes: () => {
         _uiCall('hideNodes', []);
       },
-      openMcp: () => {
-        _uiCall('openMcp', []);
-      },
       openPerms: () => {
         _uiCall('openPerms', []);
       },
@@ -226,14 +220,6 @@ function register(_ctx) {
         _uiCall('setTtsMuted', [!!next]);
       },
       isTtsMuted: () => !!pageData.ttsMuted,
-      // /mcp: estado de servidores MCP sin ir a los logs.
-      mcpServers: () => {
-        try {
-          return getMCPManager().listServers();
-        } catch {
-          return [];
-        }
-      },
       // /gestos mapa: confiabilidad por skill (loop de feedback LearningEngine).
       getSkillStats: () => {
         try {
