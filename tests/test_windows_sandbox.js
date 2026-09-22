@@ -335,7 +335,7 @@ async function testNativeAppContainerRuntime() {
     );
     assert(!denied.ok, 'deniega lectura de un archivo hermano fuera del workspace');
   } finally {
-    fs.rmSync(root, { recursive: true, force: true });
+    fs.rmSync(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 250 });
   }
 }
 
