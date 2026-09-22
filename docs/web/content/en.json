@@ -91,7 +91,7 @@
     [
       "07",
       "Connect your tools",
-      "GitHub, optional Google Workspace, MCP servers and plugins expand available tasks. Each connection has its own permissions, dependencies and potential data transfers."
+      "GitHub and local plugins expand available tasks. Review each tool's permissions and origin before using it."
     ],
     [
       "08",
@@ -165,7 +165,7 @@
   ],
   "galleryTitle": "On your desktop",
   "galleryIntro": "Actual project screenshots. Appearance varies with your model and configuration.",
-  "gallery": ["Conversation and tools in the chat window", "A suggestion from Kaoru"],
+  "gallery": ["Kaoru welcome screen", "A suggestion from Kaoru"],
   "quickTitle": "Start with a conversation. Delegate when you need to.",
   "quickIntro": "Choose a provider and a project. You can begin with a question or request a small result you can check. The guide covers installation, permissions and platform limits.",
   "quickSteps": [
@@ -211,7 +211,7 @@
     [
       "connections",
       "Integrations and teamwork",
-      "Connect only authorized accounts. Choose the scopes you need in GitHub and Google, and revoke access you no longer use. Review MCP and plugin origins and permissions. Start with a test repository before using client data, and agree on what context may leave the device."
+      "Connect only authorized accounts. Choose the scopes you need in GitHub, and revoke access you no longer use. Review plugin origins and permissions. Start with a test repository before using client data, and agree on what context may leave the device."
     ],
     [
       "recovery",

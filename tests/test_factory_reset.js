@@ -86,6 +86,11 @@ async function main() {
     installer.includes('¿También quieres borrar'),
     'el desinstalador interactivo ofrece limpieza'
   );
+  assert(
+    !installer.includes('${APP_EXECUTABLE_FILENAME}') &&
+      installer.includes('${PRODUCT_FILENAME}.exe'),
+    'el instalador usa una constante disponible también al crear el desinstalador'
+  );
   const configHandlers = fs.readFileSync(
     path.join(__dirname, '..', 'ipc', 'config-handlers.js'),
     'utf8'

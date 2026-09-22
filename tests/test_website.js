@@ -66,6 +66,7 @@ async function main() {
         });
         await page.waitForFunction(() => [...document.images].every((image) => image.complete));
         check((await page.locator('html').getAttribute('lang')) === lang, `${route}: language`);
+        check(!/\bMCP\b/i.test(await page.locator('body').innerText()), `${route}: no MCP copy`);
         check((await page.locator('h1').count()) === 1, `${route}: one heading`);
         check((await page.locator('.language-bar a').count()) === 3, `${route}: three languages`);
         const broken = await page.evaluate(() =>

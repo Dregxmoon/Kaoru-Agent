@@ -108,7 +108,7 @@ Function KaoruFinishLeave
   kaoruLaunch:
   ${NSD_GetState} $KaoruOpenAfterInstall $0
   ${If} $0 == ${BST_CHECKED}
-    ExecShell "open" "$INSTDIR\${APP_EXECUTABLE_FILENAME}"
+    ExecShell "open" "$INSTDIR\${PRODUCT_FILENAME}.exe"
   ${EndIf}
 FunctionEnd
 
@@ -118,7 +118,7 @@ FunctionEnd
   CreateDirectory "$LOCALAPPDATA\Microsoft\WindowsApps"
   FileOpen $0 "$LOCALAPPDATA\Microsoft\WindowsApps\asistente.cmd" w
   FileWrite $0 "@echo off$\r$\n"
-  FileWrite $0 "start $\"$\" $\"$INSTDIR\${APP_EXECUTABLE_FILENAME}$\" --workspace $\"%CD%$\" %*$\r$\n"
+  FileWrite $0 "start $\"$\" $\"$INSTDIR\${PRODUCT_FILENAME}.exe$\" --workspace $\"%CD%$\" %*$\r$\n"
   FileClose $0
 !macroend
 
