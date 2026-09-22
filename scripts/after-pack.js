@@ -10,16 +10,21 @@ const fs = require('fs');
 const path = require('path');
 const asar = require('@electron/asar');
 
-/** @param {string} appOutDir */
-function verifyRuntimeContents(appOutDir) {
-  const resources = path.join(appOutDir, 'resources');
+/** @param {{appOutDir: string, electronPlatformName: string}} context */
+function verifyRuntimeContents(context) {
+  let resources = path.join(context.appOutDir, 'resources');
+  if (context.electronPlatformName === 'darwin') {
+    const bundle = fs.readdirSync(context.appOutDir).find((entry) => entry.endsWith('.app'));
+    if (!bundle) throw new Error('Falta el bundle .app de macOS');
+    resources = path.join(context.appOutDir, bundle, 'Contents', 'Resources');
+  }
   const archive = path.join(resources, 'app.asar');
   if (!fs.existsSync(archive)) throw new Error('Falta app.asar en el paquete');
   for (const resource of ['asr_stream.py', 'requirements.txt']) {
     if (!fs.existsSync(path.join(resources, resource)))
       throw new Error(`Falta recurso opcional de ASR: ${resource}`);
   }
-  const contents = new Set(asar.listPackage(archive));
+  const contents = new Set(asar.listPackage(archive).map((entry) => entry.replace(/\\/g, '/')));
   const runtimeDependencies = Object.keys(require('../package.json').dependencies);
   for (const dependency of runtimeDependencies) {
     const manifest = `/node_modules/${dependency}/package.json`;
@@ -55,7 +60,7 @@ function run(executable, args) {
 
 /** @param {{ electronPlatformName: string, appOutDir: string }} context */
 async function afterPack(context) {
-  verifyRuntimeContents(context.appOutDir);
+  verifyRuntimeContents(context);
   if (context.electronPlatformName !== 'win32' || process.platform !== 'win32') return;
   const systemRoot = process.env.SystemRoot || process.env.SYSTEMROOT;
   if (!systemRoot) throw new Error('SystemRoot no está definido en el build de Windows');
