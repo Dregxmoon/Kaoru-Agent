@@ -8,6 +8,34 @@
 const { spawn } = require('child_process');
 const fs = require('fs');
 const path = require('path');
+const asar = require('@electron/asar');
+
+/** @param {string} appOutDir */
+function verifyRuntimeContents(appOutDir) {
+  const resources = path.join(appOutDir, 'resources');
+  const archive = path.join(resources, 'app.asar');
+  if (!fs.existsSync(archive)) throw new Error('Falta app.asar en el paquete');
+  for (const resource of ['asr_stream.py', 'requirements.txt']) {
+    if (!fs.existsSync(path.join(resources, resource)))
+      throw new Error(`Falta recurso opcional de ASR: ${resource}`);
+  }
+  const contents = new Set(asar.listPackage(archive));
+  const runtimeDependencies = Object.keys(require('../package.json').dependencies);
+  for (const dependency of runtimeDependencies) {
+    const manifest = `/node_modules/${dependency}/package.json`;
+    if (!contents.has(manifest)) throw new Error(`Falta librería del release: ${dependency}`);
+  }
+  for (const required of [
+    '/vendor/live2dcubismcore.min.js',
+    '/models/March 7th/march 7th.model3.json',
+    '/node_modules/pixi.js/dist/browser/pixi.min.js',
+    '/node_modules/pixi-live2d-display/dist/cubism4.min.js',
+    '/node_modules/node-edge-tts/dist/edge-tts.js',
+    '/core/voice/NeuralTts.js',
+  ]) {
+    if (!contents.has(required)) throw new Error(`Falta dependencia del release: ${required}`);
+  }
+}
 
 /** @param {string} executable @param {string[]} args @returns {Promise<void>} */
 function run(executable, args) {
@@ -27,6 +55,7 @@ function run(executable, args) {
 
 /** @param {{ electronPlatformName: string, appOutDir: string }} context */
 async function afterPack(context) {
+  verifyRuntimeContents(context.appOutDir);
   if (context.electronPlatformName !== 'win32' || process.platform !== 'win32') return;
   const systemRoot = process.env.SystemRoot || process.env.SYSTEMROOT;
   if (!systemRoot) throw new Error('SystemRoot no está definido en el build de Windows');
@@ -57,3 +86,4 @@ async function afterPack(context) {
 
 module.exports = afterPack;
 module.exports.run = run;
+module.exports.verifyRuntimeContents = verifyRuntimeContents;

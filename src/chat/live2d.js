@@ -75,10 +75,12 @@ async function loadModel() {
     autoDensity: true,
   });
 
-  PIXI.live2d.Live2DModel.registerTicker(PIXI.Ticker);
   const fileUrl = 'file:///' + _modelInfo.model3Path.replace(/\\/g, '/');
 
   try {
+    if (!window.Live2DCubismCore || !PIXI.live2d || !PIXI.live2d.Live2DModel)
+      throw new Error('Falta el runtime Live2D Cubism en la instalación');
+    PIXI.live2d.Live2DModel.registerTicker(PIXI.Ticker);
     // Se inyectan expresiones/motions no referenciadas en el model3.json (ver
     // core/behavior/ModelAugmenter.js) para que el mini-avatar pueda animar.
     const augmented = await ModelAugmenter.augmentModel(_modelInfo.model3Path);

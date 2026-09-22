@@ -320,7 +320,7 @@ de `@electron/rebuild` (sin depender de `npx` en el PATH). Localmente: `bash scr
 | Persistencia                | SQLite (`better-sqlite3`) + `sqlite-vec`                           |
 | Embeddings locales          | `@xenova/transformers` (ONNX Runtime, `all-MiniLM-L6-v2`)          |
 | Reconocimiento de voz       | Vosk (offline)                                                     |
-| Síntesis de voz             | Edge TTS (streaming vía Python)                                    |
+| Síntesis de voz             | Edge TTS desde Node, incluido en el instalador                     |
 | Automatización de navegador | Playwright                                                         |
 | Modelos de lenguaje         | Groq (Llama 3.3 70B / 3.1 8B) · Google Gemini (2.5 Flash) · OpenAI |
 | Protocolo de herramientas   | Model Context Protocol (`@modelcontextprotocol/sdk`)               |
@@ -382,7 +382,7 @@ de `@electron/rebuild` (sin depender de `npx` en el PATH). Localmente: `bash scr
 ### Requisitos
 
 - Node.js ≥ 18 y npm
-- Python 3 con `edge-tts` (solo si se usa síntesis de voz)
+- Python 3 con `vosk` y un modelo Vosk descargado (solo para reconocimiento de voz local); la síntesis neuronal de voz viene incluida en el instalador y requiere conexión a internet
 - Sistema operativo: Windows (sensor nativo) o Linux/Hyprland (sensor Wayland)
 - **Sandbox de proceso:** AppContainer en Windows y <code>bwrap</code> en Linux cuando están disponibles. Windows falla cerrado si AppContainer no inicializa, salvo desactivación explícita con <code>OPENCLAW_SANDBOX=0</code>; Linux informa la degradación si <code>bwrap</code> no está disponible. Ambos permiten red y escritura dentro del workspace; AppContainer concede solo lectura a los runtimes detectados. macOS no tiene actualmente aislamiento adicional para OpenClaw.
 

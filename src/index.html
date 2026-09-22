@@ -253,9 +253,7 @@ async function speak(text, emotionOverride = null) {
   if (gestureEngine && gestureEngine.enabled) gestureEngine.setEmotion(emotion);
 
   try {
-    const pythonBin = await getPythonBin();
     const u8 = await ttsStream({
-      pythonBin,
       voice: TTS_VOICE,
       rate: emo.rate,
       pitch: emo.pitch,

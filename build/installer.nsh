@@ -2,7 +2,7 @@
 !include LogicLib.nsh
 
 !ifndef BUILD_UNINSTALLER
-!define KAORU_TERMS_URL "https://github.com/Dregxmoon/Kaoru-Agent/blob/produccion/docs/web/terms.html"
+!define KAORU_TERMS_URL "https://dregxmoon.github.io/Kaoru-Agent/web/terms.html"
 
 Var KaoruTermsCheckbox
 Var KaoruTermsLink

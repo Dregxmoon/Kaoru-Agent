@@ -129,9 +129,7 @@ async function speak(text) {
   if (chatGestureEngine && chatGestureEngine.enabled)
     chatGestureEngine.setEmotion(chatDetectEmotion(spokenText));
   try {
-    const pythonBin = await getPythonBin();
-    if (!pythonBin) throw new Error('No se encontró un intérprete de Python — TTS no disponible');
-    const u8 = await assistant.ttsStream({ pythonBin, text: spokenText });
+    const u8 = await assistant.ttsStream({ text: spokenText });
     if (generation !== _speechGeneration) return;
     // NO usar WebAudio decodeAudioData: en Chromium 28 el decoder nativo
     // (AsyncAudioDecoder → AudioBuffer::AudioBuffer(AudioBus*)) crashea con

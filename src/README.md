@@ -60,8 +60,8 @@ Interfaz completa de conversación con el asistente.
 
 **Tecnologías:** HTML + CSS (variables, temas, animaciones) + JavaScript de renderer aislado; las
 dependencias permitidas (`marked`, `DOMPurify`, Pixi.js, Live2D) se exponen por loaders/preloads
-acotados. TTS por streaming: spawn de `tts_stream.py` (edge-tts) y
-reproducción con Web Audio API sin archivos temporales; `cleanForTTS` limpia el texto hablado
+acotados. La síntesis usa `core/voice/NeuralTts.js` en main, devuelve MP3 por IPC y
+reproduce el audio con `HTMLAudioElement`; `cleanForTTS` limpia el texto hablado
 (Markdown/emoji/código/comandos).
 
 ---

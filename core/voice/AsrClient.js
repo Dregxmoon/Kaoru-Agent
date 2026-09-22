@@ -18,7 +18,10 @@ const fs = require('fs');
 const cp = require('child_process');
 
 const APP_ROOT = path.join(__dirname, '..', '..');
-const ASR_SCRIPT = path.join(APP_ROOT, 'asr_stream.py');
+const PACKAGED_ASR_SCRIPT = path.join(process.resourcesPath || '', 'asr_stream.py');
+const ASR_SCRIPT = fs.existsSync(PACKAGED_ASR_SCRIPT)
+  ? PACKAGED_ASR_SCRIPT
+  : path.join(APP_ROOT, 'asr_stream.py');
 
 // Seam de test: permite apuntar la resolución del modelo a otro root sin tocar
 // APP_ROOT (const a nivel de módulo).

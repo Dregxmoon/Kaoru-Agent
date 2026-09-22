@@ -14,11 +14,11 @@
 
 const path = require('path');
 const fs = require('fs');
-const cp = require('child_process');
 const { ipcMain } = require('electron');
 
 const logger = require('../core/observability/Logger.js');
 const ModelAugmenter = require('../core/behavior/ModelAugmenter.js');
+const NeuralTts = require('../core/voice/NeuralTts.js');
 
 /** @param {unknown} e @returns {string} */
 function errMsg(e) {
@@ -40,7 +40,7 @@ const CORE_SOURCES = {
 
 /**
  * @param {any} _ctx Estado compartido del proceso main.
- *   PYTHON_BIN se usa como fuente confiable para TTS (nunca se acepta del renderer).
+ *   La voz usa Node empaquetado; PYTHON_BIN queda reservado para ASR.
  */
 function register(_ctx) {
   const coreBehaviorDir = path.join(__dirname, '..', 'core', 'behavior');
@@ -84,63 +84,7 @@ function register(_ctx) {
     }
   });
 
-  // TTS: lanza tts_stream.py en main, captura el audio y lo devuelve como
-  // Buffer (structured clone → Uint8Array en el renderer). La página lo
-  // decodifica con su AudioContext/HTMLAudioElement (API del DOM, no puede
-  // moverse a main).
-  ipcMain.handle(
-    'overlay-tts-stream',
-    (_e, args = {}) =>
-      new Promise((resolve, reject) => {
-        if (!_ctx || !_ctx.PYTHON_BIN) {
-          reject(new Error('Python no disponible'));
-          return;
-        }
-        // V-03: Input validation — limit text length, validate voice/rate/pitch format
-        const text = String(args.text || '');
-        if (text.length > 10000) {
-          reject(new Error('TTS: texto demasiado largo (máximo 10000 caracteres)'));
-          return;
-        }
-        const voice = String(args.voice || 'ja-JP-NanamiNeural');
-        if (!/^[a-zA-Z0-9-]+$/.test(voice)) {
-          reject(new Error('TTS: voice contiene caracteres inválidos'));
-          return;
-        }
-        const rate = String(args.rate || '+8%');
-        if (!/^[+-]\d{1,3}%$/.test(rate)) {
-          reject(new Error('TTS: rate debe tener formato +/-N%'));
-          return;
-        }
-        const pitch = String(args.pitch || '+18Hz');
-        if (!/^[+-]\d{1,3}Hz$/.test(pitch)) {
-          reject(new Error('TTS: pitch debe tener formato +/-NHz'));
-          return;
-        }
-        /** @type {Buffer[]} */
-        const chunks = [];
-        const proc = cp.spawn(_ctx.PYTHON_BIN, [
-          path.join(__dirname, '..', 'tts_stream.py'),
-          '--voice',
-          voice,
-          '--rate',
-          rate,
-          '--pitch',
-          pitch,
-          '--text',
-          text,
-        ]);
-        proc.stdout.on('data', (c) => chunks.push(c));
-        proc.on('close', (code) => {
-          if (code !== 0 || chunks.length === 0) {
-            reject(new Error('TTS failed'));
-            return;
-          }
-          resolve(Buffer.concat(chunks));
-        });
-        proc.on('error', reject);
-      })
-  );
+  ipcMain.handle('overlay-tts-stream', (_e, args = {}) => NeuralTts.synthesize(args));
 }
 
 module.exports = { register };
