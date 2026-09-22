@@ -265,6 +265,10 @@ jobs:
       - name: Instalar dependencias (postinstall descarga Electron + rebuild de nativos)
         run: npm ci
 
+      - name: Instalar sqlite-vec para ambas arquitecturas de macOS
+        if: runner.os == 'macOS'
+        run: npm install --no-save --force sqlite-vec-darwin-x64@0.1.9 sqlite-vec-darwin-arm64@0.1.9
+
       - name: Empaquetar
         run: npm run build:${{ matrix.target }} -- --publish never
         env:
