@@ -432,8 +432,8 @@ function init(app) {
   // existe para esa conexión y el detector falla silenciosamente.
   if (!state.graph.usingFallback && state.graph._db) {
     try {
-      const sqliteVec = require('sqlite-vec');
-      sqliteVec.load(state.graph._db);
+      const { loadSqliteVec } = require('../../infrastructure/database/loadSqliteVec.js');
+      loadSqliteVec(state.graph._db);
       logger.info('init', '[core] sqlite-vec cargado en StateGraph DB');
 
       state.detector = getIntentDetector(state.graph._db);

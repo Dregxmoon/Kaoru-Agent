@@ -10,7 +10,7 @@ const fs = require('fs');
 const path = require('path');
 const asar = require('@electron/asar');
 
-/** @param {{appOutDir: string, electronPlatformName: string}} context */
+/** @param {{appOutDir: string, electronPlatformName: string, arch: number}} context */
 function verifyRuntimeContents(context) {
   let resources = path.join(context.appOutDir, 'resources');
   if (context.electronPlatformName === 'darwin') {
@@ -40,6 +40,20 @@ function verifyRuntimeContents(context) {
   ]) {
     if (!contents.has(required)) throw new Error(`Falta dependencia del release: ${required}`);
   }
+
+  const arch = context.arch === 3 ? 'arm64' : 'x64';
+  const platform = context.electronPlatformName;
+  const vecPlatform = platform === 'win32' ? 'windows' : platform;
+  const vecExtension = platform === 'win32' ? 'dll' : platform === 'darwin' ? 'dylib' : 'so';
+  for (const native of [
+    'node_modules/better-sqlite3/build/Release/better_sqlite3.node',
+    `node_modules/sqlite-vec-${vecPlatform}-${arch}/vec0.${vecExtension}`,
+    `node_modules/onnxruntime-node/bin/napi-v3/${platform}/${arch}/onnxruntime_binding.node`,
+  ]) {
+    if (!contents.has(`/${native}`)) throw new Error(`Falta librería nativa: ${native}`);
+    if (!fs.existsSync(path.join(resources, 'app.asar.unpacked', native)))
+      throw new Error(`Librería nativa no extraída de app.asar: ${native}`);
+  }
 }
 
 /** @param {string} executable @param {string[]} args @returns {Promise<void>} */
@@ -58,7 +72,7 @@ function run(executable, args) {
   });
 }
 
-/** @param {{ electronPlatformName: string, appOutDir: string }} context */
+/** @param {{ electronPlatformName: string, appOutDir: string, arch: number }} context */
 async function afterPack(context) {
   verifyRuntimeContents(context);
   if (context.electronPlatformName !== 'win32' || process.platform !== 'win32') return;

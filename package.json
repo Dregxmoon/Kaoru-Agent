@@ -150,6 +150,9 @@
       "!data/**/*",
       "!tests/**/*",
       "!benchmarks/**/*"
+    ],
+    "asarUnpack": [
+      "node_modules/sqlite-vec-*/**/*"
     ]
   },
   "dependencies": {

@@ -798,8 +798,8 @@ async function populateCatalog(db, catalog = INTENT_CATALOG) {
  * @param {boolean} opts.force   — si true, limpia y repuebla aunque ya haya datos
  */
 async function populateDatabase(db, { catalog = INTENT_CATALOG, force = false } = {}) {
-  const sqliteVecLib = sqliteVec || require('sqlite-vec');
-  sqliteVecLib.load(db);
+  const { loadSqliteVec } = require('./loadSqliteVec.js');
+  loadSqliteVec(db);
 
   createTables(db);
 

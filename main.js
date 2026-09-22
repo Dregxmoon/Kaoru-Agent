@@ -95,6 +95,8 @@ async function _runPackagedSmokeTest() {
     if (!graph || graph.usingFallback || !graph._db) {
       throw new Error('better-sqlite3 no abrió la base persistente');
     }
+    const vecVersion = graph._db.prepare('SELECT vec_version() AS version').get();
+    if (!vecVersion || !vecVersion.version) throw new Error('sqlite-vec no cargó en la base');
 
     const deadline = Date.now() + (process.platform === 'win32' ? 150_000 : 30_000);
     let status = await Core.getOpenClawStatus();

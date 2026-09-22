@@ -387,6 +387,7 @@ async function testPrebuiltHelperFastPath() {
       120_000,
       'tolera el costo del primer perfil, ACL y análisis de Defender'
     );
+    assert(probeOpts.skipToolReadRoots === true, 'el probe no concede ACL a tools externas');
   } finally {
     fs.rmSync(root, { recursive: true, force: true });
   }

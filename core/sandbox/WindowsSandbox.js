@@ -122,6 +122,10 @@ class WindowsSandbox {
           [probeExecutable, '--probe-write64', Buffer.from(marker, 'utf8').toString('base64')],
           {
             cwd: this._cwd,
+            // El probe solo necesita leer su propio ejecutable. Conceder ACL
+            // a cada tool de PATH en el primer arranque puede bloquearse en
+            // carpetas grandes o protegidas antes de probar el workspace.
+            skipToolReadRoots: true,
             // El primer arranque puede incluir creación del perfil, ACL y el
             // análisis del helper sin firma por Windows Defender. Ese trabajo
             // ocurre dentro del proceso launcher y comparte este timeout.
@@ -183,7 +187,7 @@ class WindowsSandbox {
    * Lanza una excepción si el aislamiento no está listo: nunca degrada a una
    * ejecución directa silenciosa.
    * @param {string[]} commandArgs
-   * @param {{ cwd?: string, timeout?: number }} [opts]
+   * @param {{ cwd?: string, timeout?: number, skipToolReadRoots?: boolean }} [opts]
    * @returns {string[]}
    */
   wrap(commandArgs, opts = {}) {
@@ -210,7 +214,7 @@ class WindowsSandbox {
       ...new Set([
         path.dirname(this._helperPath),
         path.dirname(this._prebuiltHelperPath),
-        ...WindowsSandbox.toolReadRoots(),
+        ...(opts.skipToolReadRoots ? [] : WindowsSandbox.toolReadRoots()),
       ]),
     ];
     return [
@@ -233,7 +237,7 @@ class WindowsSandbox {
   /**
    * @private
    * @param {string[]} commandArgs
-   * @param {{ cwd?: string, timeout?: number }} [opts]
+   * @param {{ cwd?: string, timeout?: number, skipToolReadRoots?: boolean }} [opts]
    * @returns {Promise<SandboxResult>}
    */
   _runHelper(commandArgs, opts = {}) {
@@ -288,7 +292,11 @@ class WindowsSandbox {
       }
       const timer = setTimeout(() => {
         child.kill();
-        finish({ ok: false, exitCode: null, error: 'timeout' });
+        finish({
+          ok: false,
+          exitCode: null,
+          error: `timeout${stderr.trim() ? `: ${stderr.trim().slice(-500)}` : ''}`,
+        });
       }, timeout);
       child.on('error', (error) => {
         finish({ ok: false, exitCode: null, error: error.message });
