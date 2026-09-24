@@ -151,6 +151,12 @@ module.exports = {
       );
     }
 
+    // El renderer no decide qué tarjeta puede ejecutar o modificar recuerdos.
+    this._conversationProposals ??= new Map();
+    this._conversationProposals.set(proposal.id, { type: trigger.type, action, at: Date.now() });
+    if (this._conversationProposals.size > 50) {
+      this._conversationProposals.delete(this._conversationProposals.keys().next().value);
+    }
     return proposal;
   },
 
@@ -220,7 +226,37 @@ module.exports = {
    */
   handleDecision({ proposalId, type, decision, reason } = {}) {
     if (!proposalId || !type || !decision) return false;
+    const card = this._conversationProposals?.get(proposalId);
+    if (card && !card.action) {
+      if (card.type !== type || Date.now() - card.at > 30 * 60 * 1000) return false;
+      if (!['respond', 'deferred', 'never'].includes(decision)) return false;
+      const ref = this._proposalRefs.get(proposalId);
+      if (decision === 'never' && !ref?.gapKey) return false;
+      if (ref?.gapKey) {
+        if (decision !== 'respond') {
+          require('../../../memory/MemoryExplorer.js').setGapPreference(this._graph, {
+            key: ref.gapKey,
+            mode: decision === 'never' ? 'never' : 'later',
+          });
+        }
+        this._graph?.recordActiveLearningOutcome?.({
+          key: ref.gapKey,
+          outcome: decision === 'respond' ? 'accepted' : 'ignored',
+        });
+      }
+      this._conversationProposals.delete(proposalId);
+      this._proposalRefs.delete(proposalId);
+      this._sentFeedback.delete(proposalId);
+      // Abrir la conversación no confirma una creencia ni premia al modelo.
+      this._store?.resolveEmission?.(proposalId, decision);
+      for (const entry of this._relationLog) {
+        if (entry.proposalId === proposalId) entry.outcome = decision;
+      }
+      return true;
+    }
+    if (!card || card.type !== type) return false;
     if (decision !== 'accepted' && decision !== 'rejected') return false;
+    this._conversationProposals.delete(proposalId);
 
     // F-5: la propuesta recibió respuesta → deja de estar "pendiente".
     const sentInfo = this._sentFeedback.get(proposalId) || null;

@@ -8,6 +8,18 @@ const ANSWER_WINDOW_MS = 30 * 60 * 1000;
 
 /** @type {Readonly<Record<string,{type:string,label:string,prefix:string}>>} */
 const ANSWER_MEMORY = Object.freeze({
+  aprendizaje: {
+    type: 'Preference',
+    label: 'preferencia_aprendizaje',
+    prefix: 'Prefiere aprender: ',
+  },
+  meta_aprendizaje: { type: 'User', label: 'meta_aprendizaje', prefix: 'Quiere aprender: ' },
+  ayuda: { type: 'Preference', label: 'preferencia_ayuda', prefix: 'Ayuda que prefiere: ' },
+  limites: {
+    type: 'Preference',
+    label: 'preferencia_interrupciones',
+    prefix: 'Prefiere no recibir interrupciones: ',
+  },
   nombre: { type: 'User', label: 'nombre_usuario', prefix: 'Nombre: ' },
   edad: { type: 'User', label: 'edad_usuario', prefix: 'Edad: ' },
   ubicacion: { type: 'User', label: 'ubicacion_usuario', prefix: 'Vive en: ' },

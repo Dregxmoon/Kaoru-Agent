@@ -219,6 +219,7 @@ class MemoryPrivacyStore {
       confidence: node.confidence == null ? null : Number(node.confidence),
       createdAt: Number(node.created_at),
       updatedAt: Number(node.updated_at),
+      lastAccessedAt: Number(node.last_accessed_at) || null,
       verifiedAt: node.verified_at == null ? null : Number(node.verified_at),
     };
   }

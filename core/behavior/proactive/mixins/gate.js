@@ -21,6 +21,7 @@ const {
   TRIGGER_COOLDOWN_MS,
   MAX_IDLE_TO_INTERRUPT,
   CURIOSITY_TYPES,
+  CURIOSITY_DAILY_CAP,
   WORK_SIGNAL_TYPES,
 } = require('../config.js');
 
@@ -284,6 +285,9 @@ module.exports = {
    *   - message (string)   → mensaje enviado.
    */
   async _tryTrigger(trigger) {
+    if (CURIOSITY_TYPES.has(trigger.type) && this._curiosityUsedToday() >= CURIOSITY_DAILY_CAP) {
+      return { blocked: true };
+    }
     if (!this._running) {
       this._enqueuePendingTrigger(trigger, 'not_running');
       return { blocked: true };
@@ -389,6 +393,10 @@ module.exports = {
         return null;
       }
 
+      // La conversación puede haber cambiado mientras respondía el modelo.
+      if (this._lastUserMsg > now || !this._running || this._autonomyMode === 'observe') {
+        return { blocked: true };
+      }
       this._lastProactive = Date.now();
       this._lastProactiveMessage = message;
       this._lastProactiveTrigger = trigger.type;

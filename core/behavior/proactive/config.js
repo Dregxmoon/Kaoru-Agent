@@ -32,7 +32,7 @@ const PENDING_LOOKAHEAD_MS = 45 * 60 * 1000; // pendientes a <45 min para el rec
 // mucha proactividad de código no agota la curiosidad, y viceversa. El gate
 // (ContextGate) rechaza (DROP) cuando se alcanza el cupo, sin importar cuánto
 // quede del presupuesto general.
-const CURIOSITY_DAILY_CAP = 2;
+const CURIOSITY_DAILY_CAP = 1;
 const CURIOSITY_TYPES = new Set([
   'memory_stale',
   'pattern_uncertain',
@@ -221,35 +221,32 @@ const PROPOSAL_HINTS = {
       action: null,
     },
   },
-  // Curiosidad sobre una inferencia de confianza media (Fase 4): la respuesta
-  // (aceptar/descartar) confirma o archiva el nodo inferido vía
-  // UserModelBuilder.confirmInferred() — además del feedback general.
+  // Las tarjetas de memoria abren conversaciones; sus botones no verifican
+  // ni archivan hechos. Las correcciones requieren contenido explícito.
   pattern_uncertain: {
     default: {
       title: 'Aclarar esa conclusión',
-      preview: 'Confirmas o corriges si lo que asumí sobre ti sigue siendo cierto o no.',
+      preview:
+        'Es una interpretación, no un hecho. Puedes contarme tu perspectiva o dejarlo pasar.',
       kind: 'info',
       action: null,
     },
   },
-  // Curiosidad sobre un hecho sospechoso (F3.1 'stale'): la respuesta CIERRA el
-  // lazo de revalidación — aceptar refresca verified_at y quita el tag 'stale',
-  // rechazar archiva el dato caduco (curiosity._connectCuriosityOutcome).
+  // Retomar un contexto posiblemente desactualizado sin pedir aprobación binaria.
   memory_stale: {
     default: {
-      title: 'Confirmar que sigue vigente',
-      preview: 'Confirmas si el dato que me contaste antes sigue siendo cierto o si ya cambió.',
+      title: 'Retomar el contexto',
+      preview: 'Podemos hablar de lo que cambió. Posponer no borra ni confirma este recuerdo.',
       kind: 'info',
       action: null,
     },
   },
-  // Curiosidad sobre una contradicción viva (getTensions): aceptar conserva la
-  // primera versión, rechazar la segunda; la descartada se archiva y el par
-  // CONTRADICES deja de aparecer en el siguiente barrido.
+  // Una contradicción exige contexto: ningún botón elige qué versión conservar.
   memory_tension: {
     default: {
       title: 'Cuál de las dos es la correcta',
-      preview: 'Eliges cuál de las dos versiones contradictorias se queda en mi memoria.',
+      preview:
+        'Necesito contexto para entender la diferencia. Ningún botón elige una versión por ti.',
       kind: 'info',
       action: null,
     },

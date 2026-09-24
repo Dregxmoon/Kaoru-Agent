@@ -597,6 +597,30 @@ function extractThemeTerms(text) {
 // Rasgos que Kaoru querría conocer del usuario. Cada entrada: label que debe
 // existir (regex sobre el label del nodo) + cómo lo diría en el prompt.
 const KNOWLEDGE_GAPS = [
+  {
+    key: 'aprendizaje',
+    re: /^preferencia_aprendizaje$/i,
+    ask: 'cómo prefiere aprender: ejemplos, práctica o explicación',
+    priority: 0.8,
+  },
+  {
+    key: 'meta_aprendizaje',
+    re: /^meta_aprendizaje$/i,
+    ask: 'qué le gustaría aprender o practicar próximamente',
+    priority: 0.75,
+  },
+  {
+    key: 'ayuda',
+    re: /^preferencia_ayuda$/i,
+    ask: 'qué ayuda le sirve cuando se atasca: pistas o una solución explicada',
+    priority: 0.85,
+  },
+  {
+    key: 'limites',
+    re: /^preferencia_interrupciones$/i,
+    ask: 'cuándo prefiere concentrarse sin interrupciones',
+    priority: 0.9,
+  },
   { key: 'nombre', re: /^nombre_usuario$/i, ask: 'su nombre', priority: 0.65 },
   { key: 'edad', re: /^edad_usuario$/i, ask: 'su edad', priority: 0.25 },
   {
@@ -646,7 +670,14 @@ const KNOWLEDGE_GAPS = [
 function getMemoryGaps() {
   if (!state.graph || state.graph.usingFallback) return [];
   try {
-    const nodes = state.graph.queryNodes({ limit: 500 }).map(_nodeView);
+    const rows = state.graph._db
+      ? state.graph._db
+          .prepare(
+            "SELECT * FROM nodes WHERE archived=0 AND type IN ('User','Preference','Project','Belief')"
+          )
+          .all()
+      : state.graph.queryNodes({ limit: 10000 });
+    const nodes = rows.map(_nodeView);
     const known = new Set();
     for (const n of nodes) {
       if (!_isRealIdentity(n)) continue;
@@ -676,7 +707,7 @@ function getMemoryGaps() {
       });
     }
 
-    return gaps;
+    return require('../memory/MemoryExplorer').eligibleGaps(state.graph, gaps);
   } catch (e) {
     logger.warn('misc', '[core] error calculando gaps de memoria:', e.message);
     return [];

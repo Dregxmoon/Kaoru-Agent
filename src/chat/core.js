@@ -450,6 +450,56 @@ function _htmlPreviewFrame(html, index, filePath) {
   );
 }
 
+// Decora HTML ya saneado, sin interpolar contenido generado en controles.
+function _decorateMarkdown(html) {
+  const template = document.createElement('template');
+  template.innerHTML = html;
+  template.content.querySelectorAll('pre > code').forEach((code) => {
+    const pre = code.parentElement;
+    if (pre.classList.contains('html-preview-pre')) return;
+    const language = [...code.classList].find((name) => name.startsWith('language-'));
+    const label = language ? language.slice(9).slice(0, 32) : 'Código';
+    const lines = (code.textContent || '').replace(/\n$/, '').split('\n').length;
+    const frame = document.createElement('section');
+    frame.className = 'message-code';
+    frame.setAttribute('aria-label', `Bloque de código: ${label}`);
+    const header = document.createElement('div');
+    header.className = 'message-code-header';
+    const title = document.createElement('span');
+    title.className = 'message-code-language';
+    title.textContent = label;
+    const count = document.createElement('span');
+    count.className = 'message-code-count';
+    count.textContent = `${lines} ${lines === 1 ? 'línea' : 'líneas'}`;
+    header.append(title, count);
+    for (const [action, text] of [
+      ['wrap', 'Ajustar líneas'],
+      ['copy', 'Copiar'],
+    ]) {
+      const button = document.createElement('button');
+      button.type = 'button';
+      button.dataset.codeAction = action;
+      button.textContent = text;
+      if (action === 'wrap') button.setAttribute('aria-pressed', 'false');
+      header.appendChild(button);
+    }
+    pre.replaceWith(frame);
+    pre.tabIndex = 0;
+    pre.setAttribute('aria-label', `Código ${label}`);
+    frame.append(header, pre);
+  });
+  template.content.querySelectorAll('table').forEach((table) => {
+    const wrapper = document.createElement('div');
+    wrapper.className = 'message-table';
+    wrapper.tabIndex = 0;
+    wrapper.setAttribute('role', 'region');
+    wrapper.setAttribute('aria-label', 'Tabla del mensaje');
+    table.replaceWith(wrapper);
+    wrapper.appendChild(table);
+  });
+  return template.innerHTML;
+}
+
 function renderMarkdown(md, opts) {
   try {
     const { text, previews, pending } = _extractRawHtml(md, opts);
@@ -468,7 +518,7 @@ function renderMarkdown(md, opts) {
       /<pre><code class="language-mermaid">([\s\S]*?)<\/code><\/pre>/g,
       '<div class="mermaid">$1</div>'
     );
-    rawHtml = DOMPurify.sanitize(rawHtml);
+    rawHtml = _decorateMarkdown(DOMPurify.sanitize(rawHtml));
     if (previews.length) {
       const filePath = opts && opts.path ? String(opts.path) : '';
       rawHtml = rawHtml.replace(HTML_PREVIEW_RE, (m, i) => {

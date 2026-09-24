@@ -1,502 +1,601 @@
 // @ts-nocheck
-// Grafo de memoria — vista inline en el chat de los nodos (Episode/Belief/
-// Preference/Project/User) y sus conexiones implícitas. Se apoya en el IPC
-// 'nodes-graph' (ipc/memory-handlers.js). Abre con el comando /memoria.
-// Tiene botón de minimizar (SVG) y se oculta solo al enviar un mensaje.
-// NOTA: messagesEl ya está declarado en messages.js (global compartido).
-
+/* exported attachMemoryContext */
+// Memory Explorer: isolated renderer, data and mutations cross the preload allowlist.
 const NODE_COLORS = {
-  Episode: '#5b8ff9',
-  Belief: '#9254de',
-  Preference: '#f759ab',
-  Project: '#36cfc9',
-  User: '#ffc53d',
+  Episode: '#76a6ff',
+  Belief: '#bd97ff',
+  Preference: '#ff92c5',
+  Project: '#58ded5',
+  User: '#ffd675',
 };
-const EDGE_COLORS = {
-  consolida: '#ef4444',
-  conversacion: '#60a5fa',
-  tema: '#34d399',
-};
+const NODE_SYMBOLS = { Episode: '●', Belief: '◆', Preference: '♥', Project: '■', User: '★' };
+let memoryExplorer = null;
+let memoryExplorerGeneration = 0;
+const memoryText = (value) => escapeHtml(String(value ?? ''));
+const memoryDate = (value) =>
+  value
+    ? new Date(value).toLocaleString('es', { dateStyle: 'medium', timeStyle: 'short' })
+    : 'Sin registro';
+const memoryNormalize = (value) =>
+  String(value || '')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase();
 
-function _nodeColor(type) {
-  return NODE_COLORS[type] || '#9ca3af';
+function openNodes(options = {}) {
+  return renderGraph(options);
 }
-
-function _edgeLabel(type) {
-  if (type === 'consolida') return 'consolida';
-  if (type === 'conversacion') return 'misma conversación';
-  if (type === 'tema') return 'tema común';
-  return type;
-}
-
-// Layout force-directed (Fruchterman-Reingold) como el automático de Obsidian:
-// los nodos conectados quedan juntos y los grupos separados según sus enlaces.
-// Determinista (semilla fija) para que no cambie entre re-renders.
-function _forceLayout(nodes, edges) {
-  const W = 900;
-  const H = 700;
-  const pos = new Map();
-
-  let seed = 42;
-  const rnd = () => {
-    seed = (seed * 9301 + 49297) % 233280;
-    return seed / 233280;
-  };
-
-  // Posiciones iniciales: malla dispersa con ruido (evita solapamientos al arrancar)
-  const cols = Math.ceil(Math.sqrt(nodes.length)) || 1;
-  nodes.forEach((node, i) => {
-    pos.set(node.id, {
-      x: 60 + (i % cols) * 90 + rnd() * 60,
-      y: 60 + Math.floor(i / cols) * 90 + rnd() * 60,
-      dx: 0,
-      dy: 0,
-      r: 9 + Math.round(node.importance * 14),
-    });
-  });
-
-  // Adyacencia para la atracción (aristas)
-  const adj = new Map();
-  nodes.forEach((n) => adj.set(n.id, new Set()));
-  for (const e of edges) {
-    if (adj.has(e.source) && adj.has(e.target) && e.source !== e.target) {
-      adj.get(e.source).add(e.target);
-      adj.get(e.target).add(e.source);
-    }
-  }
-
-  const area = W * H;
-  const k = Math.sqrt(area / Math.max(nodes.length, 1));
-  let temperature = W / 10;
-
-  for (let iter = 0; iter < 300; iter++) {
-    // Repulsión (todas las parejas) — Coulomb k²/dist
-    for (let i = 0; i < nodes.length; i++) {
-      const a = nodes[i];
-      const pa = pos.get(a.id);
-      for (let j = i + 1; j < nodes.length; j++) {
-        const b = nodes[j];
-        const pb = pos.get(b.id);
-        let dx = pa.x - pb.x;
-        let dy = pa.y - pb.y;
-        let dist = Math.sqrt(dx * dx + dy * dy);
-        if (dist < 1) dist = 1;
-        const f = (k * k) / dist;
-        pa.dx += (dx / dist) * f;
-        pa.dy += (dy / dist) * f;
-        pb.dx -= (dx / dist) * f;
-        pb.dy -= (dy / dist) * f;
-      }
-    }
-    // Atracción (muelle) — Hooke dist²/k
-    for (const [s, targets] of adj) {
-      const pa = pos.get(s);
-      for (const t of targets) {
-        const pb = pos.get(t);
-        if (pa === pb) continue;
-        let dx = pb.x - pa.x;
-        let dy = pb.y - pa.y;
-        let dist = Math.sqrt(dx * dx + dy * dy);
-        if (dist < 1) dist = 1;
-        const f = (dist * dist) / k;
-        pa.dx += (dx / dist) * f;
-        pa.dy += (dy / dist) * f;
-        pb.dx -= (dx / dist) * f;
-        pb.dy -= (dy / dist) * f;
-      }
-    }
-    // Aplicar desplazamiento limitado por temperatura
-    for (const node of nodes) {
-      const p = pos.get(node.id);
-      const m = Math.hypot(p.dx, p.dy);
-      if (m > 0) {
-        const scale = Math.min(m, temperature) / m;
-        p.x += p.dx * scale;
-        p.y += p.dy * scale;
-      }
-      p.dx = 0;
-      p.dy = 0;
-    }
-    temperature *= 0.97;
-  }
-
-  // Normalizar al centro con escala (fit-to-screen, como Obsidian)
-  const pts = Array.from(pos.values());
-  const minX = Math.min(...pts.map((p) => p.x));
-  const maxX = Math.max(...pts.map((p) => p.x));
-  const minY = Math.min(...pts.map((p) => p.y));
-  const maxY = Math.max(...pts.map((p) => p.y));
-  const spanX = Math.max(maxX - minX, 1);
-  const spanY = Math.max(maxY - minY, 1);
-  const scale = Math.min((W - 140) / spanX, (H - 140) / spanY, 2);
-  const offX = (W - spanX * scale) / 2 - minX * scale;
-  const offY = (H - spanY * scale) / 2 - minY * scale;
-  for (const p of pts) {
-    p.x = p.x * scale + offX;
-    p.y = p.y * scale + offY;
-  }
-
-  // Desenredo final: empuja los nodos que se solapan hasta que no se pisen
-  for (let pass = 0; pass < 40; pass++) {
-    let moved = false;
-    for (let i = 0; i < nodes.length; i++) {
-      const a = pos.get(nodes[i].id);
-      for (let j = i + 1; j < nodes.length; j++) {
-        const b = pos.get(nodes[j].id);
-        const minDist = a.r + b.r + 6;
-        let dx = a.x - b.x;
-        let dy = a.y - b.y;
-        let dist = Math.hypot(dx, dy);
-        if (dist >= minDist) continue;
-        if (dist < 0.1) {
-          dx = 1;
-          dy = 0;
-          dist = 1;
-        }
-        const push = (minDist - dist) / 2;
-        const ux = dx / dist;
-        const uy = dy / dist;
-        a.x += ux * push;
-        a.y += uy * push;
-        b.x -= ux * push;
-        b.y -= uy * push;
-        moved = true;
-      }
-    }
-    if (!moved) break;
-  }
-
-  return pos;
-}
-
-function _fmtDate(ts) {
-  if (!ts) return '';
-  const d = new Date(ts);
-  const pad = (n) => String(n).padStart(2, '0');
-  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
-}
-
-function openNodes() {
-  renderGraph();
-}
-
 function hideNodes() {
-  const inline = document.getElementById('nodes-inline');
-  if (!inline || inline.hidden) return;
-  // Minimizar: deja el header visible con el botón de maximizar para volver a
-  // abrir el grafo, sin que desaparezca del chat.
-  const body = inline.querySelector('.nodes-inline-body');
-  const legend = inline.querySelector('.nodes-inline-legend');
-  const hideBtn = inline.querySelector('.nodes-inline-hide');
-  const maxBtn = inline.querySelector('.nodes-inline-max');
-  if (body) body.style.display = 'none';
-  if (legend) legend.style.display = 'none';
-  const gapsEl = inline.querySelector('#nodes-inline-gaps');
-  if (gapsEl) gapsEl.style.display = 'none';
-  if (hideBtn) hideBtn.style.display = 'none';
-  if (maxBtn) maxBtn.style.display = '';
+  if (!memoryExplorer) return;
+  memoryExplorer.el.classList.add('memory-minimized');
+  memoryExplorer.el.classList.remove('memory-fullscreen');
+  memoryExplorer.el.removeAttribute('aria-modal');
+  memoryExplorer.el.setAttribute('role', 'region');
+  memoryExplorer.el.querySelector('[data-action="fullscreen"]').textContent = 'Pantalla completa';
 }
 
-function _renderLegend(edges) {
-  const legend = document.getElementById('nodes-inline-legend');
-  if (!legend) return;
-  const edgeTypes = Array.from(new Set(edges.map((e) => e.type))).sort();
-  legend.innerHTML =
-    Object.keys(NODE_COLORS)
-      .map(
-        (t) =>
-          `<span class="nodes-legend-item"><span class="nodes-legend-swatch" style="background:${_nodeColor(t)}"></span>${t}</span>`
-      )
-      .join('') +
-    edgeTypes
-      .map(
-        (t) =>
-          `<span class="nodes-legend-item"><span class="nodes-legend-line" style="border-color:${EDGE_COLORS[t] || '#888'}"></span>${_edgeLabel(t)}</span>`
-      )
-      .join('');
-}
-
-async function renderGraph() {
-  let nodes = [];
-  let edges = [];
-  let gaps = [];
+async function renderGraph(options = {}) {
+  const generation = ++memoryExplorerGeneration;
+  const previous = memoryExplorer;
+  let data;
   try {
-    const res = await ipcRenderer.invoke('nodes-graph', { limit: 120 });
-    nodes = res.nodes || [];
-    edges = res.edges || [];
-    gaps = res.gaps || [];
-  } catch (e) {
-    console.error('[nodes] error grafo:', e.message || e);
+    data = await ipcRenderer.invoke('memory-explorer');
+  } catch {
+    data = { ok: false };
   }
-
-  // Re-render limpio: elimina grafo y tooltip previos si existen
+  if (generation !== memoryExplorerGeneration) return;
+  previous?.events?.abort();
   document.getElementById('nodes-inline')?.remove();
-  document.getElementById('nodes-inline-tip')?.remove();
-
-  const inline = document.createElement('div');
-  inline.id = 'nodes-inline';
-  inline.className = 'nodes-inline';
-  inline.innerHTML = `
-    <div class="nodes-inline-head">
-      <span class="nodes-inline-title">Memoria — conexiones de nodos</span>
-      <span class="nodes-inline-tools">
-        <button class="nodes-inline-export" title="Exportar memoria">Exportar</button>
-        <button class="nodes-inline-zoomin" title="Acercar">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="12" height="12">
-            <circle cx="11" cy="11" r="7"></circle>
-            <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
-            <line x1="8" y1="11" x2="14" y2="11"></line>
-            <line x1="11" y1="8" x2="11" y2="14"></line>
-          </svg>
-        </button>
-        <button class="nodes-inline-zoomout" title="Alejar">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="12" height="12">
-            <circle cx="11" cy="11" r="7"></circle>
-            <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
-            <line x1="8" y1="11" x2="14" y2="11"></line>
-          </svg>
-        </button>
-        <button class="nodes-inline-hide" title="Minimizar grafo">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="12" height="12">
-            <line x1="5" y1="12" x2="19" y2="12" />
-          </svg>
-        </button>
-        <button class="nodes-inline-max" title="Maximizar grafo" style="display: none">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="12" height="12">
-            <polyline points="15 3 21 3 21 9"></polyline>
-            <polyline points="9 21 3 21 3 15"></polyline>
-            <line x1="21" y1="3" x2="14" y2="10"></line>
-            <line x1="3" y1="21" x2="10" y2="14"></line>
-          </svg>
-        </button>
-      </span>
-    </div>
-    <div class="nodes-inline-body"></div>
-    <div class="nodes-inline-legend" id="nodes-inline-legend"></div>
-    <div class="nodes-inline-gaps" id="nodes-inline-gaps"></div>
-    <div class="nodes-inline-detail" id="nodes-inline-detail" hidden></div>
-  `;
-  messagesEl.appendChild(inline);
-  _scrollMessagesToBottom();
-
-  function setMinimized(min) {
-    inline.querySelector('.nodes-inline-body').style.display = min ? 'none' : '';
-    const legend = inline.querySelector('.nodes-inline-legend');
-    if (legend) legend.style.display = min ? 'none' : '';
-    const gapsEl = inline.querySelector('#nodes-inline-gaps');
-    if (gapsEl) gapsEl.style.display = min ? 'none' : '';
-    const detailEl = inline.querySelector('#nodes-inline-detail');
-    if (detailEl) detailEl.style.display = min ? 'none' : '';
-    inline.querySelector('.nodes-inline-hide').style.display = min ? 'none' : '';
-    inline.querySelector('.nodes-inline-max').style.display = min ? '' : 'none';
-  }
-  inline.querySelector('.nodes-inline-hide').addEventListener('click', () => setMinimized(true));
-  inline.querySelector('.nodes-inline-max').addEventListener('click', () => setMinimized(false));
-  inline.querySelector('.nodes-inline-export').addEventListener('click', async () => {
-    const result = await ipcRenderer.invoke('memory-export');
-    if (result?.ok) addMessage('assistant', 'Memoria exportada mediante el diálogo de archivo.');
+  const el = document.createElement('section');
+  el.id = 'nodes-inline';
+  el.className = 'nodes-inline memory-explorer';
+  el.setAttribute('aria-label', 'Explorador de memoria');
+  const state = (memoryExplorer = {
+    el,
+    data,
+    view: previous?.view || 'graph',
+    type: previous?.type || '',
+    query: options.query ?? previous?.query ?? '',
+    topic: options.topic ?? previous?.topic ?? '',
+    page: 0,
+    selected: null,
+    highlight: new Set(options.ids || []),
+    scale: 1,
+    tx: 0,
+    ty: 0,
+    relations: new Set(['explicit', 'semantic']),
+    detailTicket: 0,
+    events: new AbortController(),
   });
-
-  const body = inline.querySelector('.nodes-inline-body');
-  if (nodes.length === 0) {
-    body.innerHTML =
-      '<div class="nodes-inline-empty">Aún no hay nodos que conectar. ¡Charla con el asistente!</div>';
+  if (options.ids?.length) {
+    state.query = '';
+    state.topic = '';
+    state.type = '';
+  }
+  el.innerHTML = `<header class="nodes-inline-head"><strong>MEMORIA — CONEXIONES</strong>
+    <div><button data-action="fullscreen">Pantalla completa</button><button data-action="minimize" aria-label="Minimizar memoria">−</button><button data-action="restore">Abrir</button></div></header>
+    <div class="memory-content"><div class="memory-toolbar">
+      <input class="memory-search" type="search" placeholder="Buscar memoria…" aria-label="Buscar memoria" value="${memoryText(state.query)}">
+      <details class="memory-filters"><summary>Filtros</summary><fieldset><legend>Relaciones</legend>
+      ${[
+        ['explicit', 'Explícitas'],
+        ['semantic', 'Semánticas'],
+        ['conversation', 'Misma conversación'],
+        ['temporal', 'Proximidad temporal'],
+      ]
+        .map(
+          ([key, label]) =>
+            `<label><input type="checkbox" data-relation="${key}" ${state.relations.has(key) ? 'checked' : ''}>${label}</label>`
+        )
+        .join('')}</fieldset></details>
+      <button data-action="center">Centrar</button><button data-action="zoomout" aria-label="Alejar">−</button><button data-action="zoomin" aria-label="Acercar">+</button>
+      <details><summary aria-label="Más opciones">⋯</summary><button data-action="export">Exportar</button></details>
+    </div><nav class="memory-tabs" aria-label="Vista de memoria">${[
+      ['graph', 'Grafo'],
+      ['list', 'Lista'],
+      ['timeline', 'Línea temporal'],
+    ]
+      .map(([key, label]) => `<button data-view="${key}">${label}</button>`)
+      .join('')}</nav>
+    <nav class="memory-types" aria-label="Tipo de memoria">${[
+      ['', 'Todo'],
+      ['Project', 'Proyectos'],
+      ['Preference', 'Preferencias'],
+      ['User', 'Personas'],
+      ['Episode', 'Episodios'],
+      ['Belief', 'Creencias'],
+    ]
+      .map(
+        ([key, label]) => `<button data-type="${key}">${NODE_SYMBOLS[key] || ''} ${label}</button>`
+      )
+      .join('')}</nav>
+    <div class="memory-status" role="status" aria-live="polite"></div>
+    <div class="memory-workspace"><div class="memory-main"><div class="memory-breadcrumb"></div><div class="nodes-inline-body"></div><div class="memory-pagination"></div></div>
+    <aside class="nodes-inline-detail" aria-label="Detalle de memoria" hidden></aside></div>
+    <details class="memory-legend"><summary>Leyenda</summary>${Object.keys(NODE_COLORS)
+      .map((t) => `<span style="color:${NODE_COLORS[t]}">${NODE_SYMBOLS[t]} ${t}</span>`)
+      .join(
+        ''
+      )}<p>Las conexiones semánticas agrupan temas. La proximidad temporal no demuestra que dos recuerdos provengan de la misma conversación.</p></details>
+    <section class="memory-gaps"><h3>Aún no sé sobre ti</h3><div></div></section>
+    <form class="memory-question"><label>Pregúntale a tu memoria<input placeholder="¿Qué recuerdas sobre Kaoru?" aria-label="Pregunta sobre la memoria" required maxlength="200"></label><button>Consultar</button></form>
+    <div class="memory-answer" aria-live="polite"></div></div>`;
+  messagesEl.appendChild(el);
+  function setFullscreen(enabled) {
+    el.classList.toggle('memory-fullscreen', enabled);
+    el.querySelector('[data-action="fullscreen"]').textContent = enabled
+      ? 'Volver al chat'
+      : 'Pantalla completa';
+    el.setAttribute('role', enabled ? 'dialog' : 'region');
+    if (enabled) el.setAttribute('aria-modal', 'true');
+    else el.removeAttribute('aria-modal');
+  }
+  setFullscreen(Boolean(previous?.el.classList.contains('memory-fullscreen')));
+  const status = (text) => {
+    el.querySelector('.memory-status').textContent = text;
+  };
+  state.status = status;
+  if (!data?.ok) {
+    status('No se pudo cargar la memoria. Vuelve a abrir /memoria para reintentar.');
     return;
   }
-  _renderLegend(edges);
-
-  // Gaps de conocimiento: rasgos del usuario que Kaoru aún no sabe. También
-  // se inyectan al motor proactivo (message-gen.js) para preguntar con
-  // curiosidad genuina.
-  const gapsEl = inline.querySelector('#nodes-inline-gaps');
-  if (gapsEl) {
-    if (gaps.length) {
-      gapsEl.innerHTML = `<span class="nodes-gaps-label">Aún no sé:</span> ${gaps
-        .map((g) => `<span class="nodes-gap-item">${escapeHtml(g.trait)}</span>`)
-        .join('')}`;
-    } else {
-      gapsEl.innerHTML = '<span class="nodes-gaps-ok">Sin gaps pendientes</span>';
+  state.nodes = data.nodes || [];
+  state.edges = data.edges || [];
+  state.byId = new Map(state.nodes.map((n) => [n.id, n]));
+  state.adj = new Map();
+  for (const edge of state.edges) {
+    for (const [a, b] of [
+      [edge.source, edge.target],
+      [edge.target, edge.source],
+    ]) {
+      if (!state.adj.has(a)) state.adj.set(a, []);
+      state.adj.get(a).push({ id: b, edge });
     }
   }
-
-  // Layout force-directed (agrupado por conexiones, como Obsidian) — ya
-  // normalizado a 900×700 con margen interno.
-  const positions = _forceLayout(nodes, edges);
-  const parts = [
-    `<svg id="nodes-svg" viewBox="0 0 900 700" role="img" aria-label="Conexiones entre nodos de memoria">`,
-    `<g id="nodes-viewport">`,
-  ];
-
-  for (const e of edges) {
-    const a = positions.get(e.source);
-    const b = positions.get(e.target);
-    if (!a || !b) continue;
-    const color = EDGE_COLORS[e.type] || '#666';
-    parts.push(
-      `<line x1="${a.x}" y1="${a.y}" x2="${b.x}" y2="${b.y}" stroke="${color}" stroke-width="1.2" stroke-opacity="0.45" data-source="${e.source}" data-target="${e.target}" />`
-    );
-  }
-
-  for (const n of nodes) {
-    const p = positions.get(n.id);
-    if (!p) continue;
-    const tags = (n.tags || [])
-      .slice(0, 3)
-      .map((t) => `#${t}`)
-      .join(' ');
-    parts.push(
-      `<circle cx="${p.x}" cy="${p.y}" r="${p.r}" fill="${_nodeColor(n.type)}" fill-opacity="0.85" stroke="#fff" stroke-width="1" data-id="${n.id}" data-label="${escapeHtml(String(n.label))}" data-content="${escapeHtml(String(n.content || ''))}" data-type="${n.type}" data-imp="${Number(n.importance).toFixed(2)}" data-tags="${escapeHtml(tags)}" data-created="${_fmtDate(n.createdAt)}" />`,
-      `<text x="${p.x}" y="${p.y + p.r + 12}" text-anchor="middle" font-family="monospace" font-size="9" fill="#ddd" data-id="${n.id}">${escapeHtml(String(n.label).slice(0, 18))}</text>`
-    );
-  }
-
-  parts.push('</g>', '</svg>');
-  body.innerHTML = parts.join('');
-
-  // ── Zoom (botones) + pan (arrastrar con clic) ─────────────────────────────
-  const svg = body.querySelector('#nodes-svg');
-  const viewport = body.querySelector('#nodes-viewport');
-  const SCALE = { x: 900, y: 700 }; // viewBox del SVG
-  const state = { scale: 1, tx: 0, ty: 0 };
-
-  function applyTransform() {
-    viewport.setAttribute('transform', `translate(${state.tx} ${state.ty}) scale(${state.scale})`);
-  }
-
-  function zoomAt(factor, cx, cy) {
-    const ns = Math.min(Math.max(state.scale * factor, 0.25), 6);
-    if (ns === state.scale) return;
-    state.tx = cx - ((cx - state.tx) * ns) / state.scale;
-    state.ty = cy - ((cy - state.ty) * ns) / state.scale;
-    state.scale = ns;
-    applyTransform();
-  }
-
-  inline.querySelector('.nodes-inline-zoomin').addEventListener('click', () => {
-    zoomAt(1.35, SCALE.x / 2, SCALE.y / 2);
+  el.addEventListener('click', async (event) => {
+    const button = event.target.closest('button');
+    if (!button) return;
+    if (button.dataset.view) {
+      state.view = button.dataset.view;
+      state.page = 0;
+      drawMemory(state);
+    }
+    if (button.hasAttribute('data-type')) {
+      state.type = button.dataset.type;
+      state.page = 0;
+      drawMemory(state);
+    }
+    if (button.dataset.node) inspectMemoryNode(state, Number(button.dataset.node));
+    if (button.hasAttribute('data-topic')) {
+      state.topic = button.dataset.topic;
+      state.page = 0;
+      state.scale = 1;
+      drawMemory(state);
+    }
+    const action = button.dataset.action;
+    if (action === 'fullscreen') {
+      setFullscreen(!el.classList.contains('memory-fullscreen'));
+    }
+    if (action === 'minimize') hideNodes();
+    if (action === 'restore') el.classList.remove('memory-minimized');
+    if (action === 'center') {
+      state.scale = 1;
+      state.tx = 0;
+      state.ty = 0;
+      memoryTransform(state);
+    }
+    if (action === 'zoomin' || action === 'zoomout') {
+      state.scale = Math.min(4, Math.max(0.5, state.scale * (action === 'zoomin' ? 1.2 : 1 / 1.2)));
+      memoryTransform(state);
+    }
+    if (action === 'back') {
+      state.topic = '';
+      state.page = 0;
+      drawMemory(state);
+    }
+    if (action === 'prev' || action === 'next') {
+      state.page += action === 'next' ? 1 : -1;
+      drawMemory(state);
+    }
+    if (action === 'close-detail') {
+      state.detailTicket++;
+      state.selected = null;
+      el.querySelector('aside').hidden = true;
+      drawMemory(state);
+    }
+    if (action === 'export') {
+      try {
+        const r = await ipcRenderer.invoke('memory-export');
+        if (!r.ok && !r.cancelled) status('No se pudo exportar la memoria.');
+      } catch {
+        status('No se pudo exportar la memoria.');
+      }
+    }
   });
-  inline.querySelector('.nodes-inline-zoomout').addEventListener('click', () => {
-    zoomAt(1 / 1.35, SCALE.x / 2, SCALE.y / 2);
+  let searchTimer;
+  el.querySelector('.memory-search').addEventListener('input', (event) => {
+    clearTimeout(searchTimer);
+    searchTimer = setTimeout(() => {
+      state.query = event.target.value;
+      state.topic = '';
+      state.page = 0;
+      state.scale = 1;
+      state.tx = 0;
+      state.ty = 0;
+      drawMemory(state);
+    }, 150);
   });
+  el.querySelectorAll('[data-relation]').forEach((input) =>
+    input.addEventListener('change', () => {
+      if (input.checked) state.relations.add(input.dataset.relation);
+      else state.relations.delete(input.dataset.relation);
+      drawMemory(state);
+    })
+  );
+  el.addEventListener('keydown', (event) => {
+    if (event.key === 'Escape') setFullscreen(false);
+    if (event.key === 'Tab' && el.classList.contains('memory-fullscreen')) {
+      const focusable = [
+        ...el.querySelectorAll('button:not(:disabled),input,textarea,summary,[tabindex="0"]'),
+      ].filter((n) => n.getClientRects().length);
+      const first = focusable[0],
+        last = focusable.at(-1);
+      if (event.shiftKey && document.activeElement === first) {
+        event.preventDefault();
+        last?.focus();
+      } else if (!event.shiftKey && document.activeElement === last) {
+        event.preventDefault();
+        first?.focus();
+      }
+    }
+  });
+  window.addEventListener('resize', () => drawMemory(state), { signal: state.events.signal });
+  el.querySelector('.memory-question').addEventListener('submit', (event) => {
+    event.preventDefault();
+    const text = event.target.querySelector('input').value;
+    const terms = memoryNormalize(text)
+      .replace(/[¿?.,!]/g, '')
+      .split(/\s+/)
+      .filter(
+        (t) =>
+          t.length > 2 &&
+          ![
+            'que',
+            'recuerdas',
+            'sabes',
+            'sobre',
+            'acerca',
+            'del',
+            'las',
+            'los',
+            'una',
+            'tienes',
+            'memoria',
+          ].includes(t)
+      );
+    const matches = state.nodes.filter(
+      (n) =>
+        terms.length &&
+        terms.every((t) => memoryNormalize(`${n.label} ${n.content} ${n.topic}`).includes(t))
+    );
+    const topics = [...new Set(matches.map((n) => n.topic))];
+    const answer = el.querySelector('.memory-answer');
+    answer.innerHTML = `<p>${matches.length} recuerdos encontrados en el inventario cargado.${data.truncated ? ' El inventario está limitado a 10 000 recuerdos.' : ''}</p><p>${memoryText(topics.slice(0, 8).join(' · '))}</p>${matches.length ? '<button>Mostrar en el grafo</button>' : ''}`;
+    answer.querySelector('button')?.addEventListener('click', () => {
+      state.highlight = new Set(matches.map((n) => n.id));
+      state.query = '';
+      state.topic = '';
+      state.type = '';
+      state.view = 'graph';
+      state.page = 0;
+      el.querySelector('.memory-search').value = '';
+      drawMemory(state);
+    });
+  });
+  drawMemory(state);
+  renderMemoryGaps(state);
+  _scrollMessagesToBottom();
+}
 
-  // Pan: clic presionado + arrastre
-  let dragging = false;
-  let dragged = false;
-  svg.style.cursor = 'grab';
-  svg.addEventListener('mousedown', (ev) => {
-    if (ev.button !== 0) return;
-    dragging = true;
+function memoryTransform(state) {
+  state.el
+    .querySelector('.memory-viewport')
+    ?.setAttribute(
+      'transform',
+      `translate(${450 * (1 - state.scale) + state.tx} ${300 * (1 - state.scale) + state.ty}) scale(${state.scale})`
+    );
+}
+function drawMemory(state) {
+  const { el } = state;
+  if (!el.isConnected) return;
+  el.querySelectorAll('[data-view]').forEach((b) =>
+    b.setAttribute('aria-pressed', String(b.dataset.view === state.view))
+  );
+  el.querySelectorAll('[data-type]').forEach((b) =>
+    b.setAttribute('aria-pressed', String(b.dataset.type === state.type))
+  );
+  const query = memoryNormalize(state.query);
+  let filtered = state.nodes.filter(
+    (n) =>
+      (!state.type || n.type === state.type) &&
+      (!state.topic || n.topic === state.topic) &&
+      (!query || memoryNormalize(`${n.label} ${n.content} ${n.tags.join(' ')}`).includes(query))
+  );
+  if (state.highlight.size && !query) filtered = filtered.filter((n) => state.highlight.has(n.id));
+  filtered.sort(
+    (a, b) => Number(b.pinned) - Number(a.pinned) || b.createdAt - a.createdAt || a.id - b.id
+  );
+  if (state.view === 'timeline') filtered.sort((a, b) => b.createdAt - a.createdAt || a.id - b.id);
+  const body = el.querySelector('.nodes-inline-body');
+  const pagination = el.querySelector('.memory-pagination');
+  el.querySelector('.memory-breadcrumb').innerHTML =
+    `${state.topic ? `<button data-action="back">← Todos los temas</button> ${memoryText(state.topic)}` : ''}${state.highlight.size ? '<button data-action="clear-focus">Quitar foco de memorias</button>' : ''}`;
+  el.querySelector('[data-action="clear-focus"]')?.addEventListener('click', () => {
+    state.highlight.clear();
+    drawMemory(state);
+  });
+  state.status(
+    `${filtered.length} recuerdos${state.data.truncated ? ' · Se muestran como máximo 10 000; hay más recuerdos guardados.' : ''}${state.data.usingFallback ? ' · Memoria persistente no disponible.' : ''}`
+  );
+  if (!filtered.length) {
+    body.innerHTML = '<p class="nodes-inline-empty">No hay recuerdos que coincidan.</p>';
+    pagination.innerHTML = '';
+    return;
+  }
+  const cluster = state.view === 'graph' && !state.topic && !query && !state.highlight.size;
+  const pageSize = state.view === 'graph' ? (el.clientWidth < 600 ? 24 : 90) : 100;
+  let items = filtered;
+  if (cluster) {
+    const groups = new Map();
+    for (const n of filtered) {
+      if (!groups.has(n.topic)) groups.set(n.topic, []);
+      groups.get(n.topic).push(n);
+    }
+    items = [...groups]
+      .map(([topic, nodes]) => ({ topic, nodes }))
+      .sort((a, b) => b.nodes.length - a.nodes.length);
+  }
+  state.page = Math.max(0, Math.min(state.page, Math.ceil(items.length / pageSize) - 1));
+  let visible = items.slice(state.page * pageSize, (state.page + 1) * pageSize);
+  pagination.innerHTML =
+    items.length > pageSize
+      ? `<button data-action="prev" ${state.page === 0 ? 'disabled' : ''}>Anterior</button><span>${state.page + 1} / ${Math.ceil(items.length / pageSize)}</span><button data-action="next" ${(state.page + 1) * pageSize >= items.length ? 'disabled' : ''}>Siguiente</button>`
+      : '';
+  if (cluster) {
+    body.innerHTML = `<div class="memory-clusters">${visible.map((g) => `<button data-topic="${memoryText(g.topic)}"><strong>${memoryText(g.topic)}</strong><span>${g.nodes.length} recuerdos</span><small>Abrir tema →</small></button>`).join('')}</div>`;
+    return;
+  }
+  if (state.view !== 'graph') {
+    let lastDay = '';
+    body.innerHTML = `<div class="memory-list">${visible
+      .map((n) => {
+        const day = n.createdAt
+          ? new Date(n.createdAt).toLocaleDateString('es', { dateStyle: 'long' })
+          : 'Fecha desconocida';
+        const heading =
+          state.view === 'timeline' && day !== lastDay ? `<h3>${memoryText(day)}</h3>` : '';
+        lastDay = day;
+        return `${heading}<button data-node="${n.id}" class="memory-row ${state.selected === n.id ? 'selected' : ''}"><span style="color:${NODE_COLORS[n.type] || '#aaa'}">${NODE_SYMBOLS[n.type] || '●'}</span><span><strong>${n.pinned ? '★ ' : ''}${memoryText(n.label)}</strong><small>${memoryText(n.content.slice(0, 170))}</small></span><span>${memoryText(n.type)}</span></button>`;
+      })
+      .join('')}</div>`;
+    return;
+  }
+  const matched = new Set(visible.map((n) => n.id));
+  // Include a bounded one-hop context for search and response attribution.
+  if (query || state.highlight.size) {
+    for (const n of [...visible])
+      for (const link of state.adj.get(n.id) || []) {
+        if (visible.length >= pageSize + 20) break;
+        if (
+          !matched.has(link.id) &&
+          state.relations.has(link.edge.category) &&
+          !visible.some((v) => v.id === link.id)
+        ) {
+          const neighbor = state.byId.get(link.id);
+          if (neighbor) visible.push(neighbor);
+        }
+      }
+  }
+  const columns = Math.min(visible.length, Math.ceil(Math.sqrt(visible.length * 1.4)));
+  const pixelScale = 900 / Math.max(300, body.clientWidth);
+  const radius = Math.max(23, 16 * pixelScale);
+  const labelSize = Math.max(14, 12 * pixelScale);
+  const labelChars = Math.max(
+    5,
+    Math.min(22, Math.floor(770 / Math.max(1, columns - 1) / (labelSize * 0.6)) - 2)
+  );
+  const rows = Math.ceil(visible.length / columns);
+  const positions = new Map(
+    visible.map((n, i) => [
+      n.id,
+      {
+        x: columns === 1 ? 450 : 65 + ((i % columns) * 770) / (columns - 1),
+        y: rows === 1 ? 300 : 55 + (Math.floor(i / columns) * 470) / (rows - 1),
+      },
+    ])
+  );
+  body.innerHTML = `<svg viewBox="0 0 900 620" aria-label="Relaciones entre recuerdos"><g class="memory-viewport">${state.edges
+    .filter(
+      (e) => positions.has(e.source) && positions.has(e.target) && state.relations.has(e.category)
+    )
+    .map((e) => {
+      const a = positions.get(e.source),
+        b = positions.get(e.target);
+      return `<line x1="${a.x}" y1="${a.y}" x2="${b.x}" y2="${b.y}" stroke="${e.category === 'explicit' ? '#b7c4df' : '#638b92'}" stroke-opacity=".6" stroke-width="1.5"><title>${memoryText(e.type)}</title></line>`;
+    })
+    .join('')}
+    ${visible
+      .map((n) => {
+        const p = positions.get(n.id),
+          selected = state.selected === n.id;
+        return `<g data-node="${n.id}" role="button" tabindex="0" aria-label="${memoryText(`${n.type}: ${n.label}`)}" class="memory-node ${selected ? 'selected' : ''} ${state.highlight.has(n.id) ? 'memory-used' : ''}" opacity="${matched.has(n.id) ? 1 : 0.25}" transform="translate(${p.x} ${p.y})"><title>${memoryText(`${n.label}\n${n.content}`)}</title><circle r="${radius}" fill="${selected ? '#405575' : '#171c27'}" stroke="${selected ? '#fff' : NODE_COLORS[n.type] || '#aaa'}" stroke-width="${selected ? 4 : 1}"/><text text-anchor="middle" dominant-baseline="central" font-size="${Math.round(radius * 1.2)}" fill="${NODE_COLORS[n.type] || '#aaa'}">${NODE_SYMBOLS[n.type] || '●'}</text><text y="${radius + labelSize + 4}" text-anchor="middle" fill="#eee" font-size="${labelSize}">${memoryText(n.label.length > labelChars ? n.label.slice(0, labelChars) + '…' : n.label)}</text></g>`;
+      })
+      .join('')}</g></svg>`;
+  const svg = body.querySelector('svg');
+  let origin = null,
     dragged = false;
-    svg.style.cursor = 'grabbing';
-    const rect = svg.getBoundingClientRect();
-    const px = ((ev.clientX - rect.left) / rect.width) * SCALE.x;
-    const py = ((ev.clientY - rect.top) / rect.height) * SCALE.y;
-    state._dragStart = {
-      tx: state.tx,
-      ty: state.ty,
-      px,
-      py,
-      clientX: ev.clientX,
-      clientY: ev.clientY,
-    };
+  svg.addEventListener('pointerdown', (e) => {
+    if (e.button !== 0) return;
+    origin = { x: e.clientX, y: e.clientY, tx: state.tx, ty: state.ty };
+    dragged = false;
+    svg.setPointerCapture(e.pointerId);
   });
-  window.addEventListener('mousemove', (ev) => {
-    if (!dragging) return;
-    if (
-      Math.abs(ev.clientX - state._dragStart.clientX) > 3 ||
-      Math.abs(ev.clientY - state._dragStart.clientY) > 3
-    ) {
-      dragged = true;
+  svg.addEventListener('pointermove', (e) => {
+    if (!origin) return;
+    const dx = e.clientX - origin.x,
+      dy = e.clientY - origin.y;
+    dragged ||= Math.hypot(dx, dy) > 4;
+    state.tx = origin.tx + (dx * 900) / svg.getBoundingClientRect().width;
+    state.ty = origin.ty + (dy * 620) / svg.getBoundingClientRect().height;
+    memoryTransform(state);
+  });
+  svg.addEventListener('pointerup', (e) => {
+    origin = null;
+    if (!dragged) {
+      const target = document.elementFromPoint(e.clientX, e.clientY)?.closest('[data-node]');
+      if (target) inspectMemoryNode(state, Number(target.dataset.node));
     }
-    const rect = svg.getBoundingClientRect();
-    const px = ((ev.clientX - rect.left) / rect.width) * SCALE.x;
-    const py = ((ev.clientY - rect.top) / rect.height) * SCALE.y;
-    const s = state._dragStart;
-    state.tx = s.tx + (px - s.px);
-    state.ty = s.ty + (py - s.py);
-    applyTransform();
   });
-  window.addEventListener('mouseup', () => {
-    dragging = false;
-    svg.style.cursor = 'grab';
-    setTimeout(() => {
-      dragged = false;
-    }, 0);
+  svg.addEventListener('pointercancel', () => {
+    origin = null;
   });
+  svg.addEventListener('keydown', (e) => {
+    if (['Enter', ' '].includes(e.key) && e.target.dataset.node) {
+      e.preventDefault();
+      inspectMemoryNode(state, Number(e.target.dataset.node));
+    }
+  });
+  svg.addEventListener(
+    'wheel',
+    (e) => {
+      e.preventDefault();
+      state.scale = Math.max(0.5, Math.min(4, state.scale * (e.deltaY < 0 ? 1.1 : 1 / 1.1)));
+      memoryTransform(state);
+    },
+    { passive: false }
+  );
+  memoryTransform(state);
+}
 
-  const tip = document.createElement('div');
-  tip.id = 'nodes-inline-tip';
-  tip.style.cssText =
-    'position:fixed;pointer-events:none;z-index:990;background:rgba(0,0,0,.9);color:#eee;font-family:monospace;font-size:10px;padding:6px 8px;border-radius:4px;max-width:300px;white-space:normal;display:none;';
-  document.body.appendChild(tip);
+async function inspectMemoryNode(state, id) {
+  const ticket = ++state.detailTicket;
+  state.selected = id;
+  drawMemory(state);
+  const panel = state.el.querySelector('aside');
+  panel.hidden = false;
+  panel.textContent = 'Cargando recuerdo…';
+  try {
+    const detail = await ipcRenderer.invoke('memory-inspect', { nodeId: id });
+    if (ticket !== state.detailTicket || !state.el.isConnected) return;
+    if (!detail?.ok) throw new Error('not_found');
+    const n = detail.node,
+      meta = n.metamemory || {},
+      evidence = detail.evidence || [];
+    const confirmed = detail.history?.transitions?.some(
+      (v) => v.currentNodeId === n.id && v.source === 'memory_control_ui'
+    );
+    const certainty = meta.stale
+      ? 'Posiblemente desactualizado'
+      : n.inferred
+        ? 'Inferido por Kaoru'
+        : confirmed
+          ? 'Confirmado por ti'
+          : evidence.length
+            ? 'Respaldado por evidencias'
+            : 'Registrado sin fuente verificable';
+    const related = (state.adj.get(id) || []).slice(0, 40);
+    const pinned = (n.tags || []).includes('memory:pinned');
+    panel.innerHTML = `<button data-action="close-detail" aria-label="Cerrar detalle">×</button><h3>${memoryText(n.label)}</h3><p>${NODE_SYMBOLS[n.type] || '●'} ${memoryText(n.type)} · ${memoryText(certainty)}</p>
+      <dl><dt>Confianza</dt><dd>${n.confidence == null ? 'No registrada' : Number(n.confidence).toFixed(2)}</dd><dt>Creado</dt><dd>${memoryDate(n.createdAt)}</dd><dt>Último uso registrado</dt><dd>${memoryDate(n.lastAccessedAt)}</dd><dt>Actualizado</dt><dd>${memoryDate(n.updatedAt)}</dd></dl>
+      <h4>Contenido</h4><p class="memory-detail-text">${memoryText(n.content)}</p><textarea aria-label="Editar contenido" maxlength="12000" hidden>${memoryText(n.content)}</textarea>
+      <div class="nodes-detail-actions"><button data-edit>Editar</button><button data-save hidden>Guardar</button><button data-pin>${pinned ? 'Desfijar' : 'Fijar'}</button><button data-delete>Olvidar</button></div>
+      <p class="memory-detail-result" role="status"></p><h4>Relacionado con</h4>${related.length ? related.map((r) => `<button data-node="${r.id}">${memoryText(state.byId.get(r.id)?.label || r.id)} · ${memoryText(r.edge.type)}</button>`).join('') : 'Sin relaciones registradas.'}
+      <h4>¿Por qué Kaoru sabe esto?</h4>${evidence.length ? evidence.map((e) => `<blockquote>${memoryText(e.content)}<footer>${memoryText(e.source)} · ${memoryDate(e.occurredAt)}</footer></blockquote>`).join('') : 'No hay una cita de origen guardada; la fecha de creación no identifica una conversación.'}
+      <details><summary>Historial de cambios</summary>${(detail.history?.versions || []).map((v) => `<p>v${memoryText(v.version)} · ${memoryText(v.status)}<br>${memoryText(v.content)}</p>`).join('') || 'Sin versiones anteriores.'}</details>`;
+    panel.querySelector('[data-edit]').onclick = () => {
+      panel.querySelector('textarea').hidden = false;
+      panel.querySelector('[data-save]').hidden = false;
+      panel.querySelector('textarea').focus();
+    };
+    const mutate = async (channel, payload) => {
+      panel.querySelectorAll('.nodes-detail-actions button').forEach((b) => (b.disabled = true));
+      try {
+        const r = await ipcRenderer.invoke(channel, {
+          nodeId: id,
+          expectedUpdatedAt: n.updatedAt,
+          ...payload,
+        });
+        if (r.ok) {
+          const fullscreen = state.el.classList.contains('memory-fullscreen');
+          await renderGraph();
+          if (fullscreen) memoryExplorer.el.classList.add('memory-fullscreen');
+          if (channel !== 'memory-delete') await inspectMemoryNode(memoryExplorer, id);
+        } else if (!r.cancelled)
+          panel.querySelector('.memory-detail-result').textContent =
+            r.error === 'memory_changed'
+              ? 'Este recuerdo cambió. Ciérralo y vuelve a abrirlo antes de editar.'
+              : 'No se pudo guardar el cambio.';
+      } catch {
+        panel.querySelector('.memory-detail-result').textContent = 'No se pudo guardar el cambio.';
+      } finally {
+        panel.querySelectorAll('.nodes-detail-actions button').forEach((b) => (b.disabled = false));
+      }
+    };
+    panel.querySelector('[data-save]').onclick = () =>
+      mutate('memory-correct', { content: panel.querySelector('textarea').value.trim() });
+    panel.querySelector('[data-delete]').onclick = () => mutate('memory-delete', {});
+    panel.querySelector('[data-pin]').onclick = () => mutate('memory-pin', { pinned: !pinned });
+  } catch {
+    if (ticket === state.detailTicket)
+      panel.textContent = 'No se pudo cargar este recuerdo. Vuelve a seleccionarlo.';
+  }
+}
 
-  body.querySelectorAll('circle').forEach((c) => {
-    c.addEventListener('click', async (ev) => {
-      if (dragged) return;
-      ev.stopPropagation();
-      const detail = await ipcRenderer.invoke('memory-inspect', { nodeId: Number(c.dataset.id) });
-      const detailEl = inline.querySelector('#nodes-inline-detail');
-      if (!detailEl || !detail?.ok) return;
-      const node = detail.node;
-      const history = detail.history?.versions || [];
-      const evidence = detail.evidence || [];
-      detailEl.hidden = false;
-      detailEl.innerHTML = `
-        <div class="nodes-detail-title">${escapeHtml(node.label)} <span>${escapeHtml(node.type)}</span></div>
-        <textarea class="nodes-detail-content" maxlength="12000">${escapeHtml(node.content)}</textarea>
-        <div class="nodes-detail-meta">
-          ${node.inferred ? 'Inferencia · ' : ''}${history.length ? `${history.length} versiones · ` : ''}${evidence.length} evidencias
-        </div>
-        <details>
-          <summary>Historial y evidencias</summary>
-          <div class="nodes-detail-history">
-            ${history
-              .map(
-                (version) =>
-                  `<div><b>v${version.version} ${escapeHtml(version.status)}</b> ${escapeHtml(version.content)}</div>`
-              )
-              .join('')}
-            ${evidence
-              .map(
-                (item) =>
-                  `<div><b>${escapeHtml(item.source)} · ${escapeHtml(item.sensitivity)}</b> ${escapeHtml(item.content)}</div>`
-              )
-              .join('')}
-          </div>
-        </details>
-        <div class="nodes-detail-actions">
-          <button class="nodes-detail-save">Guardar corrección</button>
-          <button class="nodes-detail-delete">Eliminar memoria</button>
-        </div>`;
-      detailEl.querySelector('.nodes-detail-save').addEventListener('click', async () => {
-        const content = detailEl.querySelector('.nodes-detail-content').value.trim();
-        const result = await ipcRenderer.invoke('memory-correct', {
-          nodeId: node.id,
-          content,
-          expectedUpdatedAt: node.updatedAt,
-        });
-        if (result?.ok) await renderGraph();
-      });
-      detailEl.querySelector('.nodes-detail-delete').addEventListener('click', async () => {
-        const result = await ipcRenderer.invoke('memory-delete', {
-          nodeId: node.id,
-          expectedUpdatedAt: node.updatedAt,
-        });
-        if (result?.ok) await renderGraph();
-      });
-    });
-    c.addEventListener('mouseenter', (ev) => {
-      tip.textContent = `[${c.dataset.type}] ${c.dataset.label} — imp. ${c.dataset.imp}${c.dataset.tags ? ' · ' + c.dataset.tags : ''}\n${_fmtDate(c.dataset.created)}\n${c.dataset.content}`;
-      tip.style.display = 'block';
-      tip.style.left = Math.min(ev.clientX + 12, window.innerWidth - 320) + 'px';
-      tip.style.top = Math.min(ev.clientY + 12, window.innerHeight - 80) + 'px';
-    });
-    c.addEventListener('mousemove', (ev) => {
-      tip.style.left = Math.min(ev.clientX + 12, window.innerWidth - 320) + 'px';
-      tip.style.top = Math.min(ev.clientY + 12, window.innerHeight - 80) + 'px';
-    });
-    c.addEventListener('mouseleave', () => {
-      tip.style.display = 'none';
-    });
-  });
+function renderMemoryGaps(state) {
+  const target = state.el.querySelector('.memory-gaps > div');
+  const prefs = state.data.gapPreferences || [];
+  const rows = [
+    ...(state.data.gaps || []),
+    ...prefs
+      .filter((p) => p.mode === 'never' || p.untilAt > Date.now())
+      .map((p) => ({ key: p.key, trait: p.key.replaceAll('_', ' '), preference: p })),
+  ];
+  target.innerHTML = rows.length
+    ? rows
+        .map(
+          (g) =>
+            `<div class="memory-gap"><span>○ ${memoryText(g.trait)}${g.preference ? ` · ${g.preference.mode === 'never' ? 'No preguntar' : 'Pospuesto 7 días'}` : ''}</span>${g.preference ? `<button data-gap="${memoryText(g.key)}" data-mode="ask">Permitir preguntas</button>` : `<button data-gap="${memoryText(g.key)}" data-mode="never">No quiero que preguntes esto</button><button data-gap="${memoryText(g.key)}" data-mode="later">Pregúntame después</button>`}</div>`
+        )
+        .join('')
+    : 'Sin huecos pendientes.';
+  target.querySelectorAll('[data-gap]').forEach(
+    (button) =>
+      (button.onclick = async () => {
+        button.disabled = true;
+        try {
+          const r = await ipcRenderer.invoke('memory-gap-preference', {
+            key: button.dataset.gap,
+            mode: button.dataset.mode,
+          });
+          if (r.ok) await renderGraph();
+          else state.status('No se pudo guardar la preferencia.');
+        } catch {
+          state.status('No se pudo guardar la preferencia.');
+        } finally {
+          button.disabled = false;
+        }
+      })
+  );
+}
+
+function attachMemoryContext(bubble, ids) {
+  const unique = [...new Set((ids || []).filter(Number.isSafeInteger))];
+  if (!unique.length || !bubble) return;
+  const button = document.createElement('button');
+  button.className = 'memory-context-link';
+  button.textContent = `Memorias preparadas para esta respuesta: ${unique.length}`;
+  button.title =
+    'Recuerdos del contexto inicial. El agente puede recortarlos o recuperar otros; no prueba que cada uno influyera en la respuesta.';
+  button.onclick = () => openNodes({ ids: unique });
+  bubble.parentElement.appendChild(button);
 }

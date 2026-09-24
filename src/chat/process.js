@@ -1,4 +1,5 @@
 // @ts-nocheck
+/* global attachMemoryContext */
 /* global _renderResultChips, _takeResultMeta, pausePlanBlock */
 // Compresión de historial
 // Comprime mensajes de assistant repetitivos (fallos, "lo siento"s) para no
@@ -250,6 +251,7 @@ async function processMessage(text, files = []) {
   };
 
   let response;
+  let responseMemoryIds = [];
   let error = null;
   let agentBubble = null;
 
@@ -394,6 +396,7 @@ async function processMessage(text, files = []) {
         ipcRenderer.send('memory-add-turn', { role: 'assistant', content: response });
         bubble.classList.add('markdown');
         bubble.innerHTML = renderMarkdown(response, { path: window.__lastWritePath || '' });
+        attachMemoryContext(bubble, result.memoryContextIds || []);
         bubble.querySelectorAll('.mermaid').forEach((el) => _renderMermaid(el));
         _scrollMessagesToBottom();
         setAgentState('done', 'Listo');
@@ -443,6 +446,7 @@ async function processMessage(text, files = []) {
       }
 
       const agentPrompt = await AgentManager.getSystemPrompt();
+      responseMemoryIds = ctx.memoryContextIds || [];
       if (agentPrompt) {
         ctx.systemPrompt = `${agentPrompt}\n\n---\n\n${ctx.systemPrompt}`;
       }
@@ -483,6 +487,7 @@ async function processMessage(text, files = []) {
   pushToSession('assistant', response);
   ipcRenderer.send('memory-add-turn', { role: 'assistant', content: response });
   const { bubble } = addMessage('assistant', '');
+  attachMemoryContext(bubble, responseMemoryIds);
   bubble.classList.add('markdown');
   const reveal = revealText(bubble, response, {
     markdown: true,

@@ -322,8 +322,9 @@ function _buildOSSection(osContext) {
 
 /**
  * @typedef {{
- *   nodes?: Array<{ type?: string, content?: string, inferred?: number }>,
+ *   nodes?: Array<{ id?: number, type?: string, content?: string, inferred?: number }>,
  *   episodes?: Array<{
+ *     id?: number,
  *     content?: string,
  *     created_at?: string|number,
  *     memory_context?: {occurredAt?:number, evidenceCount?:number},
@@ -394,8 +395,9 @@ function _buildMetamemorySection(metamemory) {
   return '';
 }
 
-/** @param {MemoryData | null | undefined} persistentMemory */
-function _buildMemorySection(persistentMemory) {
+/** @param {MemoryData | null | undefined} persistentMemory
+ * @param {Array<{id:number,line:string}>} [references] */
+function _buildMemorySection(persistentMemory, references = []) {
   if (!persistentMemory) return '';
 
   // F2.1: la sección se arma bajo un presupuesto de chars (MEMORY_SECTION_CHARS)
@@ -425,7 +427,9 @@ function _buildMemorySection(persistentMemory) {
       if (used >= budget) break;
       const type = node.type || 'Dato';
       const props = (node.content || '').slice(0, Math.min(200, budget - used));
-      if (!pushLine(`- (${type}${_metamemoryLabel(node)}): ${props}`)) break;
+      const line = `- (${type}${_metamemoryLabel(node)}): ${props}`;
+      if (!pushLine(line)) break;
+      if (Number.isSafeInteger(node.id)) references.push({ id: Number(node.id), line });
     }
   }
 
@@ -451,7 +455,9 @@ function _buildMemorySection(persistentMemory) {
         const when = occurredAt ? new Date(occurredAt).toLocaleDateString('es-MX') : 'antes';
         const evidence = _metamemoryLabel(ep);
         const preview = (ep.content || '').slice(0, Math.min(200, budget - used));
-        if (!pushLine(`- [${when}${evidence}] ${preview}`)) break;
+        const line = `- [${when}${evidence}] ${preview}`;
+        if (!pushLine(line)) break;
+        if (Number.isSafeInteger(ep.id)) references.push({ id: Number(ep.id), line });
       }
     }
   }
@@ -576,7 +582,7 @@ class GroqSerializer {
    *   Por defecto NO — la memoria local del usuario (nodos/episodios del
    *   StateGraph) no se envía a proveedores externos por defecto.
    *
-   * @returns {{ systemPrompt: string, messages: Array<HistoryTurn> }}
+   * @returns {{ systemPrompt: string, messages: Array<HistoryTurn>, memoryReferences: Array<{id:number,line:string}> }}
    */
   serialize(contextPackage, opts = {}) {
     const {
@@ -592,6 +598,8 @@ class GroqSerializer {
       language = null,
     } = contextPackage;
     const includeMemory = opts.includeMemory === true;
+    /** @type {Array<{id:number,line:string}>} */
+    const memoryReferences = [];
 
     // Construir secciones del system prompt
     // Identidad: cacheada (se genera UNA VEZ), NO se recalcula por turno
@@ -600,7 +608,7 @@ class GroqSerializer {
       _getSerializedIdentity(),
       language && language.source !== 'default' ? responseLanguageLine(language) : '',
       _buildOSSection(osContext),
-      includeMemory ? _buildMemorySection(persistentMemory) : '',
+      includeMemory ? _buildMemorySection(persistentMemory, memoryReferences) : '',
       includeMemory ? _buildMetamemorySection(metamemory) : '',
       includeMemory ? _buildInferredSection(inferredModel) : '',
       _buildToolIntentSection(toolIntent),
@@ -674,7 +682,7 @@ class GroqSerializer {
       messages.push({ role: 'user', content: '...' });
     }
 
-    return { systemPrompt, messages };
+    return { systemPrompt, messages, memoryReferences };
   }
 }
 

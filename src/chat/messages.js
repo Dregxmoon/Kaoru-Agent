@@ -20,6 +20,33 @@ function _scrollMessagesToBottom() {
 
 messagesEl.addEventListener('scroll', _updateStickToBottom, { passive: true });
 
+// Delegación: también funciona con mensajes cargados y durante el streaming.
+messagesEl.addEventListener('click', async (event) => {
+  const button = event.target.closest('button[data-code-action]');
+  const frame = button?.closest('.message-code');
+  if (!frame) return;
+  if (button.dataset.codeAction === 'wrap') {
+    const wrap = frame.classList.toggle('wrap-code');
+    button.setAttribute('aria-pressed', String(wrap));
+    return;
+  }
+  if (button.dataset.codeAction !== 'copy') return;
+  const code = frame.querySelector('pre > code');
+  if (!code) return;
+  button.disabled = true;
+  try {
+    await navigator.clipboard.writeText(code.textContent || '');
+    button.textContent = 'Copiado';
+  } catch {
+    button.textContent = 'No se pudo copiar';
+  } finally {
+    button.disabled = false;
+    setTimeout(() => {
+      button.textContent = 'Copiar';
+    }, 2000);
+  }
+});
+
 function addMessage(role, text, files = []) {
   const div = document.createElement('div');
   div.className = `msg ${role}`;

@@ -842,15 +842,12 @@ function testCuriosityContext() {
       },
     ];
 
-    // Baja fricción → curiosidad con gaps + tensión.
+    // Los triggers genéricos no pueden saltarse el presupuesto de curiosidad.
     let ctx = engine._buildCuriosityContext({ type: 'return_from_break' });
-    assert(ctx.includes('aún no sabes'), 'return_from_break → curiosidad con gap');
-    assert(ctx.includes('contradicción'), 'tensión de memoria incluida');
+    assert(ctx === '', 'volver de una pausa no inicia una encuesta');
+    assert(!ctx.includes('contradicción'), 'no introduce revisiones de memoria fuera de su gate');
     ctx = engine._buildCuriosityContext({ type: 'long_silence' });
-    assert(
-      ctx.includes('aún no sabes') && !ctx.includes('aún no sabes su edad'),
-      'long_silence → curiosidad con rotación (pide un gap distinto)'
-    );
+    assert(ctx === '', 'el silencio no autoriza preguntas personales');
     // Trigger no-baja-fricción → sin curiosidad.
     ctx = engine._buildCuriosityContext({ type: 'context_switch_thrash' });
     assert(ctx === '', 'thrash (alta fricción) → sin curiosidad');
@@ -1700,6 +1697,11 @@ async function testRelationBookend() {
     at: Date.now(),
     outcome: null,
   });
+  engine._conversationProposals.set('zz', {
+    type: 'lsp_error',
+    action: { tool: 'apply_patch' },
+    at: Date.now(),
+  });
   engine.handleDecision({ proposalId: 'zz', type: 'lsp_error', decision: 'accepted' });
   assert(engine._buildBookend({ type: 'lsp_error' }) === '', 'aceptado → sin bookend');
 
@@ -1926,19 +1928,16 @@ async function testCuriosityOutcomeLoop() {
   engine.handleDecision({
     proposalId: staleProposal.id,
     type: 'memory_stale',
-    decision: 'accepted',
+    decision: 'respond',
   });
   const afterKeep = graph.getNode(staleKeep);
   const staleTags = JSON.parse(afterKeep.tags || '[]');
   assert(
-    !staleTags.includes('stale'),
-    'aceptado → se quita el tag "stale"',
+    staleTags.includes('stale'),
+    'conversar no confirma la vigencia de un recuerdo',
     JSON.stringify(staleTags)
   );
-  assert(
-    afterKeep.verified_at >= now,
-    'aceptado → verified_at refrescado (FactReasoner no lo vuelve a marcar)'
-  );
+  assert(!(afterKeep.verified_at >= now), 'abrir la conversación no modifica verified_at');
 
   const dropProposal = await engine._buildProposal({
     type: 'memory_stale',
@@ -1950,9 +1949,9 @@ async function testCuriosityOutcomeLoop() {
   engine.handleDecision({
     proposalId: dropProposal.id,
     type: 'memory_stale',
-    decision: 'rejected',
+    decision: 'deferred',
   });
-  assert(graph.getNode(staleDrop).archived === 1, 'rechazado → el hecho caduco se archiva');
+  assert(graph.getNode(staleDrop).archived === 0, 'posponer no archiva el recuerdo');
 
   // ── memory_tension: un par CONTRADICES vivo ────────────────────────────────
   const tA = ins.run(
@@ -1996,12 +1995,12 @@ async function testCuriosityOutcomeLoop() {
   engine.handleDecision({
     proposalId: tensionProposal.id,
     type: 'memory_tension',
-    decision: 'accepted',
+    decision: 'respond',
   });
-  assert(graph.getTensions().length === 0, 'aceptado → se conserva nodeA y la tensión desaparece');
+  assert(graph.getTensions().length === 1, 'conversar no elige arbitrariamente una versión');
   assert(
-    graph.getNode(tB).archived === 1 && graph.getNode(tA).archived === 0,
-    'el lado descartado (nodeB) queda archivado, el conservado vivo'
+    graph.getNode(tB).archived === 0 && graph.getNode(tA).archived === 0,
+    'ambos recuerdos permanecen intactos'
   );
 
   // ── intention_stale: meta abandonada ───────────────────────────────────────
@@ -2033,12 +2032,12 @@ async function testCuriosityOutcomeLoop() {
   engine.handleDecision({
     proposalId: intProposal.id,
     type: 'intention_stale',
-    decision: 'accepted',
+    decision: 'respond',
   });
   const refreshed = graph.getIntention(intention);
   assert(
-    refreshed.status === 'active' && refreshed.last_progress_at >= now,
-    'aceptado → la meta sigue activa y su last_progress_at se refresca (deja de salir stale)'
+    refreshed.status === 'active' && refreshed.last_progress_at < now,
+    'conversar no inventa progreso de una meta'
   );
 
   const intProposal2 = await engine._buildProposal({
@@ -2050,12 +2049,9 @@ async function testCuriosityOutcomeLoop() {
   engine.handleDecision({
     proposalId: intProposal2.id,
     type: 'intention_stale',
-    decision: 'rejected',
+    decision: 'deferred',
   });
-  assert(
-    graph.getIntention(intention).status === 'dropped',
-    'rechazado → la meta se descarta (dropIntention)'
-  );
+  assert(graph.getIntention(intention).status === 'active', 'posponer no descarta la meta');
 
   engine.stop();
   graph.close();

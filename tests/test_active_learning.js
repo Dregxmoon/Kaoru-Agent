@@ -94,6 +94,14 @@ async function testCandidateAndNoAuthorization() {
       'no convierte el primer arranque en una encuesta'
     );
     engine._startedAt = Date.now() - 4 * 60 * 60 * 1000;
+    assert(
+      !engine._collectCuriosityCandidates().some((candidate) => candidate.type === 'knowledge_gap'),
+      'el silencio por sí solo no justifica preguntar'
+    );
+    engine.setOSSensor({
+      getCurrentContext: () => ({ idleSecs: 0, category: 'other', title: 'Aprender programación' }),
+      getTodaySummary: () => '',
+    });
     const candidates = engine._collectCuriosityCandidates();
     const gap = candidates.find((candidate) => candidate.type === 'knowledge_gap');
     assert(gap && gap.gapKey, 'convierte un hueco desconocido en candidato identificable');
@@ -127,10 +135,62 @@ async function testCandidateAndNoAuthorization() {
     );
     assert(graph.queryNodes({ limit: 20 }).length === 0, 'rechazar no crea ni modifica recuerdos');
 
+    const neutral = await engine._buildProposal({ ...gap, gapKey: 'ayuda' });
+    const receptivity = engine._receptivity;
+    assert(
+      !engine.handleDecision({ proposalId: neutral.id, type: 'memory_stale', decision: 'respond' }),
+      'rechaza tipos falsificados'
+    );
+    assert(
+      !engine.handleDecision({
+        proposalId: neutral.id,
+        type: 'knowledge_gap',
+        decision: 'accepted',
+      }),
+      'un sí genérico no confirma una pregunta'
+    );
+    assert(
+      engine.handleDecision({ proposalId: neutral.id, type: 'knowledge_gap', decision: 'respond' }),
+      'responder abre la conversación'
+    );
+    assert(engine._receptivity === receptivity, 'responder no refuerza al modelo');
+    assert(
+      !engine.handleDecision({
+        proposalId: neutral.id,
+        type: 'knowledge_gap',
+        decision: 'respond',
+      }),
+      'no procesa dos veces el mismo botón'
+    );
+    const blocked = await engine._buildProposal({ ...gap, gapKey: 'aprendizaje' });
+    assert(
+      engine.handleDecision({ proposalId: blocked.id, type: 'knowledge_gap', decision: 'never' }),
+      'permite no volver a preguntar'
+    );
+    assert(
+      graph._db
+        .prepare('SELECT mode FROM memory_gap_preferences WHERE gap_key=?')
+        .get('aprendizaje').mode === 'never',
+      'guarda la exclusión en SQLite'
+    );
+    const later = await engine._buildProposal({ ...gap, gapKey: 'limites' });
+    assert(
+      engine.handleDecision({ proposalId: later.id, type: 'knowledge_gap', decision: 'deferred' }),
+      'permite posponer'
+    );
+    assert(
+      graph.queryNodes({ limit: 20 }).length === 0,
+      'ninguno de los botones inventa recuerdos'
+    );
+    engine._curiosityUsedToday = () => 1;
+    assert((await engine._tryTrigger(gap)).blocked, 'una curiosidad al día como máximo');
+
     const chatUi = fs.readFileSync(path.join(__dirname, '../src/chat/ipc.js'), 'utf8');
     assert(
-      chatUi.includes("isQuestion ? 'Responder' : 'Sí, hazlo'") &&
-        chatUi.includes("isQuestion ? 'Ahora no' : 'No, gracias'"),
+      chatUi.includes("'Responder'") &&
+        chatUi.includes("'Conversar sobre esto'") &&
+        chatUi.includes("'deferred'") &&
+        !chatUi.includes("'Sí, hazlo'"),
       'la UI usa lenguaje de conversación, no de ejecución'
     );
   } finally {

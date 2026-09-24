@@ -239,6 +239,12 @@ function testDecisions() {
   const engine = makeEngine(store);
 
   // 3a. handler directo
+  engine._conversationProposals = new Map(
+    ['p-1', 'p-2', 'p-3'].map((id) => [
+      id,
+      { type: 'system_warning', action: { tool: 'git_status' }, at: Date.now() },
+    ])
+  );
   const s1 = engine.handleDecision({
     proposalId: 'p-1',
     type: 'system_warning',
@@ -281,6 +287,9 @@ async function testBusDecision() {
   store.reset();
   const engine = makeEngine(store);
 
+  engine._conversationProposals = new Map([
+    ['p-4', { type: 'error_title', action: { tool: 'git_status' }, at: Date.now() }],
+  ]);
   bus.emit('initiative:decision', { proposalId: 'p-4', type: 'error_title', decision: 'rejected' });
   await new Promise((r) => setImmediate(r));
 
@@ -411,14 +420,17 @@ function testContextPreferences() {
     context: 'work',
     at: Date.now(),
   });
+  engine._conversationProposals = new Map([
+    ['work-answer', { type: 'project_resume', action: null, at: Date.now() }],
+  ]);
   engine.handleDecision({
     proposalId: 'work-answer',
     type: 'project_resume',
-    decision: 'accepted',
+    decision: 'respond',
   });
   assert(
-    store._data.byContext.work.accepted === 1,
-    'el desenlace se atribuye al contexto original'
+    !store._data.byContext.work,
+    'abrir una conversación no cuenta como valoración positiva del contexto'
   );
   engine.stop();
 }

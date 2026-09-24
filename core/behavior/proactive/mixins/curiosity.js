@@ -72,7 +72,7 @@ registerProfile('knowledge_gap', 'default', {
 const { extractThemeTerms, getMemoryGaps } = require('../../../core/misc.js');
 const { assessTriggerAlignment, buildFocusContext } = require('../ContextAlignment.js');
 const { _localDayString } = require('../helpers.js');
-const { INTENTION_STALE_DAYS, SILENCE_THRESHOLD_MS } = require('../config.js');
+const { INTENTION_STALE_DAYS } = require('../config.js');
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 
@@ -173,7 +173,11 @@ module.exports = {
    */
   _contextBoostFor(label, content) {
     const osCtx = this._osSensor?.getCurrentContext?.() ?? {};
-    const ctxText = [osCtx.friendlyName, osCtx.app, osCtx.title].filter(Boolean).join(' ').trim();
+    const recentTopic = Date.now() - this._lastUserMsg < 30 * 60 * 1000 ? this._lastUserTopic : '';
+    const ctxText = [osCtx.friendlyName, osCtx.app, osCtx.title, recentTopic]
+      .filter(Boolean)
+      .join(' ')
+      .trim();
     if (!ctxText) return 0;
     const terms = extractThemeTerms(ctxText);
     if (!terms.length) return 0;
@@ -231,11 +235,8 @@ module.exports = {
           : gaps;
       for (const gap of eligible) {
         const boost = this._contextBoostFor(gap.key, gap.trait);
-        const silenceBase = this._lastUserMsg || this._startedAt || Date.now();
-        const quietLongEnough = Date.now() - silenceBase >= SILENCE_THRESHOLD_MS;
-        // No convertir el onboarding en encuesta: un hueco nuevo solo entra
-        // si el contexto actual lo volvió relevante o hubo silencio largo.
-        if (boost <= 0 && !quietLongEnough) continue;
+        // El silencio no es consentimiento ni motivo para recopilar datos personales.
+        if (boost <= 0 || ['edad', 'ubicacion', 'nombre'].includes(gap.key)) continue;
         addCandidate({
           type: 'knowledge_gap',
           kind: gap.key,

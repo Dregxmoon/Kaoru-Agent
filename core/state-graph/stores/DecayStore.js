@@ -12,7 +12,10 @@ class DecayStore {
   applyDecay() {
     const now = Date.now();
     const nodes = this._db
-      .prepare('SELECT id, importance, decay_rate, last_accessed_at FROM nodes WHERE archived=0')
+      .prepare(
+        `SELECT id, importance, decay_rate, last_accessed_at FROM nodes
+        WHERE archived=0 AND instr(COALESCE(tags,'[]'), '"memory:pinned"')=0`
+      )
       .all();
 
     const update = this._db.prepare('UPDATE nodes SET importance=? WHERE id=?');

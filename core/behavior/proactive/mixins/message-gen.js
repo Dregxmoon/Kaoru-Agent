@@ -262,7 +262,7 @@ ${memory}`;
     // NUNCA se le pasa el score ni el motivo del gate: son datos internos del
     // sistema que no deben filtrarse al usuario en la respuesta.
     const productionMode = trigger._gate
-      ? `La señal ya fue evaluada como relevante por el sistema. Tu trabajo NO es decidir si hablar: ES hablarlo. Escribe el mensaje.`
+      ? `La señal pasó el filtro inicial. Aporta una observación concreta y una mejora útil, o una única pregunta abierta relevante. No busques aprobación con preguntas de sí/no ni pidas reafirmar recuerdos. Si no tienes nada útil o el momento no encaja, devuelve NO. Nunca prometas ejecutar acciones que no están disponibles.`
       : '';
 
     // Registro adaptativo: el LLM recibe un "frame de situación" determinista
@@ -520,9 +520,10 @@ No expliques por qué escribes. No anuncies que eres proactiva. NO muestres tu r
       // Gaps de conocimiento: rasgos del usuario que aún no sabes. Úsalos como
       // puntos de curiosidad genuina — preguntar algo de aquí vale más que
       // preguntar "¿cómo va el proyecto?" por enésima vez.
-      const mayAskPersonally =
-        trigger?.type === 'knowledge_gap' || LOW_FRICTION_TRIGGERS.has(trigger?.type);
-      const gaps = mayAskPersonally ? getMemoryGaps() : [];
+      const gaps =
+        trigger?.type === 'knowledge_gap'
+          ? getMemoryGaps().filter((gap) => gap.key === trigger.gapKey)
+          : [];
       if (gaps.length) {
         lines.push('Aún no sabes de la persona:');
         gaps.forEach((g) =>
@@ -592,58 +593,8 @@ No expliques por qué escribes. No anuncies que eres proactiva. NO muestres tu r
       return this._buildMemoryCuriosityContext(trigger);
     }
     if (!trigger || !LOW_FRICTION_TRIGGERS.has(trigger.type)) return '';
-    try {
-      const bits = [];
-
-      const gaps = getMemoryGaps();
-      // Rotación: sin esto siempre se preguntan los MISMOS 2 primeros gaps
-      // (orden de KNOWLEDGE_GAPS) y los demás jamás salen a la conversación.
-      // Un cursor avanza de a 2 para que todos se exploren con el tiempo.
-      if (gaps.length) {
-        if (typeof this._curiosityCursor !== 'number') this._curiosityCursor = 0;
-        const n = gaps.length;
-        const start = this._curiosityCursor % n;
-        const count = Math.min(2, n);
-        // MEM-3: anclar cada pregunta a un dato conocido — la curiosidad parte
-        // de lo que ya se sabe, no de encuesta vacía.
-        let anchor = '';
-        try {
-          const known = this._graph.getWorldModel?.() ?? [];
-          const focus = buildFocusContext({
-            osContext: this._osSensor?.getCurrentContext?.() ?? {},
-            workspace: this._getWorkspace?.() ?? null,
-            focusedFile: this._getFocusedFile?.() ?? null,
-            eventContext: trigger?.context || '',
-          });
-          const real = known.filter(
-            (x) => isRealIdentityNode(x) && memoryAllowedForFocus(x, focus)
-          );
-          const pick = real[real.length - 1];
-          if (pick?.content)
-            anchor = ` — podés anclarla a que ya sabes: "${String(pick.content).slice(0, 80)}"`;
-        } catch {}
-        for (let i = 0; i < count; i++) {
-          bits.push(`- aún no sabes ${gaps[(start + i) % n].trait}${anchor}`);
-        }
-        this._curiosityCursor = (start + count) % n;
-      }
-
-      const tensions = this._graph?.getTensions?.() ?? [];
-      if (tensions.length && bits.length < 3) {
-        const t = tensions[0];
-        bits.push(
-          `- en tu memoria hay una contradicción sobre él: "${t.contentA?.slice(0, 80)}" vs "${t.contentB?.slice(0, 80)}"`
-        );
-      }
-
-      if (!bits.length) return '';
-      return `\nCuriosidad genuina (opcional — solo si encaja naturalmente con el momento): en lugar de comentar la pantalla, puede valer más la pena preguntarle algo que te interesa de él:\n${bits.join(
-        '\n'
-      )}\nSi eliges preguntar, que sea UNA sola cosa, con tu voz natural y sin sonar a interrogatorio.`;
-    } catch (e) {
-      logger.warn('message-gen', '[proactive] error construyendo curiosidad:', e.message);
-      return '';
-    }
+    // Las preguntas personales solo salen por su gate y presupuesto propios.
+    return '';
   },
 
   /**
@@ -657,7 +608,7 @@ No expliques por qué escribes. No anuncies que eres proactiva. NO muestres tu r
     try {
       if (trigger.type === 'memory_stale') {
         const what = String(trigger.content || trigger.label || 'eso').slice(0, 160);
-        return `\nDato de memoria a revalidar: el usuario te contó antes "${what}" (${trigger.label}), hace tiempo que no se menciona y quedó marcado como posiblemente caducado. Es un HECHO que él dijo, no una inferencia: puedes preguntarle DIRECTO y natural, p. ej. "hace tiempo no hablamos de ${trigger.label || 'eso'}, ¿sigue igual?". No inventes nada nuevo sobre él; solo pregunta si sigue vigente.`;
+        return `\nRecuerdo posiblemente desactualizado: "${what}" (${trigger.label}). No presentes su antigüedad como motivo suficiente para interrumpir ni pidas un sí/no para validarlo. Solo si afecta a la ayuda actual, haz una pregunta abierta sobre lo que necesita ahora. No inventes cambios, no asumas que el recuerdo sigue vigente y no afirmes que proviene de una cita explícita si no tienes su fuente.`;
       }
       if (trigger.type === 'knowledge_gap') {
         const trait = String(trigger.trait || 'ese aspecto').slice(0, 160);

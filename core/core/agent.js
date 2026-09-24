@@ -832,6 +832,9 @@ async function runAgent(userMessage, opts = {}) {
     `[agent-timing] loop total ${Date.now() - _t0}ms (${result.iterations} iteraciones)`
   );
   result.executionMode = mode;
+  result.memoryContextIds = (context.memoryReferences || [])
+    .filter((ref) => context.systemPrompt.includes(ref.line))
+    .map((ref) => ref.id);
   return result;
 }
 

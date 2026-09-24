@@ -49,8 +49,11 @@ async function main() {
   }
 
   const trustedWebContents = {};
-  const calls = { inspect: 0, correct: 0, delete: 0, export: 0 };
+  const calls = { inspect: 0, correct: 0, delete: 0, export: 0, proposal: 0 };
   const Core = {
+    handleProposalDecision: () => {
+      calls.proposal++;
+    },
     inspectMemory: (nodeId) => {
       calls.inspect++;
       return { ok: true, node: { id: nodeId } };
@@ -78,6 +81,14 @@ async function main() {
   }
 
   const inspect = handlers.get('memory-inspect');
+  listeners.get('initiative-decision')({ sender: {} }, {});
+  assert(calls.proposal === 0, 'una ventana ajena no decide propuestas');
+  listeners.get('initiative-decision')({ sender: trustedWebContents }, {});
+  assert(calls.proposal === 1, 'solo el chat registrado decide propuestas');
+  for (const channel of ['memory-explorer', 'memory-pin', 'memory-gap-preference']) {
+    const result = await handlers.get(channel)({ sender: {} }, {});
+    assert(result.error === 'untrusted_sender', `${channel} rechaza ventanas ajenas`);
+  }
   const denied = await inspect({ sender: {} }, { nodeId: 7 });
   assert(
     denied.error === 'untrusted_sender' && calls.inspect === 0,

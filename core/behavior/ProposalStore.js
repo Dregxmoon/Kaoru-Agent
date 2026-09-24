@@ -280,9 +280,20 @@ class ProposalStore {
     return { ...row };
   }
 
-  /** @param {string} proposalId @param {'accepted'|'rejected'|'ignored'|'auto_executed'} outcome @param {number} [now] */
+  /** @param {string} proposalId @param {'accepted'|'rejected'|'ignored'|'auto_executed'|'respond'|'deferred'|'never'} outcome @param {number} [now] */
   resolveEmission(proposalId, outcome, now = Date.now()) {
-    if (!proposalId || !['accepted', 'rejected', 'ignored', 'auto_executed'].includes(outcome)) {
+    if (
+      !proposalId ||
+      ![
+        'accepted',
+        'rejected',
+        'ignored',
+        'auto_executed',
+        'respond',
+        'deferred',
+        'never',
+      ].includes(outcome)
+    ) {
       return false;
     }
     const row = [...this._data.emissions].reverse().find((item) => item.proposalId === proposalId);

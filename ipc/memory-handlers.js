@@ -66,6 +66,31 @@ function register(ctx) {
   });
 
   // IPC: gaps de conocimiento del usuario (para proactividad / vista).
+  const explorer = require('../core/memory/MemoryExplorer');
+  ipcMain.handle('memory-explorer', (event) => {
+    if (!trustedSender(event)) return { ok: false, error: 'untrusted_sender' };
+    try {
+      const graph = Core.getGraph();
+      return {
+        ok: true,
+        ...explorer.inventory(graph, require('../core/core/misc').isRealIdentityNode),
+        gaps: Core.getMemoryGaps(),
+        gapPreferences: explorer.gapPreferences(graph),
+      };
+    } catch (error) {
+      logger.warn('memory-handlers', '[memory-explorer]', error.message);
+      return { ok: false, error: 'memory_unavailable' };
+    }
+  });
+  ipcMain.handle('memory-pin', (event, payload = {}) => {
+    if (!trustedSender(event)) return { ok: false, error: 'untrusted_sender' };
+    return explorer.pin(Core.getGraph(), payload);
+  });
+  ipcMain.handle('memory-gap-preference', (event, payload = {}) => {
+    if (!trustedSender(event)) return { ok: false, error: 'untrusted_sender' };
+    return explorer.setGapPreference(Core.getGraph(), payload);
+  });
+
   ipcMain.handle('memory-gaps', () => {
     try {
       return { gaps: Core.getMemoryGaps() };
@@ -87,6 +112,7 @@ function register(ctx) {
 
   // IPC: decisión de propuesta proactiva (Fase A)
   ipcMain.on('initiative-decision', (e, decision) => {
+    if (!trustedSender(e)) return;
     Core.handleProposalDecision(decision);
   });
 
@@ -105,7 +131,12 @@ function register(ctx) {
         ctxRes?.systemPrompt?.length,
         'chars'
       );
-      return ctxRes;
+      return {
+        ...ctxRes,
+        memoryContextIds: (ctxRes?.memoryReferences || [])
+          .filter((ref) => ctxRes.systemPrompt.includes(ref.line))
+          .map((ref) => ref.id),
+      };
     }
   );
 

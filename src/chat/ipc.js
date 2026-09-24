@@ -352,6 +352,7 @@ function _renderProposal(proposal, bubble) {
   const wrap = document.createElement('div');
   wrap.className = 'proposal-actions';
   const isQuestion = proposal.kind === 'question';
+  const isAction = Boolean(proposal.action);
 
   if (proposal.preview) {
     const preview = document.createElement('div');
@@ -372,19 +373,32 @@ function _renderProposal(proposal, bubble) {
 
   const accept = document.createElement('button');
   accept.className = 'btn-proposal-accept';
-  accept.textContent = isQuestion ? 'Responder' : 'Sí, hazlo';
+  accept.textContent = isAction
+    ? proposal.title || 'Ejecutar acción'
+    : isQuestion
+      ? 'Responder'
+      : 'Conversar sobre esto';
   accept.addEventListener('click', () => {
-    sendProposalDecision(proposal, 'accepted', wrap, accept);
-    if (isQuestion) document.getElementById('msg-input')?.focus();
+    sendProposalDecision(proposal, isAction ? 'accepted' : 'respond', wrap, accept);
+    if (!isAction) document.getElementById('msg-input')?.focus();
   });
 
   const deny = document.createElement('button');
   deny.className = 'btn-proposal-deny';
-  deny.textContent = isQuestion ? 'Ahora no' : 'No, gracias';
-  deny.addEventListener('click', () => sendProposalDecision(proposal, 'rejected', wrap, deny));
+  deny.textContent = isAction ? 'No ejecutar' : 'Ahora no';
+  deny.addEventListener('click', () =>
+    sendProposalDecision(proposal, isAction ? 'rejected' : 'deferred', wrap, deny)
+  );
 
   btns.appendChild(accept);
   btns.appendChild(deny);
+  if (proposal.type === 'knowledge_gap') {
+    const never = document.createElement('button');
+    never.className = 'btn-proposal-deny';
+    never.textContent = 'No me preguntes esto';
+    never.addEventListener('click', () => sendProposalDecision(proposal, 'never', wrap, never));
+    btns.appendChild(never);
+  }
   wrap.appendChild(btns);
   bubble.appendChild(wrap);
 
@@ -415,13 +429,13 @@ function sendProposalDecision(proposal, decision, wrap, clickedBtn) {
   const status = document.createElement('span');
   status.className = decision === 'accepted' ? 'proposal-status ok' : 'proposal-status no';
   status.textContent =
-    decision === 'accepted'
-      ? proposal.kind === 'question'
-        ? 'Te leo.'
-        : '✓ Aceptado — en proceso.'
-      : proposal.kind === 'question'
-        ? 'Lo dejamos para otro momento.'
-        : 'Descartado — seré más selectiva con esto.';
+    {
+      accepted: 'Acción solicitada — esperando resultado.',
+      rejected: 'No se ejecutará.',
+      respond: 'Te leo. No se ha confirmado ni cambiado ningún recuerdo.',
+      deferred: 'Lo dejamos para otro momento. Tus recuerdos no cambian.',
+      never: 'No volveré a preguntarte este tema. Puedes cambiarlo en Memoria.',
+    }[decision] || '';
   wrap.appendChild(status);
   _scrollMessagesToBottom();
 }

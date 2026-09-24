@@ -62,6 +62,7 @@ module.exports = {
 
   onUserMessage(content = '') {
     this._recordUserTurn();
+    this._lastUserTopic = String(content).slice(0, 1200);
     this._graph?.captureActiveLearningAnswer?.({ content });
     this._captureProjectUpdate?.(content);
   },
