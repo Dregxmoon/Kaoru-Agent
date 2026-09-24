@@ -50,6 +50,7 @@ function register(ctx) {
         const clean = {};
         if (m.fast && typeof m.fast === 'string') clean.fast = m.fast;
         if (m.smart && typeof m.smart === 'string') clean.smart = m.smart;
+        if (m.selected && typeof m.selected === 'string') clean.selected = m.selected;
         if (Object.keys(clean).length > 0) {
           newProviders[id] = { ...(newProviders[id] || {}), model: clean };
         }
@@ -95,7 +96,7 @@ function register(ctx) {
   // Fase Q: /model id <modelo> [fast|smart] persiste el modelo elegido por
   // proveedor+modo en config.json (llm.providers[id].model[modo]) sin tocar keys.
   ipcMain.handle('set-llm-model', (e, { provider, mode, model, reasoningEffort }) => {
-    if (!provider || !model || !['fast', 'smart'].includes(mode)) return false;
+    if (!provider || !model || !['fast', 'smart', 'all'].includes(mode)) return false;
     if (reasoningEffort != null && !['low', 'medium', 'high'].includes(reasoningEffort)) {
       return false;
     }
@@ -108,7 +109,10 @@ function register(ctx) {
         : {};
     providers[provider] = {
       ...(providers[provider] || {}),
-      model: { ...modelRoles, [mode]: model },
+      model:
+        mode === 'all'
+          ? { fast: model, smart: model, selected: model }
+          : { ...modelRoles, [mode]: model },
       reasoningEffort: {
         ...(providers[provider]?.reasoningEffort || {}),
         ...(reasoningEffort ? { [model]: reasoningEffort } : {}),
@@ -117,7 +121,7 @@ function register(ctx) {
     saveConfig({
       llm: {
         ...(currentCfg.llm || {}),
-        primary: currentCfg.llm?.primary || 'groq',
+        primary: mode === 'all' ? provider : currentCfg.llm?.primary || 'groq',
         fallback: currentCfg.llm?.fallback || ['gemini'],
         providers,
         apiKeys: currentCfg.llm?.apiKeys || {},
@@ -340,6 +344,9 @@ function register(ctx) {
             ? newProviders[providerId].model
             : {}),
           ...activeModel,
+          ...(mode === 'all' && modelId
+            ? { fast: modelId, smart: modelId, selected: modelId }
+            : {}),
         },
       };
 

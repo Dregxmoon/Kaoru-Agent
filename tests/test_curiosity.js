@@ -14,8 +14,8 @@
  *     de curiosidad NO son ruido a silenciar por score).
  *   - _tryTrigger: un envío real consume SOLO el cupo de curiosidad, nunca
  *     incrementa el presupuesto diario general (y viceversa).
- *   - Outcome de una pattern_uncertain → confirma/archiva el nodo inferido vía
- *     UserModelBuilder.confirmInferred() (además del feedback general).
+ *   - Las tarjetas informativas de curiosidad no confirman ni descartan
+ *     inferencias; solo aceptan responder, diferir o no volver a preguntar.
  */
 
 const { ProactiveEngine } = require('../core/behavior/ProactiveEngine.js');
@@ -364,12 +364,10 @@ function testDailyReset() {
   engine.stop();
 }
 
-// ── Test 6: outcome → confirmInferred ─────────────────────────────────────────
+// ── Test 6: las tarjetas informativas no alteran creencias ───────────────────
 
 function testOutcomeConfirmsInference() {
-  console.log(
-    C.bold('\nTest 6: outcome de pattern_uncertain → confirmInferred (además del feedback)')
-  );
+  console.log(C.bold('\nTest 6: una tarjeta de curiosidad no confirma inferencias'));
 
   const confirmed = { nodeId: null, decision: null };
   const graph = curiosityGraph();
@@ -380,27 +378,43 @@ function testOutcomeConfirmsInference() {
   };
   const engine = makeEngine(graph);
 
-  // Simulamos: la propuesta fue creada con ref al nodo inferido.
+  // Solo los IDs de tarjetas emitidas se aceptan, y una tarjeta informativa
+  // no equivale a confirmar la creencia subyacente.
+  engine._conversationProposals = new Map();
   engine._proposalRefs.set('p1', { nodeId: 10 });
-
-  engine.handleDecision({ proposalId: 'p1', type: 'pattern_uncertain', decision: 'accepted' });
+  engine._conversationProposals.set('p1', {
+    type: 'pattern_uncertain',
+    action: null,
+    at: Date.now(),
+  });
   assert(
-    confirmed.nodeId === 10 && confirmed.decision === 'accepted',
-    'accepted → confirmInferred(10, accepted)',
-    JSON.stringify(confirmed)
+    !engine.handleDecision({ proposalId: 'p1', type: 'pattern_uncertain', decision: 'accepted' }),
+    'aceptar una creencia desde una tarjeta informativa se rechaza'
   );
-  assert(!engine._proposalRefs.has('p1'), 'el ref se limpia tras el outcome');
+  assert(
+    engine.handleDecision({ proposalId: 'p1', type: 'pattern_uncertain', decision: 'respond' }),
+    'responder a la pregunta se acepta'
+  );
+  assert(confirmed.nodeId === null, 'responder no confirma la inferencia');
+  assert(!engine._proposalRefs.has('p1'), 'el ref se limpia tras responder');
 
   engine._proposalRefs.set('p2', { nodeId: 11 });
-  engine.handleDecision({ proposalId: 'p2', type: 'pattern_uncertain', decision: 'rejected' });
+  engine._conversationProposals.set('p2', {
+    type: 'pattern_uncertain',
+    action: null,
+    at: Date.now(),
+  });
   assert(
-    confirmed.nodeId === 11 && confirmed.decision === 'rejected',
-    'rejected → confirmInferred(11, rejected)'
+    engine.handleDecision({ proposalId: 'p2', type: 'pattern_uncertain', decision: 'deferred' }),
+    'posponer la pregunta se acepta'
   );
+  assert(confirmed.nodeId === null, 'posponer no descarta la inferencia');
 
-  // Un tipo NO-curiosidad no toca confirmInferred (no hay ref que conectar).
-  engine.handleDecision({ proposalId: 'p3', type: 'git_redflag', decision: 'accepted' });
-  assert(confirmed.decision === 'rejected', 'git_redflag → NO vuelve a llamar confirmInferred');
+  assert(
+    !engine.handleDecision({ proposalId: 'p3', type: 'git_redflag', decision: 'accepted' }),
+    'IDs no emitidos se rechazan'
+  );
+  engine.stop();
 }
 
 // ── Runner ────────────────────────────────────────────────────────────────────

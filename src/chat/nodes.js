@@ -432,6 +432,9 @@ function drawMemory(state) {
       })
       .join('')}</g></svg>`;
   const svg = body.querySelector('svg');
+  svg.querySelectorAll('.memory-node').forEach((node) => {
+    node.setAttribute('aria-pressed', String(node.classList.contains('selected')));
+  });
   let origin = null,
     dragged = false;
   svg.addEventListener('pointerdown', (e) => {

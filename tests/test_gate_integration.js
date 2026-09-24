@@ -225,6 +225,12 @@ async function testReceptivity() {
 
   assert(engine._receptivity === 0, 'receptividad inicial = 0');
 
+  engine._conversationProposals = new Map();
+  engine._conversationProposals.set('p1', {
+    type: 'git_redflag',
+    action: { tool: 'git_status' },
+    at: Date.now(),
+  });
   engine.handleDecision({ proposalId: 'p1', type: 'git_redflag', decision: 'accepted' });
   assert(
     engine._receptivity > 0,
@@ -234,7 +240,13 @@ async function testReceptivity() {
 
   const recAfter = engine._receptivity;
   for (let i = 0; i < 5; i++) {
-    engine.handleDecision({ proposalId: `p${i}`, type: 'git_redflag', decision: 'rejected' });
+    const proposalId = `p-rej-${i}`;
+    engine._conversationProposals.set(proposalId, {
+      type: 'git_redflag',
+      action: { tool: 'git_status' },
+      at: Date.now(),
+    });
+    engine.handleDecision({ proposalId, type: 'git_redflag', decision: 'rejected' });
   }
   assert(
     engine._receptivity < recAfter,

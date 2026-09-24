@@ -333,7 +333,7 @@ input.addEventListener('input', () => {
 // ── Browser de modelos inline (/model): TODOS los modelos, empresa debajo ────
 // Al escribir /model el div del input se expande y lista los modelos del
 // catálogo + models.dev (favoritos primero). Enter lo asigna a respuestas
-// rápidas y Ctrl+Enter a acciones/razonamiento; el flujo elige automáticamente.
+// El flujo elige automáticamente si la solicitud requiere herramientas.
 // Si el proveedor no está conectado, la fila permite pegar la API key. Esc cierra.
 const modelBrowser = document.getElementById('model-browser');
 const modelBrowserList = document.getElementById('model-browser-list');
@@ -406,15 +406,13 @@ function _mbrRowHtml(m, i, byId, favs) {
         ${
           connected
             ? `<div class="mbr-actions">
-               <button class="mbr-btn" data-act="use" data-mode="fast">Usar para respuestas rápidas</button>
-               <button class="mbr-btn" data-act="use" data-mode="smart">Usar para acciones y razonamiento</button>
+               <button class="mbr-btn" data-act="use">Usar este modelo</button>
              </div>`
             : p.connectable === false
               ? '<div style="font-size:10px;color:#f59e0b;font-family:var(--font-mono)">No conectable automáticamente.</div>'
               : `<input class="mbr-key" type="password" placeholder="${escapeHtml(p.name)} API key" autocomplete="off" />
              <div class="mbr-actions">
-               <button class="mbr-btn" data-act="connect" data-mode="fast">Conectar para respuestas rápidas</button>
-               <button class="mbr-btn" data-act="connect" data-mode="smart">Conectar para acciones y razonamiento</button>
+               <button class="mbr-btn" data-act="connect">Conectar y usar este modelo</button>
              </div>`
         }
       </div>`
@@ -533,7 +531,7 @@ function _mbrRender() {
     modelBrowserStatus.textContent =
       rows.length > _browserRows.length
         ? `mostrando ${_browserRows.length} de ${rows.length} — escribí para filtrar`
-        : '↑↓ navegar · Enter respuesta rápida · Ctrl+Enter acciones · Esc cerrar';
+        : '↑↓ navegar · Enter seleccionar · Esc cerrar';
   } else if (_browserShowAll) {
     modelBrowserStatus.textContent = `catálogo completo (${total} modelos) · ↑↓ navegar · Enter usar · Esc cerrar`;
   } else {
@@ -580,29 +578,31 @@ function _mbrToggleExpand(row) {
   if (keyInput) keyInput.focus();
 }
 
-async function _mbrApplyConnected(row, mode) {
-  const role = (_pickerData.roles && _pickerData.roles[mode]) || mode;
+async function _mbrApplyConnected(row) {
+  const mode = 'all';
   const effortSelect = modelBrowserList.querySelector('.mbr-effort-select');
   const reasoningEffort = effortSelect ? effortSelect.value : row.reasoningEffort;
-  await ipcRenderer.invoke('set-llm-model', {
+  const saved = await ipcRenderer.invoke('set-llm-model', {
     provider: row.providerId,
     mode,
     model: row.modelId,
     reasoningEffort,
   });
-  if (reasoningEffort) row.reasoningEffort = reasoningEffort;
-  if (_pickerData.active.provider !== row.providerId) {
-    ipcRenderer.send('set-provider', { primary: row.providerId });
+  if (!saved) {
+    modelBrowserStatus.textContent = 'No se pudo guardar el modelo seleccionado.';
+    return;
   }
+  if (reasoningEffort) row.reasoningEffort = reasoningEffort;
   await loadLLMConfig();
-  modelBrowserStatus.textContent = `✓ ${row.label} activo en ${role}`;
+  modelBrowserStatus.textContent = `✓ ${row.label} activo para todas las solicitudes${row.tools === false ? ' · No admite herramientas' : ''}`;
   modelBrowserStatus.style.color = '#10b981';
   input.value = '';
   input.style.height = 'auto';
   setTimeout(_mbrHide, 700);
 }
 
-async function _mbrConnectAndUse(row, mode) {
+async function _mbrConnectAndUse(row) {
+  const mode = 'all';
   const keyInput = modelBrowserList.querySelector('.mbr-key');
   const apiKey = keyInput ? keyInput.value.trim() : '';
   if (!apiKey) {
@@ -640,10 +640,9 @@ async function _mbrConnectAndUse(row, mode) {
   input.style.height = 'auto';
 }
 
-function _mbrEnter(row, agent) {
+function _mbrEnter(row) {
   const p = _providerById().get(row.providerId) || {};
-  const mode = agent ? 'smart' : 'fast';
-  if (p.hasKey) _mbrApplyConnected(row, mode);
+  if (p.hasKey) _mbrApplyConnected(row);
   else _mbrToggleExpand(row);
 }
 
@@ -667,7 +666,7 @@ input.addEventListener('keydown', (e) => {
       const isDirect = _browserQuery.split(/\s+/).length >= 2;
       if (row && (_browserSel >= 0 || !isDirect)) {
         e.preventDefault();
-        _mbrEnter(row, e.ctrlKey || e.metaKey);
+        _mbrEnter(row);
         return;
       }
       if (_browserSel >= 0) {
@@ -760,7 +759,8 @@ modelBrowserList.addEventListener('mousedown', async (e) => {
   const btn = e.target.closest('.mbr-btn');
   if (btn) {
     const row = _browserExpanded;
-    if (row) await _mbrConnectAndUse(row, btn.dataset.mode);
+    if (row && btn.dataset.act === 'use') await _mbrApplyConnected(row);
+    else if (row) await _mbrConnectAndUse(row);
     return;
   }
   const rowEl = e.target.closest('.model-browser-row');
@@ -772,7 +772,7 @@ modelBrowserList.addEventListener('mousedown', async (e) => {
   const p = _providerById().get(row.providerId) || {};
   if (p.hasKey && Array.isArray(row.effortOptions) && row.effortOptions.length > 0) {
     _mbrToggleExpand(row);
-  } else if (p.hasKey) await _mbrApplyConnected(row, 'fast');
+  } else if (p.hasKey) await _mbrApplyConnected(row);
   else _mbrToggleExpand(row);
 });
 
@@ -791,8 +791,7 @@ const attachBtn = document.getElementById('attach-btn');
 const fileInput = document.getElementById('file-input');
 const attachBar = document.getElementById('attachments-bar');
 
-// Sin botón de clip (rediseño): el adjunto entra por drag & drop. El input
-// oculto queda por si algún día se rehabilita el botón.
+// Adjuntar desde el compositor o mediante drag & drop.
 if (attachBtn) attachBtn.addEventListener('click', () => fileInput.click());
 fileInput.addEventListener('change', (e) => addFiles(Array.from(e.target.files)));
 

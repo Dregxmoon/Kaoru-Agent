@@ -285,9 +285,6 @@ module.exports = {
    *   - message (string)   → mensaje enviado.
    */
   async _tryTrigger(trigger) {
-    if (CURIOSITY_TYPES.has(trigger.type) && this._curiosityUsedToday() >= CURIOSITY_DAILY_CAP) {
-      return { blocked: true };
-    }
     if (!this._running) {
       this._enqueuePendingTrigger(trigger, 'not_running');
       return { blocked: true };

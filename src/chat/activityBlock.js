@@ -73,6 +73,25 @@ function setAgentState(state, label) {
   if (!AGENT_STATES.includes(state)) state = 'idle';
   _currentAgentState = state;
   document.body.dataset.agentState = state;
+  const status = document.getElementById('composer-status');
+  if (status) {
+    const waiting = document.body.dataset.awaitingPermission === 'true';
+    const text = waiting
+      ? 'Esperando tu permiso'
+      : label ||
+        {
+          idle: 'Listo',
+          thinking: 'Pensando',
+          working: 'Ejecutando',
+          streaming: 'Respondiendo',
+          listening: 'Escuchando',
+          speaking: 'Hablando',
+          done: 'Listo',
+          error: 'Error',
+        }[state];
+    if (status.textContent !== text) status.textContent = text || 'Listo';
+    status.dataset.state = waiting ? 'waiting' : state;
+  }
   _stateListeners.forEach((fn) => fn(state, label));
   return state;
 }

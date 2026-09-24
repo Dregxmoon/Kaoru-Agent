@@ -364,6 +364,10 @@ function _normalizeModelRoles(model) {
   }
   if (!model || typeof model !== 'object' || Array.isArray(model)) return {};
   const roles = {};
+  if (typeof model.selected === 'string' && model.selected.trim()) {
+    const selected = model.selected.trim();
+    return { fast: selected, smart: selected, selected };
+  }
   if (typeof model.fast === 'string' && model.fast.trim()) roles.fast = model.fast.trim();
   if (typeof model.smart === 'string' && model.smart.trim()) roles.smart = model.smart.trim();
   // Versiones anteriores podían expandir accidentalmente un string como
@@ -538,6 +542,8 @@ function _resolveModel(providerId, mode) {
   const def = _registry.get(providerId);
   if (!def) return null;
   const override = _config.providers?.[providerId]?.model?.[mode];
+  const selected = _config.providers?.[providerId]?.model?.selected;
+  if (typeof selected === 'string' && selected.trim()) return selected.trim();
   if (override && typeof override === 'string' && override.trim()) return override.trim();
   return def.models?.[mode] || null;
 }
@@ -575,6 +581,7 @@ function _isModelUnavailableError(msg) {
  * @returns {Promise<boolean>} true si encontró reemplazo
  */
 async function _recoverDecommissionedModel(providerId, mode, options = {}) {
+  if (_config.providers?.[providerId]?.model?.selected) return false;
   const dead = _resolveModel(providerId, mode);
   if (!dead || _deadModels.has(`${providerId}:${dead}`)) return false;
   let live = [];
@@ -1954,6 +1961,7 @@ function _isProviderDegraded(providerId) {
  * Así el primary degradado deja de martillarse y el fallback sano responde.
  */
 function _rotationOrder() {
+  if (_config.providers?.[_config.primary]?.model?.selected) return [_config.primary];
   const order = [...new Set([_config.primary, ...(_config.fallback || [])].filter(Boolean))];
   const healthy = [];
   const degraded = [];
@@ -2551,7 +2559,7 @@ function getModelPickerData() {
  * conexión de models.dev (mapeo npm→tipo + baseURL). Guarda la key en el
  * llavero si está disponible; si no, en _config.providers[id].apiKey (el IPC
  * handler persiste en config.json y recarga).
- * @param {{providerId: string, apiKey?: string, modelId?: string, mode?: 'fast'|'smart'}} opts
+ * @param {{providerId: string, apiKey?: string, modelId?: string, mode?: 'fast'|'smart'|'all'}} opts
  * @returns {{ok: boolean, error?: string, provider?: object}}
  */
 function connectProvider({ providerId, apiKey, modelId, mode } = {}) {
@@ -2627,6 +2635,7 @@ function connectProvider({ providerId, apiKey, modelId, mode } = {}) {
     else {
       prev.fast = model;
       prev.smart = model;
+      if (mode === 'all') prev.selected = model;
     }
     _config.providers[providerId] = { ...(_config.providers[providerId] || {}), model: prev };
   }

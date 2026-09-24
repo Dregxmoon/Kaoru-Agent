@@ -1,5 +1,5 @@
 // @ts-nocheck
-/* global attachMemoryContext */
+/* global attachMemoryContext, attachRetryDraft, attachRunSummary */
 /* global _renderResultChips, _takeResultMeta, pausePlanBlock */
 // Compresión de historial
 // Comprime mensajes de assistant repetitivos (fallos, "lo siento"s) para no
@@ -359,6 +359,7 @@ async function processMessage(text, files = []) {
           _scrollMessagesToBottom();
         }
         setAgentState('done', 'Cancelado');
+        attachRunSummary(bubble, result);
         return;
       }
 
@@ -397,9 +398,14 @@ async function processMessage(text, files = []) {
         bubble.classList.add('markdown');
         bubble.innerHTML = renderMarkdown(response, { path: window.__lastWritePath || '' });
         attachMemoryContext(bubble, result.memoryContextIds || []);
+        attachRunSummary(bubble, result);
+        if (result.error || result.truncated) attachRetryDraft(bubble, trimmed, files);
         bubble.querySelectorAll('.mermaid').forEach((el) => _renderMermaid(el));
         _scrollMessagesToBottom();
-        setAgentState('done', 'Listo');
+        setAgentState(
+          result.error || result.truncated ? 'error' : 'done',
+          result.error || result.truncated ? 'Respuesta incompleta' : 'Listo'
+        );
         refreshFooterSession();
         speak(response);
         return;
@@ -419,6 +425,7 @@ async function processMessage(text, files = []) {
         response = `La ejecución se detuvo antes de generar la respuesta final.\n\nDetalle: ${e.message}`;
         agentBubble.classList.add('markdown');
         agentBubble.innerHTML = renderMarkdown(response);
+        attachRetryDraft(agentBubble, trimmed, files);
         pushToSession('assistant', response);
         ipcRenderer.send('memory-add-turn', { role: 'assistant', content: response });
         _scrollMessagesToBottom();
@@ -463,9 +470,11 @@ async function processMessage(text, files = []) {
       }
       if (llm && llm.error) throw new Error(llm.error);
       response = llm && llm.response ? llm.response : null;
+      if (!response) throw new Error('El proveedor devolvió una respuesta vacía.');
     } catch (e) {
       disarmCancel();
       console.error('error LLM:', e.message);
+      error = e.message;
       response = LLMProvider.getActiveProvider()
         ? 'Algo falló al conectar. Revisa tu conexión o la key.'
         : 'Sin API keys. Usa el boton de configuracion (engranaje) para configurarlas.';
@@ -497,9 +506,10 @@ async function processMessage(text, files = []) {
   await reveal.done;
   bubble.classList.add('markdown');
   bubble.innerHTML = renderMarkdown(response);
+  if (error) attachRetryDraft(bubble, trimmed, files);
   bubble.querySelectorAll('.mermaid').forEach((el) => _renderMermaid(el));
   _scrollMessagesToBottom();
-  setAgentState('done', 'Listo');
+  setAgentState(error ? 'error' : 'done', error ? 'Error al responder' : 'Listo');
   // Chips de resultado (skills usadas / verificación de artefactos).
   if (typeof _renderResultChips === 'function') _renderResultChips(_takeResultMeta());
   speak(response);
@@ -539,6 +549,11 @@ function _escapeHtml(value) {
 // Se registra por actionId para que _expireApprovalCard() pueda marcarla como
 // expirada cuando el timeout del main dispara 'agent-approval-expired'.
 const _approvalCards = new Map();
+
+function _syncApprovalStatus() {
+  document.body.dataset.awaitingPermission = String(_approvalCards.size > 0);
+  setAgentState(getAgentState());
+}
 
 // Tools que mutan archivos: si no hay vista previa de diff disponible, el card
 // DEBE decirlo explícitamente (nunca ocultarlo): alguien que se acostumbró a
@@ -592,6 +607,7 @@ function _showApprovalCard({ id, tool, params, description, diff, allowAlways = 
   }
   _scrollMessagesToBottom();
   _approvalCards.set(id, card);
+  _syncApprovalStatus();
   if (_approvalCards.size > 50) {
     const oldest = _approvalCards.keys().next().value;
     _approvalCards.delete(oldest);
@@ -614,6 +630,7 @@ function _showApprovalCard({ id, tool, params, description, diff, allowAlways = 
 // del DOM. Antes quedaba atenuado en el chat para siempre.
 function _markApprovalResolved(id, card) {
   _approvalCards.delete(id);
+  _syncApprovalStatus();
   card.classList.add('resolved');
   card.querySelectorAll('button').forEach((b) => {
     b.disabled = true;
@@ -629,6 +646,7 @@ function _expireApprovalCard(id) {
   const card = _approvalCards.get(id);
   if (!card) return;
   _approvalCards.delete(id);
+  _syncApprovalStatus();
   card.classList.add('expired');
   card.style.opacity = '.45';
   card.style.pointerEvents = 'none';
@@ -646,6 +664,7 @@ function _cancelApprovalCard(id) {
   const card = _approvalCards.get(id);
   if (!card) return;
   _approvalCards.delete(id);
+  _syncApprovalStatus();
   card.classList.add('expired');
   card.style.opacity = '.45';
   card.style.pointerEvents = 'none';

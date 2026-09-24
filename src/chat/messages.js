@@ -1,4 +1,5 @@
 // @ts-nocheck
+/* global addFiles */
 // Mensajes
 const messagesEl = document.getElementById('messages');
 
@@ -111,14 +112,98 @@ async function typewriterMarkdown(bubble, text, delay = 14) {
   _scrollMessagesToBottom();
 }
 
+// Recuperar el borrador no vuelve a ejecutar herramientas ni borra historial.
+function attachRetryDraft(bubble, text, files = []) {
+  const card = document.createElement('div');
+  card.className = 'retry-draft';
+  const note = document.createElement('p');
+  note.textContent =
+    'Puedes recuperar este mensaje y sus adjuntos. Si hubo acciones antes del fallo, revisa su resultado antes de volver a enviar.';
+  const button = document.createElement('button');
+  button.type = 'button';
+  button.textContent = 'Preparar reintento';
+  const status = document.createElement('span');
+  status.setAttribute('role', 'status');
+  button.addEventListener('click', () => {
+    const input = document.getElementById('msg-input');
+    if (!input) return;
+    if (input.value.trim() || pendingFiles.length) {
+      status.textContent =
+        'Hay un borrador en curso. Envíalo o vacíalo antes de recuperar este mensaje.';
+      return;
+    }
+    if (['thinking', 'working', 'streaming', 'listening'].includes(getAgentState())) {
+      status.textContent = 'Espera a que termine la ejecución actual o detenla primero.';
+      return;
+    }
+    input.value = text;
+    if (files.length) addFiles(files);
+    input.dispatchEvent(new Event('input', { bubbles: true }));
+    input.focus();
+    status.textContent = 'Mensaje recuperado. Revísalo y pulsa Enter para enviarlo.';
+  });
+  card.append(note, button, status);
+  bubble.appendChild(card);
+}
+
+function attachRunSummary(bubble, result) {
+  const tools = Array.isArray(result?.toolResults) ? result.toolResults : [];
+  if (!tools.length && !result?.verify && !result?.checkpoint) return;
+  const details = document.createElement('details');
+  details.className = 'run-summary';
+  const title = document.createElement('summary');
+  title.textContent = `Resumen de ejecución · ${tools.length} operaciones${result.cancelled ? ' · cancelada' : result.error || result.truncated ? ' · incompleta' : ''}`;
+  const list = document.createElement('ul');
+  const add = (text) => {
+    const item = document.createElement('li');
+    item.textContent = text;
+    list.appendChild(item);
+  };
+  const mutations = tools.filter((item) =>
+    /^(write|edit|edit_file|create_file|apply_patch|delete_file|remove_file)$/.test(
+      item?._action?.tool || item?.tool || ''
+    )
+  );
+  for (const item of mutations.slice(0, 40)) {
+    const params = item._action?.params || {};
+    const target = params.path || params.file_path || params.file || 'archivo sin ruta reportada';
+    add(
+      `${item._action?.tool || item.tool} · ${String(target)} · ${item.skipped ? 'omitida' : item.ok === true ? 'herramienta informó éxito' : 'no confirmada'}`
+    );
+  }
+  const commands = tools.filter((item) =>
+    /^(exec|bash|run_command|shell)$/.test(item?._action?.tool || item?.tool || '')
+  );
+  for (const item of commands.slice(0, 20)) {
+    const command =
+      item._action?.params?.command || item._action?.params?.cmd || 'comando sin detalle';
+    add(
+      `Comando: ${String(command).slice(0, 500)} · ${item.ok === true ? 'herramienta informó éxito' : 'fallido o sin confirmar'}`
+    );
+  }
+  if (!mutations.length)
+    add(
+      'No se reportaron operaciones directas de edición de archivos. Los comandos u otras herramientas pueden tener efectos adicionales.'
+    );
+  const verify = result.verify;
+  add(
+    verify?.status
+      ? `Verificación reportada: ${String(verify.status)}${verify.command ? ` · ${String(verify.command).slice(0, 500)}` : ''}`
+      : 'Sin verificación automática reportada: no se puede afirmar que las pruebas pasaron.'
+  );
+  if (result.checkpoint?.rolledBack)
+    add('Se reportó una reversión: los cambios anteriores no deben considerarse vigentes.');
+  const failures = tools.filter((item) => item?.ok !== true).length;
+  if (failures)
+    add(`${failures} operaciones fallidas o sin confirmar. Revisa su detalle en la actividad.`);
+  if (mutations.length > 40 || commands.length > 20)
+    add('Resumen abreviado. El resto permanece en la actividad del agente.');
+  details.append(title, list);
+  bubble.appendChild(details);
+}
+
 function showThinking() {
-  const div = document.createElement('div');
-  div.className = 'msg assistant';
-  div.id = 'thinking-msg';
-  div.innerHTML = `<div class="msg-avatar">AP</div><div class="msg-body"><div class="msg-name">Asistente</div><div class="msg-bubble thinking-text"><span class="loading-spinner">⠋</span> pensando...</div></div>`;
-  messagesEl.appendChild(div);
-  _scrollMessagesToBottom();
-  startSpinner(div.querySelector('.loading-spinner'));
+  // El estado vive en el compositor; no añade un mensaje al historial.
   setAgentState('thinking', 'Pensando');
 }
 function removeThinking() {
@@ -365,8 +450,7 @@ function _expandedPanel() {
     return `<div class="picker-expanded">
       ${effortControl}
       <div class="picker-exp-actions">
-        <button class="picker-btn" data-act="use" data-mode="fast">Usar para respuestas rápidas</button>
-        <button class="picker-btn" data-act="use" data-mode="smart">Usar para acciones y razonamiento</button>
+        <button class="picker-btn" data-act="use">Usar este modelo</button>
         <button class="picker-btn ghost" data-act="fav">${isFav ? '★ Quitar favorito' : '☆ Favorito'}</button>
       </div>
     </div>`;
@@ -380,8 +464,7 @@ function _expandedPanel() {
         ? `<div class="picker-warn">No conectable automáticamente. Usá /provider add.</div>`
         : `<input class="picker-key-input" type="password" placeholder="${escapeHtml(p.name)} ${escapeHtml(env)}" autocomplete="off" />
          <div class="picker-exp-actions">
-           <button class="picker-btn" data-act="connect" data-mode="fast">Conectar para respuestas rápidas</button>
-           <button class="picker-btn" data-act="connect" data-mode="smart">Conectar para acciones y razonamiento</button>
+           <button class="picker-btn" data-act="connect">Conectar y usar este modelo</button>
          </div>`
     }
   </div>`;
@@ -569,24 +652,25 @@ function _toggleExpandProvider(p) {
   _renderPickerList();
 }
 
-async function _useModel(m, mode) {
+async function _useModel(m) {
+  const mode = 'all';
   const p = _providerMap().get(m.providerId) || {};
-  const role = (_picker.data.roles && _picker.data.roles[mode]) || mode;
   const effortSelect = pickerList.querySelector('.picker-effort-select');
   const reasoningEffort = effortSelect ? effortSelect.value : m.reasoningEffort;
   if (p.hasKey) {
-    await ipcRenderer.invoke('set-llm-model', {
+    const saved = await ipcRenderer.invoke('set-llm-model', {
       provider: m.providerId,
       mode,
       model: m.modelId,
       reasoningEffort,
     });
-    if (reasoningEffort) m.reasoningEffort = reasoningEffort;
-    if (_picker.data.active.provider !== m.providerId) {
-      ipcRenderer.send('set-provider', { primary: m.providerId });
+    if (!saved) {
+      pickerStatus.textContent = 'No se pudo guardar el modelo seleccionado.';
+      return;
     }
+    if (reasoningEffort) m.reasoningEffort = reasoningEffort;
     await loadLLMConfig();
-    pickerStatus.textContent = `✓ ${m.label} activo en ${role}`;
+    pickerStatus.textContent = `✓ ${m.label} activo para todas las solicitudes${m.tools === false ? ' · No admite herramientas' : ''}`;
     pickerStatus.style.color = '#10b981';
     setTimeout(closePicker, 700);
     return;
@@ -622,7 +706,7 @@ async function _useModel(m, mode) {
     m.reasoningEffort = reasoningEffort;
   }
   await loadLLMConfig();
-  pickerStatus.textContent = `✓ ${m.label} conectado y activo en ${role}`;
+  pickerStatus.textContent = `✓ ${m.label} conectado y activo para todas las solicitudes`;
   pickerStatus.style.color = '#10b981';
   setTimeout(closePicker, 700);
 }
@@ -750,10 +834,10 @@ pickerModal.addEventListener('keydown', (e) => {
 pickerList.addEventListener('click', async (e) => {
   const btn = e.target.closest('.picker-btn');
   if (btn) {
-    const { act, mode } = btn.dataset;
+    const { act } = btn.dataset;
     const row = _picker.view[_picker.selected];
-    if (act === 'use' && row && _picker.mode === 'models') await _useModel(row, mode);
-    else if (act === 'connect' && row && _picker.mode === 'models') await _useModel(row, mode);
+    if (act === 'use' && row && _picker.mode === 'models') await _useModel(row);
+    else if (act === 'connect' && row && _picker.mode === 'models') await _useModel(row);
     else if (act === 'fav' && row && _picker.mode === 'models') await _toggleFav(row);
     else if (act === 'connect-provider') await _connectProvider(_picker.expanded);
     return;

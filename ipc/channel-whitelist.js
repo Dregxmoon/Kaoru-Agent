@@ -87,6 +87,9 @@ const INVOKE_ALLOWLIST = new Set([
   'memory-correct',
   'memory-delete',
   'memory-export',
+  'memory-explorer',
+  'memory-pin',
+  'memory-gap-preference',
   'store-fact',
   // Metas persistentes (Fase 3, ítem 1)
   'intentions-list',

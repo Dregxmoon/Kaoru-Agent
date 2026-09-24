@@ -413,6 +413,34 @@ function testReasoningEffortPayloads() {
   assert(Object.keys(unsupportedBody).length === 0, 'no se inventan campos en APIs no adaptadas');
 }
 
+function testSingleModelSelection() {
+  console.log(C.bold('\n── Un modelo para todas las solicitudes ──'));
+  const selected = LLMProvider.connectProvider({
+    providerId: 'openrouter',
+    apiKey: 'test-key',
+    modelId: 'openrouter/auto',
+    mode: 'all',
+  });
+  assert(selected.ok, 'conecta y selecciona un solo modelo');
+  assert(selected.provider.fast === selected.provider.smart, 'el routing conserva el mismo modelo');
+  LLMProvider.configure({
+    llm: {
+      primary: 'openrouter',
+      providers: {
+        openrouter: {
+          model: { fast: 'modelo-antiguo', smart: 'otro-antiguo', selected: 'openrouter/auto' },
+        },
+      },
+    },
+  });
+  const active = LLMProvider.getAvailableProviders().find((p) => p.id === 'openrouter');
+  assert(
+    active?.activeModel?.fast === 'openrouter/auto' &&
+      active.activeModel.smart === 'openrouter/auto',
+    'la elección única prevalece sobre roles heredados después de recargar'
+  );
+}
+
 // ── Runner ───────────────────────────────────────────────────────────────────
 
 (async () => {
@@ -423,6 +451,7 @@ function testReasoningEffortPayloads() {
   testConnectProvider();
   testFavorites();
   testReasoningEffortPayloads();
+  testSingleModelSelection();
 
   console.log(
     C.bold(`\nResultado: ${C.green(`${passed} ✓`)}${failed ? ` / ${C.red(`${failed} ✗`)}` : ''}`)

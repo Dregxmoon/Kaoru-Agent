@@ -450,6 +450,58 @@ function _htmlPreviewFrame(html, index, filePath) {
   );
 }
 
+// Resaltado local y acotado: conserva cada carácter y nunca interpreta HTML.
+function _highlightCode(code, language) {
+  const source = code.textContent || '';
+  if (language.toLowerCase() === 'diff' && source.length <= 40000) {
+    const fragment = document.createDocumentFragment();
+    for (const line of source.split(/(?<=\n)/)) {
+      const span = document.createElement('span');
+      span.className = line.startsWith('+')
+        ? 'syntax-added'
+        : line.startsWith('-')
+          ? 'syntax-removed'
+          : line.startsWith('@@')
+            ? 'syntax-keyword'
+            : '';
+      span.textContent = line;
+      fragment.append(span);
+    }
+    code.replaceChildren(fragment);
+    return;
+  }
+  if (
+    source.length > 40000 ||
+    !/^(js|javascript|jsx|ts|typescript|tsx|json|py|python|sh|bash|shell|css|diff)$/i.test(language)
+  )
+    return;
+  const hashComments = /^(py|python|sh|bash|shell)$/i.test(language);
+  const tokens =
+    /("(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'|`(?:\\.|[^`\\])*`)|(\/\/[^\n]*|\/\*[\s\S]*?\*\/|#[^\n]*)|\b(const|let|var|function|return|async|await|if|else|for|while|class|new|throw|try|catch|import|from|export|default|def|in|None|True|False|true|false|null|print|echo|sudo)\b|\b\d+(?:\.\d+)?\b|\b[A-Za-z_$][\w$]*(?=\s*\()/g;
+  const fragment = document.createDocumentFragment();
+  let offset = 0;
+  for (const match of source.matchAll(tokens)) {
+    fragment.append(source.slice(offset, match.index));
+    const token = document.createElement('span');
+    const comment = match[2] && (!match[0].startsWith('#') || hashComments);
+    token.className = match[1]
+      ? 'syntax-string'
+      : comment
+        ? 'syntax-comment'
+        : match[3]
+          ? 'syntax-keyword'
+          : /^\d/.test(match[0])
+            ? 'syntax-number'
+            : 'syntax-function';
+    if (match[0].startsWith('#') && !hashComments) token.className = '';
+    token.textContent = match[0];
+    fragment.append(token);
+    offset = match.index + match[0].length;
+  }
+  fragment.append(source.slice(offset));
+  code.replaceChildren(fragment);
+}
+
 // Decora HTML ya saneado, sin interpolar contenido generado en controles.
 function _decorateMarkdown(html) {
   const template = document.createElement('template');
@@ -459,6 +511,7 @@ function _decorateMarkdown(html) {
     if (pre.classList.contains('html-preview-pre')) return;
     const language = [...code.classList].find((name) => name.startsWith('language-'));
     const label = language ? language.slice(9).slice(0, 32) : 'Código';
+    _highlightCode(code, label);
     const lines = (code.textContent || '').replace(/\n$/, '').split('\n').length;
     const frame = document.createElement('section');
     frame.className = 'message-code';

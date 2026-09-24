@@ -100,6 +100,8 @@ function updateUnifiedModeBadge(executionMode = null) {
       'Flujo unificado: Kaoru decide automáticamente si esta solicitud necesita respuesta rápida o ejecución completa.';
   }
   document.body.dataset.agentMode = 'agent';
+  const composerMode = document.getElementById('composer-mode');
+  if (composerMode) composerMode.textContent = badge?.textContent || 'Auto';
   if (routed) document.body.dataset.executionMode = routed;
 }
 window.updateUnifiedModeBadge = updateUnifiedModeBadge;
@@ -115,6 +117,15 @@ let _activityContainerEl = null;
 
 ipcRenderer.on('agent-progress', (e, progress) => {
   const state = agentStates ? agentStates.stateFromProgress(progress) : null;
+  if (state)
+    setAgentState(
+      state,
+      progress.status === 'error'
+        ? 'Error en la herramienta'
+        : /memory|recall|search_facts/.test(progress.tool || '')
+          ? 'Consultando memoria'
+          : 'Ejecutando herramientas'
+    );
   if (chatGestureEngine)
     chatGestureEngine.onEvent('agent-progress', { state, status: progress.status });
   if (typeof window.animateAvatarPresence === 'function') {
@@ -353,6 +364,7 @@ function _renderProposal(proposal, bubble) {
   wrap.className = 'proposal-actions';
   const isQuestion = proposal.kind === 'question';
   const isAction = Boolean(proposal.action);
+  wrap.classList.add(isAction ? 'proposal-executable' : 'proposal-conversation');
 
   if (proposal.preview) {
     const preview = document.createElement('div');

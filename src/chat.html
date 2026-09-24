@@ -71,10 +71,6 @@
             </svg>
           </button>
         </nav>
-        <button id="models-btn" class="header-model-button" type="button" title="Elegir modelo">
-          <span id="header-model" class="header-model">sin modelo</span>
-          <span aria-hidden="true">▾</span>
-        </button>
         <div id="status-popover" class="status-popover" hidden>
           <div class="status-row"><span>Modelo</span><span id="status-model">sin modelo</span></div>
           <div class="status-row">
@@ -175,6 +171,24 @@
         <div id="attachments-bar"></div>
 
         <div id="input-area">
+          <div class="composer-toolbar">
+            <button id="attach-btn" type="button" title="Adjuntar archivos">＋ Adjuntar</button>
+            <button id="models-btn" class="header-model-button" type="button" title="Elegir modelo">
+              <span id="header-model" class="header-model">sin modelo</span
+              ><span aria-hidden="true">▾</span>
+            </button>
+            <span id="composer-mode" title="Kaoru selecciona automáticamente el modo de ejecución"
+              >Auto</span
+            >
+            <span
+              id="composer-status"
+              role="status"
+              aria-live="polite"
+              aria-atomic="true"
+              data-state="idle"
+              >Listo</span
+            >
+          </div>
           <div id="model-browser" class="model-browser" style="display: none">
             <div id="model-browser-head">
               <span>MODELOS</span>
@@ -195,6 +209,7 @@
               id="msg-input"
               placeholder="escribe un mensaje · Enter envía · Shift+Enter salto de línea"
               rows="1"
+              aria-label="Mensaje para Kaoru"
             ></textarea>
             <span id="input-cursor" class="input-cursor" aria-hidden="true"></span>
             <button id="mic-btn" class="input-btn mic-btn" title="Entrada de voz (STT)">
@@ -207,11 +222,13 @@
               id="cancel-btn"
               class="input-btn"
               title="Detener generación"
+              aria-label="Detener generación"
               style="display: none"
             >
               <svg viewBox="0 0 24 24" fill="currentColor" width="12" height="12">
                 <rect x="6" y="6" width="12" height="12" />
               </svg>
+              <span>Detener</span>
             </button>
           </div>
           <div id="input-info">

@@ -36,20 +36,11 @@ function providerResolveModel(LLMProvider, pid, token, catalog) {
   const t = String(token || '').toLowerCase();
   return (catalog || []).find((m) => m.toLowerCase().includes(t)) || null;
 }
-function providerRoleLabels(LLMProvider) {
-  return (
-    LLMProvider.ROLE_LABELS || {
-      fast: 'respuesta rápida',
-      smart: 'acciones y razonamiento',
-    }
-  );
-}
-
 module.exports = function registerCommands(register) {
   register({
     name: 'model',
-    description: 'Configura los modelos que Kaoru elige automáticamente según la tarea',
-    usage: '/model [proveedor] [modelo|alias] [rápido|acciones]',
+    description: 'Selecciona un modelo para todas las solicitudes',
+    usage: '/model [proveedor] [modelo|alias]',
     handler: async (args, ctx) => {
       const LLMProvider = ctx.LLMProvider;
       if (!LLMProvider) return 'LLMProvider no disponible.';
@@ -73,7 +64,7 @@ module.exports = function registerCommands(register) {
             return [
               `**${meta.label || h.m}** está en **${h.p.name}**.`,
               '',
-              `Activalo con: \`/model ${h.p.id} ${h.m}\` (respuesta rápida) o \`/model ${h.p.id} ${h.m} acciones\``,
+              `Actívalo con: \`/model ${h.p.id} ${h.m}\``,
             ].join('\n');
           }
           if (hits.length > 1) {
@@ -98,7 +89,7 @@ module.exports = function registerCommands(register) {
           lines,
           '',
           'Elegí un proveedor: `/model <proveedor>` (lista sus modelos).',
-          'O asigná un modelo directo: `/model <proveedor> <modelo> [rápido|acciones]` (Kaoru elige el rol al ejecutar).',
+          'O elige un modelo directo: `/model <proveedor> <modelo>`.',
           '',
           '¿Buscás entre todos los modelos (400+ providers)? Abrí el **selector de modelos** tocando el nombre del modelo en la barra superior (o el botón "Elegir modelo").',
         ].join('\n');
@@ -118,10 +109,7 @@ module.exports = function registerCommands(register) {
         const modelLines = catalog
           .map((m) => {
             const meta = providerMeta(LLMProvider, valid.id, m);
-            const marks = [];
-            if (m === active.fast) marks.push('respuesta rápida');
-            if (m === active.smart) marks.push('acciones');
-            const badge = marks.length ? ` — *${marks.join(' + ')}*` : '';
+            const badge = m === active.fast || m === active.smart ? ' — *activo*' : '';
             const ctxLabel = meta.context ? `, ${formatContext(meta.context)}` : '';
             const label = meta.label && meta.label !== m ? `${meta.label} (\`${m}\`)` : `\`${m}\``;
             return `  ${label}${modelChip(meta)}${ctxLabel}${badge}`;
@@ -130,17 +118,11 @@ module.exports = function registerCommands(register) {
         const hint = valid.hasKey
           ? ''
           : `\n\n**${valid.name}** no tiene API key configurada. Todos los proveedores (incluso los "gratis") necesitan su propia key — conectala desde el selector de modelos (tocá el modelo en la barra superior o escribí \`/model\`).`;
-        return `Proveedor activo: **${valid.name}**\n\n**Modelos disponibles (${catalog.length}):**\n${modelLines || '  *(sin modelos)*'}\n\nElige uno: \`/model ${valid.id} <modelo> [rápido|acciones]\` (predeterminado: respuesta rápida)${hint}`;
+        return `Proveedor activo: **${valid.name}**\n\n**Modelos disponibles (${catalog.length}):**\n${modelLines || '  *(sin modelos)*'}\n\nElige uno: \`/model ${valid.id} <modelo>\`${hint}`;
       }
 
-      // ── Con proveedor + modelo: cambia el modelo por rol ──────────────────
-      const roleWord = (args[2] || 'rapido').toLowerCase();
-      const mode =
-        providerResolveRole(LLMProvider, roleWord) ||
-        (['fast', 'smart'].includes(roleWord) ? roleWord : null);
-      if (!mode) {
-        return 'Rol inválido. Usa: `rápido` o `acciones`.\nEj: `/model groq openai/gpt-oss-120b acciones`';
-      }
+      // ── Un modelo para todas las solicitudes ─────────────────────────────
+      const mode = 'all';
       const modelName = providerResolveModel(
         LLMProvider,
         valid.id,
@@ -159,13 +141,18 @@ module.exports = function registerCommands(register) {
       }
       const meta = providerMeta(LLMProvider, valid.id, modelName);
       const warn =
-        mode === 'smart' && meta.tools === false
-          ? `\n\n⚠ **${meta.label || modelName}** no soporta herramientas. Elige otro modelo para acciones y razonamiento.`
+        meta.tools === false
+          ? `\n\n⚠ **${meta.label || modelName}** no soporta herramientas. Las tareas que las requieran mostrarán un error.`
           : '';
 
       // Persistir en config.json (IPCs) y aplicar en memoria.
       const cfg = {
-        llm: { primary: valid.id, providers: { [valid.id]: { model: { [mode]: modelName } } } },
+        llm: {
+          primary: valid.id,
+          providers: {
+            [valid.id]: { model: { fast: modelName, smart: modelName, selected: modelName } },
+          },
+        },
       };
       LLMProvider.configure(cfg);
       if (ctx.sendIPC) ctx.sendIPC('set-provider', { primary: valid.id });
@@ -178,8 +165,7 @@ module.exports = function registerCommands(register) {
           });
         } catch {}
       }
-      const roleLabel = providerRoleLabels(LLMProvider)[mode] || mode;
-      return `**${meta.label || modelName}** activado como *${roleLabel}* en **${valid.name}**.${warn}`;
+      return `**${meta.label || modelName}** activado para todas las solicitudes en **${valid.name}**.${warn}`;
     },
   });
 
