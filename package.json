@@ -1,6 +1,7 @@
 {
   "name": "asistente-personal",
   "version": "2.1.5",
+  "desktopName": "com.asistente.personal",
   "description": "Asistente personal de escritorio con avatar Live2D, memoria y proactividad",
   "main": "main.js",
   "bin": {
@@ -26,15 +27,15 @@
     "bench": "node scripts/electron-node.js benchmarks/run.js",
     "bench:one": "node scripts/electron-node.js benchmarks/run.js rename-multiply",
     "bench:summary": "node scripts/electron-node.js benchmarks/summary.js",
-    "build": "electron-builder --win --x64",
-    "build-portable": "electron-builder --win portable",
-    "build:win": "electron-builder --win --x64",
-    "build:mac": "electron-builder --mac --x64 --arm64",
-    "build:linux": "electron-builder --linux --x64",
-    "build:all": "electron-builder --win --x64 && electron-builder --mac --x64 --arm64 && electron-builder --linux --x64",
-    "publish:win": "electron-builder --win --x64 --publish always",
-    "publish:mac": "electron-builder --mac --x64 --arm64 --publish always",
-    "publish:linux": "electron-builder --linux --x64 --publish always"
+    "build": "electron-builder --config scripts/build-config.js --win --x64",
+    "build-portable": "electron-builder --config scripts/build-config.js --win portable",
+    "build:win": "electron-builder --config scripts/build-config.js --win --x64",
+    "build:mac": "electron-builder --config scripts/build-config.js --mac --x64 --arm64",
+    "build:linux": "electron-builder --config scripts/build-config.js --linux --x64",
+    "build:all": "electron-builder --config scripts/build-config.js --win --x64 && electron-builder --config scripts/build-config.js --mac --x64 --arm64 && electron-builder --config scripts/build-config.js --linux --x64",
+    "publish:win": "electron-builder --config scripts/build-config.js --win --x64 --publish always",
+    "publish:mac": "electron-builder --config scripts/build-config.js --mac --x64 --arm64 --publish always",
+    "publish:linux": "electron-builder --config scripts/build-config.js --linux --x64 --publish always"
   },
   "devDependencies": {
     "@electron/asar": "^3.4.1",
@@ -71,6 +72,7 @@
       "releaseType": "release"
     },
     "win": {
+      "icon": "build/icon.png",
       "target": [
         {
           "target": "nsis",
@@ -94,6 +96,7 @@
       "include": "build/installer.nsh"
     },
     "mac": {
+      "icon": "build/icon.png",
       "target": [
         {
           "target": "dmg",
@@ -116,6 +119,8 @@
       "notarize": false
     },
     "linux": {
+      "icon": "build/icon.png",
+      "syncDesktopName": true,
       "target": [
         {
           "target": "AppImage",

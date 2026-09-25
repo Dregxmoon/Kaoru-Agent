@@ -1,4 +1,5 @@
 // @ts-nocheck
+/* global updateRunOverviewPlan */
 // IPC listeners
 document
   .getElementById('close-btn')
@@ -195,6 +196,7 @@ ipcRenderer.on('agent-subagent-progress', (e, payload) => {
 // los pasos del plan y el conteo completado; se pintan como widget en el feed.
 ipcRenderer.on('agent-plan', (e, plan) => {
   renderPlanBlock(plan);
+  updateRunOverviewPlan(plan);
 });
 
 function setActivityContainer(el) {

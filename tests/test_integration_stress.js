@@ -1,5 +1,28 @@
 'use strict';
 
+const net = require('net');
+let serverPort = 0;
+
+function availablePort() {
+  return new Promise((resolve, reject) => {
+    const listener = net.createServer();
+    listener.once('error', reject);
+    listener.listen(0, '127.0.0.1', () => {
+      const address = listener.address();
+      const port = typeof address === 'object' && address ? address.port : 0;
+      listener.close(() => resolve(port));
+    });
+  });
+}
+
+async function stopServer(serverProcess) {
+  if (serverProcess.exitCode !== null || serverProcess.signalCode !== null) return;
+  await new Promise((resolve) => {
+    serverProcess.once('exit', resolve);
+    serverProcess.kill();
+  });
+}
+
 const C = {
   green: (s) => `\x1b[32m${s}\x1b[0m`,
   red: (s) => `\x1b[31m${s}\x1b[0m`,
@@ -224,14 +247,19 @@ async function testServerAuth() {
 
   const serverProcess = cp.fork(serverPath, [], {
     stdio: 'pipe',
-    env: { ...process.env, OPENCLAW_API_KEY: apiKey },
+    env: {
+      ...process.env,
+      KAORU_TOOL_HOST_PORT: String(serverPort),
+      KAORU_TOOL_HOST_API_KEY: apiKey,
+      OPENCLAW_API_KEY: apiKey,
+    },
     silent: true,
   });
 
   await new Promise((resolve, reject) => {
     const timeout = setTimeout(() => reject(new Error('timeout')), 5000);
     const check = () => {
-      const req = http.get('http://127.0.0.1:18789/health', (res) => {
+      const req = http.get(`http://127.0.0.1:${serverPort}/health`, (res) => {
         if (res.statusCode === 200) {
           clearTimeout(timeout);
           resolve();
@@ -253,7 +281,7 @@ async function testServerAuth() {
       const req = http.request(
         {
           hostname: '127.0.0.1',
-          port: 18789,
+          port: serverPort,
           path: '/v1/tool',
           method: 'POST',
           headers,
@@ -291,7 +319,7 @@ async function testServerAuth() {
 
     const r4 = await (() =>
       new Promise((resolve) => {
-        http.get('http://127.0.0.1:18789/health', (res) => {
+        http.get(`http://127.0.0.1:${serverPort}/health`, (res) => {
           let d = '';
           res.on('data', (c) => (d += c));
           res.on('end', () => {
@@ -305,7 +333,7 @@ async function testServerAuth() {
       }))();
     assert(r4.status === 200, 'Health check sin key → 200');
   } finally {
-    serverProcess.kill();
+    await stopServer(serverProcess);
   }
 }
 
@@ -325,14 +353,19 @@ async function testPathSandbox() {
 
   const serverProcess = cp.fork(serverPath, [], {
     stdio: 'pipe',
-    env: { ...process.env, OPENCLAW_API_KEY: apiKey },
+    env: {
+      ...process.env,
+      KAORU_TOOL_HOST_PORT: String(serverPort),
+      KAORU_TOOL_HOST_API_KEY: apiKey,
+      OPENCLAW_API_KEY: apiKey,
+    },
     silent: true,
   });
 
   await new Promise((resolve, reject) => {
     const timeout = setTimeout(() => reject(new Error('timeout')), 5000);
     const check = () => {
-      const req = http.get('http://127.0.0.1:18789/health', (res) => {
+      const req = http.get(`http://127.0.0.1:${serverPort}/health`, (res) => {
         if (res.statusCode === 200) {
           clearTimeout(timeout);
           resolve();
@@ -349,7 +382,7 @@ async function testPathSandbox() {
       const req = http.request(
         {
           hostname: '127.0.0.1',
-          port: 18789,
+          port: serverPort,
           path: '/v1/tool',
           method: 'POST',
           headers: {
@@ -406,7 +439,7 @@ async function testPathSandbox() {
     const r6 = await post({ tool: 'read', input: { path: '.env' } });
     assert(r6.status === 400, '.env bloqueado');
   } finally {
-    serverProcess.kill();
+    await stopServer(serverProcess);
   }
 }
 
@@ -425,14 +458,19 @@ async function testCommandBlocklist() {
 
   const serverProcess = cp.fork(serverPath, [], {
     stdio: 'pipe',
-    env: { ...process.env, OPENCLAW_API_KEY: apiKey },
+    env: {
+      ...process.env,
+      KAORU_TOOL_HOST_PORT: String(serverPort),
+      KAORU_TOOL_HOST_API_KEY: apiKey,
+      OPENCLAW_API_KEY: apiKey,
+    },
     silent: true,
   });
 
   await new Promise((resolve, reject) => {
     const timeout = setTimeout(() => reject(new Error('timeout')), 5000);
     const check = () => {
-      const req = http.get('http://127.0.0.1:18789/health', (res) => {
+      const req = http.get(`http://127.0.0.1:${serverPort}/health`, (res) => {
         if (res.statusCode === 200) {
           clearTimeout(timeout);
           resolve();
@@ -449,7 +487,7 @@ async function testCommandBlocklist() {
       const req = http.request(
         {
           hostname: '127.0.0.1',
-          port: 18789,
+          port: serverPort,
           path: '/v1/tool',
           method: 'POST',
           headers: {
@@ -487,7 +525,7 @@ async function testCommandBlocklist() {
     assert(r2.status === 200, 'git --version seguro → 200');
     assert(r2.body.result.stdout.includes('git version'), 'git produce salida');
   } finally {
-    serverProcess.kill();
+    await stopServer(serverProcess);
   }
 }
 
@@ -506,14 +544,19 @@ async function testExecAutoShell() {
 
   const serverProcess = cp.fork(serverPath, [], {
     stdio: 'pipe',
-    env: { ...process.env, OPENCLAW_API_KEY: apiKey },
+    env: {
+      ...process.env,
+      KAORU_TOOL_HOST_PORT: String(serverPort),
+      KAORU_TOOL_HOST_API_KEY: apiKey,
+      OPENCLAW_API_KEY: apiKey,
+    },
     silent: true,
   });
 
   await new Promise((resolve, reject) => {
     const timeout = setTimeout(() => reject(new Error('timeout')), 5000);
     const check = () => {
-      const req = http.get('http://127.0.0.1:18789/health', (res) => {
+      const req = http.get(`http://127.0.0.1:${serverPort}/health`, (res) => {
         if (res.statusCode === 200) {
           clearTimeout(timeout);
           resolve();
@@ -530,7 +573,7 @@ async function testExecAutoShell() {
       const req = http.request(
         {
           hostname: '127.0.0.1',
-          port: 18789,
+          port: serverPort,
           path: '/v1/tool',
           method: 'POST',
           headers: {
@@ -590,7 +633,7 @@ async function testExecAutoShell() {
       require('fs').unlinkSync(redirectTarget);
     } catch (_) {}
   } finally {
-    serverProcess.kill();
+    await stopServer(serverProcess);
   }
 }
 
@@ -640,6 +683,7 @@ function testLLMProviderEdgeCases() {
 // ── Main ────────────────────────────────────────────────────────────────────
 
 async function main() {
+  serverPort = await availablePort();
   console.log(C.bold(C.cyan('\n════════════════════════════════════════════════════════')));
   console.log(C.bold(C.cyan('  March 7th — Test Suite: Integración y Stress Fase 0-2')));
   console.log(C.bold(C.cyan('════════════════════════════════════════════════════════')));

@@ -235,6 +235,90 @@ const _blocks = new Map();
 // curso) para que el log de tools quede encima de la respuesta en streaming.
 /** @type {HTMLElement | null} */
 let _activityAnchor = null;
+/** @type {HTMLDetailsElement | null} */
+let _runOverview = null;
+/** @type {ReturnType<typeof setTimeout> | null} */
+let _runOverviewHideTimer = null;
+/** @type {{steps: Array<string | {description?: string, label?: string}>, done?: number} | null} */
+let _runOverviewPlan = null;
+const _runOverviewState = { started: 0, finished: 0, changed: 0, failed: 0, current: '' };
+
+function _refreshRunOverview() {
+  if (!_runOverview) return;
+  const label = _runOverview.querySelector('.run-overview-label');
+  const current = _runOverview.querySelector('.run-overview-current');
+  const changes = _runOverview.querySelector('.run-overview-changes');
+  if (label) {
+    label.textContent = `${_runOverviewState.current || 'Trabajando'} · ${_runOverviewState.finished}/${_runOverviewState.started} operaciones`;
+  }
+  if (current) current.textContent = _runOverviewState.current || 'Esperando resultado';
+  if (changes) {
+    changes.textContent = `${_runOverviewState.changed} cambios reportados · ${_runOverviewState.failed} fallos`;
+  }
+}
+
+function startRunOverview() {
+  if (_runOverviewHideTimer) clearTimeout(_runOverviewHideTimer);
+  _runOverviewHideTimer = null;
+  _runOverview?.remove();
+  _runOverview = null;
+  _runOverviewPlan = null;
+  Object.assign(_runOverviewState, { started: 0, finished: 0, changed: 0, failed: 0, current: '' });
+}
+
+function _ensureRunOverview() {
+  if (_runOverview) return;
+  const dock = document.getElementById('task-dock');
+  if (!dock) return;
+  const overview = document.createElement('details');
+  overview.className = 'run-overview';
+  overview.innerHTML = `<summary><span class="run-overview-label" role="status" aria-live="polite">Trabajando</span><span aria-hidden="true">▾</span></summary>
+    <div class="run-overview-detail"><p>Ahora: <span class="run-overview-current">Esperando resultado</span></p>
+    <p class="run-overview-changes">0 cambios reportados · 0 fallos</p>
+    <p>Pendiente: <span class="run-overview-next">Kaoru decidirá el siguiente paso</span></p></div>`;
+  dock.hidden = false;
+  dock.prepend(overview);
+  overview.addEventListener('toggle', () => {
+    if (!overview.open && /^(Completado|Interrumpido|Cancelado)$/.test(_runOverviewState.current))
+      _removeRunOverview(overview);
+  });
+  _runOverview = overview;
+  if (_runOverviewPlan) updateRunOverviewPlan(_runOverviewPlan);
+}
+
+/** @param {HTMLDetailsElement} overview */
+function _removeRunOverview(overview) {
+  overview.remove();
+  if (_runOverview === overview) _runOverview = null;
+  const dock = document.getElementById('task-dock');
+  if (dock && !dock.querySelector('.plan-block')) dock.hidden = true;
+}
+
+/** @param {{steps: Array<string | {description?: string, label?: string}>, done?: number}} plan */
+function updateRunOverviewPlan(plan) {
+  _runOverviewPlan = plan;
+  if (!_runOverview || !Array.isArray(plan?.steps)) return;
+  const next = plan.steps[Math.max(0, Number(plan.done) || 0)];
+  const text = typeof next === 'string' ? next : next?.description || next?.label;
+  const el = _runOverview.querySelector('.run-overview-next');
+  if (el) el.textContent = text ? String(text).slice(0, 130) : 'No quedan pasos del plan';
+}
+
+/** @param {{cancelled?: boolean, error?: unknown, truncated?: boolean}} result */
+function finishRunOverview(result) {
+  if (!_runOverview) return;
+  _runOverviewState.current = result?.cancelled
+    ? 'Cancelado'
+    : result?.error || result?.truncated
+      ? 'Interrumpido'
+      : 'Completado';
+  _refreshRunOverview();
+  const overview = _runOverview;
+  _runOverviewHideTimer = setTimeout(() => {
+    if (overview.open) return;
+    _removeRunOverview(overview);
+  }, 7000);
+}
 
 // Nombre amigable por tool para el label del bloque (exec → Bash, etc.). Si la
 // tool no está en el mapa se muestra el nombre interno tal cual.
@@ -554,6 +638,10 @@ function renderActivityBlock(containerEl, progress) {
   const key = _keyFor(progress);
 
   if (progress.phase === 'start') {
+    _ensureRunOverview();
+    _runOverviewState.started++;
+    _runOverviewState.current = TOOL_LABELS[progress.tool] || progress.tool;
+    _refreshRunOverview();
     const block = document.createElement('div');
     block.className = 'activity-block';
     const arg = _argLabel(progress);
@@ -588,6 +676,18 @@ function renderActivityBlock(containerEl, progress) {
   if (progress.phase === 'end') {
     const entry = _blocks.get(key);
     if (!entry) return; // llegó 'end' sin 'start' previo — no romper, ignorar
+    _runOverviewState.finished++;
+    if (progress.status !== 'ok') _runOverviewState.failed++;
+    if (
+      progress.status === 'ok' &&
+      /^(write|edit|edit_file|create_file|apply_patch|delete_file|remove_file)$/i.test(
+        progress.tool
+      )
+    ) {
+      _runOverviewState.changed++;
+    }
+    _runOverviewState.current = 'Preparando el siguiente paso';
+    _refreshRunOverview();
     _blocks.delete(key);
 
     const status = entry.el.querySelector('.activity-block-status');
@@ -618,6 +718,7 @@ function renderActivityBlock(containerEl, progress) {
 
 /** Limpia los bloques activos y el ancla (llamar al terminar/cancelar agent-run). */
 function resetActivities() {
+  startRunOverview();
   _activityAnchor = null;
   _blocks.clear();
   _thinkingCount = 0;

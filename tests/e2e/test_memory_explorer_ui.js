@@ -95,8 +95,19 @@ async function main() {
     assert.equal(await page.locator('.memory-list h3').count(), 1);
     await page.locator('[data-action="fullscreen"]').click();
     assert(await page.locator('.memory-fullscreen').count());
+    assert.equal(
+      await page.locator('.memory-search').evaluate((el) => el === document.activeElement),
+      true
+    );
     await page.keyboard.press('Escape');
     assert.equal(await page.locator('.memory-fullscreen').count(), 0);
+    assert.equal(
+      await page
+        .locator('[data-action="fullscreen"]')
+        .evaluate((el) => el === document.activeElement),
+      true,
+      'al cerrar pantalla completa vuelve el foco al botón que la abrió'
+    );
     await page.locator('.memory-question input').fill('¿Qué recuerdas sobre Kaoru?');
     await page.locator('.memory-question button').click();
     assert.match(await page.locator('.memory-answer').innerText(), /249 recuerdos/);

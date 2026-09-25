@@ -1,5 +1,5 @@
 // @ts-nocheck
-/* global attachMemoryContext, attachRetryDraft, attachRunSummary */
+/* global attachMemoryContext, attachRetryDraft, attachRunSummary, attachErrorRecovery, finishRunOverview */
 /* global _renderResultChips, _takeResultMeta, pausePlanBlock */
 // Compresión de historial
 // Comprime mensajes de assistant repetitivos (fallos, "lo siento"s) para no
@@ -348,6 +348,7 @@ async function processMessage(text, files = []) {
       // Si el loop fue cancelado por el usuario, no tratar la respuesta
       // parcial como un error — solo mostrar lo que ya se generó.
       if (result.cancelled) {
+        finishRunOverview(result);
         removeThinking();
         pausePlanBlock();
         const partialRaw = result.response || streamBuf.trim();
@@ -375,7 +376,8 @@ async function processMessage(text, files = []) {
 
       if (result.error && !finalText) {
         error = result.error;
-        response = `Ocurrió un error: ${result.error}`;
+        response =
+          'No pude completar la tarea. Revisa la causa y la actividad antes de reintentar.';
         pausePlanBlock();
       } else {
         response = finalText || '(sin respuesta)';
@@ -383,6 +385,7 @@ async function processMessage(text, files = []) {
       }
 
       // Escribir respuesta directamente en el bubble existente
+      finishRunOverview(result);
       removeThinking();
       if (response) {
         // Limpiar marcadores (gesto: x) que el texto final pudiera reintroducir
@@ -399,6 +402,7 @@ async function processMessage(text, files = []) {
         bubble.innerHTML = renderMarkdown(response, { path: window.__lastWritePath || '' });
         attachMemoryContext(bubble, result.memoryContextIds || []);
         attachRunSummary(bubble, result);
+        if (result.error) attachErrorRecovery(bubble, result.error);
         if (result.error || result.truncated) attachRetryDraft(bubble, trimmed, files);
         bubble.querySelectorAll('.mermaid').forEach((el) => _renderMermaid(el));
         _scrollMessagesToBottom();
@@ -411,7 +415,8 @@ async function processMessage(text, files = []) {
         return;
       }
     } catch (e) {
-      console.error('error en agent-run:', e.message);
+      finishRunOverview({ error: e.message });
+      console.error('error en agent-run; revisa el estado del proveedor y la actividad');
       disarmCancel();
       error = e.message;
       response = null;
@@ -422,9 +427,10 @@ async function processMessage(text, files = []) {
       // para explicar el fallo; una segunda llamada simple perdería el vínculo
       // con el proceso que ya se ejecutó.
       if (agentBubble) {
-        response = `La ejecución se detuvo antes de generar la respuesta final.\n\nDetalle: ${e.message}`;
+        response = 'La ejecución se detuvo antes de generar la respuesta final.';
         agentBubble.classList.add('markdown');
         agentBubble.innerHTML = renderMarkdown(response);
+        attachErrorRecovery(agentBubble, e.message);
         attachRetryDraft(agentBubble, trimmed, files);
         pushToSession('assistant', response);
         ipcRenderer.send('memory-add-turn', { role: 'assistant', content: response });
@@ -473,7 +479,7 @@ async function processMessage(text, files = []) {
       if (!response) throw new Error('El proveedor devolvió una respuesta vacía.');
     } catch (e) {
       disarmCancel();
-      console.error('error LLM:', e.message);
+      console.error('error LLM; revisa el estado del proveedor');
       error = e.message;
       response = LLMProvider.getActiveProvider()
         ? 'Algo falló al conectar. Revisa tu conexión o la key.'
@@ -506,7 +512,10 @@ async function processMessage(text, files = []) {
   await reveal.done;
   bubble.classList.add('markdown');
   bubble.innerHTML = renderMarkdown(response);
-  if (error) attachRetryDraft(bubble, trimmed, files);
+  if (error) {
+    attachErrorRecovery(bubble, error);
+    attachRetryDraft(bubble, trimmed, files);
+  }
   bubble.querySelectorAll('.mermaid').forEach((el) => _renderMermaid(el));
   _scrollMessagesToBottom();
   setAgentState(error ? 'error' : 'done', error ? 'Error al responder' : 'Listo');

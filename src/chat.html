@@ -280,17 +280,19 @@
     </div>
 
     <!-- Modal Select model (modelo-first, nivel opencode) -->
-    <div id="settings-modal">
+    <div id="settings-modal" role="dialog" aria-modal="true" aria-labelledby="picker-title">
       <div id="settings-box" class="picker-box">
         <div class="settings-title-row">
-          <span class="settings-title">Select model</span>
-          <button class="modal-x" id="picker-close" title="Cerrar">[x]</button>
+          <span class="settings-title" id="picker-title">Elegir modelo</span>
+          <button class="modal-x" id="picker-close" type="button" aria-label="Cerrar selector de modelos">[x]</button>
         </div>
         <div class="settings-sub">TODOS LOS MODELOS DE IA · CONECTA EL PROVIDER AL ELEGIR</div>
         <input
           id="picker-search"
           class="picker-search"
           type="text"
+          aria-label="Buscar un modelo"
+          aria-describedby="picker-instructions"
           placeholder="Buscar modelo... (ej: llama, gpt-5, claude, deepseek)"
           autocomplete="off"
           spellcheck="false"
@@ -298,7 +300,7 @@
         <div id="picker-status" class="picker-status"></div>
         <div id="picker-list" class="picker-list"></div>
         <div class="picker-foot">
-          <span class="picker-hints"
+          <span class="picker-hints" id="picker-instructions"
             >↑↓ navegar · Enter usar · <kbd>Ctrl+A</kbd> conectar provider ·
             <kbd>Ctrl+F</kbd> favorito</span
           >

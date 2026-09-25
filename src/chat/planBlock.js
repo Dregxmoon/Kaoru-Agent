@@ -72,11 +72,13 @@ function renderPlanBlock(payload) {
   if (!_planEl) {
     const el = document.createElement('div');
     el.className = 'plan-block open';
-    const header = document.createElement('div');
+    const header = document.createElement('button');
     header.className = 'plan-block-header';
-    header.setAttribute('role', 'button');
+    header.type = 'button';
+    header.setAttribute('aria-expanded', 'true');
     header.addEventListener('click', () => {
       el.classList.toggle('open');
+      header.setAttribute('aria-expanded', String(el.classList.contains('open')));
     });
     el.appendChild(header);
     const stepsEl = document.createElement('div');

@@ -461,7 +461,10 @@ console.log(C.bold(C.cyan('═════════════════�
     // ── Modal de settings (ahora el picker de modelos) ───────────────────
     // El botón vive dentro de #keys-banner (oculto cuando hay proveedor por
     // defecto), así que se dispara programáticamente — el handler corre igual.
-    await chat.evaluate(() => document.getElementById('open-settings-btn').click());
+    await chat.evaluate(() => {
+      document.getElementById('models-btn').focus();
+      document.getElementById('open-settings-btn').click();
+    });
     await sleep(300);
     const settingsOpen = await chat.evaluate(() =>
       document.getElementById('settings-modal').classList.contains('visible')
@@ -469,12 +472,20 @@ console.log(C.bold(C.cyan('═════════════════�
     assert(settingsOpen, 'picker de modelos se abre con "Elegir modelo"');
     const hasSearch = await chat.evaluate(() => Boolean(document.getElementById('picker-search')));
     assert(hasSearch, 'picker tiene campo de búsqueda');
+    assert(
+      await chat.evaluate(() => document.activeElement?.id === 'picker-search'),
+      'al abrir el picker el foco pasa a la búsqueda'
+    );
     await chat.evaluate(() => document.getElementById('picker-close').click());
     await sleep(150);
     const settingsClosed = await chat.evaluate(
       () => !document.getElementById('settings-modal').classList.contains('visible')
     );
     assert(settingsClosed, 'picker de modelos se cierra con ×');
+    assert(
+      await chat.evaluate(() => document.activeElement?.id === 'models-btn'),
+      'al cerrar el picker el foco vuelve al botón que lo abrió'
+    );
 
     // ── Accesos directos a módulos ───────────────────────────────────────
     await chat.evaluate(() => document.getElementById('perms-btn').click());

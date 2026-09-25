@@ -146,6 +146,71 @@ function attachRetryDraft(bubble, text, files = []) {
   bubble.appendChild(card);
 }
 
+// Los errores del proveedor pueden incluir URLs o credenciales: clasificarlos
+// localmente y mostrar una acción concreta sin copiar el mensaje crudo al chat.
+function attachErrorRecovery(bubble, error) {
+  const raw = String(error || '');
+  const problem =
+    /(?:401|403|unauthori[sz]ed|invalid.{0,20}(?:api.?key|token)|api.?key.{0,20}invalid)/i.test(raw)
+      ? {
+          title: 'La clave del modelo no funciona',
+          help: 'Revisa la clave o conecta otro proveedor. Tu mensaje sigue disponible para reintentarlo.',
+          action: 'model',
+          label: 'Elegir modelo',
+        }
+      : /(?:429|rate.?limit|quota|insufficient.credits|saldo insuficiente)/i.test(raw)
+        ? {
+            title: 'El proveedor alcanzó su límite',
+            help: 'Espera unos minutos o elige otro modelo antes de reintentar.',
+            action: 'model',
+            label: 'Elegir modelo',
+          }
+        : /(?:tool.{0,30}(?:not supported|unsupported|unavailable)|no soporta herramientas|function.?call)/i.test(
+              raw
+            )
+          ? {
+              title: 'Este modelo no puede usar herramientas',
+              help: 'Para tareas con archivos o acciones, selecciona un modelo compatible con herramientas.',
+              action: 'model',
+              label: 'Elegir modelo',
+            }
+          : /(?:permission|denied|not allowed|permiso|bloquead[oa])/i.test(raw)
+            ? {
+                title: 'La acción necesita permiso',
+                help: 'Revisa la regla de la herramienta antes de volver a pedir la tarea.',
+                action: 'permissions',
+                label: 'Revisar permisos',
+              }
+            : /(?:timeout|timed out|network|enotfound|econn|fetch failed|sin conexión)/i.test(raw)
+              ? {
+                  title: 'No se pudo conectar',
+                  help: 'Comprueba la conexión y vuelve a enviar el mensaje cuando esté disponible.',
+                }
+              : {
+                  title: 'No se completó la solicitud',
+                  help: 'Revisa la actividad y prepara un reintento. Si hubo acciones, comprueba su resultado primero.',
+                };
+  const card = document.createElement('section');
+  card.className = 'error-recovery';
+  card.setAttribute('role', 'alert');
+  const title = document.createElement('strong');
+  title.textContent = problem.title;
+  const help = document.createElement('p');
+  help.textContent = problem.help;
+  card.append(title, help);
+  if (problem.action) {
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.textContent = problem.label;
+    button.addEventListener('click', () => {
+      if (problem.action === 'model') openPicker();
+      if (problem.action === 'permissions') openPermsModal();
+    });
+    card.appendChild(button);
+  }
+  bubble.appendChild(card);
+}
+
 function attachRunSummary(bubble, result) {
   const tools = Array.isArray(result?.toolResults) ? result.toolResults : [];
   if (!tools.length && !result?.verify && !result?.checkpoint) return;
@@ -389,6 +454,7 @@ const pickerStatus = document.getElementById('settings-status');
 const pickerSearch = document.getElementById('picker-search');
 const pickerList = document.getElementById('picker-list');
 const pickerCloseBtn = document.getElementById('picker-close');
+let _pickerReturnFocus = null;
 
 const _picker = {
   data: null, // payload de get-model-picker
@@ -764,15 +830,18 @@ function _openProvidersMode() {
 }
 
 function openPicker() {
+  if (!pickerModal.classList.contains('visible')) _pickerReturnFocus = document.activeElement;
   _picker.mode = 'models';
   _picker.expanded = null;
   _picker.selected = -1;
-  pickerStatus.textContent = '';
+  pickerStatus.textContent = 'Cargando modelos…';
+  pickerModal.classList.add('visible');
+  pickerSearch.focus();
   ipcRenderer
     .invoke('get-model-picker')
     .then((data) => {
       _picker.data = data;
-      pickerModal.classList.add('visible');
+      pickerStatus.textContent = '';
       _applyFilter();
       pickerSearch.focus();
     })
@@ -789,6 +858,8 @@ function openSettings() {
 function closePicker() {
   pickerModal.classList.remove('visible');
   pickerStatus.textContent = '';
+  if (_pickerReturnFocus?.isConnected) _pickerReturnFocus.focus();
+  _pickerReturnFocus = null;
 }
 
 pickerCloseBtn.addEventListener('click', closePicker);
@@ -819,6 +890,27 @@ pickerSearch.addEventListener('keydown', (e) => {
 // Atajos capturados SOLO con el picker abierto (ctrl+a/ctrl+f no deben
 // interferir con el input del chat).
 pickerModal.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape') {
+    e.preventDefault();
+    closePicker();
+    return;
+  }
+  if (e.key === 'Tab') {
+    const focusable = [
+      ...pickerModal.querySelectorAll(
+        'button:not(:disabled),input:not(:disabled),select:not(:disabled),a[href]'
+      ),
+    ].filter((node) => node.getClientRects().length);
+    const first = focusable[0];
+    const last = focusable.at(-1);
+    if (e.shiftKey && document.activeElement === first) {
+      e.preventDefault();
+      last?.focus();
+    } else if (!e.shiftKey && document.activeElement === last) {
+      e.preventDefault();
+      first?.focus();
+    }
+  }
   if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'a') {
     if (_picker.mode === 'models') {
       e.preventDefault();

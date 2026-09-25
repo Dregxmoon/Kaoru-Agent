@@ -5,6 +5,21 @@ const cp = require('child_process');
 const path = require('path');
 const fs = require('fs');
 const crypto = require('crypto');
+const net = require('net');
+
+let serverBaseUrl = '';
+
+function availablePort() {
+  return new Promise((resolve, reject) => {
+    const listener = net.createServer();
+    listener.once('error', reject);
+    listener.listen(0, '127.0.0.1', () => {
+      const address = listener.address();
+      const port = typeof address === 'object' && address ? address.port : 0;
+      listener.close(() => resolve(port));
+    });
+  });
+}
 
 if (process.platform === 'win32') process.env.OPENCLAW_SANDBOX = '0';
 
@@ -43,7 +58,7 @@ function postJSON(url, body, apiKey = null, timeoutMs = 5000) {
 
     const options = {
       hostname: parsed.hostname,
-      port: Number(parsed.port) || 18789,
+      port: Number(parsed.port),
       path: parsed.pathname,
       method: 'POST',
       headers,
@@ -78,7 +93,7 @@ function getJSON(url, timeoutMs = 5000) {
     const parsed = new URL(url);
     const options = {
       hostname: parsed.hostname,
-      port: Number(parsed.port) || 18789,
+      port: Number(parsed.port),
       path: parsed.pathname,
       method: 'GET',
     };
@@ -110,7 +125,7 @@ async function testAuthNoKey() {
   console.log(C.bold('\n── Test 1: Sin API key → 401 ──────────────────────────────────'));
 
   const res = await postJSON(
-    'http://127.0.0.1:18789/v1/tool',
+    `${serverBaseUrl}/v1/tool`,
     { tool: 'read', input: { path: 'package.json' } },
     null
   );
@@ -127,7 +142,7 @@ async function testAuthValidKey(apiKey) {
   console.log(C.bold('\n── Test 2: API key correcta → 200 ─────────────────────────────'));
 
   const res = await postJSON(
-    'http://127.0.0.1:18789/v1/tool',
+    `${serverBaseUrl}/v1/tool`,
     { tool: 'read', input: { path: 'package.json' } },
     apiKey
   );
@@ -141,7 +156,7 @@ async function testAuthInvalidKey() {
   console.log(C.bold('\n── Test 3: API key inválida → 401 ─────────────────────────────'));
 
   const res = await postJSON(
-    'http://127.0.0.1:18789/v1/tool',
+    `${serverBaseUrl}/v1/tool`,
     { tool: 'read', input: { path: 'package.json' } },
     'wrong-key-12345'
   );
@@ -153,7 +168,7 @@ async function testAuthInvalidKey() {
 async function testHealthNoAuth() {
   console.log(C.bold('\n── Test 4: Health check sin auth → 200 ────────────────────────'));
 
-  const res = await getJSON('http://127.0.0.1:18789/health');
+  const res = await getJSON(`${serverBaseUrl}/health`);
   assert(res.status === 200, `HTTP 200 — ${res.status}`);
   assert(res.body && res.body.status === 'ok', 'Status es ok');
 }
@@ -165,7 +180,7 @@ async function testPathOutsideAllowed(apiKey) {
 
   // Intentar leer /etc/passwd
   const res1 = await postJSON(
-    'http://127.0.0.1:18789/v1/tool',
+    `${serverBaseUrl}/v1/tool`,
     { tool: 'read', input: { path: '/etc/passwd' } },
     apiKey
   );
@@ -177,7 +192,7 @@ async function testPathOutsideAllowed(apiKey) {
 
   // Intentar escribir fuera
   const res2 = await postJSON(
-    'http://127.0.0.1:18789/v1/tool',
+    `${serverBaseUrl}/v1/tool`,
     { tool: 'write', input: { path: '/tmp/evil.txt', content: 'pwned' } },
     apiKey
   );
@@ -189,7 +204,7 @@ async function testPathOutsideAllowed(apiKey) {
 
   // Intentar editar fuera
   const res3 = await postJSON(
-    'http://127.0.0.1:18789/v1/tool',
+    `${serverBaseUrl}/v1/tool`,
     { tool: 'edit', input: { path: '/etc/hosts', old_text: '127.0.0.1', new_text: '0.0.0.0' } },
     apiKey
   );
@@ -197,7 +212,7 @@ async function testPathOutsideAllowed(apiKey) {
 
   // Intentar path traversal
   const res4 = await postJSON(
-    'http://127.0.0.1:18789/v1/tool',
+    `${serverBaseUrl}/v1/tool`,
     { tool: 'read', input: { path: '../../../etc/passwd' } },
     apiKey
   );
@@ -210,7 +225,7 @@ async function testPathInsideAllowed(apiKey) {
   console.log(C.bold('\n── Test 6: Path dentro del directorio permitido → funciona ────'));
 
   const res = await postJSON(
-    'http://127.0.0.1:18789/v1/tool',
+    `${serverBaseUrl}/v1/tool`,
     { tool: 'read', input: { path: 'package.json' } },
     apiKey
   );
@@ -220,7 +235,7 @@ async function testPathInsideAllowed(apiKey) {
   // write dentro
   const testFile = 'tests/_test_f2_write.txt';
   const res2 = await postJSON(
-    'http://127.0.0.1:18789/v1/tool',
+    `${serverBaseUrl}/v1/tool`,
     { tool: 'write', input: { path: testFile, content: 'Fase 2 test' } },
     apiKey
   );
@@ -244,7 +259,7 @@ async function testImmutablePaths(apiKey) {
 
   for (const t of tests) {
     const res = await postJSON(
-      'http://127.0.0.1:18789/v1/tool',
+      `${serverBaseUrl}/v1/tool`,
       { tool: 'read', input: { path: t.path } },
       apiKey
     );
@@ -256,7 +271,7 @@ async function testImmutablePaths(apiKey) {
   for (const env of ['.env.example', '.env.sample']) {
     const target = path.join('tests', env);
     const res = await postJSON(
-      'http://127.0.0.1:18789/v1/tool',
+      `${serverBaseUrl}/v1/tool`,
       { tool: 'write', input: { path: target, content: '# template de ejemplo\n' } },
       apiKey
     );
@@ -283,7 +298,7 @@ async function testBlockedCommands(apiKey) {
 
   for (const cmd of blocked) {
     const res = await postJSON(
-      'http://127.0.0.1:18789/v1/tool',
+      `${serverBaseUrl}/v1/tool`,
       { tool: 'exec', input: { command: cmd } },
       apiKey
     );
@@ -298,7 +313,7 @@ async function testSafeCommands(apiKey) {
   console.log(C.bold('\n── Test 9: Comandos seguros → ejecutables ───────────────────────'));
 
   const res = await postJSON(
-    'http://127.0.0.1:18789/v1/tool',
+    `${serverBaseUrl}/v1/tool`,
     { tool: 'exec', input: { command: 'git --version', timeout: 5 } },
     apiKey
   );
@@ -316,7 +331,7 @@ async function testExecNoShell(apiKey) {
 
   // Git con argumentos separados, disponible en todos los runners.
   const res = await postJSON(
-    'http://127.0.0.1:18789/v1/tool',
+    `${serverBaseUrl}/v1/tool`,
     { tool: 'exec', input: { command: 'git status --short', timeout: 5 } },
     apiKey
   );
@@ -367,10 +382,17 @@ function testSafeChildEnv() {
 async function main() {
   const apiKey = crypto.randomBytes(32).toString('hex');
   const serverPath = path.resolve(__dirname, '..', 'openclaw-server.js');
+  const port = await availablePort();
+  serverBaseUrl = `http://127.0.0.1:${port}`;
 
   const serverProcess = cp.fork(serverPath, [], {
     stdio: 'pipe',
-    env: { ...process.env, OPENCLAW_API_KEY: apiKey },
+    env: {
+      ...process.env,
+      KAORU_TOOL_HOST_PORT: String(port),
+      KAORU_TOOL_HOST_API_KEY: apiKey,
+      OPENCLAW_API_KEY: apiKey,
+    },
     silent: true,
   });
 
@@ -378,7 +400,7 @@ async function main() {
   await new Promise((resolve, reject) => {
     const timeout = setTimeout(() => reject(new Error('Server did not start in time')), 5000);
     const check = () => {
-      const req = http.get('http://127.0.0.1:18789/health', (res) => {
+      const req = http.get(`${serverBaseUrl}/health`, (res) => {
         if (res.statusCode === 200) {
           clearTimeout(timeout);
           resolve();

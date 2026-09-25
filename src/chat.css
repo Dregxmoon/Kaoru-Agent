@@ -6388,3 +6388,81 @@ summary:focus-visible {
     display: block;
   }
 }
+
+/* Recuperación de errores y vista compacta del run: misma tipografía del chat. */
+.error-recovery {
+  margin-top: 14px;
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-left: 2px solid var(--term-warn);
+  border-radius: 5px;
+  background: var(--bg-panel);
+  color: var(--text-secondary);
+  font: 11px/1.6 var(--font-mono);
+}
+.error-recovery strong {
+  display: block;
+  color: var(--text-primary);
+  font-size: 12px;
+}
+.error-recovery p {
+  margin: 5px 0 9px;
+}
+.error-recovery button {
+  padding: 6px 10px;
+  border: 1px solid var(--border-accent);
+  border-radius: 4px;
+  background: var(--bg-input);
+  color: var(--text-primary);
+  font: inherit;
+  cursor: pointer;
+}
+.run-overview {
+  margin-bottom: 7px;
+  padding: 7px 10px;
+  border: 1px solid var(--border);
+  border-left: 2px solid var(--accent);
+  border-radius: 5px;
+  background: var(--bg-input);
+  color: var(--text-secondary);
+  font: 11px/1.5 var(--font-mono);
+}
+.run-overview summary {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  color: var(--text-primary);
+  cursor: pointer;
+  list-style: none;
+}
+.run-overview summary::-webkit-details-marker {
+  display: none;
+}
+.run-overview-detail {
+  margin-top: 8px;
+  padding-top: 5px;
+  border-top: 1px solid var(--border);
+}
+.run-overview-detail p {
+  margin: 4px 0;
+  overflow-wrap: anywhere;
+}
+.plan-block-header {
+  width: 100%;
+  border: 0;
+  background: transparent;
+  color: var(--term-accent);
+  font: inherit;
+  text-align: left;
+}
+.memory-node:focus-visible > circle {
+  stroke: var(--text-primary);
+  stroke-width: 4px;
+  filter: drop-shadow(0 0 5px var(--accent-glow));
+}
+.error-recovery button:focus-visible,
+.plan-block-header:focus-visible,
+.memory-explorer :focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 3px;
+}

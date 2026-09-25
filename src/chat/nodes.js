@@ -27,6 +27,11 @@ function openNodes(options = {}) {
 }
 function hideNodes() {
   if (!memoryExplorer) return;
+  if (memoryExplorer.el.classList.contains('memory-fullscreen')) {
+    const previousFocus = memoryExplorer.focusBeforeFullscreen;
+    if (previousFocus?.isConnected) previousFocus.focus();
+    memoryExplorer.focusBeforeFullscreen = null;
+  }
   memoryExplorer.el.classList.add('memory-minimized');
   memoryExplorer.el.classList.remove('memory-fullscreen');
   memoryExplorer.el.removeAttribute('aria-modal');
@@ -65,6 +70,7 @@ async function renderGraph(options = {}) {
     ty: 0,
     relations: new Set(['explicit', 'semantic']),
     detailTicket: 0,
+    focusBeforeFullscreen: previous?.focusBeforeFullscreen || null,
     events: new AbortController(),
   });
   if (options.ids?.length) {
@@ -122,6 +128,9 @@ async function renderGraph(options = {}) {
     <div class="memory-answer" aria-live="polite"></div></div>`;
   messagesEl.appendChild(el);
   function setFullscreen(enabled) {
+    const wasFullscreen = el.classList.contains('memory-fullscreen');
+    if (enabled && !wasFullscreen && !state.focusBeforeFullscreen)
+      state.focusBeforeFullscreen = document.activeElement;
     el.classList.toggle('memory-fullscreen', enabled);
     el.querySelector('[data-action="fullscreen"]').textContent = enabled
       ? 'Volver al chat'
@@ -129,8 +138,16 @@ async function renderGraph(options = {}) {
     el.setAttribute('role', enabled ? 'dialog' : 'region');
     if (enabled) el.setAttribute('aria-modal', 'true');
     else el.removeAttribute('aria-modal');
+    if (enabled && !wasFullscreen) el.querySelector('.memory-search')?.focus();
+    if (!enabled && wasFullscreen) {
+      if (state.focusBeforeFullscreen?.isConnected) state.focusBeforeFullscreen.focus();
+      state.focusBeforeFullscreen = null;
+    }
   }
   setFullscreen(Boolean(previous?.el.classList.contains('memory-fullscreen')));
+  if (el.classList.contains('memory-fullscreen')) {
+    requestAnimationFrame(() => el.querySelector('.memory-search')?.focus());
+  }
   const status = (text) => {
     el.querySelector('.memory-status').textContent = text;
   };

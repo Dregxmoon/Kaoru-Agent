@@ -1,5 +1,5 @@
 'use strict';
-/* global window, document, navigator, getComputedStyle, renderMarkdown, DOMParser, setAgentState, showThinking, removeThinking, attachRetryDraft, attachRunSummary, pendingFiles */
+/* global window, document, navigator, getComputedStyle, renderMarkdown, DOMParser, setAgentState, showThinking, removeThinking, attachRetryDraft, attachErrorRecovery, attachRunSummary, pendingFiles, setActivityAnchor, renderActivityBlock, updateRunOverviewPlan, finishRunOverview */
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
@@ -92,6 +92,15 @@ async function main() {
     await page.getByRole('button', { name: 'Preparar reintento' }).click();
     assert.equal(await page.locator('#msg-input').inputValue(), 'Revisa este archivo');
     assert.equal(await page.evaluate(() => pendingFiles[0].name), 'ejemplo.js');
+    await page.evaluate(() => {
+      attachErrorRecovery(
+        document.querySelector('.msg-bubble'),
+        '401 invalid api key sk-secret-that-must-not-be-shown'
+      );
+    });
+    assert.match(await page.locator('.error-recovery').innerText(), /La clave del modelo/);
+    assert.equal((await page.locator('.error-recovery').innerText()).includes('sk-secret'), false);
+    assert.equal(await page.getByRole('button', { name: 'Elegir modelo' }).count(), 1);
     await page.evaluate(() => {
       document.getElementById('msg-input').value = '';
       pendingFiles.splice(0);
@@ -236,6 +245,38 @@ async function main() {
       );
     }
     await layout.close();
+    const runPage = await browser.newPage();
+    await runPage.setContent(
+      '<html data-theme="dark"><body><main id="messages"><div id="anchor"></div></main><div id="task-dock" hidden></div></body></html>'
+    );
+    await runPage.addStyleTag({ path: path.resolve(__dirname, '../../src/chat.css') });
+    await runPage.addScriptTag({
+      path: path.resolve(__dirname, '../../src/chat/activityBlock.js'),
+    });
+    await runPage.evaluate(() => {
+      const feed = document.getElementById('messages');
+      setActivityAnchor(document.getElementById('anchor'));
+      updateRunOverviewPlan({ steps: ['Leer archivo', 'Editar archivo'], done: 1 });
+      renderActivityBlock(feed, {
+        iteration: 1,
+        tool: 'edit',
+        phase: 'start',
+        params: { path: 'ejemplo.js' },
+      });
+      renderActivityBlock(feed, {
+        iteration: 1,
+        tool: 'edit',
+        phase: 'end',
+        status: 'ok',
+        result: 'Archivo editado',
+      });
+      finishRunOverview({});
+    });
+    assert.match(await runPage.locator('.run-overview summary').innerText(), /1\/1 operaciones/);
+    await runPage.locator('.run-overview summary').click();
+    assert.match(await runPage.locator('.run-overview-detail').innerText(), /1 cambios reportados/);
+    assert.match(await runPage.locator('.run-overview-detail').innerText(), /Editar archivo/);
+    await runPage.close();
     console.log(
       'Message UI: code controls, exact copy, typography, themes, mobile, sanitization and streaming passed.'
     );
