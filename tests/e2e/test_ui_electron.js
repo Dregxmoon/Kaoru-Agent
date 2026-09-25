@@ -196,6 +196,11 @@ console.log(C.bold(C.cyan('═════════════════�
         hasPermsBtn: !!document.getElementById('perms-btn'),
         hasCommandsBtn: !!document.getElementById('commands-btn'),
         hasCloseBtn: !!document.getElementById('close-btn'),
+        hasMinimizeBtn: !!document.getElementById('window-minimize'),
+        hasMaximizeBtn: !!document.getElementById('window-maximize'),
+        windowControlsVisible: [...document.querySelectorAll('.window-control')].every(
+          (button) => button.getBoundingClientRect().width > 0
+        ),
         hasUpdateBanner: !!document.getElementById('update-banner'),
         hasKeysBanner: !!document.getElementById('keys-banner'),
         hasTaskDock: !!document.getElementById('task-dock'),
@@ -231,6 +236,10 @@ console.log(C.bold(C.cyan('═════════════════�
     assert(headerOk.hasPermsBtn, 'acceso directo a permisos presente');
     assert(headerOk.hasCommandsBtn, 'acceso directo a comandos presente');
     assert(headerOk.hasCloseBtn, 'botón de cerrar presente');
+    assert(
+      headerOk.hasMinimizeBtn && headerOk.hasMaximizeBtn && headerOk.windowControlsVisible,
+      'minimizar, maximizar y cerrar están visibles arriba a la derecha'
+    );
     assert(headerOk.hasUpdateBanner, 'banner de auto-update presente (oculto en dev)');
     assert(headerOk.hasKeysBanner, 'banner de API keys presente');
     assert(headerOk.hasTaskDock, 'espacio persistente para el plan presente');

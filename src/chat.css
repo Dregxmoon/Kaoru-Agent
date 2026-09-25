@@ -6466,3 +6466,112 @@ summary:focus-visible {
   outline: 2px solid var(--accent);
   outline-offset: 3px;
 }
+
+/* Controles nativos del chat, visibles en la esquina superior derecha. */
+.window-controls {
+  -webkit-app-region: no-drag;
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  margin-left: 5px;
+  padding-left: 8px;
+  border-left: 1px solid var(--border);
+}
+.window-control,
+#close-btn.window-control {
+  -webkit-app-region: no-drag;
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 26px;
+  padding: 0;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition:
+    color 180ms ease,
+    background 180ms ease,
+    border-color 180ms ease;
+}
+.window-control svg {
+  fill: none;
+  stroke: currentColor;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 1.5;
+  transition: transform 220ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+.window-control:hover,
+.window-control:focus-visible,
+#close-btn.window-control:hover,
+#close-btn.window-control:focus-visible {
+  color: var(--text-primary);
+  border-color: var(--border);
+  background: var(--hover);
+}
+.window-control:focus-visible,
+#close-btn.window-control:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+.window-control-minimize:hover svg,
+.window-control-minimize:focus-visible svg {
+  transform: translateY(2px) scaleX(0.58);
+}
+.window-control-maximize:hover svg,
+.window-control-maximize:focus-visible svg {
+  transform: rotate(9deg) scale(1.08);
+}
+.window-control-maximize .restore-shape {
+  display: none;
+}
+.window-control-maximize[aria-pressed='true'] .maximize-shape {
+  display: none;
+}
+.window-control-maximize[aria-pressed='true'] .restore-shape {
+  display: block;
+}
+.window-control-close:hover,
+.window-control-close:focus-visible,
+#close-btn.window-control:hover,
+#close-btn.window-control:focus-visible {
+  color: var(--term-error);
+  border-color: var(--term-error);
+  background: color-mix(in srgb, var(--term-error) 10%, transparent);
+}
+.window-control-close:hover svg,
+.window-control-close:focus-visible svg {
+  transform: rotate(90deg) scale(1.08);
+}
+.window-control.is-pressed svg {
+  animation: window-control-tap 150ms ease-out both;
+}
+.window-control-close.is-pressed svg {
+  animation: window-control-close-tap 150ms ease-out both;
+}
+@keyframes window-control-tap {
+  50% {
+    transform: scale(0.48);
+  }
+}
+@keyframes window-control-close-tap {
+  50% {
+    transform: rotate(135deg) scale(0.55);
+  }
+  100% {
+    transform: rotate(180deg) scale(0.9);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .window-control,
+  .window-control svg {
+    transition: none;
+    animation: none !important;
+  }
+  .window-control:hover svg,
+  .window-control:focus-visible svg {
+    transform: none;
+  }
+}

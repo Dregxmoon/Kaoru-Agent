@@ -1,9 +1,6 @@
 // @ts-nocheck
 /* global updateRunOverviewPlan */
 // IPC listeners
-document
-  .getElementById('close-btn')
-  .addEventListener('click', () => ipcRenderer.send('chat-close'));
 ipcRenderer.on('init-theme', (e, theme) => setTheme(theme));
 ipcRenderer.on('chat-message', (e, text) => processMessage(text));
 ipcRenderer.on('model-changed', (e, info) => {

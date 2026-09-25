@@ -41,9 +41,21 @@ function register(ctx) {
   });
   ipcMain.on('model-dblclick', () => ctx.toggleChatWindow());
 
-  ipcMain.on('chat-close', () => {
+  ipcMain.on('chat-close', (event) => {
+    const chat = S.chatWindow;
+    if (!chat || chat.isDestroyed() || event.sender !== chat.webContents) return;
     logger.info('window-model-handlers', '[main] chat cerrado — saliendo del asistente');
     app.quit();
+  });
+
+  ipcMain.on('chat-window-control', (event, action) => {
+    const chat = S.chatWindow;
+    if (!chat || chat.isDestroyed() || event.sender !== chat.webContents) return;
+    if (action === 'minimize') chat.minimize();
+    else if (action === 'maximize') {
+      if (chat.isMaximized()) chat.unmaximize();
+      else chat.maximize();
+    }
   });
 
   ipcMain.on('chat-theme-changed', (e, theme) => {

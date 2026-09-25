@@ -798,6 +798,13 @@ function createChatWindow() {
   });
 
   S.chatWindow.setMenuBarVisibility(false);
+  const chatWindow = S.chatWindow;
+  const syncChatMaximized = () => {
+    if (!chatWindow.isDestroyed())
+      chatWindow.webContents.send('chat-window-maximized', chatWindow.isMaximized());
+  };
+  chatWindow.on('maximize', syncChatMaximized);
+  chatWindow.on('unmaximize', syncChatMaximized);
   S.chatWindow.loadFile(path.join(__dirname, 'src/chat.html'));
   attachCrashWatchdog(S.chatWindow, 'chat');
   S.chatWindow.webContents.on('console-message', _createConsoleMessageFilter('chat'));
@@ -812,6 +819,7 @@ function createChatWindow() {
 
   S.chatWindow.webContents.once('did-finish-load', () => {
     S.chatWindow.webContents.send('init-theme', S.chatTheme);
+    syncChatMaximized();
 
     const graph = Core.getGraph();
     const usingFallback = graph?.usingFallback ?? false;
