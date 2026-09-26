@@ -45,6 +45,7 @@ app.setName('vtuber-overlay');
 
 let _coreReady = false;
 let _pendingWorkspace = null;
+let _launchWorkspace = REQUESTED_WORKSPACE || process.env.ASISTENTE_WORKSPACE || null;
 const _hasSingleInstanceLock = app.requestSingleInstanceLock({
   workspace: REQUESTED_WORKSPACE,
 });
@@ -54,9 +55,29 @@ if (!_hasSingleInstanceLock) app.exit(0);
 function _activateLaunchRequest(workspace) {
   if (workspace) {
     if (_coreReady) {
-      Core.setActiveWorkspace(workspace).catch((error) =>
-        logger.warn('workspace', `no se pudo activar desde el comando asistente: ${error.message}`)
-      );
+      if (!S.chatWindow || S.chatWindow.isDestroyed()) {
+        _launchWorkspace = workspace;
+        createChatWindow();
+        return;
+      }
+      const busy =
+        require('./ipc/openclaw-handlers.js').hasActiveRun() ||
+        require('./ipc/chat-handlers.js').hasSimpleRun() ||
+        require('./ipc/chat-handlers.js').hasRendererBusy();
+      if (busy) {
+        sendToChat('startup-notice', {
+          message: 'Cancela la tarea actual antes de abrir otro proyecto.',
+        });
+      } else {
+        Core.startChatConversation(workspace)
+          .then((result) => {
+            if (result.ok) {
+              if (!result.unchanged) require('./ipc/openclaw-handlers.js').resetSessionApprovals();
+              sendToChat('conversation-opened', result.conversation);
+            } else logger.warn('workspace', result.error);
+          })
+          .catch((error) => logger.warn('workspace', error.message));
+      }
     } else {
       _pendingWorkspace = workspace;
     }
@@ -811,10 +832,14 @@ function createChatWindow() {
 
   if (S.mainWindow && !S.mainWindow.isDestroyed()) S.mainWindow.hide();
 
-  const sessionPromise = Core.startSession().catch((e) => {
+  const sessionPromise = Core.startChatConversation(
+    _launchWorkspace || (app.isPackaged ? null : app.getAppPath())
+  ).catch((e) => {
+    _launchWorkspace = null;
     logger.error('session', `error: ${e.message}`);
     return null;
   });
+  _launchWorkspace = null;
   Core.setChatOpen(true);
 
   S.chatWindow.webContents.once('did-finish-load', () => {
@@ -838,19 +863,15 @@ function createChatWindow() {
 
     sessionPromise
       .then((result) => {
-        if (
-          result?.resumed &&
-          result.history?.length &&
-          S.chatWindow &&
-          !S.chatWindow.isDestroyed()
-        ) {
-          sendToChat('resumed-session', { history: result.history });
+        if (result?.ok && S.chatWindow && !S.chatWindow.isDestroyed()) {
+          sendToChat('conversation-opened', result.conversation);
         }
       })
       .catch(() => {});
   });
 
   S.chatWindow.on('closed', () => {
+    require('./ipc/chat-handlers.js').clearRendererBusy();
     try {
       require('./ipc/openclaw-handlers.js').resetSessionApprovals();
     } catch (_) {}
@@ -1088,10 +1109,27 @@ function startControlServer() {
         res.end('falta ?path=');
         return;
       }
-      Core.setActiveWorkspace(p)
+      if (
+        require('./ipc/openclaw-handlers.js').hasActiveRun() ||
+        require('./ipc/chat-handlers.js').hasSimpleRun() ||
+        require('./ipc/chat-handlers.js').hasRendererBusy()
+      ) {
+        res.writeHead(409);
+        res.end('error: hay una tarea en curso');
+        return;
+      }
+      Core.startChatConversation(p)
         .then((result) => {
+          if (result.ok) {
+            if (!result.unchanged) require('./ipc/openclaw-handlers.js').resetSessionApprovals();
+            sendToChat('conversation-opened', result.conversation);
+          }
           res.writeHead(result.ok ? 200 : 400);
-          res.end(result.ok ? `ok: workspace -> ${result.path}` : `error: ${result.error}`);
+          res.end(
+            result.ok
+              ? `ok: workspace -> ${result.conversation.workspace}`
+              : `error: ${result.error}`
+          );
         })
         .catch((err) => {
           res.writeHead(500);
@@ -1243,11 +1281,8 @@ app.whenReady().then(async () => {
   Core.init(app);
   _coreReady = true;
   if (_pendingWorkspace) {
-    const workspace = _pendingWorkspace;
+    _launchWorkspace = _pendingWorkspace;
     _pendingWorkspace = null;
-    Core.setActiveWorkspace(workspace).catch((error) =>
-      logger.warn('workspace', `no se pudo activar al iniciar: ${error.message}`)
-    );
   }
 
   if (global.__mcpOAuthSetup) global.__mcpOAuthSetup(app);

@@ -65,6 +65,7 @@ const CORE_SOURCES = {
 let _sendToChat = () => {};
 /** @type {AbortController | null} */
 let _simpleAbort = null;
+let _rendererBusy = false;
 let _uiCallSeq = 0;
 /** @type {Map<string, {resolve: (v: any) => void, reject: (e: Error) => void, timer: NodeJS.Timeout}>} */
 const _uiCallPending = new Map();
@@ -105,6 +106,11 @@ function _uiCall(fn, args) {
  */
 function register(_ctx) {
   _sendToChat = _ctx && typeof _ctx.sendToChat === 'function' ? _ctx.sendToChat : () => {};
+  ipcMain.on('chat-session-busy', (event, busy) => {
+    const chat = _ctx?.S?.chatWindow;
+    if (chat && !chat.isDestroyed() && event.sender === chat.webContents)
+      _rendererBusy = busy === true;
+  });
 
   const coreBehaviorDir = path.join(__dirname, '..', 'core', 'behavior');
 
@@ -420,4 +426,11 @@ function register(_ctx) {
   });
 }
 
-module.exports = { register };
+module.exports = {
+  register,
+  hasSimpleRun: () => Boolean(_simpleAbort),
+  hasRendererBusy: () => _rendererBusy,
+  clearRendererBusy: () => {
+    _rendererBusy = false;
+  },
+};

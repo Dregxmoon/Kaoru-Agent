@@ -26,10 +26,29 @@ function _sweepExpiredOAuthStates(states) {
 function register(ctx) {
   const { Core, S, loadConfig, saveConfig } = ctx;
 
-  ipcMain.handle('pick-workspace-folder', async () => {
+  ipcMain.handle('pick-workspace-folder', async (event) => {
+    if (!S.chatWindow || event.sender !== S.chatWindow.webContents)
+      return { ok: false, error: 'Ventana no autorizada' };
+    if (
+      require('./openclaw-handlers.js').hasActiveRun() ||
+      require('./chat-handlers.js').hasSimpleRun() ||
+      require('./chat-handlers.js').hasRendererBusy()
+    )
+      return { ok: false, error: 'Espera a que termine Kaoru o cancela la tarea' };
     const result = await dialog.showOpenDialog(S.chatWindow, { properties: ['openDirectory'] });
     if (result.canceled || !result.filePaths.length) return null;
-    return Core.setActiveWorkspace(result.filePaths[0]);
+    const switched = await Core.switchConversation({ workspace: result.filePaths[0] });
+    if (switched.ok) {
+      if (!switched.unchanged) require('./openclaw-handlers.js').resetSessionApprovals();
+      S.chatWindow.webContents.send('conversation-opened', switched.conversation);
+    }
+    return switched;
+  });
+
+  ipcMain.handle('choose-workspace-folder', async (event) => {
+    if (!S.chatWindow || event.sender !== S.chatWindow.webContents) return null;
+    const result = await dialog.showOpenDialog(S.chatWindow, { properties: ['openDirectory'] });
+    return result.canceled ? null : result.filePaths[0] || null;
   });
 
   ipcMain.handle('get-workspace', () => {

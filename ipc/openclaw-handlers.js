@@ -11,6 +11,7 @@ const {
 const { ipcMain } = require('electron');
 const { getToolRegistry } = require('../core/task/ToolRegistry.js');
 const { AgentRunController } = require('../core/planner/AgentRunController.js');
+let _hasActiveRun = () => false;
 
 // Tiempo máximo (ms) que el usuario tiene para responder a un card de
 // aprobación. Configurable en config.json → agent.approvalTimeoutMs. 120s
@@ -51,6 +52,7 @@ function register(ctx) {
   // Cancelación del agent-run en curso: el renderer envía 'agent-cancel' y el
   // AbortController rompe el stream HTTP del LLM y el loop del agente.
   const activeRuns = new Map();
+  _hasActiveRun = () => activeRuns.size > 0;
   const recentRuns = new Map();
 
   const rememberRun = (senderId, snapshot) => {
@@ -84,6 +86,14 @@ function register(ctx) {
   });
 
   ipcMain.handle('agent-run', async (e, { text }) => {
+    if (!Core.activeConversation()) {
+      return {
+        response: null,
+        iterations: 0,
+        toolResults: [],
+        error: 'Elige una carpeta para comenzar',
+      };
+    }
     logger.info('openclaw-handlers', `[main] agent-run: text="${text?.slice(0, 80)}"`);
     const _t = (l) => logger.info('openclaw-handlers', `[agent-timing] ${Date.now() - _t0}ms ${l}`);
     const _t0 = Date.now();
@@ -328,7 +338,7 @@ function register(ctx) {
   });
 }
 
-module.exports = { register, resetSessionApprovals };
+module.exports = { register, resetSessionApprovals, hasActiveRun: () => _hasActiveRun() };
 
 /** Limpia las aprobaciones "Siempre" de la sesión (al cerrar el chat). */
 function resetSessionApprovals() {

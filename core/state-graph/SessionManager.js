@@ -26,6 +26,10 @@ const DECAY_INTERVAL_HOURS = 20;
  *   getFeedbackScorer?(): any,
  *   recordObservation?(opts: object): number|null,
  *   markObservationsProcessed?(ids: number[]): number,
+ *   _sessions: {
+ *     reopenConversation(id: string): void,
+ *     startSession(workspace: string): string,
+ *   },
  * }} StateGraphLike
  */
 class SessionManager {
@@ -46,6 +50,8 @@ class SessionManager {
     this._sessionId = null;
     /** @type {Array<{ role: string, content: string, ts?: number, seq?: number }>} */
     this._history = [];
+    /** @type {Array<{ role: string, content: string, ts?: number, seq?: number }>} */
+    this._fullHistory = [];
     this._turnCount = 0;
     this._isClosing = false;
     this._closePromise = null;
@@ -54,6 +60,16 @@ class SessionManager {
     this._memoryCursor = 0;
     /** @type {Promise<object|null>|null} */
     this._incrementalPromise = null;
+    this._chatPrepared = false;
+  }
+
+  /** @param {ElectronAppLike | null} [app] */
+  prepareChatStart(app) {
+    if (this._chatPrepared) return;
+    this._resolver.deduplicateNodes();
+    this._updater.cleanupMemoryArtifacts();
+    this._maybeRunDecay(app);
+    this._chatPrepared = true;
   }
 
   /**
@@ -84,6 +100,8 @@ class SessionManager {
         ...turn,
         seq: Number(turn.seq) || baseSeq + index + 1,
       }));
+      this._fullHistory = [...this._history];
+      this._history = this._history.slice(-40);
       this._turnCount = resumable.turnCount;
       this._memoryCursor = resumable.memoryCursor || 0;
       this._resolver.deduplicateNodes();
@@ -102,6 +120,7 @@ class SessionManager {
 
     this._sessionId = this._graph.startSession();
     this._history = [];
+    this._fullHistory = [];
     this._turnCount = 0;
     this._memoryCursor = 0;
     logger.info('SessionManager', `[session] sesión ${this._sessionId} iniciada`);
@@ -145,6 +164,35 @@ class SessionManager {
     return this._sessionId;
   }
 
+  /** @param {{id: string, history_json?: string|null, turn_count?: number, memory_cursor?: number}} row */
+  openExisting(row) {
+    if (!row || !row.id) throw new Error('Conversación inexistente');
+    let history = [];
+    try {
+      history = JSON.parse(row.history_json || '[]');
+    } catch {
+      history = [];
+    }
+    if (!Array.isArray(history)) history = [];
+    this._graph._sessions.reopenConversation(row.id);
+    this._sessionId = row.id;
+    this._fullHistory = history;
+    this._history = history.slice(-40);
+    this._turnCount = row.turn_count || history.length;
+    this._memoryCursor = row.memory_cursor || 0;
+    return { sessionId: row.id, resumed: true, history: this._history };
+  }
+
+  /** @param {string} workspace */
+  startNew(workspace) {
+    this._sessionId = this._graph._sessions.startSession(workspace);
+    this._history = [];
+    this._fullHistory = [];
+    this._turnCount = 0;
+    this._memoryCursor = 0;
+    return { sessionId: this._sessionId, resumed: false, history: [] };
+  }
+
   /** Alias público del stack de intenciones activas pendientes (Fase 3, ítem 1). */
   getActiveIntentions() {
     return this._pendingIntentions();
@@ -157,6 +205,7 @@ class SessionManager {
   addTurn(role, content) {
     this._turnCount++;
     this._history.push({ role, content, ts: Date.now(), seq: this._turnCount });
+    this._fullHistory.push(this._history[this._history.length - 1]);
     if (this._history.length > 40) this._history = this._history.slice(-40);
 
     // Evolutionary memory analysis (per-turn, deterministic)
@@ -177,7 +226,7 @@ class SessionManager {
     // justo lo que permite resumir tras un crash: si la app truena ahora
     // mismo, como mucho se pierde el turno en vuelo, no la conversación.
     if (this._sessionId) {
-      this._graph.updateSessionHistory(this._sessionId, this._history, this._turnCount);
+      this._graph.updateSessionHistory(this._sessionId, this._fullHistory, this._turnCount);
       this._graph.recordObservation?.({
         source: 'chat',
         kind: role === 'user' ? 'user_message' : 'assistant_message',
@@ -206,12 +255,12 @@ class SessionManager {
   restore(history, sessionId = null) {
     const safeHistory = Array.isArray(history) ? history : [];
     this._sessionId = sessionId || this._graph.startSession();
-    this._history = safeHistory.slice(-40);
-    this._turnCount = this._history.length;
-    this._history = this._history.map((turn, index) => ({ ...turn, seq: index + 1 }));
+    this._fullHistory = safeHistory.map((turn, index) => ({ ...turn, seq: index + 1 }));
+    this._history = this._fullHistory.slice(-40);
+    this._turnCount = this._fullHistory.length;
     this._memoryCursor = 0;
     if (this._sessionId) {
-      this._graph.updateSessionHistory(this._sessionId, this._history, this._turnCount);
+      this._graph.updateSessionHistory(this._sessionId, this._fullHistory, this._turnCount);
     }
     logger.info(
       'SessionManager',
@@ -221,7 +270,8 @@ class SessionManager {
   }
 
   async close() {
-    if (this._isClosing || !this._sessionId) return;
+    if (this._isClosing) return this._closePromise;
+    if (!this._sessionId) return;
     this._isClosing = true;
 
     const sessionId = this._sessionId;

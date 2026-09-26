@@ -34,6 +34,10 @@ const {
   restoreSessionHistory,
   addTurn,
   detectInstant,
+  listConversations,
+  activeConversation,
+  switchConversation,
+  startChatConversation,
 } = require('./core/session.js');
 const { setActiveWorkspace, getWorkspace } = require('./core/workspace.js');
 const {
@@ -137,6 +141,10 @@ module.exports = {
   restoreSessionHistory,
   addTurn,
   detectInstant,
+  listConversations,
+  activeConversation,
+  switchConversation,
+  startChatConversation,
   buildContext,
   getStats,
   getGraph,

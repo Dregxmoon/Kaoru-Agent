@@ -296,6 +296,8 @@ class MemoryStatement {
         turn_count: 0,
         episode_id: null,
         history_json: null,
+        workspace: args[1] || null,
+        last_active_at: args[2] || args[0],
         memory_cursor: 0,
       });
       return { lastInsertRowid: id, changes: 1 };
@@ -580,7 +582,9 @@ class StateGraph {
         summary    TEXT,
         turn_count INTEGER NOT NULL DEFAULT 0,
         episode_id INTEGER REFERENCES nodes(id),
-        memory_cursor INTEGER NOT NULL DEFAULT 0
+        memory_cursor INTEGER NOT NULL DEFAULT 0,
+        workspace TEXT,
+        last_active_at INTEGER
       );
 
       CREATE TABLE IF NOT EXISTS app_history (
@@ -897,6 +901,12 @@ class StateGraph {
       if (!sessionCols.some((c) => c.name === 'memory_cursor')) {
         logger.info('StateGraph', '[state-graph] migrando schema: sessions.memory_cursor...');
         this._db.exec(`ALTER TABLE sessions ADD COLUMN memory_cursor INTEGER NOT NULL DEFAULT 0;`);
+      }
+      if (!sessionCols.some((c) => c.name === 'workspace')) {
+        this._db.exec('ALTER TABLE sessions ADD COLUMN workspace TEXT;');
+      }
+      if (!sessionCols.some((c) => c.name === 'last_active_at')) {
+        this._db.exec('ALTER TABLE sessions ADD COLUMN last_active_at INTEGER;');
       }
 
       const nodeCols = this._db.prepare(`PRAGMA table_info(nodes)`).all();

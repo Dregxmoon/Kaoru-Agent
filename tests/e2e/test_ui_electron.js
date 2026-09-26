@@ -437,6 +437,65 @@ console.log(C.bold(C.cyan('═════════════════�
       'Live2D recupera el tamaño al restaurar la UI'
     );
 
+    const avatarAfterChats = await chat.evaluate(async () => {
+      const appEl = document.getElementById('app');
+      const panel = document.getElementById('model-panel');
+      const container = document.getElementById('model-canvas-container');
+      if (appEl.classList.contains('sessions-open'))
+        document.getElementById('sessions-close').click();
+      await new Promise(window.requestAnimationFrame);
+      const canvas = document.getElementById('live2d-chat-canvas');
+      const originalWidth = container.getBoundingClientRect().width;
+      document.getElementById('sessions-btn').click();
+      await new Promise(window.requestAnimationFrame);
+      const hiddenSize = container.getBoundingClientRect();
+      const hidden = window.getComputedStyle(panel).visibility === 'hidden';
+      document.getElementById('sessions-close').click();
+      await new Promise(window.requestAnimationFrame);
+      return {
+        hidden,
+        widthStable: Math.abs(hiddenSize.width - originalWidth) < 2 && hiddenSize.height > 1,
+        restored: window.getComputedStyle(panel).visibility === 'visible',
+        sameCanvas: canvas === document.getElementById('live2d-chat-canvas'),
+        canvasSize: canvas.width > 1 && canvas.height > 1,
+      };
+    });
+    assert(
+      Object.values(avatarAfterChats).every(Boolean),
+      'Live2D conserva el canvas y sus dimensiones al abrir y cerrar los chats',
+      JSON.stringify(avatarAfterChats)
+    );
+    await chat.evaluate(() => {
+      if (document.getElementById('onboarding-modal').classList.contains('visible'))
+        document.getElementById('onboarding-later').click();
+      const canvas = document.getElementById('live2d-chat-canvas');
+      canvas.addEventListener('pointermove', () => (canvas.dataset.pointerSeen = 'yes'), {
+        once: true,
+      });
+    });
+    const avatarCanvas = await chat.locator('#live2d-chat-canvas').boundingBox();
+    if (avatarCanvas)
+      await chat.mouse.move(
+        avatarCanvas.x + avatarCanvas.width / 2,
+        avatarCanvas.y + avatarCanvas.height / 2
+      );
+    await sleep(80);
+    const pointerResult = await chat.evaluate(() => {
+      const canvas = document.getElementById('live2d-chat-canvas');
+      const rect = canvas.getBoundingClientRect();
+      return {
+        seen: canvas.dataset.pointerSeen === 'yes',
+        target: document.elementFromPoint(rect.x + rect.width / 2, rect.y + rect.height / 2)?.id,
+        pointerEvents: window.getComputedStyle(canvas).pointerEvents,
+        visibility: window.getComputedStyle(canvas).visibility,
+      };
+    });
+    assert(
+      pointerResult.seen,
+      'Live2D vuelve a recibir el puntero después de cerrar la lista de chats',
+      JSON.stringify(pointerResult)
+    );
+
     // ── Tema ──────────────────────────────────────────────────────────────
     // La app envía 'init-theme' en el evento did-finish-load; si se prueba el
     // toggle antes de que ese evento llegue, el tema vuelve al valor por
@@ -646,6 +705,28 @@ console.log(C.bold(C.cyan('═════════════════�
     assertEqualish(typed, 'hola kaoru, prueba e2e', 'el textarea acepta texto');
 
     await tryScreenshot(chat, 'chat.png');
+
+    const emptyChatLifecycle = await chat.evaluate(async () => {
+      const first = await window.assistant.invoke('conversation-new');
+      if (!first?.ok) return { available: false, error: first?.error };
+      const second = await window.assistant.invoke('conversation-new');
+      if (!second?.ok) return { available: false, error: second?.error };
+      const rows = await window.assistant.invoke('conversations-list');
+      return {
+        available: true,
+        differentIds: first.conversation.id !== second.conversation.id,
+        abandonedRemoved: !rows.some((row) => row.id === first.conversation.id),
+        currentPresent: rows.some((row) => row.id === second.conversation.id),
+      };
+    });
+    assert(
+      emptyChatLifecycle.available &&
+        emptyChatLifecycle.differentIds &&
+        emptyChatLifecycle.abandonedRemoved &&
+        emptyChatLifecycle.currentPresent,
+      'dos chats nuevos sin mensajes conservan sólo el borrador actual',
+      JSON.stringify(emptyChatLifecycle)
+    );
 
     // ── Overlay ───────────────────────────────────────────────────────────
     const overlay = await findOverlayWindow(app);

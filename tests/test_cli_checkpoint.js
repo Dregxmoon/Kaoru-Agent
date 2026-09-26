@@ -127,7 +127,7 @@ function testRestoreCap() {
 
   const big = Array.from({ length: 100 }, (_, i) => ({ role: 'user', content: `m${i}` }));
   const out = sm.restore(big, null);
-  assertEqual(out.turnCount, 40, 'turnCount capado a 40');
+  assertEqual(out.turnCount, 100, 'turnCount conserva el total de mensajes restaurados');
   assertEqual(sm.getHistory().length, 40, 'historial capado a 40');
   assertEqual(sm.getHistory()[0].content, 'm60', 'se conservan los MÁS recientes');
 }

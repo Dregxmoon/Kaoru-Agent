@@ -4,6 +4,101 @@ const logger = require('../observability/Logger.js');
 // cierre, historial, snapshots (checkpoints) y registro de turnos.
 
 const state = require('./state.js');
+const fs = require('fs');
+const path = require('path');
+const { setActiveWorkspace } = require('./workspace.js');
+let _switching = false;
+
+function conversationRow(row) {
+  let history = [];
+  try {
+    history = JSON.parse(row.history_json || '[]');
+  } catch {}
+  if (!Array.isArray(history)) history = [];
+  const firstUser = history.find((turn) => turn.role === 'user');
+  return {
+    id: row.id,
+    workspace: row.workspace || null,
+    title: (row.summary || firstUser?.content || 'Nuevo chat').split('\n')[0].slice(0, 80),
+    startedAt: row.started_at,
+    lastActiveAt: row.last_active_at || row.started_at,
+    turnCount: row.turn_count || 0,
+    missingWorkspace: Boolean(row.workspace && !fs.existsSync(row.workspace)),
+  };
+}
+
+function listConversations(limit = 100) {
+  if (!state.graph?._sessions) return [];
+  return state.graph._sessions
+    .listConversations(Math.min(200, Math.max(1, Number(limit) || 100)))
+    .map(conversationRow);
+}
+
+function activeConversation() {
+  const id = state.session?.getSessionId();
+  const row = id && state.graph?._sessions?.getSession(id);
+  if (!row) return null;
+  let history = [];
+  try {
+    history = JSON.parse(row.history_json || '[]');
+  } catch {}
+  return { ...conversationRow(row), history: Array.isArray(history) ? history : [] };
+}
+
+async function switchConversation({ id = null, workspace = null } = {}) {
+  if (_switching) return { ok: false, error: 'Cambio de conversación en curso' };
+  if (!state.session || !state.graph?._sessions)
+    return { ok: false, error: 'Sesiones no disponibles' };
+  const store = state.graph._sessions;
+  const row = id == null ? null : store.getSession(Number(id));
+  if (id != null && !row) return { ok: false, error: 'Conversación inexistente' };
+  const target = workspace || row?.workspace || null;
+  if (!target) return { ok: false, error: 'Elige una carpeta para esta conversación' };
+  const resolved = path.resolve(target);
+  if (!fs.existsSync(resolved) || !fs.statSync(resolved).isDirectory()) {
+    return { ok: false, error: `La carpeta no existe: ${resolved}` };
+  }
+  const current = state.session.getSessionId();
+  if (row && current === row.id && row.workspace === resolved) {
+    return { ok: true, unchanged: true, conversation: activeConversation() };
+  }
+  _switching = true;
+  try {
+    const previous = current ? store.getSession(current) : null;
+    await state.session.close();
+    let activated;
+    try {
+      activated = await setActiveWorkspace(resolved);
+    } catch (error) {
+      if (previous) state.session.openExisting(previous);
+      throw error;
+    }
+    if (!activated.ok) {
+      if (previous) state.session.openExisting(previous);
+      return activated;
+    }
+    const result = row ? state.session.openExisting(row) : state.session.startNew(resolved);
+    store.touchConversation(result.sessionId, resolved);
+    if (previous && previous.id !== result.sessionId) store.deleteEmptyConversation(previous.id);
+    state.bus.emit('session:started', { sessionId: result.sessionId, resumed: Boolean(row) });
+    return { ok: true, conversation: activeConversation() };
+  } finally {
+    _switching = false;
+  }
+}
+
+async function startChatConversation(requestedWorkspace = null) {
+  state.session?.prepareChatStart(state.app);
+  state.graph?._sessions?.pruneEmptyConversations(state.session?.getSessionId() || null);
+  const rows = listConversations();
+  const requested = requestedWorkspace ? path.resolve(requestedWorkspace) : null;
+  const recent = rows.find(
+    (row) => row.workspace && !row.missingWorkspace && (!requested || row.workspace === requested)
+  );
+  if (recent) return switchConversation({ id: recent.id });
+  if (requested) return switchConversation({ workspace: requested });
+  return { ok: true, conversation: null };
+}
 
 // ── Sesión ────────────────────────────────────────────────────────────────────
 
@@ -19,7 +114,9 @@ async function startSession() {
 
 async function closeSession() {
   if (state.session) {
+    const closingId = state.session.getSessionId();
     await state.session.close();
+    if (closingId) state.graph?._sessions?.deleteEmptyConversation(closingId);
     state.bus.emit('session:closed', { sessionId: null });
   }
 }
@@ -119,6 +216,10 @@ function detectInstant(userMessage) {
 }
 
 module.exports = {
+  listConversations,
+  activeConversation,
+  switchConversation,
+  startChatConversation,
   startSession,
   closeSession,
   getSessionHistory,

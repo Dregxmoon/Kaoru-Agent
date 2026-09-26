@@ -298,35 +298,14 @@ function _applyWorkspaceUI(fullPath) {
   }
   const title = document.getElementById('workspace-title');
   if (title) {
-    title.textContent = '~/' + _workspaceName(fullPath);
+    title.textContent = fullPath ? '~/' + _workspaceName(fullPath) : 'Elegir carpeta';
     title.title = fullPath ? `${fullPath} — cambiar workspace` : 'Cambiar workspace';
   }
 }
 
 document.getElementById('workspace-title').addEventListener('click', async () => {
-  const title = document.getElementById('workspace-title');
-  title.disabled = true;
-  try {
-    const result = await ipcRenderer.invoke('pick-workspace-folder');
-    if (result && !result.ok)
-      addMessage('assistant', `No se pudo cambiar el workspace: ${result.error}`);
-  } catch (error) {
-    addMessage('assistant', `No se pudo cambiar el workspace: ${error.message}`);
-  } finally {
-    title.disabled = false;
-  }
+  openSessions();
 });
-
-ipcRenderer.on('workspace-changed', (_event, payload) => {
-  if (payload && payload.path) _applyWorkspaceUI(payload.path);
-});
-
-ipcRenderer
-  .invoke('get-workspace')
-  .then((p) => {
-    if (p) _applyWorkspaceUI(p);
-  })
-  .catch((e) => console.error('[chat] no se pudo obtener workspace:', (e && e.message) || e));
 
 async function loadLLMConfig() {
   try {

@@ -8,9 +8,93 @@ class SessionStore {
     this._graph = graph;
   }
 
-  startSession() {
-    const result = this._db.prepare('INSERT INTO sessions (started_at) VALUES (?)').run(Date.now());
+  startSession(workspace = null) {
+    const now = Date.now();
+    const result = this._db
+      .prepare('INSERT INTO sessions (started_at, workspace, last_active_at) VALUES (?, ?, ?)')
+      .run(now, workspace, now);
     return result.lastInsertRowid;
+  }
+
+  getSession(id) {
+    if (this._graph?.usingFallback) return this._db._sessions.get(id) || null;
+    return this._db.prepare('SELECT * FROM sessions WHERE id = ?').get(id) || null;
+  }
+
+  deleteEmptyConversation(id) {
+    const row = this.getSession(id);
+    if (
+      !row ||
+      Number(row.turn_count || 0) !== 0 ||
+      (row.history_json && row.history_json !== '[]') ||
+      row.summary ||
+      row.episode_id
+    )
+      return false;
+    if (this._graph?.usingFallback) return this._db._sessions.delete(id);
+    return (
+      this._db
+        .prepare(
+          `DELETE FROM sessions WHERE id = ? AND COALESCE(turn_count, 0) = 0
+           AND (history_json IS NULL OR history_json = '[]')
+           AND (summary IS NULL OR summary = '') AND episode_id IS NULL`
+        )
+        .run(id).changes > 0
+    );
+  }
+
+  pruneEmptyConversations(exceptId = null) {
+    if (this._graph?.usingFallback) {
+      for (const id of [...this._db._sessions.keys()]) {
+        if (id !== exceptId) this.deleteEmptyConversation(id);
+      }
+      return;
+    }
+    this._db
+      .prepare(
+        `DELETE FROM sessions WHERE (? IS NULL OR id != ?) AND COALESCE(turn_count, 0) = 0
+         AND (history_json IS NULL OR history_json = '[]')
+         AND (summary IS NULL OR summary = '') AND episode_id IS NULL`
+      )
+      .run(exceptId, exceptId);
+  }
+
+  listConversations(limit = 100) {
+    if (this._graph?.usingFallback)
+      return [...this._db._sessions.values()]
+        .sort((a, b) => (b.last_active_at || b.started_at) - (a.last_active_at || a.started_at))
+        .slice(0, limit);
+    return this._db
+      .prepare('SELECT * FROM sessions ORDER BY COALESCE(last_active_at, started_at) DESC LIMIT ?')
+      .all(limit);
+  }
+
+  touchConversation(id, workspace = null) {
+    if (this._graph?.usingFallback) {
+      const row = this.getSession(id);
+      if (row) {
+        row.workspace = workspace || row.workspace;
+        row.last_active_at = Date.now();
+      }
+      return;
+    }
+    this._db
+      .prepare('UPDATE sessions SET workspace=COALESCE(?, workspace), last_active_at=? WHERE id=?')
+      .run(workspace, Date.now(), id);
+  }
+
+  reopenConversation(id) {
+    if (this._graph?.usingFallback) {
+      const row = this.getSession(id);
+      if (row) {
+        row.ended_at = null;
+        row.last_active_at = Date.now();
+      }
+      return;
+    }
+    this._db
+      .prepare('UPDATE sessions SET ended_at=NULL, last_active_at=? WHERE id=?')
+      .run(Date.now(), id);
   }
 
   endSession(sessionId, { summary, turnCount, episodeId } = {}) {
@@ -56,15 +140,16 @@ class SessionStore {
       if (row) {
         row.history_json = JSON.stringify(history || []);
         if (turnCount != null) row.turn_count = turnCount;
+        row.last_active_at = Date.now();
       }
       return;
     }
     try {
       this._db
         .prepare(
-          'UPDATE sessions SET history_json=?, turn_count=COALESCE(?, turn_count) WHERE id=?'
+          'UPDATE sessions SET history_json=?, turn_count=COALESCE(?, turn_count), last_active_at=? WHERE id=?'
         )
-        .run(JSON.stringify(history || []), turnCount, sessionId);
+        .run(JSON.stringify(history || []), turnCount, Date.now(), sessionId);
     } catch (e) {
       logger.warn('SessionStore', '[state-graph] error guardando history_json:', e.message);
     }

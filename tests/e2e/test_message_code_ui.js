@@ -17,6 +17,9 @@ async function main() {
     await page.evaluate((html) => {
       const parsed = new DOMParser().parseFromString(html, 'text/html');
       document.body.appendChild(parsed.getElementById('input-area'));
+      // El fixture representa un chat activo; el HTML inicial bloquea el input
+      // hasta que el renderer recibe la conversación desde main.
+      document.getElementById('msg-input').disabled = false;
     }, chatHtml);
     const activity = fs.readFileSync(
       path.resolve(__dirname, '../../src/chat/activityBlock.js'),

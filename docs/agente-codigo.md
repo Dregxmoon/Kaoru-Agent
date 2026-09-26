@@ -56,9 +56,9 @@ Las capturas de navegador o escritorio se transportan como contenido multimodal 
 seleccionado admite visión. La acción semántica usa AT-SPI2 en Linux o UI Automation en Windows; un
 clic visual se liga a una captura efímera y obliga a observar de nuevo.
 
-La entrada de voz es explícita. Al pulsar el micrófono, Kaoru interrumpe el TTS activo y abre el
-dispositivo; al detenerlo, cierra las pistas y transcribe el WAV localmente con Vosk. No existe palabra
-de activación ni escucha ambiental permanente.
+La interfaz de chat ofrece voz de salida mediante TTS. La entrada por micrófono no está disponible
+en la interfaz actual. El código de transcripción local con Vosk permanece como capacidad interna,
+sin escucha ambiental permanente.
 
 ## Límites actuales
 

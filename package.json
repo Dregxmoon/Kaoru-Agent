@@ -1,6 +1,6 @@
 {
   "name": "asistente-personal",
-  "version": "2.1.6",
+  "version": "2.1.7",
   "desktopName": "com.asistente.personal",
   "description": "Asistente personal de escritorio con avatar Live2D, memoria y proactividad",
   "main": "main.js",

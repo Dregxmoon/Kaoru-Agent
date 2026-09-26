@@ -72,6 +72,7 @@ function makeCtx(approvalTimeoutMs, agentConfig = {}) {
     sendToChat: (channel, payload) => sendLog.push({ channel, payload }),
     loadEffectiveConfig: () => ({ agent: { approvalTimeoutMs, ...agentConfig } }),
     Core: {
+      activeConversation: () => ({ id: 1, workspace: '/tmp' }),
       runAgent: async (_text, opts) => {
         capturedApproval = opts.onApprovalNeeded;
         return new Promise((resolve) => {
@@ -358,6 +359,7 @@ async function testRunStatusAndSteering() {
     sendToChat: (channel, payload) => sendLog.push({ channel, payload }),
     loadEffectiveConfig: () => ({ agent: {} }),
     Core: {
+      activeConversation: () => ({ id: 1, workspace: '/tmp' }),
       runAgent: async (_text, opts) => {
         runOpts = opts;
         return new Promise((resolve) => {

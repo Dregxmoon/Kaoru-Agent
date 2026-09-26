@@ -134,6 +134,7 @@ function startOpenClaw(workspacePath) {
         OPENCLAW_AUDIT_PATH: auditPath,
       }),
     });
+    const launchedProcess = state.openclawProcess;
 
     // No dejar la API key en el env del proceso padre
     delete process.env.OPENCLAW_API_KEY;
@@ -153,6 +154,7 @@ function startOpenClaw(workspacePath) {
     });
 
     state.openclawProcess.on('exit', (code) => {
+      if (state.openclawProcess !== launchedProcess) return;
       state.openclawStarting = false;
       state.openclawProcess = null;
       getLocalToolBridge().resetAvailabilityCache();
@@ -160,6 +162,7 @@ function startOpenClaw(workspacePath) {
     });
 
     state.openclawProcess.on('error', (err) => {
+      if (state.openclawProcess !== launchedProcess) return;
       state.openclawStarting = false;
       state.openclawProcess = null;
       state.bus.emit('openclaw:available', _statusPayload(false));
@@ -249,7 +252,7 @@ function stopOpenClaw() {
 function restartOpenClawForWorkspace(ws) {
   const resolved = path.resolve(ws);
   if (state.openclawWorkspace === resolved) return; // mismo workspace → no tocar nada
-  if (!state.openclawStarting && state.openclawProcess) {
+  if (state.openclawProcess || state.openclawStarting) {
     logger.info(
       'openclaw',
       '[core] workspace cambió — reiniciando OpenClaw para el nuevo allowed path'

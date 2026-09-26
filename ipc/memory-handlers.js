@@ -7,6 +7,23 @@ const { ipcMain, dialog } = require('electron');
 
 function register(ctx) {
   const { Core } = ctx;
+  const canChangeConversation = () =>
+    !require('./openclaw-handlers.js').hasActiveRun() &&
+    !require('./chat-handlers.js').hasSimpleRun() &&
+    !require('./chat-handlers.js').hasRendererBusy();
+  const openConversation = async (event, options) => {
+    if (!trustedSender(event)) return { ok: false, error: 'Ventana no autorizada' };
+    if (!canChangeConversation())
+      return { ok: false, error: 'Espera a que termine Kaoru o cancela la tarea' };
+    try {
+      const result = await Core.switchConversation(options);
+      if (result.ok && !result.unchanged) require('./openclaw-handlers.js').resetSessionApprovals();
+      return result;
+    } catch (error) {
+      logger.warn('memory-handlers', '[conversation-open] error:', error.message);
+      return { ok: false, error: error.message };
+    }
+  };
   const trustedSender = (event) => {
     const chat = ctx.S?.chatWindow;
     return Boolean(chat && !chat.isDestroyed() && event.sender === chat.webContents);
@@ -33,6 +50,14 @@ function register(ctx) {
   // IPC: sesiones pasadas (panel con picker en el chat)
   ipcMain.handle('sessions-list', (e, { limit } = {}) => Core.listSessions(limit));
   ipcMain.handle('session-load', (e, { id } = {}) => Core.loadSession(id));
+  ipcMain.handle('conversations-list', (e) => (trustedSender(e) ? Core.listConversations() : []));
+  ipcMain.handle('conversation-current', (e) =>
+    trustedSender(e) ? Core.activeConversation() : null
+  );
+  ipcMain.handle('conversation-open', (e, input = {}) => openConversation(e, input));
+  ipcMain.handle('conversation-new', (e, input = {}) =>
+    openConversation(e, { workspace: input.workspace || Core.getWorkspace() })
+  );
 
   // IPC: nodos de memoria (vista local /memoria). Devuelve nodos + conteo por tipo.
   ipcMain.handle('nodes-list', (e, { type, limit } = {}) => {

@@ -515,7 +515,11 @@ function init(app) {
       }
     };
     state.mcpReadyPromise
-      .then(() => setActiveWorkspace(_initialWorkspace))
+      .then(() =>
+        state.activeWorkspace === _initialWorkspace
+          ? setActiveWorkspace(_initialWorkspace)
+          : { ok: true, path: state.activeWorkspace }
+      )
       .then((r) => {
         if (r.ok) {
           logger.info(

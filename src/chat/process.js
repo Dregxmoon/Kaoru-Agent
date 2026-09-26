@@ -1,6 +1,7 @@
 // @ts-nocheck
 /* global attachMemoryContext, attachRetryDraft, attachRunSummary, attachErrorRecovery, finishRunOverview */
 /* global _renderResultChips, _takeResultMeta, pausePlanBlock */
+/* global currentConversationId, conversationBusy:writable */
 // Compresión de historial
 // Comprime mensajes de assistant repetitivos (fallos, "lo siento"s) para no
 // saturar el contexto del LLM con ruido auto-generado.
@@ -138,6 +139,10 @@ function closeStreamSegment() {
 async function processMessage(text, files = []) {
   const trimmed = text.trim();
   if (!trimmed && files.length === 0) return;
+  if (!currentConversationId) {
+    openSessions();
+    return;
+  }
 
   // Ocultar el grafo de memoria inline al enviar un mensaje (no al usar
   // /memoria, que lo reabre).
@@ -151,6 +156,7 @@ async function processMessage(text, files = []) {
 
   // Comandos / (no usan LLM ni context building)
   if (trimmed.startsWith('/')) {
+    const commandConversationId = currentConversationId;
     addMessage('user', trimmed);
 
     // Con sandbox:true el ctx del CommandRegistry se construye en MAIN
@@ -167,6 +173,7 @@ async function processMessage(text, files = []) {
       workspacePath: _workspacePath,
     };
     const cmdResult = await assistant.runCommand(trimmed, pageData);
+    if (currentConversationId !== commandConversationId) return;
     if (cmdResult && Array.isArray(cmdResult.sessionHistory)) {
       sessionHistory.splice(0, sessionHistory.length, ...cmdResult.sessionHistory);
     }
@@ -185,6 +192,15 @@ async function processMessage(text, files = []) {
     return;
   }
 
+  conversationBusy++;
+  ipcRenderer.send('chat-session-busy', true);
+  return _processMessageBody(trimmed, files).finally(() => {
+    conversationBusy--;
+    ipcRenderer.send('chat-session-busy', conversationBusy > 0);
+  });
+}
+
+async function _processMessageBody(trimmed, files) {
   // @ file references
   const projectCwd = _workspacePath || (await assistant.cwd().catch(() => null));
   const fileResult = await FileResolver.buildFileContext(trimmed, projectCwd);

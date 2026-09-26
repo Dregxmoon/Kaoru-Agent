@@ -1328,6 +1328,104 @@ button.onboarding-card:hover {
   padding-top: 60px;
   -webkit-app-region: no-drag;
 }
+
+/* La lista ocupa una columna real de la cuadrícula cuando está abierta. */
+#app > #sessions-modal {
+  position: static;
+  inset: auto;
+  grid-column: 1;
+  grid-row: 2;
+  min-width: 0;
+  min-height: 0;
+  width: auto;
+  height: auto;
+  padding: 0;
+  background: var(--bg-panel);
+  border-right: 1px solid var(--border);
+  overflow: hidden;
+}
+#app > #sessions-modal.visible {
+  display: block;
+}
+#app > #sessions-modal #sessions-box {
+  width: 100%;
+  max-width: none;
+  max-height: none;
+  height: 100%;
+  padding: 16px 10px;
+  border: 0;
+  box-shadow: none;
+  overflow-y: auto;
+}
+#sessions-modal .sessions-create {
+  width: 100%;
+  padding: 10px;
+  margin-bottom: 10px;
+  border: 1px solid var(--border-accent);
+  background: var(--bg-input);
+  color: var(--text-primary);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+#sessions-modal .sessions-create:hover,
+#sessions-modal .session-row.active {
+  border-color: var(--accent);
+  background: var(--hover);
+}
+#sessions-modal .sessions-group {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  min-width: 0;
+  padding: 13px 8px 7px;
+  border: 0;
+  border-bottom: 1px solid var(--border);
+  background: transparent;
+  color: var(--text-secondary);
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  text-align: left;
+  cursor: pointer;
+}
+#sessions-modal .sessions-group:hover {
+  color: var(--text-primary);
+  background: var(--hover);
+}
+#sessions-modal .sessions-group-label {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+#sessions-modal .sessions-group-count {
+  flex: none;
+}
+#sessions-modal .sessions-group-chevron {
+  flex: none;
+  width: 10px;
+  text-align: center;
+}
+#sessions-modal .sessions-group-rows[hidden] {
+  display: none;
+}
+#sessions-modal .session-row {
+  width: 100%;
+  min-width: 0;
+  max-width: 100%;
+  overflow: hidden;
+  border-left: 2px solid transparent;
+}
+#sessions-modal .session-row.active {
+  border-left-color: var(--accent);
+}
+#sessions-error:not([hidden]) {
+  display: block;
+}
 #sessions-modal.visible {
   display: flex;
 }
@@ -1397,6 +1495,9 @@ button.onboarding-card:hover {
   border-bottom: none;
 }
 .session-row-title {
+  display: block;
+  min-width: 0;
+  max-width: 100%;
   font-family: var(--font-mono);
   font-size: 11px;
   color: var(--text-primary);
@@ -1405,9 +1506,15 @@ button.onboarding-card:hover {
   text-overflow: ellipsis;
 }
 .session-row-sub {
+  display: block;
+  min-width: 0;
+  max-width: 100%;
   font-family: var(--font-mono);
   font-size: 9px;
   color: var(--text-secondary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 .sessions-empty {
   font-family: var(--font-mono);
@@ -3209,7 +3316,9 @@ button.onboarding-card:hover {
   font-family: var(--font-mono);
   font-size: 11.5px;
   color: var(--term-text-faint);
-  padding-bottom: 6px;
+  align-self: flex-start;
+  padding-top: 6px;
+  line-height: 1.7;
   flex-shrink: 0;
 }
 
@@ -3543,22 +3652,6 @@ button.onboarding-card:hover {
   width: 11px;
   height: 11px;
 }
-/* Micrófono (STT): estado de grabación en rojo con pulso sutil */
-.mic-btn.recording {
-  color: #ff4d4d;
-  border-color: #ff4d4d;
-  animation: mic-pulse 1.2s ease-in-out infinite;
-}
-@keyframes mic-pulse {
-  0%,
-  100% {
-    box-shadow: 0 0 0 0 rgba(255, 77, 77, 0.35);
-  }
-  50% {
-    box-shadow: 0 0 0 5px rgba(255, 77, 77, 0);
-  }
-}
-
 /* Sin botón de enviar: el envío es por Enter */
 #input-info {
   display: flex;
@@ -3640,6 +3733,7 @@ button.onboarding-card:hover {
   display: block;
   position: relative;
   z-index: 1;
+  pointer-events: auto;
   filter: drop-shadow(-10px 12px 18px rgba(0, 0, 0, 0.2));
   animation: avatar-idle-float 5.5s ease-in-out infinite;
 }
@@ -6007,6 +6101,13 @@ summary:focus-visible {
 /* Mantener el nuevo layout por encima de las reglas heredadas de la cabecera. */
 #app {
   grid-template-rows: 72px minmax(0, 1fr);
+  --workspace-model-width: 340px;
+  --workspace-title-center: calc((100% - var(--workspace-model-width)) / 2);
+}
+@media (max-width: 760px) {
+  #app {
+    --workspace-model-width: clamp(150px, 30vw, 220px);
+  }
 }
 #header {
   height: 72px;
@@ -6014,6 +6115,50 @@ summary:focus-visible {
   grid-template-columns: minmax(0, 1fr) auto;
   grid-template-rows: 36px 35px;
   gap: 0;
+}
+#app.sessions-open {
+  grid-template-columns: clamp(250px, 30vw, 320px) minmax(0, 1fr);
+  --workspace-sidebar-width: clamp(250px, 30vw, 320px);
+  --workspace-title-center: calc((100% + var(--workspace-sidebar-width)) / 2);
+}
+#workspace-title {
+  position: absolute;
+  top: 18px;
+  left: var(--workspace-title-center);
+  transform: translate(-50%, -50%);
+  max-width: calc(100% - var(--workspace-model-width) - 120px);
+}
+#app.sessions-open #workspace-title {
+  top: 54px;
+  max-width: calc(100% - var(--workspace-sidebar-width) - 48px);
+}
+#app.sessions-open .header-main {
+  justify-content: flex-start;
+}
+#app.sessions-open #chat-panel {
+  grid-column: 2;
+  grid-row: 2;
+  min-width: 0;
+}
+#app.sessions-open #model-panel {
+  /* PIXI conserva un canvas de tamaño real mientras el panel está oculto. */
+  position: fixed;
+  top: 72px;
+  right: 0;
+  width: var(--avatar-panel-width, 340px);
+  height: calc(100vh - 72px);
+  visibility: hidden;
+}
+#sessions-btn {
+  width: 34px;
+  height: 34px;
+  flex: 0 0 34px;
+  display: grid;
+  place-items: center;
+}
+#sessions-btn svg {
+  width: 22px;
+  height: 22px;
 }
 .header-model {
   max-width: none;

@@ -382,7 +382,7 @@ de `@electron/rebuild` (sin depender de `npx` en el PATH). Localmente: `bash scr
 ### Requisitos
 
 - Node.js ≥ 18 y npm
-- Python 3 con `vosk` y un modelo Vosk descargado (solo para reconocimiento de voz local); la síntesis neuronal de voz viene incluida en el instalador y requiere conexión a internet
+- La síntesis neuronal de voz viene incluida en el instalador y requiere conexión a internet. La entrada por micrófono no está disponible en la interfaz actual.
 - Sistema operativo: Windows (sensor nativo) o Linux/Hyprland (sensor Wayland)
 - **Sandbox de proceso:** AppContainer en Windows y <code>bwrap</code> en Linux cuando están disponibles. Windows falla cerrado si AppContainer no inicializa, salvo desactivación explícita con <code>OPENCLAW_SANDBOX=0</code>; Linux informa la degradación si <code>bwrap</code> no está disponible. Ambos permiten red y escritura dentro del workspace; AppContainer concede solo lectura a los runtimes detectados. macOS no tiene actualmente aislamiento adicional para OpenClaw.
 
@@ -457,7 +457,8 @@ Linux/macOS; shims en el prefix global de npm en Windows). El instalador NSIS
 de Windows crea además `%LOCALAPPDATA%\Microsoft\WindowsApps\asistente.cmd` y
 lo elimina al desinstalar. Ejecuta `asistente` desde cualquier carpeta para
 abrir Kaoru con esa carpeta como workspace; si Kaoru ya está abierto, la
-instancia existente cambia de workspace y muestra el chat.
+instancia existente muestra el chat más reciente de esa carpeta o crea uno.
+Si hay una tarea en curso, Kaoru pide terminarla o cancelarla antes de cambiar de chat.
 
 Si el enlace del clone falló por permisos, ejecuta `npm link` dentro del
 proyecto. En Windows, abre una terminal nueva después de instalar para que el
@@ -547,12 +548,14 @@ Muchos modelos traen carpetas con `*.exp3.json` / `*.motion3.json` que su `model
 <details>
 <summary>Cómo se selecciona y usa el workspace activo — hacé clic para expandir</summary>
 
-El asistente trabaja sobre un **workspace activo** — la carpeta/proyecto real del usuario, distinta de la carpeta donde corre la app:
+Cada chat queda asociado a una carpeta de trabajo. Kaoru activa esa carpeta al abrir el chat:
 
-- **Seleccionar:** botón del workspace en la barra superior del chat, o variable de entorno `ASISTENTE_WORKSPACE`. Queda persistido en `config.json` como `activeWorkspace`.
+- **Abrir una carpeta:** usa el botón de chats en la cabecera y «Abrir carpeta y crear chat». «Nuevo chat» crea otra conversación en la carpeta actual. Los chats anteriores se pueden abrir desde el mismo panel.
+- **Arranque:** el ejecutable recupera el último chat cuya carpeta aún existe. En una instalación nueva pide seleccionar una carpeta antes de permitir mensajes. `asistente` desde una terminal usa la carpeta de esa terminal; `ASISTENTE_WORKSPACE` también permite indicar una ruta explícita.
+- **Chats antiguos:** si una conversación se guardó antes de que existiera esta asociación, pide elegir su carpeta al abrirla. Si una carpeta desaparece, el historial persistido sigue disponible para volver a vincularlo.
 - **`/init`**: analiza el proyecto activo (package.json, extensiones, estructura) y lo guarda en memoria persistente.
 - **`@archivo`**: al escribir `@` se listan todos los archivos del proyecto y se van filtrando mientras se escribe (Tab/flechas/Enter para insertar). Los comandos de archivo (`/init`, `/open`, …) y las referencias `@` resuelven contra el **workspace activo**, no contra la carpeta de la app.
-- Al iniciar, la sesión anterior se retoma en silencio (sin mensaje de "mensajes recuperados").
+- Durante una respuesta o ejecución de herramientas, termina o cancela la tarea antes de cambiar de chat.
 
 </details>
 

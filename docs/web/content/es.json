@@ -20,7 +20,7 @@
   "badge": "Código abierto · Asistente personal con capacidad de agente",
   "hero": "Tu asistente de IA<br>para código y escritorio.",
   "intro": "Kaoru conversa contigo, recuerda el contexto y te acompaña por texto, voz y presencia Live2D. También puede trabajar como agente: investigar tu proyecto o encadenar resultados en varias aplicaciones de escritorio, con un plan, permisos y comprobaciones visibles.",
-  "note": "El micrófono se activa al pulsarlo. Sin palabra de activación ni escucha ambiental permanente.",
+  "note": "La conversación se escribe en el chat; Kaoru puede responder con voz sintetizada.",
   "caption": "Avatar Live2D de Kaoru. Puedes elegir otro modelo con sus correspondientes permisos de uso.",
   "strip": [
     "Conversación con contexto",
@@ -81,7 +81,7 @@
     [
       "05",
       "Usar voz y presencia",
-      "Vosk transcribe el audio localmente; Edge TTS sintetiza la respuesta mediante un servicio de Microsoft. Al pulsar el micrófono, Kaoru interrumpe la reproducción. El avatar admite modelos y gestos configurables."
+      "Edge TTS sintetiza la respuesta mediante un servicio de Microsoft. La entrada por micrófono no está disponible en la interfaz actual. El avatar admite modelos y gestos configurables."
     ],
     [
       "06",
@@ -212,7 +212,7 @@
     [
       "desktop",
       "Voz, navegador y sistema operativo",
-      "Para una tarea entre aplicaciones, describe los resultados que quieres observar: «abre el informe en el editor, crea un recordatorio y comprueba que aparece». Kaoru prepara y revisa una misión, pide autorización inicial y avanza resultado por resultado; si la accesibilidad no permite comprobar uno, informa el paso pendiente. La voz neuronal viene incluida y requiere internet; el reconocimiento de voz local requiere Python, Vosk y un modelo descargado. Abrir una URL usa el navegador predeterminado; inspeccionar páginas usa Chromium administrado. Linux usa AT-SPI2 y Windows UI Automation; macOS tiene cobertura parcial."
+      "Para una tarea entre aplicaciones, describe los resultados que quieres observar: «abre el informe en el editor, crea un recordatorio y comprueba que aparece». Kaoru prepara y revisa una misión, pide autorización inicial y avanza resultado por resultado; si la accesibilidad no permite comprobar uno, informa el paso pendiente. La voz neuronal viene incluida y requiere internet; la entrada por micrófono no está disponible en la interfaz actual. Abrir una URL usa el navegador predeterminado; inspeccionar páginas usa Chromium administrado. Linux usa AT-SPI2 y Windows UI Automation; macOS tiene cobertura parcial."
     ],
     [
       "connections",
