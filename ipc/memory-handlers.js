@@ -43,6 +43,7 @@ function register(ctx) {
 
   // IPC: memoria
   ipcMain.on('memory-add-turn', (e, { role, content }) => {
+    if (Core.activeConversation()?.type === 'terminal') return;
     Core.addTurn(role, content);
     if (role === 'user') Core.detectInstant(content);
   });
@@ -51,13 +52,55 @@ function register(ctx) {
   ipcMain.handle('sessions-list', (e, { limit } = {}) => Core.listSessions(limit));
   ipcMain.handle('session-load', (e, { id } = {}) => Core.loadSession(id));
   ipcMain.handle('conversations-list', (e) => (trustedSender(e) ? Core.listConversations() : []));
+  ipcMain.handle('conversations-page', (e, { limit } = {}) =>
+    trustedSender(e) ? Core.conversationsPage(limit) : { conversations: [], counts: {}, total: 0 }
+  );
   ipcMain.handle('conversation-current', (e) =>
     trustedSender(e) ? Core.activeConversation() : null
   );
   ipcMain.handle('conversation-open', (e, input = {}) => openConversation(e, input));
   ipcMain.handle('conversation-new', (e, input = {}) =>
-    openConversation(e, { workspace: input.workspace || Core.getWorkspace() })
+    openConversation(e, {
+      workspace: input.workspace || Core.activeConversation()?.workspace || Core.getWorkspace(),
+      type: input.type === 'terminal' ? 'terminal' : 'chat',
+    })
   );
+  ipcMain.handle('conversation-delete', async (event, input = {}) => {
+    if (!trustedSender(event)) return { ok: false, error: 'Ventana no autorizada' };
+    const id = input.id;
+    if (!Number.isSafeInteger(id) || id <= 0) return { ok: false, error: 'Conversación inválida' };
+    if (!canChangeConversation())
+      return { ok: false, error: 'Espera a que termine Kaoru o cancela la tarea' };
+    const row = Core.getGraph()?._sessions?.getSession(id);
+    if (!row) return { ok: false, error: 'Conversación inexistente' };
+    const terminal = row.session_type === 'terminal';
+    try {
+      const confirmation = await confirmWithNativeDialog({
+        type: 'warning',
+        title: terminal ? 'Eliminar terminal' : 'Eliminar chat',
+        message: terminal ? '¿Eliminar esta terminal?' : '¿Eliminar este chat?',
+        detail: terminal
+          ? 'Se cerrará la shell y se eliminará esta terminal de la lista. Los archivos del proyecto no se borrarán.'
+          : 'Se eliminará el historial de este chat. Los archivos del proyecto y los recuerdos ya aprendidos no se borrarán.',
+        buttons: ['Eliminar', 'Cancelar'],
+        defaultId: 1,
+        cancelId: 1,
+        noLink: true,
+      });
+      if (confirmation.response !== 0) return { ok: false, cancelled: true };
+      if (!canChangeConversation())
+        return { ok: false, error: 'Espera a que termine Kaoru o cancela la tarea' };
+      const result = await Core.deleteConversation(id);
+      if (result.ok) {
+        if (terminal) require('./terminal-handlers.js').close(id);
+        require('./openclaw-handlers.js').resetSessionApprovals();
+      }
+      return result;
+    } catch (error) {
+      logger.warn('memory-handlers', '[conversation-delete] error:', error.message);
+      return { ok: false, error: error.message };
+    }
+  });
 
   // IPC: nodos de memoria (vista local /memoria). Devuelve nodos + conteo por tipo.
   ipcMain.handle('nodes-list', (e, { type, limit } = {}) => {

@@ -2,7 +2,11 @@
 'use strict';
 
 const path = require('path');
-const { spawnElectron, resolveElectronBinary } = require('../bin/asistente.js');
+const {
+  spawnElectron,
+  resolveElectronBinary,
+  isIntegratedTerminal,
+} = require('../bin/asistente.js');
 
 let passed = 0;
 let failed = 0;
@@ -43,6 +47,9 @@ assert(
   'desacopla el launcher'
 );
 assert(call.options.stdio === 'ignore', 'devuelve el control a la terminal');
+
+assert(isIntegratedTerminal({ KAORU_INTEGRATED_TERMINAL: '1' }), 'detecta la terminal de Kaoru');
+assert(!isIntegratedTerminal({}), 'el lanzador externo conserva su comportamiento');
 
 console.log(`Resultado: ${passed} passed  ${failed} failed  / ${passed + failed} total`);
 process.exit(failed ? 1 : 0);

@@ -81,9 +81,12 @@ const INVOKE_ALLOWLIST = new Set([
   'session-load',
   'session-stats',
   'conversations-list',
+  'conversations-page',
   'conversation-current',
   'conversation-open',
   'conversation-new',
+  'conversation-delete',
+  'terminal-open',
   'nodes-list',
   'nodes-graph',
   'memory-gaps',
@@ -158,6 +161,9 @@ const SEND_ALLOWLIST = new Set([
   // Chat sandbox:true (roundtrip main→página + cancel del flujo simple)
   'chat-llm-cancel',
   'chat-ui-call-result',
+  'terminal-write',
+  'terminal-resize',
+  'terminal-flow',
 ]);
 
 /** Canales permitidos para ipcRenderer.on() (solo escucha, de main→renderer). */
@@ -174,6 +180,8 @@ const ON_ALLOWLIST = new Set([
   'chat-message',
   'chat-window-maximized',
   'conversation-opened',
+  'terminal-data',
+  'terminal-exit',
   'gesture',
   'gesture-mappings',
   'init-theme',

@@ -1,6 +1,6 @@
 {
   "name": "asistente-personal",
-  "version": "2.1.7",
+  "version": "2.2.0",
   "desktopName": "com.asistente.personal",
   "description": "Asistente personal de escritorio con avatar Live2D, memoria y proactividad",
   "main": "main.js",
@@ -157,12 +157,15 @@
       "!benchmarks/**/*"
     ],
     "asarUnpack": [
-      "node_modules/sqlite-vec-*/**/*"
+      "node_modules/sqlite-vec-*/**/*",
+      "node_modules/node-pty/**/*"
     ]
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.29.0",
     "@xenova/transformers": "^2.17.2",
+    "@xterm/addon-fit": "^0.11.0",
+    "@xterm/xterm": "^6.0.0",
     "better-sqlite3": "^11.0.0",
     "diff": "^9.0.0",
     "dompurify": "^3.4.12",
@@ -172,6 +175,7 @@
     "mermaid": "^11.4.1",
     "minimatch": "^10.2.0",
     "node-edge-tts": "^1.2.10",
+    "node-pty": "^1.1.0",
     "onnxruntime-node": "^1.14.0",
     "pixi-live2d-display": "^0.4.0",
     "pixi.js": "^6.5.10",

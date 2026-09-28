@@ -15,7 +15,7 @@
 
 **Español** · [日本語](./docs/i18n/ja/README.md) · [English](./docs/i18n/en/README.md)
 
-[Inicio rápido](#6-inicio-rápido) · [Arquitectura](#2-arquitectura-del-sistema) · [Seguridad](./SECURITY.md) · [Roadmap](./ROADMAP.md) · [Privacidad](./docs/web/privacy.html) · [Documentación](#8-documentación)
+[Inicio rápido](#6-inicio-rápido) · [Manual de uso](./docs/manual-de-uso.md) · [Arquitectura](#2-arquitectura-del-sistema) · [Seguridad](./SECURITY.md) · [Roadmap](./ROADMAP.md) · [Privacidad](./docs/web/privacy.html) · [Documentación](#8-documentación)
 
 </div>
 
@@ -557,6 +557,12 @@ Cada chat queda asociado a una carpeta de trabajo. Kaoru activa esa carpeta al a
 - **`@archivo`**: al escribir `@` se listan todos los archivos del proyecto y se van filtrando mientras se escribe (Tab/flechas/Enter para insertar). Los comandos de archivo (`/init`, `/open`, …) y las referencias `@` resuelven contra el **workspace activo**, no contra la carpeta de la app.
 - Durante una respuesta o ejecución de herramientas, termina o cancela la tarea antes de cambiar de chat.
 
+**Terminal y chat:** el botón `＋` permite crear un chat o una terminal en la carpeta actual. También puedes abrir otra carpeta desde el panel lateral. La terminal usa la shell del sistema y muestra el avatar sin requerir API key; sus comandos se ejecutan con los permisos normales del usuario, sin pasar por los permisos del agente. No importa el tema ni el historial de Warp; la shell sí puede cargar sus archivos habituales de inicio.
+
+Desde una terminal, **Chat** abre un chat vinculado en un panel lateral del mismo workspace sin cerrar el proceso de la shell. **Preguntar a Kaoru** adjunta la selección de la terminal (o, si no hay selección, un fragmento reciente) como tarjeta revisable. **Explicar error** prepara además una pregunta, pero no la envía automáticamente. El botón **Ver terminal completa** regresa a la misma sesión; los vínculos entre chats y terminales se recuerdan localmente. Si eliminas una de las sesiones, su vínculo desaparece. La salida que no adjuntes no se añade al chat ni se envía al modelo; la salida adjunta sí puede llegar al proveedor elegido al enviar el mensaje. Revisa antes si contiene secretos o datos privados.
+
+En respuestas del chat, los bloques de un único comando etiquetados como `bash`, `sh`, `zsh`, `fish`, `shell`, `powershell`, `pwsh` o `cmd` ofrecen **Pegar en terminal** (sin ejecutar) y **Ejecutar…** (con confirmación explícita). Estas acciones requieren una terminal vinculada y lista. La detección de errores es aproximada: sin integración con los límites de comandos de la shell, el fragmento reciente no garantiza contener solo un comando y su salida. Kaoru conserva las terminales abiertas mientras la ventana siga activa; al cerrar la ventana termina sus procesos. Al reabrir una sesión Terminal se inicia una shell nueva en la misma carpeta, sin restaurar procesos anteriores.
+
 </details>
 
 ### Ejecutar
@@ -613,6 +619,7 @@ evidencia](./ROADMAP.md); ningún componente se declara todavía `production-rea
 | Documento                                                             | Contenido                                    |
 | --------------------------------------------------------------------- | -------------------------------------------- |
 | [`docs/README.md`](./docs/README.md)                                  | Centro documental y selector de idioma       |
+| [`docs/manual-de-uso.md`](./docs/manual-de-uso.md)                      | Guía de funciones, flujos y atajos del producto |
 | [`docs/arquitectura.md`](./docs/arquitectura.md)                      | Diagrama de arquitectura detallado           |
 | [`docs/agente-codigo.md`](./docs/agente-codigo.md)                    | Flujo de ingeniería, verificación y límites  |
 | [`SECURITY.md`](./SECURITY.md)                                        | Threat model y divulgación responsable       |

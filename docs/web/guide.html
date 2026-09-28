@@ -66,13 +66,16 @@
           Configuración, tareas y criterios de revisión para utilizar Kaoru en tu equipo o en un
           proyecto de cliente.
         </p>
+        <p><a href="manual.html">Leer el manual completo: chat, terminal, memoria y atajos →</a></p>
       </header>
       <div class="container document-layout">
         <aside class="toc">
           <nav aria-label="En esta página">
             <strong>En esta página</strong><a href="#install">Instalación y primer arranque</a
             ><a href="#provider">Proveedor, modelo y coste</a
-            ><a href="#workspace">Workspace y reglas</a><a href="#task">Una primera tarea útil</a
+            ><a href="#workspace">Workspace y reglas</a
+            ><a href="#terminal-chat">Terminal con chat lateral</a
+            ><a href="#task">Una primera tarea útil</a
             ><a href="#verification">Pruebas y finalización</a
             ><a href="#desktop">Voz, navegador y sistema operativo</a
             ><a href="#connections">Integraciones y trabajo en equipo</a
@@ -141,8 +144,18 @@ npx electron .</code></pre>
               de ejecución se resuelven por separado.
             </p>
           </section>
+          <section id="terminal-chat">
+            <h2>4. Terminal con chat lateral</h2>
+            <p>
+              Crea una terminal en tu workspace y pulsa Chat para abrir una conversación vinculada
+              sin detener la shell. Selecciona salida y usa Preguntar a Kaoru para adjuntarla como
+              tarjeta; revísala antes de enviar. Explicar error prepara un borrador. Los bloques de
+              un comando del chat permiten pegarlo sin ejecutarlo o ejecutarlo tras una confirmación
+              explícita. La shell conserva los permisos de tu usuario.
+            </p>
+          </section>
           <section id="task">
-            <h2>4. Una primera tarea útil</h2>
+            <h2>5. Una primera tarea útil</h2>
             <p>
               Prueba con: “Analiza cómo se valida este formulario, identifica los archivos
               implicados y propón las pruebas; todavía no edites”. Después autoriza un cambio
@@ -151,7 +164,7 @@ npx electron .</code></pre>
             </p>
           </section>
           <section id="verification">
-            <h2>5. Pruebas y finalización</h2>
+            <h2>6. Pruebas y finalización</h2>
             <p>
               Configura los comandos del proyecto. En smart, la verificación posterior a mutaciones
               reconocidas puede ejecutar scripts de calidad y un control de sintaxis JS de respaldo.
@@ -161,7 +174,7 @@ npx electron .</code></pre>
             </p>
           </section>
           <section id="desktop">
-            <h2>6. Voz, navegador y sistema operativo</h2>
+            <h2>7. Voz, navegador y sistema operativo</h2>
             <p>
               Para una tarea entre aplicaciones, describe los resultados que quieres observar: «abre
               el informe en el editor, crea un recordatorio y comprueba que aparece». Kaoru prepara
@@ -174,7 +187,7 @@ npx electron .</code></pre>
             </p>
           </section>
           <section id="connections">
-            <h2>7. Integraciones y trabajo en equipo</h2>
+            <h2>8. Integraciones y trabajo en equipo</h2>
             <p>
               Conecta únicamente cuentas autorizadas. En GitHub elige los alcances necesarios y
               revoca accesos que ya no uses. Revisa el origen y los permisos de los plugins. Empieza
@@ -183,7 +196,7 @@ npx electron .</code></pre>
             </p>
           </section>
           <section id="recovery">
-            <h2>8. Continuidad y recuperación</h2>
+            <h2>9. Continuidad y recuperación</h2>
             <p>
               La memoria y los objetivos durables necesitan el almacenamiento local operativo.
               Guarda respaldos antes de operaciones importantes. Un checkpoint no revierte
@@ -192,7 +205,7 @@ npx electron .</code></pre>
             </p>
           </section>
           <section id="delivery">
-            <h2>9. Antes de entregar a un cliente</h2>
+            <h2>10. Antes de entregar a un cliente</h2>
             <p>
               Comprueba el resultado funcional, el diff, las pruebas y las limitaciones informadas.
               Documenta proveedor, permisos y tratamiento de datos para esa instalación. Si
@@ -214,7 +227,8 @@ npx electron .</code></pre>
         >
         <nav aria-label="Términos y licencia">
           <a href="index.html">Inicio</a><a href="guide.html" aria-current="page">Guía de uso</a
-          ><a href="privacy.html">Privacidad</a><a href="terms.html">Términos y licencia</a
+          ><a href="manual.html">Manual de uso</a><a href="privacy.html">Privacidad</a
+          ><a href="terms.html">Términos y licencia</a
           ><a href="mailto:dregxmoon@gmail.com">dregxmoon@gmail.com</a>
         </nav>
       </div>

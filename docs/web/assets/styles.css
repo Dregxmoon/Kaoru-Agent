@@ -643,6 +643,35 @@ footer {
   font-size: 13px;
   margin-top: 24px;
 }
+.manual-prose section {
+  scroll-margin-top: 130px;
+}
+.manual-prose section + section {
+  border-top: 1px solid var(--line);
+  margin-top: 42px;
+  padding-top: 6px;
+}
+.manual-prose ol {
+  color: var(--muted);
+  margin: 0 0 20px;
+}
+.manual-prose :not(pre) > code {
+  padding: 2px 5px;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  background: var(--soft);
+  color: var(--ink);
+  font-size: 0.88em;
+}
+.manual-table-scroll {
+  overflow-x: auto;
+  margin: 24px 0;
+}
+.manual-table-scroll table {
+  min-width: 620px;
+  table-layout: auto;
+  margin: 0;
+}
 .code-block {
   border: 1px solid #44443f;
   border-radius: 12px;

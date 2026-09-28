@@ -9,6 +9,16 @@ const path = require('path');
 const { setActiveWorkspace } = require('./workspace.js');
 let _switching = false;
 
+function setAgentBackgroundEnabled(enabled) {
+  if (enabled) {
+    state.proactive?.start();
+    state.goalGovernor?.start();
+  } else {
+    state.proactive?.stop();
+    state.goalGovernor?.stop();
+  }
+}
+
 function conversationRow(row) {
   let history = [];
   try {
@@ -18,8 +28,15 @@ function conversationRow(row) {
   const firstUser = history.find((turn) => turn.role === 'user');
   return {
     id: row.id,
+    type: row.session_type === 'terminal' ? 'terminal' : 'chat',
     workspace: row.workspace || null,
-    title: (row.summary || firstUser?.content || 'Nuevo chat').split('\n')[0].slice(0, 80),
+    title: (
+      row.summary ||
+      firstUser?.content ||
+      (row.session_type === 'terminal' ? 'Terminal' : 'Nuevo chat')
+    )
+      .split('\n')[0]
+      .slice(0, 80),
     startedAt: row.started_at,
     lastActiveAt: row.last_active_at || row.started_at,
     turnCount: row.turn_count || 0,
@@ -34,31 +51,50 @@ function listConversations(limit = 100) {
     .map(conversationRow);
 }
 
+function conversationsPage(limit = 100) {
+  const store = state.graph?._sessions;
+  if (!store) return { conversations: [], counts: {}, total: 0 };
+  const counts = store.conversationCounts();
+  const total = Object.values(counts).reduce((sum, count) => sum + count, 0);
+  const requested = Number(limit);
+  const safeLimit = Number.isSafeInteger(requested) ? Math.max(0, Math.min(total, requested)) : 100;
+  return {
+    conversations: store.listConversations(safeLimit).map(conversationRow),
+    counts,
+    total,
+  };
+}
+
 function activeConversation() {
-  const id = state.session?.getSessionId();
+  const id = state.activeTerminalId || state.session?.getSessionId();
   const row = id && state.graph?._sessions?.getSession(id);
   if (!row) return null;
   let history = [];
   try {
     history = JSON.parse(row.history_json || '[]');
   } catch {}
-  return { ...conversationRow(row), history: Array.isArray(history) ? history : [] };
+  return {
+    ...conversationRow(row),
+    history: row.session_type === 'terminal' ? [] : Array.isArray(history) ? history : [],
+  };
 }
 
-async function switchConversation({ id = null, workspace = null } = {}) {
+async function switchConversation({ id = null, workspace = null, type = 'chat' } = {}) {
   if (_switching) return { ok: false, error: 'Cambio de conversación en curso' };
   if (!state.session || !state.graph?._sessions)
     return { ok: false, error: 'Sesiones no disponibles' };
   const store = state.graph._sessions;
   const row = id == null ? null : store.getSession(Number(id));
   if (id != null && !row) return { ok: false, error: 'Conversación inexistente' };
+  if (type !== 'chat' && type !== 'terminal') return { ok: false, error: 'Tipo inválido' };
+  const targetType = row?.session_type === 'terminal' ? 'terminal' : row ? 'chat' : type;
   const target = workspace || row?.workspace || null;
   if (!target) return { ok: false, error: 'Elige una carpeta para esta conversación' };
   const resolved = path.resolve(target);
   if (!fs.existsSync(resolved) || !fs.statSync(resolved).isDirectory()) {
     return { ok: false, error: `La carpeta no existe: ${resolved}` };
   }
-  const current = state.session.getSessionId();
+  const current = state.activeTerminalId || state.session.getSessionId();
   if (row && current === row.id && row.workspace === resolved) {
     return { ok: true, unchanged: true, conversation: activeConversation() };
   }
@@ -66,20 +102,35 @@ async function switchConversation({ id = null, workspace = null } = {}) {
   try {
     const previous = current ? store.getSession(current) : null;
     await state.session.close();
+    state.activeTerminalId = null;
+    if (targetType === 'terminal') {
+      const terminalId = row ? row.id : store.startTerminal(resolved);
+      store.touchConversation(terminalId, resolved);
+      state.activeTerminalId = terminalId;
+      setAgentBackgroundEnabled(false);
+      if (previous && previous.id !== terminalId && previous.session_type !== 'terminal')
+        store.deleteEmptyConversation(previous.id);
+      return { ok: true, conversation: activeConversation() };
+    }
     let activated;
     try {
       activated = await setActiveWorkspace(resolved);
     } catch (error) {
-      if (previous) state.session.openExisting(previous);
+      if (previous?.session_type === 'terminal') state.activeTerminalId = previous.id;
+      else if (previous) state.session.openExisting(previous);
       throw error;
     }
     if (!activated.ok) {
-      if (previous) state.session.openExisting(previous);
+      if (previous?.session_type === 'terminal') state.activeTerminalId = previous.id;
+      else if (previous) state.session.openExisting(previous);
       return activated;
     }
+    state.session.prepareChatStart(state.app);
     const result = row ? state.session.openExisting(row) : state.session.startNew(resolved);
+    setAgentBackgroundEnabled(true);
     store.touchConversation(result.sessionId, resolved);
-    if (previous && previous.id !== result.sessionId) store.deleteEmptyConversation(previous.id);
+    if (previous && previous.id !== result.sessionId && previous.session_type !== 'terminal')
+      store.deleteEmptyConversation(previous.id);
     state.bus.emit('session:started', { sessionId: result.sessionId, resumed: Boolean(row) });
     return { ok: true, conversation: activeConversation() };
   } finally {
@@ -87,16 +138,44 @@ async function switchConversation({ id = null, workspace = null } = {}) {
   }
 }
 
+async function deleteConversation(id) {
+  if (_switching) return { ok: false, error: 'Cambio de conversación en curso' };
+  if (!Number.isSafeInteger(id) || id <= 0) return { ok: false, error: 'Conversación inválida' };
+  const store = state.graph?._sessions;
+  if (!store || !state.session) return { ok: false, error: 'Sesiones no disponibles' };
+  const row = store.getSession(id);
+  if (!row) return { ok: false, error: 'Conversación inexistente' };
+  _switching = true;
+  try {
+    const active = state.activeTerminalId === id || state.session.getSessionId() === id;
+    if (active) {
+      if (state.activeTerminalId === id) state.activeTerminalId = null;
+      else await state.session.close();
+      setAgentBackgroundEnabled(false);
+    }
+    if (!store.deleteConversation(id))
+      return { ok: false, error: 'No se pudo eliminar la conversación' };
+    return { ok: true, deletedId: id, wasActive: active, conversation: activeConversation() };
+  } finally {
+    _switching = false;
+  }
+}
+
 async function startChatConversation(requestedWorkspace = null) {
-  state.session?.prepareChatStart(state.app);
   state.graph?._sessions?.pruneEmptyConversations(state.session?.getSessionId() || null);
   const rows = listConversations();
   const requested = requestedWorkspace ? path.resolve(requestedWorkspace) : null;
   const recent = rows.find(
     (row) => row.workspace && !row.missingWorkspace && (!requested || row.workspace === requested)
   );
-  if (recent) return switchConversation({ id: recent.id });
-  if (requested) return switchConversation({ workspace: requested });
+  if (recent) {
+    if (recent.type === 'chat') state.session?.prepareChatStart(state.app);
+    return switchConversation({ id: recent.id });
+  }
+  if (requested) {
+    state.session?.prepareChatStart(state.app);
+    return switchConversation({ workspace: requested });
+  }
   return { ok: true, conversation: null };
 }
 
@@ -113,6 +192,10 @@ async function startSession() {
 }
 
 async function closeSession() {
+  if (state.activeTerminalId) {
+    state.graph?._sessions?.deleteEmptyConversation(state.activeTerminalId);
+    state.activeTerminalId = null;
+  }
   if (state.session) {
     const closingId = state.session.getSessionId();
     await state.session.close();
@@ -217,8 +300,10 @@ function detectInstant(userMessage) {
 
 module.exports = {
   listConversations,
+  conversationsPage,
   activeConversation,
   switchConversation,
+  deleteConversation,
   startChatConversation,
   startSession,
   closeSession,

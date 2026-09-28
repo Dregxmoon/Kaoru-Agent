@@ -80,9 +80,12 @@ const INVOKE_ALLOWLIST = new Set([
   'session-load',
   'session-stats',
   'conversations-list',
+  'conversations-page',
   'conversation-current',
   'conversation-open',
   'conversation-new',
+  'conversation-delete',
+  'terminal-open',
   'nodes-list',
   'nodes-graph',
   'memory-gaps',
@@ -146,6 +149,9 @@ const SEND_ALLOWLIST = new Set([
   'set-provider',
   'chat-llm-cancel',
   'chat-ui-call-result',
+  'terminal-write',
+  'terminal-resize',
+  'terminal-flow',
 ]);
 
 const ON_ALLOWLIST = new Set([
@@ -170,6 +176,8 @@ const ON_ALLOWLIST = new Set([
   'proposal-result',
   'resumed-session',
   'conversation-opened',
+  'terminal-data',
+  'terminal-exit',
   'startup-notice',
   'update-status',
   'views-changed',

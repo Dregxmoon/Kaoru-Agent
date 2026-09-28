@@ -221,9 +221,17 @@ ipcRenderer.on('agent-approval-cancelled', (e, { actionId }) => {
 // proactividad, errores LSP…): el mini-avatar reacciona igual que el overlay.
 ipcRenderer.on('gesture', (e, payload = {}) => {
   if (!payload || typeof payload.mood !== 'string') return;
-  if (typeof window.animateAvatarPresence === 'function') {
+  if (payload.source === 'terminal' && typeof window.reactTerminalAvatar === 'function') {
+    window.reactTerminalAvatar(payload.mood);
+  } else if (typeof window.animateAvatarPresence === 'function') {
     window.animateAvatarPresence(payload.mood === 'happy' ? 'celebrate' : 'react');
   }
+  if (
+    payload.source === 'terminal' &&
+    (document.getElementById('app').dataset.terminalMotion === 'off' ||
+      window.matchMedia('(prefers-reduced-motion: reduce)').matches)
+  )
+    return;
   if (chatGestureEngine) {
     chatGestureEngine.play(payload.mood);
     return;

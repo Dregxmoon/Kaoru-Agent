@@ -27,6 +27,7 @@
       rel="stylesheet"
     />
     <link rel="stylesheet" href="chat.css" />
+    <link rel="stylesheet" href="../node_modules/@xterm/xterm/css/xterm.css" />
   </head>
   <body>
     <div id="app">
@@ -55,16 +56,24 @@
           <button class="header-title" id="workspace-title" type="button" title="Cambiar workspace">
             ~/workspace
           </button>
-          <button
-            id="new-chat-btn"
-            class="header-btn"
-            type="button"
-            title="Nuevo chat en esta carpeta"
-            aria-label="Nuevo chat"
-            disabled
-          >
-            ＋
-          </button>
+          <div class="new-session-anchor">
+            <button
+              id="new-chat-btn"
+              class="header-btn"
+              type="button"
+              title="Nueva sesión en esta carpeta"
+              aria-label="Nueva sesión"
+              aria-expanded="false"
+              aria-controls="new-session-menu"
+              disabled
+            >
+              ＋
+            </button>
+            <div id="new-session-menu" class="new-session-menu" hidden>
+              <button id="new-session-chat" type="button">Nuevo chat</button>
+              <button id="new-session-terminal" type="button">Nueva terminal</button>
+            </div>
+          </div>
         </div>
         <nav class="header-actions" aria-label="Herramientas de Kaoru">
           <button
@@ -162,6 +171,9 @@
           <button id="new-workspace-btn" class="sessions-create" type="button">
             ＋ Abrir carpeta y crear chat
           </button>
+          <button id="new-workspace-terminal-btn" class="sessions-create" type="button">
+            ＋ Abrir carpeta y crear terminal
+          </button>
           <div id="sessions-error" class="session-error" hidden></div>
           <div id="sessions-list"></div>
         </div>
@@ -218,6 +230,11 @@
           <span>SOLTAR ARCHIVO</span>
         </div>
 
+        <div id="terminal-companion-header" hidden>
+          <span>KAORU · TERMINAL</span>
+          <button id="terminal-return" type="button">Ver terminal completa</button>
+        </div>
+
         <div id="messages">
           <div id="landing">
             <div class="landing-content">
@@ -226,10 +243,113 @@
           </div>
         </div>
 
+        <div id="terminal-panel" hidden>
+          <div class="terminal-toolbar">
+            <div class="terminal-toolbar-identity">
+              <span id="terminal-shell">Terminal</span>
+              <span id="terminal-workspace"></span>
+            </div>
+            <div class="terminal-toolbar-actions">
+              <button
+                id="terminal-search-toggle"
+                type="button"
+                aria-label="Buscar en la terminal"
+                aria-expanded="false"
+              >
+                Buscar
+              </button>
+              <div id="terminal-search-controls" role="search" hidden>
+                <input
+                  id="terminal-search-input"
+                  type="search"
+                  aria-label="Buscar texto en la terminal"
+                  placeholder="Buscar salida…"
+                  maxlength="128"
+                />
+                <span id="terminal-search-status" role="status" aria-live="polite">0/0</span>
+                <button
+                  id="terminal-search-prev"
+                  type="button"
+                  aria-label="Coincidencia anterior"
+                  disabled
+                >
+                  ↑
+                </button>
+                <button
+                  id="terminal-search-next"
+                  type="button"
+                  aria-label="Coincidencia siguiente"
+                  disabled
+                >
+                  ↓
+                </button>
+              </div>
+              <button id="terminal-explain-error" type="button" hidden>Explicar error</button>
+              <button id="terminal-attach-output" type="button">Preguntar a Kaoru</button>
+              <button id="terminal-chat-toggle" type="button">Chat</button>
+              <span id="terminal-signal" role="status" aria-live="polite" hidden></span>
+              <span class="terminal-indicator" aria-hidden="true"></span>
+              <span id="terminal-status" role="status">Conectando…</span>
+              <button id="terminal-restart" type="button" hidden>Reiniciar shell</button>
+              <button
+                id="terminal-appearance-toggle"
+                type="button"
+                aria-label="Apariencia de la terminal"
+                aria-expanded="false"
+                aria-controls="terminal-appearance-menu"
+              >
+                ⋯
+              </button>
+            </div>
+            <div id="terminal-appearance-menu" hidden>
+              <span class="terminal-appearance-title">Apariencia</span>
+              <label class="terminal-avatar-control" for="terminal-avatar-view">
+                Vista
+                <select id="terminal-avatar-view" aria-label="Vista del avatar en terminal">
+                  <option value="full">Completa</option>
+                  <option value="half">Cercana</option>
+                </select>
+              </label>
+              <label class="terminal-avatar-control" for="terminal-avatar-motion">
+                Movimiento
+                <select id="terminal-avatar-motion" aria-label="Movimiento del avatar en terminal">
+                  <option value="subtle">Sutil</option>
+                  <option value="lively">Vivo</option>
+                  <option value="off">Quieto</option>
+                </select>
+              </label>
+              <div class="terminal-font-controls" aria-label="Tamaño de letra de la terminal">
+                <span>Texto</span>
+                <button id="terminal-font-decrease" type="button" aria-label="Reducir texto">
+                  −
+                </button>
+                <output id="terminal-font-size" aria-live="polite">13 px</output>
+                <button id="terminal-font-increase" type="button" aria-label="Ampliar texto">
+                  +
+                </button>
+              </div>
+            </div>
+          </div>
+          <div id="terminal-screen" aria-label="Terminal interactiva">
+            <div id="terminal-viewport"></div>
+          </div>
+          <div id="terminal-error" role="status" hidden></div>
+        </div>
+
         <div id="task-dock" hidden aria-live="polite"></div>
         <div id="attachments-bar"></div>
 
         <div id="input-area">
+          <div id="terminal-context-card" hidden>
+            <div class="terminal-context-heading">
+              <span id="terminal-context-label">Salida de terminal</span>
+              <button id="terminal-context-remove" type="button" aria-label="Quitar salida adjunta">
+                ×
+              </button>
+            </div>
+            <pre id="terminal-context-preview"></pre>
+            <span>Revisa el contenido antes de enviarlo: puede incluir datos privados.</span>
+          </div>
           <div class="composer-toolbar">
             <button id="attach-btn" type="button" title="Adjuntar archivos">＋ Adjuntar</button>
             <button id="models-btn" class="header-model-button" type="button" title="Elegir modelo">
@@ -328,6 +448,9 @@
         </div>
         <div class="settings-actions">
           <button class="btn-cancel" id="onboarding-later" type="button">Ahora no</button>
+          <button class="btn-cancel" id="onboarding-terminal" type="button">
+            Elegir carpeta y abrir terminal
+          </button>
           <button class="btn-save" id="onboarding-finish" type="button">Empezar con Kaoru</button>
         </div>
       </div>
@@ -610,6 +733,8 @@
          window.marked / window.DOMPurify. core.js implementa renderMarkdown. -->
     <script src="../node_modules/marked/marked.min.js"></script>
     <script src="../node_modules/dompurify/dist/purify.min.js"></script>
+    <script src="../node_modules/@xterm/xterm/lib/xterm.js"></script>
+    <script src="../node_modules/@xterm/addon-fit/lib/addon-fit.js"></script>
 
     <script src="chat/core.js"></script>
     <script src="chat/activityBlock.js"></script>
@@ -617,6 +742,7 @@
     <script src="chat/diffBlock.js"></script>
     <script src="chat/messages.js"></script>
     <script src="chat/sessions.js"></script>
+    <script src="chat/terminal.js"></script>
     <script src="chat/nodes.js"></script>
     <script src="chat/permissions.js"></script>
     <script src="chat/settings.js"></script>

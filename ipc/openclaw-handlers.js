@@ -86,7 +86,7 @@ function register(ctx) {
   });
 
   ipcMain.handle('agent-run', async (e, { text }) => {
-    if (!Core.activeConversation()) {
+    if (!Core.activeConversation() || Core.activeConversation().type === 'terminal') {
       return {
         response: null,
         iterations: 0,

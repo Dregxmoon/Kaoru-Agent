@@ -1414,11 +1414,70 @@ button.onboarding-card:hover {
   display: none;
 }
 #sessions-modal .session-row {
-  width: 100%;
+  flex: 1;
+  width: auto;
   min-width: 0;
   max-width: 100%;
   overflow: hidden;
   border-left: 2px solid transparent;
+}
+#sessions-modal .session-entry {
+  display: flex;
+  align-items: stretch;
+  min-width: 0;
+  border-bottom: 1px solid var(--border);
+}
+#sessions-modal .session-entry:hover,
+#sessions-modal .session-entry:focus-within {
+  background: var(--bg-input);
+}
+#sessions-modal .session-delete {
+  flex: none;
+  align-self: center;
+  width: 34px;
+  height: 34px;
+  margin-right: 5px;
+  border: 1px solid transparent;
+  border-radius: var(--radius);
+  background: transparent;
+  color: var(--text-secondary);
+  font: inherit;
+  font-size: 20px;
+  line-height: 1;
+  cursor: pointer;
+  transition:
+    color 0.15s,
+    border-color 0.15s,
+    background 0.15s,
+    transform 0.15s;
+}
+#sessions-modal .session-delete:hover,
+#sessions-modal .session-delete:focus-visible {
+  color: #ef4444;
+  border-color: #ef4444;
+  background: var(--hover);
+  transform: rotate(90deg);
+}
+#sessions-modal .session-delete:disabled {
+  opacity: 0.4;
+  cursor: wait;
+}
+#sessions-modal .sessions-load-more {
+  width: 100%;
+  padding: 12px 8px;
+  border: 0;
+  border-top: 1px solid var(--border);
+  background: transparent;
+  color: var(--text-secondary);
+  font-family: var(--font-mono);
+  font-size: 10px;
+  text-align: center;
+  cursor: pointer;
+}
+#sessions-modal .sessions-load-more:hover,
+#sessions-modal .sessions-load-more:focus-visible {
+  background: var(--hover);
+  color: var(--text-primary);
 }
 #sessions-modal .session-row.active {
   border-left-color: var(--accent);
@@ -1482,7 +1541,7 @@ button.onboarding-card:hover {
   flex-direction: column;
   gap: 3px;
   padding: 10px 8px;
-  border-bottom: 1px solid var(--border);
+  border: 0;
   background: transparent;
   cursor: pointer;
   transition: background 0.15s;
@@ -6159,6 +6218,642 @@ summary:focus-visible {
 #sessions-btn svg {
   width: 22px;
   height: 22px;
+}
+.new-session-anchor {
+  position: relative;
+  display: flex;
+  -webkit-app-region: no-drag;
+}
+.new-session-menu {
+  position: absolute;
+  z-index: 40;
+  top: 100%;
+  right: 0;
+  min-width: 170px;
+  padding: 5px;
+  background: var(--bg-panel);
+  border: 1px solid var(--border);
+  box-shadow: 0 10px 25px rgba(0, 0, 0, 0.3);
+}
+.new-session-menu[hidden] {
+  display: none;
+}
+.new-session-menu button {
+  width: 100%;
+  padding: 9px 11px;
+  border: 0;
+  background: transparent;
+  color: var(--text-primary);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.new-session-menu button:hover {
+  background: var(--hover);
+}
+#app.terminal-mode #chat-panel > :not(#terminal-panel):not(#app-lock) {
+  display: none !important;
+}
+#terminal-panel {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-height: 0;
+  min-width: 0;
+  background: var(--bg-panel);
+}
+#terminal-panel[hidden] {
+  display: none;
+}
+#terminal-companion-header[hidden],
+#terminal-context-card[hidden] {
+  display: none;
+}
+#app.terminal-companion #terminal-panel {
+  position: absolute;
+  inset: 0 auto 0 0;
+  z-index: 1;
+  width: 58%;
+  border-right: 1px solid var(--border-accent);
+  overflow: hidden;
+}
+#app.terminal-companion #terminal-companion-header,
+#app.terminal-companion #messages,
+#app.terminal-companion #task-dock,
+#app.terminal-companion #attachments-bar,
+#app.terminal-companion #input-area {
+  margin-left: 58%;
+  min-width: 0;
+}
+#terminal-companion-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  min-height: 42px;
+  padding: 7px 12px;
+  border-bottom: 1px solid var(--border);
+  color: var(--text-secondary);
+  font-family: var(--font-mono);
+  font-size: 10px;
+}
+#terminal-return,
+#terminal-context-remove {
+  border: 0;
+  background: transparent;
+  color: var(--text-primary);
+  font: inherit;
+  cursor: pointer;
+}
+#terminal-context-card {
+  display: grid;
+  gap: 5px;
+  margin: 8px 10px;
+  padding: 9px;
+  border: 1px solid var(--border-accent);
+  background: var(--bg-panel);
+  color: var(--text-secondary);
+  font-family: var(--font-mono);
+  font-size: 10px;
+}
+.terminal-context-heading {
+  display: flex;
+  justify-content: space-between;
+  color: var(--text-primary);
+}
+#terminal-context-preview {
+  max-height: 80px;
+  overflow: auto;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font: inherit;
+}
+.terminal-context-link {
+  display: block;
+  margin-top: 8px;
+  padding: 3px 0;
+  border: 0;
+  background: transparent;
+  color: var(--accent);
+  font: inherit;
+  font-size: 10px;
+  cursor: pointer;
+}
+@media (max-width: 960px) {
+  #app.terminal-companion {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  #app.terminal-companion #model-panel {
+    display: none;
+  }
+}
+@media (max-width: 690px) {
+  #app.terminal-companion #terminal-panel {
+    position: relative;
+    inset: auto;
+    width: 100%;
+    height: 46%;
+    flex: none;
+    border-right: 0;
+    border-bottom: 1px solid var(--border-accent);
+    order: 0;
+  }
+  #app.terminal-companion #terminal-companion-header,
+  #app.terminal-companion #messages,
+  #app.terminal-companion #task-dock,
+  #app.terminal-companion #attachments-bar,
+  #app.terminal-companion #input-area {
+    margin-left: 0;
+  }
+  #app.terminal-companion #terminal-companion-header {
+    order: 1;
+  }
+  #app.terminal-companion #messages {
+    order: 2;
+  }
+  #app.terminal-companion #task-dock,
+  #app.terminal-companion #attachments-bar {
+    order: 3;
+  }
+  #app.terminal-companion #input-area {
+    order: 4;
+  }
+}
+.terminal-toolbar {
+  display: flex;
+  position: relative;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 15px;
+  border-bottom: 1px solid var(--border);
+  color: var(--text-secondary);
+  font-family: var(--font-mono);
+  font-size: 11px;
+}
+#terminal-screen {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+  min-width: 0;
+  padding: 12px;
+}
+#terminal-viewport {
+  flex: 1;
+  min-height: 0;
+  min-width: 0;
+  overflow: hidden;
+}
+#terminal-error:not([hidden]) {
+  padding: 10px 15px;
+  color: #ff8585;
+}
+/* Terminal-Anime: consola amplia y avatar de cuerpo completo, sin otro canvas Live2D. */
+#app.terminal-mode {
+  grid-template-columns: minmax(0, 1fr) clamp(160px, 21vw, 240px);
+}
+#app.terminal-mode.sessions-open {
+  grid-template-columns: var(--workspace-sidebar-width) minmax(0, 1fr);
+}
+#app.terminal-mode #chat-panel,
+#app.terminal-mode #terminal-panel,
+#app.terminal-mode #model-panel {
+  background: var(--bg-base);
+}
+#app.terminal-mode #terminal-panel {
+  overflow: hidden;
+  animation: terminal-panel-enter 240ms ease-out both;
+}
+#app.terminal-mode #chat-panel {
+  border-right: 0;
+}
+#app.terminal-mode #model-panel {
+  justify-content: flex-end;
+  align-items: stretch;
+}
+#app.terminal-mode #model-canvas-container {
+  flex: 0 1 min(78vh, 620px);
+  height: min(78vh, 620px);
+  width: 100%;
+}
+#app.terminal-mode #model-canvas-container::before {
+  display: none;
+}
+#app.terminal-mode #live2d-chat-canvas {
+  animation: none;
+}
+#app.terminal-mode[data-terminal-motion='subtle']
+  #model-canvas-container[data-terminal-activity='typing']
+  #live2d-chat-canvas {
+  animation: terminal-avatar-attend 900ms ease-out;
+}
+#app.terminal-mode[data-terminal-motion='subtle']
+  #model-canvas-container[data-terminal-activity='working']
+  #live2d-chat-canvas {
+  animation: terminal-avatar-working 2.8s ease-in-out infinite;
+}
+#app.terminal-mode[data-terminal-motion='subtle']
+  #model-canvas-container[data-terminal-activity='success']
+  #live2d-chat-canvas {
+  animation: terminal-avatar-success 850ms ease-out;
+}
+#app.terminal-mode[data-terminal-motion='subtle']
+  #model-canvas-container[data-terminal-activity='error']
+  #live2d-chat-canvas {
+  animation: terminal-avatar-error 650ms ease-out;
+}
+#app.terminal-mode[data-terminal-motion='lively']
+  #model-canvas-container[data-terminal-activity='typing']
+  #live2d-chat-canvas {
+  animation: terminal-avatar-attend 650ms ease-out;
+}
+#app.terminal-mode[data-terminal-motion='lively']
+  #model-canvas-container[data-terminal-activity='working']
+  #live2d-chat-canvas {
+  animation: terminal-avatar-working 1.6s ease-in-out infinite;
+}
+#app.terminal-mode[data-terminal-motion='lively']
+  #model-canvas-container[data-terminal-activity='success']
+  #live2d-chat-canvas {
+  animation: terminal-avatar-success 650ms ease-out;
+}
+#app.terminal-mode[data-terminal-motion='lively']
+  #model-canvas-container[data-terminal-activity='error']
+  #live2d-chat-canvas {
+  animation: terminal-avatar-error 480ms ease-out;
+}
+@keyframes terminal-avatar-attend {
+  50% {
+    transform: translateY(-3px) rotate(-0.5deg);
+  }
+}
+@keyframes terminal-avatar-working {
+  50% {
+    transform: translateY(-4px);
+  }
+}
+@keyframes terminal-avatar-success {
+  45% {
+    transform: translateY(-7px) rotate(1deg);
+  }
+}
+@keyframes terminal-avatar-error {
+  35% {
+    transform: translateX(-3px);
+  }
+  70% {
+    transform: translateX(2px);
+  }
+}
+#app:is(.terminal-mode, .terminal-companion) .terminal-toolbar {
+  align-items: center;
+  min-height: 64px;
+  padding: 11px 20px;
+  border-bottom: 0;
+  background: transparent;
+  color: var(--text-secondary);
+}
+.terminal-toolbar-identity {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+}
+#terminal-shell {
+  color: var(--text-primary);
+  font-size: 12px;
+  font-weight: 600;
+}
+#terminal-workspace {
+  overflow: hidden;
+  color: var(--text-secondary);
+  font-size: 10px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.terminal-indicator {
+  flex: none;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--text-secondary);
+  opacity: 0.6;
+  transition:
+    opacity 180ms ease,
+    transform 180ms ease;
+}
+#terminal-panel[data-state='connecting'] .terminal-indicator {
+  animation: terminal-indicator-breathe 1.4s ease-in-out infinite;
+}
+#terminal-panel[data-state='ready'] .terminal-indicator,
+#terminal-panel.terminal-receiving .terminal-indicator {
+  opacity: 1;
+}
+#terminal-panel.terminal-receiving .terminal-indicator {
+  transform: scale(1.35);
+}
+.terminal-toolbar-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  min-width: 0;
+}
+.terminal-avatar-control {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 5px;
+  font-size: 10px;
+}
+.terminal-avatar-control select,
+#terminal-search-input,
+#terminal-search-toggle,
+#terminal-appearance-toggle,
+#terminal-explain-error,
+#terminal-attach-output,
+#terminal-chat-toggle {
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--bg-input);
+  color: var(--text-primary);
+  font: inherit;
+  font-size: 10px;
+  padding: 5px 6px;
+}
+#terminal-search-toggle {
+  cursor: pointer;
+}
+#terminal-appearance-toggle,
+#terminal-explain-error,
+#terminal-attach-output,
+#terminal-chat-toggle {
+  cursor: pointer;
+}
+#terminal-appearance-toggle {
+  min-width: 28px;
+  font-size: 15px;
+  line-height: 1;
+}
+#terminal-explain-error:not([hidden]) {
+  border-color: var(--term-error);
+  color: var(--term-error);
+}
+#terminal-explain-error[hidden],
+#terminal-appearance-menu[hidden] {
+  display: none;
+}
+#terminal-appearance-menu {
+  position: absolute;
+  z-index: 8;
+  top: calc(100% - 3px);
+  right: 14px;
+  display: grid;
+  gap: 10px;
+  width: min(220px, calc(100% - 28px));
+  padding: 12px;
+  border: 1px solid var(--border-accent);
+  border-radius: var(--radius);
+  background: var(--bg-panel);
+  box-shadow: 0 12px 28px rgba(0, 0, 0, 0.22);
+}
+.terminal-appearance-title {
+  color: var(--text-primary);
+  font-size: 11px;
+  font-weight: 600;
+}
+.terminal-font-controls {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 5px;
+  font-size: 10px;
+}
+.terminal-font-controls button {
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--bg-input);
+  color: var(--text-primary);
+  font: inherit;
+  cursor: pointer;
+}
+.terminal-font-controls output {
+  min-width: 34px;
+  text-align: center;
+}
+#terminal-search-controls {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+  max-width: 100%;
+}
+#terminal-search-controls[hidden] {
+  display: none;
+}
+#terminal-search-input {
+  flex: 1 1 105px;
+  min-width: 70px;
+  width: clamp(70px, 10vw, 145px);
+}
+#terminal-search-status {
+  min-width: 3.5em;
+  text-align: center;
+  font-size: 10px;
+  color: var(--text-secondary);
+  white-space: nowrap;
+}
+#terminal-search-prev,
+#terminal-search-next {
+  display: inline-grid;
+  flex: none;
+  place-items: center;
+  width: 25px;
+  height: 25px;
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--bg-input);
+  color: var(--text-primary);
+  font: inherit;
+  cursor: pointer;
+}
+#terminal-search-prev:hover:not(:disabled),
+#terminal-search-next:hover:not(:disabled) {
+  border-color: var(--border-accent);
+  color: var(--accent);
+}
+#terminal-search-prev:disabled,
+#terminal-search-next:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+#terminal-signal:not([hidden]) {
+  padding: 4px 6px;
+  border: 1px solid var(--border);
+  font-size: 10px;
+  color: var(--text-secondary);
+}
+#terminal-signal[data-kind='error']:not([hidden]) {
+  border-color: var(--term-error);
+  color: var(--term-error);
+}
+#terminal-signal[data-kind='success']:not([hidden]) {
+  border-color: var(--term-success);
+  color: var(--term-success);
+}
+.terminal-avatar-control select:focus-visible,
+#terminal-search-input:focus-visible,
+#terminal-search-toggle:focus-visible,
+#terminal-appearance-toggle:focus-visible,
+#terminal-explain-error:focus-visible,
+#terminal-attach-output:focus-visible,
+#terminal-chat-toggle:focus-visible,
+#terminal-font-decrease:focus-visible,
+#terminal-font-increase:focus-visible,
+#terminal-search-prev:focus-visible,
+#terminal-search-next:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+#terminal-status {
+  flex: none;
+  color: var(--text-secondary);
+  font-size: 10px;
+  white-space: nowrap;
+}
+#terminal-restart:not([hidden]) {
+  padding: 5px 8px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: transparent;
+  color: var(--text-primary);
+  font: inherit;
+  font-size: 10px;
+  cursor: pointer;
+  transition: background 180ms ease;
+}
+#terminal-restart:hover {
+  background: var(--hover);
+}
+#terminal-restart:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+#app:is(.terminal-mode, .terminal-companion) #terminal-screen {
+  position: relative;
+  margin: 0 16px 16px;
+  padding: 13px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--bg-panel);
+  overflow: hidden;
+  transition: border-color 180ms ease;
+}
+#app:is(.terminal-mode, .terminal-companion) #terminal-screen:focus-within {
+  border-color: var(--border-accent);
+}
+#app:is(.terminal-mode, .terminal-companion) #terminal-error:not([hidden]) {
+  margin: 0 16px 16px;
+  border: 1px solid var(--border-accent);
+  border-radius: var(--radius);
+  background: var(--bg-input);
+}
+#terminal-viewport .xterm {
+  height: 100%;
+  width: 100%;
+}
+#terminal-screen .xterm-viewport {
+  scrollbar-width: thin;
+  scrollbar-color: var(--border-accent) transparent;
+}
+/* El tema elimina las sombras globalmente; la barra de xterm necesita su propia capa. */
+#app:is(.terminal-mode, .terminal-companion)
+  #terminal-screen
+  .xterm-rows.xterm-focus
+  .xterm-cursor.xterm-cursor-bar {
+  position: relative;
+  animation: none !important;
+}
+#app:is(.terminal-mode, .terminal-companion)
+  #terminal-screen
+  .xterm-rows.xterm-focus
+  .xterm-cursor.xterm-cursor-bar::before {
+  content: '';
+  position: absolute;
+  z-index: 1;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  width: 3px;
+  background: var(--text-primary);
+  pointer-events: none;
+  animation: terminal-caret-blink 1s step-end infinite;
+}
+#app.terminal-mode
+  #terminal-screen.terminal-typing
+  .xterm-rows.xterm-focus
+  .xterm-cursor.xterm-cursor-bar::before {
+  animation: none;
+  opacity: 1;
+}
+@keyframes terminal-caret-blink {
+  50% {
+    opacity: 0;
+  }
+}
+@keyframes terminal-panel-enter {
+  from {
+    opacity: 0;
+    transform: translateY(5px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+@keyframes terminal-indicator-breathe {
+  50% {
+    opacity: 0.45;
+    transform: scale(0.8);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  #app.terminal-mode #live2d-chat-canvas {
+    animation: none !important;
+  }
+  #app.terminal-mode #terminal-panel,
+  #terminal-panel[data-state='connecting'] .terminal-indicator {
+    animation: none;
+  }
+  #app.terminal-mode
+    #terminal-screen
+    .xterm-rows.xterm-focus
+    .xterm-cursor.xterm-cursor-bar::before {
+    animation: none;
+    opacity: 1;
+  }
+  #terminal-status,
+  #terminal-restart,
+  .terminal-indicator,
+  #app.terminal-mode #terminal-screen {
+    transition: none;
+  }
+}
+@media (max-width: 640px) {
+  #app.terminal-mode:not(.sessions-open) {
+    grid-template-columns: minmax(0, 1fr) 120px;
+  }
+  #app.terminal-mode .terminal-toolbar {
+    padding: 11px 13px;
+  }
+  #app.terminal-mode #terminal-screen {
+    margin: 0 10px 10px;
+    padding: 10px;
+  }
 }
 .header-model {
   max-width: none;

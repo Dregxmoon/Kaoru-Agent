@@ -525,9 +525,18 @@ function _decorateMarkdown(html) {
     count.className = 'message-code-count';
     count.textContent = `${lines} ${lines === 1 ? 'línea' : 'líneas'}`;
     header.append(title, count);
+    const shellCommand =
+      /^(?:bash|sh|zsh|fish|shell|powershell|pwsh|cmd)$/.test(label.toLowerCase()) &&
+      !(code.textContent || '').trim().includes('\n');
     for (const [action, text] of [
       ['wrap', 'Ajustar líneas'],
       ['copy', 'Copiar'],
+      ...(shellCommand
+        ? [
+            ['paste-terminal', 'Pegar en terminal'],
+            ['run-terminal', 'Ejecutar…'],
+          ]
+        : []),
     ]) {
       const button = document.createElement('button');
       button.type = 'button';

@@ -102,6 +102,11 @@
       "09",
       "Choose where the model runs",
       "Configure a compatible provider or a local endpoint. Quality, cost, vision and tool availability depend on the selected model and service."
+    ],
+    [
+      "10",
+      "Terminal and chat side by side",
+      "Open a chat beside a terminal in the same project. Review selected or recent output before choosing to send it to the model; Kaoru does not send it automatically. Single-line shell snippets can be pasted or run after confirmation."
     ]
   ],
   "flowTitle": "From conversation to results",
@@ -177,6 +182,7 @@
   "footer": "Kaoru · Source code under the MIT license",
   "rights": "Third-party models and characters retain their own rights. Independent project, not affiliated with HoYoverse.",
   "guideIntro": "Configuration, tasks and review criteria for using Kaoru on your device or in a client project.",
+  "manualLink": "Read the full product manual (Spanish)",
   "guideSections": [
     [
       "install",
@@ -192,6 +198,11 @@
       "workspace",
       "Workspace and rules",
       "Select the project folder from the chat toolbar. Prepare its dependencies and rules: Kaoru can incorporate AGENTS.md, CLAUDE.md or .cursorrules. Avoid including files unrelated to the task. Project rules guide the work; execution permissions are resolved separately."
+    ],
+    [
+      "terminal-chat",
+      "Terminal with a side chat",
+      "Create a terminal in your workspace and choose Chat to open a linked conversation without stopping the shell. Select output and use Ask Kaoru to attach it as a reviewable card before sending. Explain error prepares a draft. Single-line shell snippets from chat can be pasted without running or run after explicit confirmation. The shell uses your user permissions."
     ],
     [
       "task",

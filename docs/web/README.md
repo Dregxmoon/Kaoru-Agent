@@ -6,17 +6,21 @@ modifica. La implementación publicada no necesita Tailwind, fuentes ni iconos d
 
 ## Páginas e idiomas
 
-Cada idioma tiene portada, guía, privacidad y términos. Español usa la raíz; inglés `en/` y japonés
-`ja/`. Los enlaces de idioma conservan la página y su fragmento. Las páginas son HTML estático:
-el contenido y los enlaces siguen disponibles sin JavaScript.
+Cada idioma tiene portada, guía, privacidad y términos. El manual completo se publica en
+`manual.html` solo en español; las guías inglesa y japonesa lo enlazan indicando el idioma.
+Español usa la raíz; inglés `en/` y japonés `ja/`. Los enlaces de idioma conservan la página y su
+fragmento donde existe traducción. Las páginas son HTML estático: el contenido y los enlaces
+siguen disponibles sin JavaScript.
 
 - `content/{es,en,ja}.json`: textos de portada y guía.
+- `../manual-de-uso.md`: fuente canónica del manual web en español; la plantilla genera su índice,
+  secciones y tablas adaptables.
 - `content/{es,en,ja}/{privacy,terms}.html`: textos legales. El español es canónico; inglés y
   japonés lo indican. El texto legal español existente se conserva al aplicar la nueva plantilla.
 - `assets/styles.css`: diseño compartido y adaptación móvil.
 - `assets/main.js`: tema, menú, copia de comandos y aparición suave; respeta movimiento reducido.
 - `assets/*.png`: capturas originales del proyecto, servidas desde la propia web.
-- `scripts/build-website.js`: plantilla común y generación determinista de las doce páginas.
+- `scripts/build-website.js`: plantilla común y generación determinista de las trece páginas.
 
 ## Actualizar y comprobar
 
@@ -29,7 +33,7 @@ bash tests/run-all.sh tests/test_website.js
 ```
 
 La prueba necesita Chromium de Playwright y permiso para abrir un servidor HTTP local. Comprueba
-las doce rutas, recursos, enlaces y anclas, idiomas, ausencia de desbordamiento, cambio de tema,
+las trece rutas, recursos, enlaces y anclas, idiomas, ausencia de desbordamiento, cambio de tema,
 navegación móvil, portapapeles, almacenamiento bloqueado, movimiento reducido y lectura sin JS.
 La web se sirve desde `docs/`; `docs/index.html` dirige a `web/index.html`.
 

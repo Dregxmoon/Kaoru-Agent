@@ -1,0 +1,529 @@
+<!doctype html>
+<html lang="es">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta
+      name="description"
+      content="Aprende a usar las funciones de Kaoru paso a paso, con atajos y soluciones a problemas frecuentes."
+    />
+    <meta name="color-scheme" content="light dark" />
+    <meta name="theme-color" content="#f8f8f7" />
+    <title>Manual de uso — Kaoru</title>
+    <link rel="alternate" hreflang="es" href="./manual.html" />
+    <link rel="alternate" hreflang="x-default" href="./manual.html" />
+    <link rel="stylesheet" href="./assets/styles.css" />
+    <script src="./assets/main.js"></script>
+  </head>
+  <body>
+    <a class="skip-link" href="#main">Ir al contenido</a>
+    <header class="nav">
+      <div class="nav-inner">
+        <a class="nav-logo" href="index.html" aria-label="Kaoru"
+          ><span class="logo-mark" aria-hidden="true">k.</span>Kaoru</a
+        >
+        <nav class="nav-links" id="site-navigation" aria-label="Inicio">
+          <a href="index.html#features">Qué puede hacer</a
+          ><a href="index.html#workflow">Cómo trabaja</a><a href="index.html#security">Seguridad</a
+          ><a href="index.html#requirements">Requisitos</a><a href="guide.html">Guía de uso</a>
+        </nav>
+        <div class="nav-actions">
+          <button
+            class="theme-btn"
+            id="theme-toggle"
+            type="button"
+            aria-label="Cambiar tema"
+            aria-pressed="false"
+          >
+            <span aria-hidden="true">◐</span></button
+          ><button
+            class="theme-btn menu-toggle"
+            type="button"
+            aria-label="Abrir navegación"
+            aria-controls="site-navigation"
+            aria-expanded="false"
+          >
+            <span aria-hidden="true">☰</span></button
+          ><a class="btn-dark nav-github" href="https://github.com/Dregxmoon/Kaoru-Agent"
+            >GitHub <span aria-hidden="true">↗</span></a
+          >
+        </div>
+      </div>
+      <nav class="language-bar" aria-label="Idioma">
+        <a href="./manual.html" lang="es" hreflang="es" aria-current="page">Español</a>
+      </nav>
+    </header>
+    <main id="main">
+      <header class="page-heading container">
+        <span class="eyebrow">KAORU / Manual de uso</span>
+        <h1>Manual de uso</h1>
+        <p>
+          Esta guía explica <strong>qué puedes hacer en Kaoru y cómo hacerlo</strong>. Está dirigida
+          a quien usa la aplicación, no a quien modifica su código. La interfaz puede variar
+          ligeramente según el sistema operativo, el proveedor de IA y los permisos configurados.
+        </p>
+      </header>
+      <div class="container document-layout manual-layout">
+        <aside class="toc">
+          <nav aria-label="En esta página">
+            <strong>En esta página</strong><a href="#1-empezar">1. Empezar</a
+            ><a href="#2-carpetas-chats-y-terminales">2. Carpetas, chats y terminales</a
+            ><a href="#3-conversar-y-trabajar-con-kaoru">3. Conversar y trabajar con Kaoru</a
+            ><a href="#4-usar-la-terminal-con-el-chat">4. Usar la terminal con el chat</a
+            ><a href="#5-consultar-y-controlar-la-memoria">5. Consultar y controlar la memoria</a
+            ><a href="#6-modelo-voz-avatar-y-sugerencias">6. Modelo, voz, avatar y sugerencias</a
+            ><a href="#7-permisos-y-datos">7. Permisos y datos</a
+            ><a href="#8-atajos-de-teclado">8. Atajos de teclado</a
+            ><a href="#9-problemas-frecuentes">9. Problemas frecuentes</a>
+          </nav>
+        </aside>
+        <article class="prose manual-prose">
+          <section id="1-empezar">
+            <h2>1. Empezar</h2>
+            <ol>
+              <li>
+                Abre Kaoru. En el primer uso, elige un proveedor y un modelo de IA desde
+                <strong>Elegir modelo</strong> si quieres conversar o pedirle tareas. Necesitarás
+                una clave válida o un endpoint local compatible, según el proveedor. La terminal
+                integrada puede abrirse sin clave de IA.
+              </li>
+              <li>
+                Selecciona una carpeta de trabajo desde
+                <strong>Chats → Abrir carpeta y crear chat</strong>. Esa carpeta es el
+                <em>workspace</em>: el proyecto en el que Kaoru interpreta <code>@archivo</code>,
+                lee archivos y, si lo autorizas, ejecuta herramientas. No es necesario mover el
+                proyecto a la carpeta de Kaoru.
+              </li>
+              <li>
+                Escribe una pregunta concreta. Por ejemplo: «Explícame la estructura de este
+                proyecto y dime qué archivos debería revisar; no cambies nada todavía». Después
+                puedes pedir un cambio delimitado y revisar el resultado.
+              </li>
+            </ol>
+            <p>
+              En Linux, Windows y macOS, el selector de carpetas de la interfaz evita tener que
+              cambiar de directorio en una terminal externa. Si usas el lanzador
+              <code>asistente</code> desde una terminal, Kaoru toma la carpeta desde la que lo
+              invocas. La disponibilidad del lanzador depende de la instalación.
+            </p>
+          </section>
+          <section id="2-carpetas-chats-y-terminales">
+            <h2>2. Carpetas, chats y terminales</h2>
+            <p>
+              El nombre de la carpeta aparece en la cabecera. Púlsalo, o abre
+              <strong>Chats</strong>, para cambiar de workspace. El botón <strong>＋</strong> crea
+              otro chat o una terminal en la carpeta actual. En <strong>Chats</strong> también
+              puedes abrir otra carpeta y crear allí un chat o una terminal. La lista agrupa las
+              sesiones por carpeta; <strong>Mostrar más</strong> carga las restantes cuando hay
+              muchas.
+            </p>
+            <p>
+              Cada chat conserva su conversación y queda asociado a una carpeta. Al volver a un
+              chat, Kaoru activa su workspace. Si la carpeta ya no existe o cambió de ubicación, la
+              interfaz pide elegir otra antes de abrirlo. Mientras Kaoru responde o usa
+              herramientas, termina o cancela la tarea antes de cambiar de sesión.
+            </p>
+            <p>
+              La <strong>×</strong> junto a una sesión sirve para eliminar ese chat o terminal, con
+              confirmación. Eliminar un chat quita su conversación,
+              <strong>no borra por sí mismo los recuerdos del explorador de memoria</strong> ni los
+              archivos de tu proyecto. Eliminar una terminal sí cierra su sesión; no uses esta
+              acción para procesos que necesites conservar. Al cerrar la aplicación terminan los
+              procesos de las terminales; reabrir una sesión Terminal inicia una shell nueva en la
+              misma carpeta, no restaura el proceso anterior.
+            </p>
+          </section>
+          <section id="3-conversar-y-trabajar-con-kaoru">
+            <h2>3. Conversar y trabajar con Kaoru</h2>
+            <p>
+              Escribe en el cuadro inferior y pulsa <strong>Enter</strong> para enviar.
+              <strong>Shift+Enter</strong> inserta una nueva línea.
+              <strong>＋ Adjuntar</strong> agrega archivos al mensaje; revisa lo adjuntado antes de
+              enviar. Al escribir <code>@</code>, Kaoru ofrece archivos del workspace para
+              referenciarlos en la pregunta. Al escribir <code>/</code>, muestra comandos
+              disponibles. Puedes elegir una sugerencia con el teclado o con el ratón.
+            </p>
+            <p>
+              La respuesta aparece progresivamente y puede incluir Markdown, bloques de código,
+              actividad del agente, plan, cambios y resultados de herramientas.
+              <strong>Detener</strong> cancela la generación en curso; una acción externa que ya
+              terminó no se deshace por pulsar ese botón. La etiqueta <strong>Auto</strong> indica
+              que no necesitas escoger entre «charla» y «agente»: Kaoru decide internamente cómo
+              atender la petición según el modelo, las herramientas y los permisos disponibles. Si
+              solo quieres una explicación, dilo; si quieres que cambie algo, especifica el
+              resultado esperado.
+            </p>
+            <p>Comandos útiles en el cuadro del chat:</p>
+            <div class="manual-table-scroll">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Escribe</th>
+                    <th>Para qué sirve</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr>
+                    <td><code>/help</code></td>
+                    <td>Consultar la lista actual de comandos.</td>
+                  </tr>
+                  <tr>
+                    <td><code>/model</code></td>
+                    <td>
+                      Ver proveedores/modelos y elegir uno; también puedes usar el selector visual.
+                    </td>
+                  </tr>
+                  <tr>
+                    <td><code>/init</code></td>
+                    <td>
+                      Analizar el proyecto activo y guardar información del proyecto en memoria.
+                    </td>
+                  </tr>
+                  <tr>
+                    <td><code>/memoria</code></td>
+                    <td>Abrir el explorador de memoria.</td>
+                  </tr>
+                  <tr>
+                    <td><code>/mudo</code></td>
+                    <td>Activar o silenciar la voz de salida.</td>
+                  </tr>
+                  <tr>
+                    <td><code>/stats</code></td>
+                    <td>Consultar estadísticas de uso de herramientas, si están disponibles.</td>
+                  </tr>
+                  <tr>
+                    <td><code>/telemetria</code></td>
+                    <td>Ver la comparación de actividad local entre meses, si hay datos.</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+            <p>
+              Usa <code>/help</code> como referencia vigente: algunos comandos adicionales dependen
+              de la configuración o integraciones activas. <strong>Comandos del chat</strong> y
+              <strong>comandos de la terminal</strong> no son lo mismo; por ejemplo,
+              <code>/model</code> va en el chat, mientras que <code>git status</code> va en la
+              terminal.
+            </p>
+            <p>
+              El botón del modelo en el compositor abre el selector de proveedores y modelos. En el
+              código que Kaoru muestra, los bloques de un solo comando de shell ofrecen
+              <strong>Pegar en terminal</strong> y <strong>Ejecutar…</strong> cuando hay una
+              terminal vinculada: pegar no pulsa Enter; ejecutar pide confirmación antes de
+              enviarlo. Revisa siempre el comando, especialmente si modifica archivos o instala
+              software.
+            </p>
+          </section>
+          <section id="4-usar-la-terminal-con-el-chat">
+            <h2>4. Usar la terminal con el chat</h2>
+            <p>
+              Abre <strong>＋ → Nueva terminal</strong>. La terminal utiliza la shell del sistema en
+              el workspace actual. Admite las funciones habituales de esa shell, como historial,
+              autocompletado con <strong>Tab</strong> y <strong>Ctrl+C</strong> para interrumpir, si
+              la shell y el programa activo las admiten. No importa automáticamente el tema ni el
+              historial de Warp u otra aplicación de terminal; la shell puede cargar sus archivos
+              normales de inicio.
+            </p>
+            <p>En la barra de la terminal:</p>
+            <ul>
+              <li>
+                <strong>Buscar</strong> encuentra texto en la salida visible y desplazable, muestra
+                el número de coincidencias y permite ir a la anterior o siguiente.
+              </li>
+              <li>
+                <strong>Chat</strong> abre una conversación vinculada al lado de la terminal, sin
+                detener la shell.
+              </li>
+              <li>
+                <strong>Preguntar a Kaoru</strong> toma el texto seleccionado; si no hay selección,
+                prepara un fragmento reciente de salida. Lo muestra en una tarjeta del chat para que
+                lo revises antes de enviarlo.
+              </li>
+              <li>
+                <strong>Explicar error</strong> prepara una pregunta y adjunta salida reciente
+                cuando Kaoru detecta un posible error. <strong>No se envía automáticamente</strong>.
+              </li>
+              <li>
+                <strong>⋯</strong> cambia la vista y el movimiento del avatar y el tamaño del texto
+                de la terminal.
+              </li>
+              <li>
+                <strong>Reiniciar shell</strong> aparece si la shell no pudo abrirse o terminó.
+              </li>
+            </ul>
+            <p>
+              En el chat lateral, <strong>Ver terminal completa</strong> vuelve a la vista amplia.
+              La conversación y la terminal siguen vinculadas dentro del mismo workspace. Al enviar
+              un mensaje con salida adjunta, el mensaje y la primera respuesta muestran
+              <strong>Ver salida en terminal</strong> para regresar al fragmento relacionado
+              mientras esté disponible en el buffer. La tarjeta permite quitar el adjunto antes de
+              enviar. El fragmento reciente es aproximado: Kaoru no conoce necesariamente los
+              límites exactos entre un comando y el siguiente ni garantiza un código de salida
+              preciso.
+            </p>
+            <p>
+              <strong>Importante:</strong> la terminal ejecuta con los permisos de tu usuario, sin
+              pasar por los permisos del agente de Kaoru. La salida no se agrega al chat ni se envía
+              al proveedor de IA hasta que tú la adjuntas y envías el mensaje. Antes de hacerlo,
+              busca claves, tokens, rutas privadas u otros datos sensibles.
+            </p>
+          </section>
+          <section id="5-consultar-y-controlar-la-memoria">
+            <h2>5. Consultar y controlar la memoria</h2>
+            <p>
+              Escribe <code>/memoria</code> en el chat. El explorador tiene tres vistas:
+              <strong>Grafo</strong> para relaciones, <strong>Lista</strong> para localizar
+              recuerdos concretos y <strong>Línea temporal</strong> para verlos por fecha. Puedes
+              buscar, filtrar por tipo y por relación, centrar el grafo, ampliarlo o abrirlo en
+              pantalla completa.
+            </p>
+            <p>
+              Al seleccionar un recuerdo, el panel de detalle muestra contenido, tipo, confianza,
+              fechas, relaciones y, cuando existe, evidencia de origen. Distingue entre información
+              inferida, confirmada, posiblemente desactualizada y registros sin fuente verificable.
+              Desde ahí puedes <strong>Editar</strong>, <strong>Fijar</strong> o
+              <strong>Olvidar</strong> ese recuerdo. «Olvidar» afecta al recuerdo seleccionado; no
+              equivale a eliminar todos los chats.
+            </p>
+            <p>
+              La sección <strong>Aún no sé sobre ti</strong> permite marcar temas para que Kaoru no
+              pregunte por ellos o posponer la pregunta.
+              <strong>Pregúntale a tu memoria</strong> busca coincidencias en el inventario cargado
+              y permite mostrarlas en el grafo; no es una respuesta nueva generada por el modelo. Si
+              el inventario indica que está truncado o aparece el aviso
+              <strong>Memoria no persistente</strong>, el resultado no representa toda la memoria o
+              puede perderse al cerrar la app, respectivamente.
+            </p>
+          </section>
+          <section id="6-modelo-voz-avatar-y-sugerencias">
+            <h2>6. Modelo, voz, avatar y sugerencias</h2>
+            <p>
+              Elige el modelo de IA desde <strong>Elegir modelo</strong> o con <code>/model</code>.
+              La disponibilidad de visión, herramientas, velocidad, coste y contexto depende del
+              proveedor y modelo elegidos. Un endpoint local para el modelo no convierte
+              automáticamente en locales la voz, navegación u otras integraciones.
+            </p>
+            <p>
+              La voz de salida puede silenciarse con <code>/mudo</code>; la síntesis Edge TTS
+              utiliza un servicio de Microsoft y requiere conexión. La interfaz actual no ofrece
+              entrada de voz por micrófono. El avatar Live2D admite otros modelos compatibles;
+              <code>/cambio-modelo</code> muestra los disponibles y permite cambiarlo. Los derechos
+              de personajes y modelos de terceros son independientes de la licencia del código de
+              Kaoru.
+            </p>
+            <p>
+              En <strong>Ajustes</strong> puedes elegir el grado de iniciativa
+              (<strong>Observar</strong>, <strong>Sugerir</strong> o <strong>Actuar</strong>) y
+              revisar permisos. Una sugerencia proactiva no otorga permisos nuevos al modelo: las
+              acciones siguen sujetas a la política configurada. Si prefieres menos interrupciones,
+              usa un modo menos activo y controla las preguntas de curiosidad desde el explorador de
+              memoria.
+            </p>
+          </section>
+          <section id="7-permisos-y-datos">
+            <h2>7. Permisos y datos</h2>
+            <p>
+              Antes de pedir a Kaoru que cambie archivos o controle el escritorio, revisa
+              <strong>estado → Permisos</strong> y los ajustes. Las reglas de herramientas pueden
+              permitir, pedir confirmación o denegar. No todas las acciones muestran una pregunta:
+              depende de la regla aplicable. Las capacidades de pantalla, teclado, puntero,
+              navegador y otras integraciones tienen controles separados; su funcionamiento también
+              depende del sistema operativo y de la aplicación de destino.
+            </p>
+            <p>
+              La memoria se guarda localmente cuando su almacenamiento está disponible, pero el
+              texto de tus mensajes, archivos adjuntos y salida de terminal que envíes pueden llegar
+              al proveedor de IA que configures. Las integraciones de terceros tienen sus propias
+              condiciones. Consulta el <a href="privacy.html">aviso de privacidad</a> antes de
+              enviar datos sensibles.
+            </p>
+          </section>
+          <section id="8-atajos-de-teclado">
+            <h2>8. Atajos de teclado</h2>
+            <p>
+              Los atajos de la terminal se aplican <strong>cuando tiene el foco</strong>. «Ctrl/Cmd»
+              significa Ctrl en Linux y Windows, y Cmd en macOS. Un atajo global puede no
+              registrarse si otra aplicación ya lo ocupa.
+            </p>
+            <div class="manual-table-scroll">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Dónde</th>
+                    <th>Tecla</th>
+                    <th>Acción</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr>
+                    <td>Chat</td>
+                    <td><strong>Enter</strong></td>
+                    <td>Enviar mensaje o aceptar la sugerencia seleccionada.</td>
+                  </tr>
+                  <tr>
+                    <td>Chat</td>
+                    <td><strong>Shift+Enter</strong></td>
+                    <td>Salto de línea sin enviar.</td>
+                  </tr>
+                  <tr>
+                    <td>Sugerencias <code>@</code> o <code>/</code></td>
+                    <td><strong>Tab</strong>, <strong>↑</strong>, <strong>↓</strong></td>
+                    <td>Recorrer sugerencias; <strong>Enter</strong> inserta la elegida.</td>
+                  </tr>
+                  <tr>
+                    <td>Sugerencias o selector de modelos</td>
+                    <td><strong>Esc</strong></td>
+                    <td>Cerrar el panel.</td>
+                  </tr>
+                  <tr>
+                    <td>Selector de modelos</td>
+                    <td><strong>↑</strong>, <strong>↓</strong>, <strong>Enter</strong></td>
+                    <td>Navegar y elegir o abrir un proveedor/modelo.</td>
+                  </tr>
+                  <tr>
+                    <td>Terminal</td>
+                    <td><strong>Ctrl+F</strong> (o <strong>Cmd+F</strong>)</td>
+                    <td>Abrir la búsqueda de salida.</td>
+                  </tr>
+                  <tr>
+                    <td>Búsqueda de terminal</td>
+                    <td><strong>Enter</strong> / <strong>Shift+Enter</strong></td>
+                    <td>Coincidencia siguiente / anterior; <strong>Esc</strong> cierra.</td>
+                  </tr>
+                  <tr>
+                    <td>Terminal</td>
+                    <td><strong>Ctrl+Shift+C / Ctrl+Shift+V</strong></td>
+                    <td>Copiar selección / pegar en Linux y Windows.</td>
+                  </tr>
+                  <tr>
+                    <td>Terminal en macOS</td>
+                    <td><strong>Cmd+C / Cmd+V</strong></td>
+                    <td>Copiar selección / pegar.</td>
+                  </tr>
+                  <tr>
+                    <td>Shell de terminal</td>
+                    <td><strong>Tab</strong>, <strong>Ctrl+C</strong></td>
+                    <td>Completar según la shell / interrumpir proceso activo.</td>
+                  </tr>
+                  <tr>
+                    <td>Explorador de memoria</td>
+                    <td><strong>Esc</strong></td>
+                    <td>Salir de pantalla completa.</td>
+                  </tr>
+                  <tr>
+                    <td>Aplicación</td>
+                    <td><strong>Ctrl/Cmd+Shift+Q</strong></td>
+                    <td>Cerrar Kaoru por completo, si se pudo registrar el atajo global.</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+            <p>
+              Si <strong>Ctrl/Cmd+Shift+Q</strong> está ocupado, Kaoru intenta registrar
+              <strong>Alt+Shift+Q</strong>. Si ambos están ocupados, usa
+              <strong>Cerrar y salir</strong> en la ventana o <strong>Cerrar todo</strong> en el
+              menú del avatar.
+            </p>
+          </section>
+          <section id="9-problemas-frecuentes">
+            <h2>9. Problemas frecuentes</h2>
+            <div class="manual-table-scroll">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Síntoma</th>
+                    <th>Qué revisar</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr>
+                    <td>«Sin API keys» o Kaoru no responde</td>
+                    <td>
+                      Abre <strong>Elegir modelo</strong>, configura el proveedor/clave o endpoint y
+                      comprueba la conexión. La terminal puede funcionar aunque el chat con IA no
+                      esté configurado.
+                    </td>
+                  </tr>
+                  <tr>
+                    <td>Un chat pide elegir carpeta</td>
+                    <td>
+                      Su workspace anterior ya no está disponible. Selecciona la carpeta correcta;
+                      no asumas que Kaoru encontró automáticamente el proyecto movido.
+                    </td>
+                  </tr>
+                  <tr>
+                    <td>La terminal no muestra el proceso anterior</td>
+                    <td>
+                      Al cerrar Kaoru terminan las shells. La sesión conserva la carpeta, pero no
+                      restaura el proceso ni el estado interactivo.
+                    </td>
+                  </tr>
+                  <tr>
+                    <td><code>Tab</code> no completa en terminal</td>
+                    <td>
+                      La expansión depende de la shell y del programa que está recibiendo las
+                      teclas; comprueba que la terminal tenga el foco.
+                    </td>
+                  </tr>
+                  <tr>
+                    <td>El chat no conoce una salida de terminal</td>
+                    <td>
+                      Selecciónala o usa <strong>Preguntar a Kaoru</strong>, revisa la tarjeta y
+                      envía el mensaje. La terminal no comparte toda su salida automáticamente.
+                    </td>
+                  </tr>
+                  <tr>
+                    <td>La memoria no persiste</td>
+                    <td>
+                      Si aparece el aviso correspondiente, el almacenamiento local está degradado.
+                      Evita confiar en recuerdos nuevos para sesiones futuras hasta resolverlo.
+                    </td>
+                  </tr>
+                  <tr>
+                    <td>Una tarea queda a medias tras <strong>Detener</strong></td>
+                    <td>
+                      La cancelación frena la generación pendiente, pero no revierte efectos ya
+                      completados. Revisa el diff, la terminal y los servicios externos antes de
+                      continuar.
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+            <p>
+              Para instalación y requisitos, consulta el
+              <a href="https://github.com/Dregxmoon/Kaoru-Agent/blob/produccion/README.md"
+                >README principal</a
+              >
+              y los
+              <a href="https://github.com/Dregxmoon/Kaoru-Agent/blob/produccion/docs/requisitos.md"
+                >requisitos</a
+              >. Para información más detallada sobre tratamiento de datos, lee
+              <a href="privacy.html">Privacidad</a>.
+            </p>
+          </section>
+        </article>
+      </div>
+    </main>
+    <footer>
+      <div class="container footer-top">
+        <a class="nav-logo" href="index.html"
+          ><span class="logo-mark" aria-hidden="true">k.</span>Kaoru</a
+        >
+        <nav aria-label="Términos y licencia">
+          <a href="index.html">Inicio</a><a href="guide.html">Guía de uso</a
+          ><a href="manual.html" aria-current="page">Manual de uso</a
+          ><a href="privacy.html">Privacidad</a><a href="terms.html">Términos y licencia</a
+          ><a href="mailto:dregxmoon@gmail.com">dregxmoon@gmail.com</a>
+        </nav>
+      </div>
+      <div class="container footer-bottom">
+        <p>Kaoru · Código bajo licencia MIT</p>
+        <p>
+          Los modelos y personajes de terceros mantienen sus propios derechos. Proyecto
+          independiente, sin afiliación con HoYoverse.
+        </p>
+      </div>
+    </footer>
+  </body>
+</html>

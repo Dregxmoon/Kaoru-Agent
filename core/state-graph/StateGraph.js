@@ -584,7 +584,9 @@ class StateGraph {
         episode_id INTEGER REFERENCES nodes(id),
         memory_cursor INTEGER NOT NULL DEFAULT 0,
         workspace TEXT,
-        last_active_at INTEGER
+        last_active_at INTEGER,
+        session_type TEXT NOT NULL DEFAULT 'chat',
+        terminal_activity INTEGER NOT NULL DEFAULT 0
       );
 
       CREATE TABLE IF NOT EXISTS app_history (
@@ -907,6 +909,14 @@ class StateGraph {
       }
       if (!sessionCols.some((c) => c.name === 'last_active_at')) {
         this._db.exec('ALTER TABLE sessions ADD COLUMN last_active_at INTEGER;');
+      }
+      if (!sessionCols.some((c) => c.name === 'session_type')) {
+        this._db.exec("ALTER TABLE sessions ADD COLUMN session_type TEXT NOT NULL DEFAULT 'chat';");
+      }
+      if (!sessionCols.some((c) => c.name === 'terminal_activity')) {
+        this._db.exec(
+          'ALTER TABLE sessions ADD COLUMN terminal_activity INTEGER NOT NULL DEFAULT 0;'
+        );
       }
 
       const nodeCols = this._db.prepare(`PRAGMA table_info(nodes)`).all();

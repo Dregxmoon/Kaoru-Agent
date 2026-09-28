@@ -783,7 +783,10 @@ document.getElementById('mbr-toggle-all').addEventListener('click', () => {
 function sendMessage(text) {
   const files = [...pendingFiles];
   clearAttachments();
-  processMessage(text, files);
+  const context = window.takeTerminalContext?.();
+  window.pendingTerminalAnchor = context?.anchor || null;
+  window.activeTerminalAnswerAnchor = context?.anchor || null;
+  processMessage(text + (context?.text || ''), files);
 }
 
 // Adjuntos

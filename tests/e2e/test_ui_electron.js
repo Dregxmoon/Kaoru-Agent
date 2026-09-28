@@ -4,7 +4,7 @@
 
 // Los callbacks de page.evaluate() corren en la página (browser), aunque el
 // test en sí viva en Node — por eso window/document se declaran como globals.
-/* global window, document, KeyboardEvent, MouseEvent, renderPlanBlock, preservePlanBlock, pausePlanBlock, resetPlanBlock, renderActivityBlock */
+/* global window, document, KeyboardEvent, MouseEvent, renderPlanBlock, preservePlanBlock, pausePlanBlock, resetPlanBlock, renderActivityBlock, terminalReady, terminalView */
 
 /**
  * E2E UI real — lanza la app Electron completa con Playwright (_electron)
@@ -441,17 +441,22 @@ console.log(C.bold(C.cyan('═════════════════�
       const appEl = document.getElementById('app');
       const panel = document.getElementById('model-panel');
       const container = document.getElementById('model-canvas-container');
+      const nextFrame = () =>
+        Promise.race([
+          new Promise((resolve) => window.requestAnimationFrame(resolve)),
+          new Promise((resolve) => setTimeout(resolve, 300)),
+        ]);
       if (appEl.classList.contains('sessions-open'))
         document.getElementById('sessions-close').click();
-      await new Promise(window.requestAnimationFrame);
+      await nextFrame();
       const canvas = document.getElementById('live2d-chat-canvas');
       const originalWidth = container.getBoundingClientRect().width;
       document.getElementById('sessions-btn').click();
-      await new Promise(window.requestAnimationFrame);
+      await nextFrame();
       const hiddenSize = container.getBoundingClientRect();
       const hidden = window.getComputedStyle(panel).visibility === 'hidden';
       document.getElementById('sessions-close').click();
-      await new Promise(window.requestAnimationFrame);
+      await nextFrame();
       return {
         hidden,
         widthStable: Math.abs(hiddenSize.width - originalWidth) < 2 && hiddenSize.height > 1,
@@ -726,6 +731,74 @@ console.log(C.bold(C.cyan('═════════════════�
         emptyChatLifecycle.currentPresent,
       'dos chats nuevos sin mensajes conservan sólo el borrador actual',
       JSON.stringify(emptyChatLifecycle)
+    );
+    await chat.evaluate(() => document.getElementById('sessions-btn').click());
+    await chat.waitForSelector('#sessions-list .session-delete');
+    const deleteControls = await chat.evaluate(() => {
+      const entries = [...document.querySelectorAll('#sessions-list .session-entry')];
+      return (
+        entries.length > 0 &&
+        entries.every((entry) => {
+          const button = entry.querySelector('.session-delete');
+          return (
+            button?.tagName === 'BUTTON' &&
+            button.getAttribute('aria-label')?.startsWith('Eliminar ')
+          );
+        })
+      );
+    });
+    assert(deleteControls, 'cada chat y terminal de la lista tiene una × accesible para eliminar');
+    await chat.evaluate(() => document.getElementById('sessions-close').click());
+
+    // ── Terminal sin proveedor: PTY real y vuelta al chat ────────────────
+    await chat.click('#new-chat-btn', { force: true });
+    await chat.click('#new-session-terminal', { force: true });
+    await chat.waitForFunction(
+      () => document.getElementById('app').classList.contains('terminal-mode') && terminalReady,
+      null,
+      { timeout: 15000 }
+    );
+    assert(await chat.isVisible('#terminal-panel'), 'la terminal ocupa el panel de chat');
+    await chat.evaluate(() => document.getElementById('sessions-btn').click());
+    await chat.waitForSelector('#sessions-list .session-delete[aria-label^="Eliminar terminal:"]');
+    assert(
+      (await chat
+        .locator('#sessions-list .session-delete[aria-label^="Eliminar terminal:"]')
+        .count()) > 0,
+      'las terminales de la lista también muestran una × para eliminar'
+    );
+    await chat.evaluate(() => document.getElementById('sessions-close').click());
+    assert(
+      !(await chat.evaluate(() =>
+        document.getElementById('app').classList.contains('sessions-open')
+      )),
+      'la lista de sesiones no se abre automáticamente sobre la terminal'
+    );
+    assert(await chat.isDisabled('#msg-input'), 'la terminal no acepta mensajes del agente');
+    await chat.evaluate(() => terminalView.focus());
+    await chat.keyboard.type('echo KAORU_PTY_E2E');
+    await chat.keyboard.press('Enter');
+    await chat.waitForFunction(
+      () => {
+        const lines = [];
+        const buffer = terminalView?.buffer?.active;
+        if (!buffer) return false;
+        for (let i = 0; i < buffer.length; i++) lines.push(buffer.getLine(i)?.translateToString());
+        return lines.join('\n').includes('KAORU_PTY_E2E');
+      },
+      null,
+      { timeout: 15000 }
+    );
+    assert(true, 'la shell integrada ejecuta un comando y muestra su salida');
+    await chat.click('#new-chat-btn', { force: true });
+    await chat.click('#new-session-chat', { force: true });
+    await chat.waitForFunction(
+      () => !document.getElementById('app').classList.contains('terminal-mode')
+    );
+    assert(await chat.isEnabled('#msg-input'), 'al volver a Chat reaparece el campo de mensajes');
+    assert(
+      await chat.evaluate(() => document.getElementById('live2d-chat-canvas').width > 0),
+      'el avatar permanece montado al cambiar entre Terminal y Chat'
     );
 
     // ── Overlay ───────────────────────────────────────────────────────────

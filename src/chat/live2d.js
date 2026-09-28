@@ -4,6 +4,28 @@ let _modelResizeFrame = 0;
 let _modelResizeObserver = null;
 let _avatarPresenceTimer = 0;
 let _avatarOverflowTimer = 0;
+let _terminalAvatarMode = false;
+let _terminalAvatarView = window.terminalAvatarViewPreference === 'half' ? 'half' : 'full';
+
+function setTerminalAvatarMode(enabled) {
+  _terminalAvatarMode = Boolean(enabled);
+  if (!enabled) document.getElementById('model-canvas-container').dataset.terminalActivity = 'idle';
+  if (model) applyView(currentView);
+}
+window.setTerminalAvatarMode = setTerminalAvatarMode;
+
+function setTerminalAvatarView(view) {
+  _terminalAvatarView = view === 'half' ? 'half' : 'full';
+  if (_terminalAvatarMode && model) applyView(currentView);
+}
+window.setTerminalAvatarView = setTerminalAvatarView;
+
+function setTerminalAvatarActivity(activity) {
+  const allowed = new Set(['idle', 'typing', 'working', 'success', 'error']);
+  document.getElementById('model-canvas-container').dataset.terminalActivity =
+    _terminalAvatarMode && allowed.has(activity) ? activity : 'idle';
+}
+window.setTerminalAvatarActivity = setTerminalAvatarActivity;
 
 /**
  * Hace que el avatar invada ligeramente el área del chat sin mover el layout.
@@ -40,9 +62,16 @@ function animateAvatarPresence(mode = 'peek') {
 window.animateAvatarPresence = animateAvatarPresence;
 
 async function loadModel() {
-  await loadLLMConfig();
-  updateLlmHint();
-  checkOpenClaw();
+  // El avatar no depende de una API key: cargar su modelo en paralelo a la
+  // configuración del agente permite usar Terminal incluso sin proveedor.
+  loadLLMConfig()
+    .catch(() => {})
+    .finally(() => {
+      updateLlmHint();
+      checkOpenClaw();
+    });
+
+  _terminalAvatarMode = document.getElementById('app').classList.contains('terminal-mode');
 
   if (!_modelInfo) _modelInfo = await ipcRenderer.invoke('get-model-info').catch(() => null);
   if (!_modelInfo || !_modelInfo.model3Path) {
@@ -158,7 +187,8 @@ function applyView(view) {
     return;
   }
   if (!VIEW[view]) return;
-  const cfg = VIEW[view];
+  const effectiveView = _terminalAvatarMode ? _terminalAvatarView : view;
+  const cfg = VIEW[effectiveView];
   const W = pixiApp.screen.width,
     H = pixiApp.screen.height;
   const B = modelBounds || { x: 0, y: 0, width: modelNativeW || 1, height: modelNativeH || 1 };
@@ -175,15 +205,21 @@ function applyView(view) {
   model.scale.set(ts);
   model.anchor.set(cx, ay);
   model.position.set(tx, ty);
-  currentView = view;
+  if (!_terminalAvatarMode) currentView = view;
 }
 
 function triggerMotion() {
   try {
+    if (
+      _terminalAvatarMode &&
+      (document.getElementById('app').dataset.terminalMotion === 'off' ||
+        window.matchMedia('(prefers-reduced-motion: reduce)').matches)
+    )
+      return;
     const defs = model?.internalModel?.motionManager?.definitions;
     if (!defs || !Array.isArray(defs.Idle) || !defs.Idle.length) return;
     model.motion('Idle', Math.floor(Math.random() * defs.Idle.length));
-    if (Math.random() < 0.35) animateAvatarPresence('peek');
+    if (!_terminalAvatarMode && Math.random() < 0.35) animateAvatarPresence('peek');
   } catch (_) {}
 }
 

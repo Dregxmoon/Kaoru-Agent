@@ -66,14 +66,16 @@
           Configuration, tasks and review criteria for using Kaoru on your device or in a client
           project.
         </p>
+        <p><a href="../manual.html">Read the full product manual (Spanish) →</a></p>
       </header>
       <div class="container document-layout">
         <aside class="toc">
           <nav aria-label="On this page">
             <strong>On this page</strong><a href="#install">Installation and first launch</a
             ><a href="#provider">Provider, model and cost</a
-            ><a href="#workspace">Workspace and rules</a><a href="#task">A useful first task</a
-            ><a href="#verification">Tests and completion</a
+            ><a href="#workspace">Workspace and rules</a
+            ><a href="#terminal-chat">Terminal with a side chat</a
+            ><a href="#task">A useful first task</a><a href="#verification">Tests and completion</a
             ><a href="#desktop">Voice, browser and operating system</a
             ><a href="#connections">Integrations and teamwork</a
             ><a href="#recovery">Continuity and recovery</a
@@ -140,8 +142,18 @@ npx electron .</code></pre>
               resolved separately.
             </p>
           </section>
+          <section id="terminal-chat">
+            <h2>4. Terminal with a side chat</h2>
+            <p>
+              Create a terminal in your workspace and choose Chat to open a linked conversation
+              without stopping the shell. Select output and use Ask Kaoru to attach it as a
+              reviewable card before sending. Explain error prepares a draft. Single-line shell
+              snippets from chat can be pasted without running or run after explicit confirmation.
+              The shell uses your user permissions.
+            </p>
+          </section>
           <section id="task">
-            <h2>4. A useful first task</h2>
+            <h2>5. A useful first task</h2>
             <p>
               Try: “Analyze how this form is validated, identify the relevant files and propose
               tests; do not edit yet.” Then authorize a specific change with an observable result.
@@ -150,7 +162,7 @@ npx electron .</code></pre>
             </p>
           </section>
           <section id="verification">
-            <h2>5. Tests and completion</h2>
+            <h2>6. Tests and completion</h2>
             <p>
               Configure your project’s commands. In smart mode, verification after recognized
               mutations can run quality scripts and a fallback JavaScript syntax check. Automatic
@@ -159,7 +171,7 @@ npx electron .</code></pre>
             </p>
           </section>
           <section id="desktop">
-            <h2>6. Voice, browser and operating system</h2>
+            <h2>7. Voice, browser and operating system</h2>
             <p>
               For a task across apps, describe the results you want to observe: ‘open the report in
               the editor, create a reminder and confirm it appears’. Kaoru prepares and reviews a
@@ -172,7 +184,7 @@ npx electron .</code></pre>
             </p>
           </section>
           <section id="connections">
-            <h2>7. Integrations and teamwork</h2>
+            <h2>8. Integrations and teamwork</h2>
             <p>
               Connect only authorized accounts. Choose the scopes you need in GitHub, and revoke
               access you no longer use. Review plugin origins and permissions. Start with a test
@@ -180,7 +192,7 @@ npx electron .</code></pre>
             </p>
           </section>
           <section id="recovery">
-            <h2>8. Continuity and recovery</h2>
+            <h2>9. Continuity and recovery</h2>
             <p>
               Memory and durable objectives require working local storage. Keep backups before
               important operations. A checkpoint does not automatically undo actions in external
@@ -189,7 +201,7 @@ npx electron .</code></pre>
             </p>
           </section>
           <section id="delivery">
-            <h2>9. Before a client handoff</h2>
+            <h2>10. Before a client handoff</h2>
             <p>
               Check functionality, diffs, tests and reported limitations. Document the provider,
               permissions and data handling for that installation. For commercial distribution, use

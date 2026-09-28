@@ -853,24 +853,27 @@ function createChatWindow() {
       reason: usingFallback ? graph.fallbackReason || null : null,
     });
 
-    // Validación temprana de config: mostrar issues EN LA VENTANA (burbuja
-    // visual, fuera del historial que ve el LLM) antes del primer mensaje.
-    for (const issue of startupConfigState.issues) {
-      S.chatWindow.webContents.send('startup-notice', { message: issue.message });
-      if (!S.mainWindow || S.mainWindow.isDestroyed()) continue;
-      S.mainWindow.webContents.send('speak', issue.message.replace(/\*\*/g, '').slice(0, 220));
-    }
-
     sessionPromise
       .then((result) => {
         if (result?.ok && S.chatWindow && !S.chatWindow.isDestroyed()) {
           sendToChat('conversation-opened', result.conversation);
+        }
+        if (result?.conversation?.type === 'terminal') return;
+        // Los avisos de proveedor pertenecen al Chat y no interrumpen Terminal.
+        for (const issue of startupConfigState.issues) {
+          sendToChat('startup-notice', { message: issue.message });
+          if (S.mainWindow && !S.mainWindow.isDestroyed())
+            S.mainWindow.webContents.send(
+              'speak',
+              issue.message.replace(/\*\*/g, '').slice(0, 220)
+            );
         }
       })
       .catch(() => {});
   });
 
   S.chatWindow.on('closed', () => {
+    require('./ipc/terminal-handlers.js').closeAll();
     require('./ipc/chat-handlers.js').clearRendererBusy();
     try {
       require('./ipc/openclaw-handlers.js').resetSessionApprovals();
@@ -981,6 +984,11 @@ require('./ipc/security-handlers.js').register(ctx);
 require('./ipc/proactive-handlers.js').register(ctx);
 require('./ipc/overlay-handlers.js').register(ctx);
 require('./ipc/chat-handlers.js').register(ctx);
+ctx.sendTerminalGesture = (mood) => {
+  sendOverlayGesture(mood, { source: 'terminal' });
+  sendToChat('gesture', { mood, source: 'terminal' });
+};
+require('./ipc/terminal-handlers.js').register(ctx);
 require('./ipc/intentions-handlers.js').register();
 
 // Servidor HTTP local
@@ -1468,6 +1476,7 @@ app.on('before-quit', (event) => {
   if (_quitting) return;
   event.preventDefault();
   _quitting = true;
+  require('./ipc/terminal-handlers.js').closeAll();
   (async () => {
     try {
       await withTimeout(Core.shutdown(), SHUTDOWN_TIMEOUT_MS);

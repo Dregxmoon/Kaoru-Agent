@@ -26,6 +26,21 @@ messagesEl.addEventListener('click', async (event) => {
   const button = event.target.closest('button[data-code-action]');
   const frame = button?.closest('.message-code');
   if (!frame) return;
+  if (
+    button.dataset.codeAction === 'paste-terminal' ||
+    button.dataset.codeAction === 'run-terminal'
+  ) {
+    if (!frame.closest('.msg.assistant')) return;
+    const command = frame.querySelector('pre > code')?.textContent?.trim();
+    const executed = window.sendSuggestedTerminalCommand?.(
+      command,
+      button.dataset.codeAction === 'run-terminal'
+    );
+    if (!executed)
+      button.title =
+        'Abre primero el chat vinculado a una terminal y usa un solo comando por bloque.';
+    return;
+  }
   if (button.dataset.codeAction === 'wrap') {
     const wrap = frame.classList.toggle('wrap-code');
     button.setAttribute('aria-pressed', String(wrap));
@@ -68,6 +83,23 @@ function addMessage(role, text, files = []) {
     bubble.querySelectorAll('.mermaid').forEach((el) => _renderMermaid(el));
   } else {
     bubble.textContent = text;
+  }
+
+  const terminalAnchor =
+    role === 'user'
+      ? window.pendingTerminalAnchor
+      : role === 'assistant'
+        ? window.activeTerminalAnswerAnchor
+        : null;
+  if (terminalAnchor) {
+    const link = document.createElement('button');
+    link.type = 'button';
+    link.className = 'terminal-context-link';
+    link.textContent = '↗ Ver salida en terminal';
+    link.addEventListener('click', () => window.revealTerminalAnchor?.(terminalAnchor));
+    bubble.appendChild(link);
+    if (role === 'user') window.pendingTerminalAnchor = null;
+    if (role === 'assistant') window.activeTerminalAnswerAnchor = null;
   }
 
   files.forEach((f) => {

@@ -80,10 +80,30 @@ try {
   assert.strictEqual(restored.turnCount, 45);
   assert.strictEqual(manager.getHistory()[0].seq, 6);
 
+  const terminalId = graph._sessions.startTerminal(workspaceB);
+  graph._sessions.markTerminalActivity(terminalId);
+  assert.strictEqual(graph._sessions.deleteEmptyConversation(terminalId), false);
+  assert.strictEqual(graph._sessions.deleteConversation(terminalId), true);
+  assert.strictEqual(graph._sessions.getSession(terminalId), null);
+  assert.strictEqual(graph._sessions.deleteConversation(second.sessionId), true);
+  assert.strictEqual(graph._sessions.getSession(second.sessionId), null);
+  assert.strictEqual(graph._sessions.deleteConversation(second.sessionId), false);
+  assert.strictEqual(graph._sessions.deleteConversation(-1), false);
+
   graph.close();
   graph = new StateGraph(path.join(dir, 'memory.db')).init();
   assert.strictEqual(graph._sessions.getSession(first.sessionId).workspace, workspaceA);
-  assert.strictEqual(graph._sessions.listConversations().length, 2);
+  assert.strictEqual(graph._sessions.listConversations().length, 1);
+  const extraIds = Array.from({ length: 101 }, () => graph._sessions.startTerminal(workspaceB));
+  assert.strictEqual(graph._sessions.listConversations(100).length, 100);
+  assert.strictEqual(graph._sessions.conversationCounts()[workspaceB], 101);
+  assert.strictEqual(graph._sessions.deleteConversation(extraIds.at(-1)), true);
+  assert.strictEqual(graph._sessions.conversationCounts()[workspaceB], 100);
+  assert.strictEqual(graph._sessions.listConversations(99).length, 99);
+  const noWorkspaceIds = Array.from({ length: 100 }, () => graph._sessions.startSession());
+  assert.strictEqual(graph._sessions.conversationCounts()['Sin carpeta asociada'], 100);
+  assert.strictEqual(graph._sessions.deleteConversation(noWorkspaceIds[0]), true);
+  assert.strictEqual(graph._sessions.conversationCounts()['Sin carpeta asociada'], 99);
   graph.close();
 
   const oldDbPath = path.join(dir, 'old.db');
@@ -102,6 +122,7 @@ try {
     null,
     'las sesiones antiguas conservan workspace desconocido'
   );
+  assert.strictEqual(legacy.session_type, 'chat', 'las sesiones antiguas migran como chat');
   assert.strictEqual(graph._sessions.listConversations().length, 1);
   console.log('Conversaciones: workspace, historial completo y reapertura persistente OK');
 } finally {

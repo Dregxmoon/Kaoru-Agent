@@ -3,6 +3,7 @@
 const fs = require('fs/promises');
 const path = require('path');
 const prettier = require('prettier');
+const { marked } = require('marked');
 
 const root = path.resolve(__dirname, '../docs/web');
 const languages = ['es', 'en', 'ja'];
@@ -33,15 +34,16 @@ function cards(items, extra = '') {
 
 function layout(c, page, body) {
   const prefix = c.lang === 'es' ? './' : '../';
-  const links = languages
+  const pageLanguages = page === 'manual' ? ['es'] : languages;
+  const links = pageLanguages
     .map(
       (lang) =>
         `<a href="${prefix}${pagePath(lang, page)}" lang="${lang}" hreflang="${lang}" ${lang === c.lang ? 'aria-current="page"' : ''}>${{ es: 'Español', en: 'English', ja: '日本語' }[lang]}</a>`
     )
     .join('');
   const title = page === 'index' ? c.title : `${c.pages[page]} — Kaoru`;
-  return `<!doctype html><html lang="${c.lang}"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="description" content="${escape(page === 'index' ? c.description : page === 'guide' ? c.guideIntro : c.legalIntro)}"><meta name="color-scheme" content="light dark"><meta name="theme-color" content="#f8f8f7"><title>${escape(title)}</title>
-  ${languages.map((lang) => `<link rel="alternate" hreflang="${lang}" href="${prefix}${pagePath(lang, page)}">`).join('')}<link rel="alternate" hreflang="x-default" href="${prefix}${page}.html">
+  return `<!doctype html><html lang="${c.lang}"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="description" content="${escape(page === 'index' ? c.description : page === 'guide' ? c.guideIntro : page === 'manual' ? c.manualIntro : c.legalIntro)}"><meta name="color-scheme" content="light dark"><meta name="theme-color" content="#f8f8f7"><title>${escape(title)}</title>
+  ${pageLanguages.map((lang) => `<link rel="alternate" hreflang="${lang}" href="${prefix}${pagePath(lang, page)}">`).join('')}<link rel="alternate" hreflang="x-default" href="${prefix}${page}.html">
   <link rel="stylesheet" href="${prefix}assets/styles.css"><script src="${prefix}assets/main.js"></script></head><body>
   <a class="skip-link" href="#main">${c.skip}</a><header class="nav"><div class="nav-inner"><a class="nav-logo" href="index.html" aria-label="Kaoru"><span class="logo-mark" aria-hidden="true">k.</span>Kaoru</a>
   <nav class="nav-links" id="site-navigation" aria-label="${c.pages.index}"><a href="index.html#features">${c.nav[0]}</a><a href="index.html#workflow">${c.nav[1]}</a><a href="index.html#security">${c.nav[2]}</a><a href="index.html#requirements">${c.nav[3]}</a><a href="guide.html" ${page === 'guide' ? 'aria-current="page"' : ''}>${c.nav[4]}</a></nav>
@@ -85,8 +87,53 @@ function home(c) {
 }
 
 function guide(c) {
+  const manualHref = c.lang === 'es' ? 'manual.html' : '../manual.html';
   const toc = `<aside class="toc"><nav aria-label="${c.contents}"><strong>${c.contents}</strong>${c.guideSections.map(([id, title]) => `<a href="#${id}">${title}</a>`).join('')}</nav></aside>`;
-  return `<header class="page-heading container"><span class="eyebrow">KAORU / ${c.pages.guide}</span><h1>${c.pages.guide}</h1><p>${c.guideIntro}</p></header><div class="container document-layout">${toc}<article class="prose">${c.guideSections.map(([id, title, text], i) => `<section id="${id}"><h2>${i + 1}. ${title}</h2><p>${text}</p>${id === 'install' ? `<div class="code-block"><div class="code-heading"><span>Git / npm</span><button type="button" class="copy-button" data-copy="install-commands" data-copied="${c.copied}" data-error="${c.copyError}">${c.copy}</button></div><pre><code id="install-commands">${escape(commands)}</code></pre></div><p class="copy-status" role="status" aria-live="polite"></p><p>${c.installNote}</p><p class="inline-links"><a href="${repo}/blob/produccion/README.md">${c.installDocs} ↗</a><a href="${repo}/blob/produccion/docs/requisitos.md">${c.requirementsLink} ↗</a><a href="${repo}/releases">${c.release} ↗</a></p>` : ''}</section>`).join('')}<p class="note"><a href="privacy.html">${c.pages.privacy}</a> · <a href="terms.html">${c.pages.terms}</a></p></article></div>`;
+  return `<header class="page-heading container"><span class="eyebrow">KAORU / ${c.pages.guide}</span><h1>${c.pages.guide}</h1><p>${c.guideIntro}</p><p><a href="${manualHref}">${escape(c.manualLink)} →</a></p></header><div class="container document-layout">${toc}<article class="prose">${c.guideSections.map(([id, title, text], i) => `<section id="${id}"><h2>${i + 1}. ${title}</h2><p>${text}</p>${id === 'install' ? `<div class="code-block"><div class="code-heading"><span>Git / npm</span><button type="button" class="copy-button" data-copy="install-commands" data-copied="${c.copied}" data-error="${c.copyError}">${c.copy}</button></div><pre><code id="install-commands">${escape(commands)}</code></pre></div><p class="copy-status" role="status" aria-live="polite"></p><p>${c.installNote}</p><p class="inline-links"><a href="${repo}/blob/produccion/README.md">${c.installDocs} ↗</a><a href="${repo}/blob/produccion/docs/requisitos.md">${c.requirementsLink} ↗</a><a href="${repo}/releases">${c.release} ↗</a></p>` : ''}</section>`).join('')}<p class="note"><a href="privacy.html">${c.pages.privacy}</a> · <a href="terms.html">${c.pages.terms}</a></p></article></div>`;
+}
+
+function manual(c, source) {
+  const sections = [...source.matchAll(/^## (\d+)\. (.+)$/gm)];
+  if (sections.length < 1) throw new Error('El manual no contiene secciones numeradas');
+  const intro = source
+    .split('## Índice')[0]
+    .replace(/^# [^\n]+\n/, '')
+    .trim();
+  const renderer = new marked.Renderer();
+  const destinations = {
+    './web/privacy.html': 'privacy.html',
+    '../README.md': `${repo}/blob/produccion/README.md`,
+    './requisitos.md': `${repo}/blob/produccion/docs/requisitos.md`,
+  };
+  renderer.html = (raw) => escape(raw);
+  renderer.image = (_href, _title, alt) => escape(alt);
+  renderer.link = (href, title, text) => {
+    const target = destinations[href] || (href.startsWith('#') ? href : null);
+    if (!target) throw new Error(`Enlace del manual sin ruta web: ${href}`);
+    return `<a href="${escape(target)}"${title ? ` title="${escape(title)}"` : ''}>${text}</a>`;
+  };
+  const render = (text) =>
+    marked
+      .parse(text, { renderer, gfm: true })
+      .replace(
+        /<table>[\s\S]*?<\/table>/g,
+        (table) => `<div class="manual-table-scroll">${table}</div>`
+      );
+  const slug = (number, title) =>
+    `${number}-${title}`
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, '-')
+      .replace(/^-|-$/g, '');
+  const entries = sections.map((match, index) => {
+    const id = slug(match[1], match[2]);
+    const end = sections[index + 1]?.index ?? source.length;
+    const body = source.slice(match.index + match[0].length, end).trim();
+    return { id, title: `${match[1]}. ${match[2]}`, body: render(body) };
+  });
+  const toc = `<aside class="toc"><nav aria-label="${escape(c.contents)}"><strong>${escape(c.contents)}</strong>${entries.map(({ id, title }) => `<a href="#${id}">${escape(title)}</a>`).join('')}</nav></aside>`;
+  return `<header class="page-heading container"><span class="eyebrow">KAORU / ${escape(c.pages.manual)}</span><h1>${escape(c.pages.manual)}</h1>${render(intro)}</header><div class="container document-layout manual-layout">${toc}<article class="prose manual-prose">${entries.map(({ id, title, body }) => `<section id="${id}"><h2>${escape(title)}</h2>${body}</section>`).join('')}</article></div>`;
 }
 
 function legal(c, page, fragment) {
@@ -97,21 +144,26 @@ function legal(c, page, fragment) {
 
 async function main() {
   let stale = false;
+  const manualSource = await fs.readFile(path.resolve(root, '../manual-de-uso.md'), 'utf8');
   for (const lang of languages) {
     const content = JSON.parse(
       await fs.readFile(path.join(root, 'content', `${lang}.json`), 'utf8')
     );
-    for (const page of ['index', 'guide', 'privacy', 'terms']) {
+    for (const page of lang === 'es'
+      ? ['index', 'guide', 'manual', 'privacy', 'terms']
+      : ['index', 'guide', 'privacy', 'terms']) {
       const body =
         page === 'index'
           ? home(content)
           : page === 'guide'
             ? guide(content)
-            : legal(
-                content,
-                page,
-                await fs.readFile(path.join(root, 'content', lang, `${page}.html`), 'utf8')
-              );
+            : page === 'manual'
+              ? manual(content, manualSource)
+              : legal(
+                  content,
+                  page,
+                  await fs.readFile(path.join(root, 'content', lang, `${page}.html`), 'utf8')
+                );
       const html = await prettier.format(layout(content, page, body), {
         parser: 'html',
         printWidth: 100,
@@ -130,7 +182,7 @@ async function main() {
     }
   }
   if (stale) process.exitCode = 1;
-  else console.log('Website: 12 pages, es / en / ja.');
+  else console.log('Website: 13 pages, es / en / ja.');
 }
 
 main().catch((error) => {

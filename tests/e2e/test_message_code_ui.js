@@ -170,6 +170,29 @@ async function main() {
       await page.getByRole('button', { name: 'Ajustar líneas' }).getAttribute('aria-pressed'),
       'true'
     );
+    await page.evaluate(() => {
+      window.terminalWrites = [];
+      window.sendSuggestedTerminalCommand = (command, execute) => {
+        window.terminalWrites.push({ command, execute });
+        return true;
+      };
+      document.querySelector('.msg-bubble').innerHTML = renderMarkdown('```bash\nnpm test\n```');
+    });
+    await page.getByRole('button', { name: 'Pegar en terminal' }).click();
+    await page.getByRole('button', { name: 'Ejecutar…' }).click();
+    assert.deepEqual(await page.evaluate(() => window.terminalWrites), [
+      { command: 'npm test', execute: false },
+      { command: 'npm test', execute: true },
+    ]);
+    await page.evaluate(() => {
+      document.querySelector('.msg-bubble').innerHTML = renderMarkdown(
+        '```bash\necho uno\necho dos\n```'
+      );
+    });
+    assert.equal(await page.getByRole('button', { name: 'Ejecutar…' }).count(), 0);
+    await page.evaluate((text) => {
+      document.querySelector('.msg-bubble').innerHTML = renderMarkdown(text);
+    }, markdown);
     for (const theme of ['dark', 'light']) {
       await page.evaluate(
         (value) => document.documentElement.setAttribute('data-theme', value),
@@ -280,6 +303,35 @@ async function main() {
     assert.match(await runPage.locator('.run-overview-detail').innerText(), /1 cambios reportados/);
     assert.match(await runPage.locator('.run-overview-detail').innerText(), /Editar archivo/);
     await runPage.close();
+    const companion = await browser.newPage({ viewport: { width: 1200, height: 800 } });
+    await companion.setContent(`
+      <div id="app" class="terminal-companion">
+        <div id="header"></div>
+        <div id="chat-panel">
+          <div id="terminal-companion-header">KAORU · TERMINAL</div>
+          <div id="messages">Chat</div>
+          <div id="terminal-panel">
+            <div class="terminal-toolbar">Terminal</div>
+            <div id="terminal-screen"><div id="terminal-viewport"></div></div>
+          </div>
+          <div id="input-area">Mensaje</div>
+        </div>
+        <div id="model-panel"></div>
+      </div>
+    `);
+    await companion.addStyleTag({ path: path.resolve(__dirname, '../../src/chat.css') });
+    const bounds = () =>
+      companion.evaluate(() => {
+        const terminal = document.getElementById('terminal-panel').getBoundingClientRect();
+        const messages = document.getElementById('messages').getBoundingClientRect();
+        return { terminal: terminal.toJSON(), messages: messages.toJSON() };
+      });
+    let panes = await bounds();
+    assert(panes.terminal.right <= panes.messages.left + 1, 'terminal y chat no se solapan');
+    await companion.setViewportSize({ width: 620, height: 800 });
+    panes = await bounds();
+    assert(panes.terminal.bottom <= panes.messages.top + 1, 'en móvil se apilan sin solaparse');
+    await companion.close();
     console.log(
       'Message UI: code controls, exact copy, typography, themes, mobile, sanitization and streaming passed.'
     );

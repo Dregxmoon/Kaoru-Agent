@@ -504,6 +504,7 @@ function init(app) {
     const startBackgroundEngines = () => {
       if (backgroundStarted) return;
       backgroundStarted = true;
+      if (state.activeTerminalId) return;
       state.proactive.start();
       state.goalGovernor.start();
       state.proactive

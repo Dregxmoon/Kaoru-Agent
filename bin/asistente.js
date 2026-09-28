@@ -51,7 +51,15 @@ function spawnElectron(appRoot, workspace, spawnImpl = spawn) {
   });
 }
 
+function isIntegratedTerminal(env = process.env) {
+  return env.KAORU_INTEGRATED_TERMINAL === '1';
+}
+
 function main() {
+  if (isIntegratedTerminal()) {
+    console.log('Kaoru ya está abierta. Usa el selector de workspaces de la aplicación.');
+    return;
+  }
   const appRoot = path.join(__dirname, '..');
   console.log(`Iniciando asistente en: ${cwd}`);
   const child = spawnElectron(appRoot, cwd);
@@ -64,4 +72,4 @@ function main() {
 
 if (require.main === module) main();
 
-module.exports = { resolveElectronBinary, spawnElectron };
+module.exports = { resolveElectronBinary, spawnElectron, isIntegratedTerminal };

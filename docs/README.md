@@ -13,23 +13,25 @@
 ## Empieza aquí
 
 La [web pública](./web/index.html) y su [guía de uso](./web/guide.html) están disponibles en
-español, inglés y japonés. Consulta [cómo mantener la web](./web/README.md) para actualizar el diseño
-compartido y generar las páginas.
+español, inglés y japonés. El [manual completo en la web](./web/manual.html) está disponible en
+español. Consulta [cómo mantener la web](./web/README.md) para actualizar el diseño compartido y
+generar las páginas.
 
-| Quiero…                          | Documento                                              |
-| -------------------------------- | ------------------------------------------------------ |
-| conocer el proyecto o instalarlo | [README principal](../README.md)                       |
-| entender procesos, Core y flujos | [Arquitectura](./arquitectura.md)                      |
-| entender el agente de ingeniería | [Agente de código](./agente-codigo.md)                 |
-| distribuir a testers o usuarios  | [Distribución](./distribucion.md)                      |
-| trabajar en el núcleo            | [Core](../core/README.md)                              |
-| revisar renderer, preload e IPC  | [Interfaz](../src/README.md) y [IPC](../ipc/README.md) |
-| entender sensores y servicios    | [Infraestructura](../infrastructure/README.md)         |
-| revisar control del escritorio   | [Automatización desktop](../core/desktop/README.md)    |
-| conocer qué datos usa Kaoru      | [Aviso de privacidad](./web/privacy.html)              |
-| consultar las condiciones de uso | [Términos de uso](./web/terms.html)                    |
-| ejecutar o ampliar pruebas       | [Estrategia de pruebas](../tests/README.md)            |
-| contribuir en otro idioma        | [Política de localización](./i18n/README.md)           |
+| Quiero…                                          | Documento                                              |
+| ------------------------------------------------ | ------------------------------------------------------ |
+| conocer el proyecto o instalarlo                 | [README principal](../README.md)                       |
+| aprender a usar chat, terminal, memoria y atajos | [Manual de uso](./manual-de-uso.md)                    |
+| entender procesos, Core y flujos                 | [Arquitectura](./arquitectura.md)                      |
+| entender el agente de ingeniería                 | [Agente de código](./agente-codigo.md)                 |
+| distribuir a testers o usuarios                  | [Distribución](./distribucion.md)                      |
+| trabajar en el núcleo                            | [Core](../core/README.md)                              |
+| revisar renderer, preload e IPC                  | [Interfaz](../src/README.md) y [IPC](../ipc/README.md) |
+| entender sensores y servicios                    | [Infraestructura](../infrastructure/README.md)         |
+| revisar control del escritorio                   | [Automatización desktop](../core/desktop/README.md)    |
+| conocer qué datos usa Kaoru                      | [Aviso de privacidad](./web/privacy.html)              |
+| consultar las condiciones de uso                 | [Términos de uso](./web/terms.html)                    |
+| ejecutar o ampliar pruebas                       | [Estrategia de pruebas](../tests/README.md)            |
+| contribuir en otro idioma                        | [Política de localización](./i18n/README.md)           |
 
 ## Principio documental
 

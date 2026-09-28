@@ -16,9 +16,46 @@ class SessionStore {
     return result.lastInsertRowid;
   }
 
+  startTerminal(workspace) {
+    const now = Date.now();
+    if (this._graph?.usingFallback) {
+      const id = this.startSession(workspace);
+      const row = this.getSession(id);
+      row.session_type = 'terminal';
+      row.terminal_activity = 0;
+      return id;
+    }
+    return this._db
+      .prepare(
+        "INSERT INTO sessions (started_at, workspace, last_active_at, session_type) VALUES (?, ?, ?, 'terminal')"
+      )
+      .run(now, workspace, now).lastInsertRowid;
+  }
+
+  markTerminalActivity(id) {
+    const row = this.getSession(id);
+    if (!row || row.session_type !== 'terminal') return;
+    if (this._graph?.usingFallback) {
+      row.terminal_activity = (row.terminal_activity || 0) + 1;
+      row.last_active_at = Date.now();
+      return;
+    }
+    this._db
+      .prepare(
+        'UPDATE sessions SET terminal_activity=terminal_activity+1, last_active_at=? WHERE id=?'
+      )
+      .run(Date.now(), id);
+  }
+
   getSession(id) {
     if (this._graph?.usingFallback) return this._db._sessions.get(id) || null;
     return this._db.prepare('SELECT * FROM sessions WHERE id = ?').get(id) || null;
+  }
+
+  deleteConversation(id) {
+    if (!Number.isSafeInteger(id) || id <= 0) return false;
+    if (this._graph?.usingFallback) return this._db._sessions.delete(id);
+    return this._db.prepare('DELETE FROM sessions WHERE id = ?').run(id).changes > 0;
   }
 
   deleteEmptyConversation(id) {
@@ -28,7 +65,8 @@ class SessionStore {
       Number(row.turn_count || 0) !== 0 ||
       (row.history_json && row.history_json !== '[]') ||
       row.summary ||
-      row.episode_id
+      row.episode_id ||
+      Number(row.terminal_activity || 0) > 0
     )
       return false;
     if (this._graph?.usingFallback) return this._db._sessions.delete(id);
@@ -37,7 +75,8 @@ class SessionStore {
         .prepare(
           `DELETE FROM sessions WHERE id = ? AND COALESCE(turn_count, 0) = 0
            AND (history_json IS NULL OR history_json = '[]')
-           AND (summary IS NULL OR summary = '') AND episode_id IS NULL`
+           AND (summary IS NULL OR summary = '') AND episode_id IS NULL
+           AND COALESCE(terminal_activity, 0) = 0`
         )
         .run(id).changes > 0
     );
@@ -54,7 +93,8 @@ class SessionStore {
       .prepare(
         `DELETE FROM sessions WHERE (? IS NULL OR id != ?) AND COALESCE(turn_count, 0) = 0
          AND (history_json IS NULL OR history_json = '[]')
-         AND (summary IS NULL OR summary = '') AND episode_id IS NULL`
+         AND (summary IS NULL OR summary = '') AND episode_id IS NULL
+         AND COALESCE(terminal_activity, 0) = 0`
       )
       .run(exceptId, exceptId);
   }
@@ -67,6 +107,25 @@ class SessionStore {
     return this._db
       .prepare('SELECT * FROM sessions ORDER BY COALESCE(last_active_at, started_at) DESC LIMIT ?')
       .all(limit);
+  }
+
+  conversationCounts() {
+    if (this._graph?.usingFallback) {
+      const counts = {};
+      for (const row of this._db._sessions.values()) {
+        const key = row.workspace || 'Sin carpeta asociada';
+        counts[key] = (counts[key] || 0) + 1;
+      }
+      return counts;
+    }
+    const counts = {};
+    for (const row of this._db
+      .prepare('SELECT workspace, COUNT(*) AS total FROM sessions GROUP BY workspace')
+      .all()) {
+      const key = row.workspace || 'Sin carpeta asociada';
+      counts[key] = (counts[key] || 0) + row.total;
+    }
+    return counts;
   }
 
   touchConversation(id, workspace = null) {

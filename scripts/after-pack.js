@@ -35,6 +35,9 @@ function verifyRuntimeContents(context) {
     '/models/March 7th/march 7th.model3.json',
     '/node_modules/pixi.js/dist/browser/pixi.min.js',
     '/node_modules/pixi-live2d-display/dist/cubism4.min.js',
+    '/node_modules/@xterm/xterm/lib/xterm.js',
+    '/node_modules/@xterm/xterm/css/xterm.css',
+    '/node_modules/@xterm/addon-fit/lib/addon-fit.js',
     '/node_modules/node-edge-tts/dist/edge-tts.js',
     '/core/voice/NeuralTts.js',
   ]) {
@@ -53,6 +56,23 @@ function verifyRuntimeContents(context) {
     if (!contents.has(`/${native}`)) throw new Error(`Falta librería nativa: ${native}`);
     if (!fs.existsSync(path.join(resources, 'app.asar.unpacked', native)))
       throw new Error(`Librería nativa no extraída de app.asar: ${native}`);
+  }
+  const ptyNative =
+    platform === 'linux'
+      ? 'node_modules/node-pty/build/Release/pty.node'
+      : `node_modules/node-pty/prebuilds/${platform}-${arch}/pty.node`;
+  if (
+    !contents.has(`/${ptyNative}`) ||
+    !fs.existsSync(path.join(resources, 'app.asar.unpacked', ptyNative))
+  )
+    throw new Error(`Falta PTY nativo: ${ptyNative}`);
+  if (platform === 'darwin') {
+    const helper = path.join(path.dirname(ptyNative), 'spawn-helper');
+    if (
+      !contents.has(`/${helper}`) ||
+      !fs.existsSync(path.join(resources, 'app.asar.unpacked', helper))
+    )
+      throw new Error(`Falta helper del PTY: ${helper}`);
   }
 }
 

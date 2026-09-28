@@ -58,7 +58,11 @@ async function main() {
     const errors = [];
     page.on('pageerror', (error) => errors.push(error.message));
     for (const lang of ['es', 'en', 'ja']) {
-      for (const name of ['index', 'guide', 'privacy', 'terms']) {
+      const names =
+        lang === 'es'
+          ? ['index', 'guide', 'manual', 'privacy', 'terms']
+          : ['index', 'guide', 'privacy', 'terms'];
+      for (const name of names) {
         const route = `${lang === 'es' ? '' : `${lang}/`}${name}.html`;
         await page.goto(`${base}/${route}`, { waitUntil: 'networkidle' });
         await page.evaluate(() => {
@@ -68,7 +72,34 @@ async function main() {
         check((await page.locator('html').getAttribute('lang')) === lang, `${route}: language`);
         check(!/\bMCP\b/i.test(await page.locator('body').innerText()), `${route}: no MCP copy`);
         check((await page.locator('h1').count()) === 1, `${route}: one heading`);
-        check((await page.locator('.language-bar a').count()) === 3, `${route}: three languages`);
+        check(
+          (await page.locator('.language-bar a').count()) === (name === 'manual' ? 1 : 3),
+          `${route}: available languages shown`
+        );
+        if (name === 'guide') {
+          const manual = page.locator('.page-heading a[href$="manual.html"]');
+          check((await manual.count()) === 1, `${route}: in-site product manual linked`);
+          if (lang !== 'es')
+            check(
+              /Spanish|スペイン語/.test(await manual.innerText()),
+              `${route}: manual language disclosed`
+            );
+        }
+        if (name === 'manual') {
+          check(
+            (await page.locator('.manual-prose section').count()) === 9,
+            'manual: all sections'
+          );
+          check((await page.locator('.toc a').count()) === 9, 'manual: section navigation');
+          check(
+            (await page.locator('.manual-table-scroll').count()) >= 2,
+            'manual: responsive reference tables'
+          );
+          check(
+            (await page.getByText('Ctrl+Shift+C / Ctrl+Shift+V').count()) > 0,
+            'manual: shortcut reference available'
+          );
+        }
         const broken = await page.evaluate(() =>
           [...document.querySelectorAll('a[href],link[rel="stylesheet"],script[src],img[src]')]
             .map((el) => el.getAttribute('href') || el.getAttribute('src'))

@@ -7,6 +7,7 @@
   "pages": {
     "index": "Inicio",
     "guide": "Guía de uso",
+    "manual": "Manual de uso",
     "privacy": "Privacidad",
     "terms": "Términos y licencia"
   },
@@ -102,6 +103,11 @@
       "09",
       "Elegir dónde responde el modelo",
       "Configura un proveedor compatible o un endpoint local. La calidad, el coste, la visión y la disponibilidad de herramientas dependen del modelo y del servicio seleccionado."
+    ],
+    [
+      "10",
+      "Terminal y chat juntos",
+      "Abre un chat junto a la terminal del mismo proyecto. Puedes adjuntar una selección o salida reciente para revisarla antes de enviarla al modelo; Kaoru no la envía automáticamente. Los comandos de un solo bloque se pueden pegar o ejecutar tras confirmación."
     ]
   ],
   "flowTitle": "De conversar a resolver",
@@ -183,6 +189,8 @@
   "footer": "Kaoru · Código bajo licencia MIT",
   "rights": "Los modelos y personajes de terceros mantienen sus propios derechos. Proyecto independiente, sin afiliación con HoYoverse.",
   "guideIntro": "Configuración, tareas y criterios de revisión para utilizar Kaoru en tu equipo o en un proyecto de cliente.",
+  "manualLink": "Leer el manual completo: chat, terminal, memoria y atajos",
+  "manualIntro": "Aprende a usar las funciones de Kaoru paso a paso, con atajos y soluciones a problemas frecuentes.",
   "guideSections": [
     [
       "install",
@@ -198,6 +206,11 @@
       "workspace",
       "Workspace y reglas",
       "Selecciona la carpeta del proyecto desde la barra del chat. Prepara sus dependencias y reglas: Kaoru puede incorporar AGENTS.md, CLAUDE.md o .cursorrules. Evita incluir archivos ajenos a la tarea. Las reglas del proyecto orientan el trabajo; los permisos de ejecución se resuelven por separado."
+    ],
+    [
+      "terminal-chat",
+      "Terminal con chat lateral",
+      "Crea una terminal en tu workspace y pulsa Chat para abrir una conversación vinculada sin detener la shell. Selecciona salida y usa Preguntar a Kaoru para adjuntarla como tarjeta; revísala antes de enviar. Explicar error prepara un borrador. Los bloques de un comando del chat permiten pegarlo sin ejecutarlo o ejecutarlo tras una confirmación explícita. La shell conserva los permisos de tu usuario."
     ],
     [
       "task",

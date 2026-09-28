@@ -35,8 +35,10 @@ const {
   addTurn,
   detectInstant,
   listConversations,
+  conversationsPage,
   activeConversation,
   switchConversation,
+  deleteConversation,
   startChatConversation,
 } = require('./core/session.js');
 const { setActiveWorkspace, getWorkspace } = require('./core/workspace.js');
@@ -142,8 +144,10 @@ module.exports = {
   addTurn,
   detectInstant,
   listConversations,
+  conversationsPage,
   activeConversation,
   switchConversation,
+  deleteConversation,
   startChatConversation,
   buildContext,
   getStats,
