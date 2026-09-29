@@ -207,18 +207,14 @@ async function testWindowsServerResponding() {
 
 // ── Test 6: el launcher falla cerrado y conserva argv sin shell ─────────────
 
-function testWindowsLauncherFailClosed() {
-  console.log(C.bold('\n── Windows: launcher AppContainer fail-closed ─────────────────'));
+function testWindowsLauncherFailOpen() {
+  console.log(C.bold('\n── Windows: launcher AppContainer fail-open ──────────────────'));
   const cwd = path.resolve('/tmp/kaoru-win-sandbox-workspace');
   const sandbox = new WindowsSandbox({ platform: 'win32', cwd, cacheDir: '/tmp/kaoru-win-cache' });
 
-  let rejected = false;
-  try {
-    sandbox.wrap(['cmd.exe', '/c', 'echo unsafe']);
-  } catch (error) {
-    rejected = String(error.message).includes('no disponible');
-  }
-  assert(rejected, 'no ejecuta directamente cuando AppContainer no está listo');
+  const unwrapped = sandbox.wrap(['cmd.exe', '/c', 'echo unsafe']);
+  assert(Array.isArray(unwrapped), 'degrada a ejecución directa cuando AppContainer no está listo');
+  assertEqual(unwrapped[0], 'cmd.exe', 'mantiene el comando original');
 
   sandbox._enabled = true;
   const wrapped = sandbox.wrap(['cmd.exe', '/d', '/s', '/c', 'echo "hola mundo"'], {
@@ -432,7 +428,7 @@ async function main() {
     failed++;
   }
   try {
-    testWindowsLauncherFailClosed();
+    testWindowsLauncherFailOpen();
   } catch (e) {
     console.error(`  ${C.red('✗')} testWindowsLauncherFailClosed falló: ${e.message}`);
     failed++;

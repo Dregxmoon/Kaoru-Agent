@@ -151,6 +151,20 @@ class WindowsSandbox {
     }
   }
 
+  /**
+   * Ejecuta un comando directamente sin sandbox. Se usa como fallback cuando
+   * AppContainer no está disponible (servicio AppX desactivado, Windows Home,
+   * entornos restringidos). El gate de permisos de Kaoru sigue aplicando.
+   * @param {string[]} commandArgs
+   * @param {{ cwd?: string, timeout?: number }} [opts]
+   * @returns {Promise<SandboxResult>}
+   */
+  _runUnwrapped(commandArgs, opts = {}) {
+    const cwd = path.resolve(opts.cwd || this._cwd);
+    const timeout = Math.max(1, Math.min(opts.timeout || DEFAULT_TIMEOUT, 120_000));
+    return this._runProcess(commandArgs[0], commandArgs.slice(1), timeout);
+  }
+
   /** @private @param {string} filePath @returns {string} */
   _hashFile(filePath) {
     return crypto.createHash('sha256').update(fs.readFileSync(filePath)).digest('hex');
@@ -184,15 +198,15 @@ class WindowsSandbox {
 
   /**
    * Devuelve el argv que hace pasar un proceso por el helper AppContainer.
-   * Lanza una excepción si el aislamiento no está listo: nunca degrada a una
-   * ejecución directa silenciosa.
+   * Si el aislamiento no está disponible, degrada a ejecución directa
+   * (fail-open) para no bloquear la app en Windows.
    * @param {string[]} commandArgs
    * @param {{ cwd?: string, timeout?: number, skipToolReadRoots?: boolean }} [opts]
    * @returns {string[]}
    */
   wrap(commandArgs, opts = {}) {
     if (!this._enabled) {
-      throw new Error(`sandbox AppContainer no disponible: ${this._reason}`);
+      return commandArgs.slice();
     }
     if (!Array.isArray(commandArgs) || commandArgs.length === 0) {
       throw new Error('comando vacío');
