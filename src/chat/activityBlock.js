@@ -77,19 +77,19 @@ function setAgentState(state, label) {
   if (status) {
     const waiting = document.body.dataset.awaitingPermission === 'true';
     const text = waiting
-      ? 'Esperando tu permiso'
+      ? window.kaoruI18n.t('waitingPermission')
       : label ||
         {
-          idle: 'Listo',
-          thinking: 'Pensando',
-          working: 'Ejecutando',
-          streaming: 'Respondiendo',
-          listening: 'Escuchando',
-          speaking: 'Hablando',
-          done: 'Listo',
-          error: 'Error',
+          idle: window.kaoruI18n.t('ready'),
+          thinking: window.kaoruI18n.t('thinking'),
+          working: window.kaoruI18n.t('executing'),
+          streaming: window.kaoruI18n.t('responding'),
+          listening: window.kaoruI18n.t('listening'),
+          speaking: window.kaoruI18n.t('speaking'),
+          done: window.kaoruI18n.t('ready'),
+          error: window.kaoruI18n.t('errorLabel'),
         }[state];
-    if (status.textContent !== text) status.textContent = text || 'Listo';
+    if (status.textContent !== text) status.textContent = text || window.kaoruI18n.t('ready');
     status.dataset.state = waiting ? 'waiting' : state;
   }
   _stateListeners.forEach((fn) => fn(state, label));
@@ -241,7 +241,14 @@ let _runOverview = null;
 let _runOverviewHideTimer = null;
 /** @type {{steps: Array<string | {description?: string, label?: string}>, done?: number} | null} */
 let _runOverviewPlan = null;
-const _runOverviewState = { started: 0, finished: 0, changed: 0, failed: 0, current: '' };
+const _runOverviewState = {
+  started: 0,
+  finished: 0,
+  changed: 0,
+  failed: 0,
+  current: '',
+  terminal: false,
+};
 
 function _refreshRunOverview() {
   if (!_runOverview) return;
@@ -249,11 +256,19 @@ function _refreshRunOverview() {
   const current = _runOverview.querySelector('.run-overview-current');
   const changes = _runOverview.querySelector('.run-overview-changes');
   if (label) {
-    label.textContent = `${_runOverviewState.current || 'Trabajando'} · ${_runOverviewState.finished}/${_runOverviewState.started} operaciones`;
+    label.textContent = window.kaoruI18n.format('runOverviewLabel', {
+      current: _runOverviewState.current || window.kaoruI18n.t('working'),
+      done: _runOverviewState.finished,
+      total: _runOverviewState.started,
+    });
   }
-  if (current) current.textContent = _runOverviewState.current || 'Esperando resultado';
+  if (current)
+    current.textContent = _runOverviewState.current || window.kaoruI18n.t('waitingForResult');
   if (changes) {
-    changes.textContent = `${_runOverviewState.changed} cambios reportados · ${_runOverviewState.failed} fallos`;
+    changes.textContent = window.kaoruI18n.format('changesAndFailures', {
+      changes: _runOverviewState.changed,
+      failures: _runOverviewState.failed,
+    });
   }
 }
 
@@ -263,7 +278,14 @@ function startRunOverview() {
   _runOverview?.remove();
   _runOverview = null;
   _runOverviewPlan = null;
-  Object.assign(_runOverviewState, { started: 0, finished: 0, changed: 0, failed: 0, current: '' });
+  Object.assign(_runOverviewState, {
+    started: 0,
+    finished: 0,
+    changed: 0,
+    failed: 0,
+    current: '',
+    terminal: false,
+  });
 }
 
 function _ensureRunOverview() {
@@ -272,15 +294,14 @@ function _ensureRunOverview() {
   if (!dock) return;
   const overview = document.createElement('details');
   overview.className = 'run-overview';
-  overview.innerHTML = `<summary><span class="run-overview-label" role="status" aria-live="polite">Trabajando</span><span aria-hidden="true">▾</span></summary>
-    <div class="run-overview-detail"><p>Ahora: <span class="run-overview-current">Esperando resultado</span></p>
-    <p class="run-overview-changes">0 cambios reportados · 0 fallos</p>
-    <p>Pendiente: <span class="run-overview-next">Kaoru decidirá el siguiente paso</span></p></div>`;
+  overview.innerHTML = `<summary><span class="run-overview-label" role="status" aria-live="polite">${window.kaoruI18n.t('working')}</span><span aria-hidden="true">▾</span></summary>
+    <div class="run-overview-detail"><p>${window.kaoruI18n.t('now')}: <span class="run-overview-current">${window.kaoruI18n.t('waitingForResult')}</span></p>
+    <p class="run-overview-changes">${window.kaoruI18n.format('changesAndFailures', { changes: 0, failures: 0 })}</p>
+    <p>${window.kaoruI18n.t('pending')}: <span class="run-overview-next">${window.kaoruI18n.t('nextStepUndecided')}</span></p></div>`;
   dock.hidden = false;
   dock.prepend(overview);
   overview.addEventListener('toggle', () => {
-    if (!overview.open && /^(Completado|Interrumpido|Cancelado)$/.test(_runOverviewState.current))
-      _removeRunOverview(overview);
+    if (!overview.open && _runOverviewState.terminal) _removeRunOverview(overview);
   });
   _runOverview = overview;
   if (_runOverviewPlan) updateRunOverviewPlan(_runOverviewPlan);
@@ -301,17 +322,19 @@ function updateRunOverviewPlan(plan) {
   const next = plan.steps[Math.max(0, Number(plan.done) || 0)];
   const text = typeof next === 'string' ? next : next?.description || next?.label;
   const el = _runOverview.querySelector('.run-overview-next');
-  if (el) el.textContent = text ? String(text).slice(0, 130) : 'No quedan pasos del plan';
+  if (el)
+    el.textContent = text ? String(text).slice(0, 130) : window.kaoruI18n.t('noPlanStepsLeft');
 }
 
 /** @param {{cancelled?: boolean, error?: unknown, truncated?: boolean}} result */
 function finishRunOverview(result) {
   if (!_runOverview) return;
+  _runOverviewState.terminal = true;
   _runOverviewState.current = result?.cancelled
-    ? 'Cancelado'
+    ? window.kaoruI18n.t('cancelled')
     : result?.error || result?.truncated
-      ? 'Interrumpido'
-      : 'Completado';
+      ? window.kaoruI18n.t('interrupted')
+      : window.kaoruI18n.t('completed');
   _refreshRunOverview();
   const overview = _runOverview;
   _runOverviewHideTimer = setTimeout(() => {
@@ -324,50 +347,50 @@ function finishRunOverview(result) {
 // tool no está en el mapa se muestra el nombre interno tal cual.
 /** @type {Record<string, string>} */
 const TOOL_LABELS = {
-  exec: 'Bash',
-  run_command: 'Bash',
-  read: 'Read',
-  read_file: 'Read',
-  write: 'Write',
-  edit: 'Edit',
-  edit_file: 'Edit',
-  apply_patch: 'Apply Patch',
-  grep: 'Grep',
-  glob: 'Glob',
-  code_execution: 'Python',
-  web_search: 'Web Search',
-  websearch: 'Web Search',
-  webfetch: 'Web Fetch',
-  browser: 'Browser',
-  get_diagnostics: 'Diagnósticos',
-  go_to_definition: 'Go to Def',
-  find_references: 'Find Ref',
-  get_symbols: 'Symbols',
-  hover: 'Hover',
-  rename: 'Rename',
-  code_actions: 'Code Actions',
-  git_status: 'Git Status',
-  git_diff: 'Git Diff',
-  git_log: 'Git Log',
-  git_branch: 'Git Branch',
-  git_commit: 'Git Commit',
-  git_push: 'Git Push',
-  git_stash: 'Git Stash',
-  git_merge: 'Git Merge',
-  git_rebase: 'Git Rebase',
-  github_repo_info: 'GitHub Repo',
-  github_issue_list: 'GitHub Issues',
-  github_issue_create: 'GitHub Issue',
-  github_issue_comment: 'GitHub Comment',
-  github_issue_close: 'GitHub Close',
-  github_pr_list: 'GitHub PRs',
-  github_pr_create: 'GitHub PR',
-  github_pr_review: 'GitHub Review',
-  github_actions_status: 'GitHub Actions',
-  subagent: 'Subagente',
-  task: 'Subagente',
-  mcp: 'MCP',
-  plugin: 'Plugin',
+  exec: window.kaoruI18n.t('toolBash'),
+  run_command: window.kaoruI18n.t('toolBash'),
+  read: window.kaoruI18n.t('toolRead'),
+  read_file: window.kaoruI18n.t('toolRead'),
+  write: window.kaoruI18n.t('toolWrite'),
+  edit: window.kaoruI18n.t('toolEdit'),
+  edit_file: window.kaoruI18n.t('toolEdit'),
+  apply_patch: window.kaoruI18n.t('toolApplyPatch'),
+  grep: window.kaoruI18n.t('toolGrep'),
+  glob: window.kaoruI18n.t('toolGlob'),
+  code_execution: window.kaoruI18n.t('toolPython'),
+  web_search: window.kaoruI18n.t('toolWebSearch'),
+  websearch: window.kaoruI18n.t('toolWebSearch'),
+  webfetch: window.kaoruI18n.t('toolWebFetch'),
+  browser: window.kaoruI18n.t('toolBrowser'),
+  get_diagnostics: window.kaoruI18n.t('toolDiagnostics'),
+  go_to_definition: window.kaoruI18n.t('toolGoToDef'),
+  find_references: window.kaoruI18n.t('toolFindRef'),
+  get_symbols: window.kaoruI18n.t('toolSymbols'),
+  hover: window.kaoruI18n.t('toolHover'),
+  rename: window.kaoruI18n.t('toolRename'),
+  code_actions: window.kaoruI18n.t('toolCodeActions'),
+  git_status: window.kaoruI18n.t('toolGitStatus'),
+  git_diff: window.kaoruI18n.t('toolGitDiff'),
+  git_log: window.kaoruI18n.t('toolGitLog'),
+  git_branch: window.kaoruI18n.t('toolGitBranch'),
+  git_commit: window.kaoruI18n.t('toolGitCommit'),
+  git_push: window.kaoruI18n.t('toolGitPush'),
+  git_stash: window.kaoruI18n.t('toolGitStash'),
+  git_merge: window.kaoruI18n.t('toolGitMerge'),
+  git_rebase: window.kaoruI18n.t('toolGitRebase'),
+  github_repo_info: window.kaoruI18n.t('toolGitHubRepo'),
+  github_issue_list: window.kaoruI18n.t('toolGitHubIssues'),
+  github_issue_create: window.kaoruI18n.t('toolGitHubIssue'),
+  github_issue_comment: window.kaoruI18n.t('toolGitHubComment'),
+  github_issue_close: window.kaoruI18n.t('toolGitHubClose'),
+  github_pr_list: window.kaoruI18n.t('toolGitHubPRs'),
+  github_pr_create: window.kaoruI18n.t('toolGitHubPR'),
+  github_pr_review: window.kaoruI18n.t('toolGitHubReview'),
+  github_actions_status: window.kaoruI18n.t('toolGitHubActions'),
+  subagent: window.kaoruI18n.t('toolSubagent'),
+  task: window.kaoruI18n.t('toolSubagent'),
+  mcp: window.kaoruI18n.t('toolMcp'),
+  plugin: window.kaoruI18n.t('toolPlugin'),
 };
 
 /**
@@ -487,10 +510,12 @@ function _codeFrameHtml(filePath, content) {
     `<div class="activity-code-frame-head">` +
     `<span class="activity-code-file">${_escapeHtml(name)}</span>` +
     `<span class="activity-code-path">${_escapeHtml(filePath)}</span>` +
-    `<span class="activity-code-lines">${totalLines} líneas</span>` +
+    `<span class="activity-code-lines">${window.kaoruI18n.format('codeLines', { count: totalLines })}</span>` +
     `</div>` +
     `<pre class="activity-code-body${needsExpand ? ' collapsed' : ''}">${esc}</pre>` +
-    (needsExpand ? '<div class="activity-code-toggle" data-collapsed="1">Ver todo ▾</div>' : '') +
+    (needsExpand
+      ? `<div class="activity-code-toggle" data-collapsed="1">${window.kaoruI18n.t('showAll')}</div>`
+      : '') +
     '</div>'
   );
 }
@@ -530,8 +555,8 @@ function _editSplitHtml(filePath, oldContent, newContent, addedLines, removedLin
     '<div class="activity-split">' +
     `<div class="activity-split-head">` +
     `<span class="activity-code-file">${_escapeHtml(name)}</span>` +
-    `<span class="activity-split-label old">ANTES</span>` +
-    `<span class="activity-split-label new">ACTUALIZADO</span>` +
+    `<span class="activity-split-label old">${window.kaoruI18n.t('before')}</span>` +
+    `<span class="activity-split-label new">${window.kaoruI18n.t('after')}</span>` +
     `</div>` +
     `<div class="activity-split-cols">` +
     `<div class="activity-split-col old">${col(oldContent, removed)}</div>` +
@@ -606,7 +631,7 @@ function _detailHtml(progress) {
       out += `<div class="activity-block-exit">exit ${_escapeHtml(String(exitCode))}</div>`;
     }
     if (!out) {
-      out = '<div class="activity-block-exec">Comando completado sin salida.</div>';
+      out = `<div class="activity-block-exec">${window.kaoruI18n.t('commandNoOutput')}</div>`;
     }
     return `<div class="activity-block-detail">${out}</div>`;
   }
@@ -686,7 +711,7 @@ function renderActivityBlock(containerEl, progress) {
     ) {
       _runOverviewState.changed++;
     }
-    _runOverviewState.current = 'Preparando el siguiente paso';
+    _runOverviewState.current = window.kaoruI18n.t('preparingNextStep');
     _refreshRunOverview();
     _blocks.delete(key);
 
@@ -708,7 +733,7 @@ function renderActivityBlock(containerEl, progress) {
           const body = detail.querySelector('.activity-code-body');
           if (!body) return;
           const collapsed = body.classList.toggle('collapsed');
-          toggle.textContent = collapsed ? 'Ver todo ▾' : 'Ver menos ▴';
+          toggle.textContent = window.kaoruI18n.t(collapsed ? 'showAll' : 'showLess');
         });
       }
     }
@@ -751,7 +776,7 @@ function renderThinkingBlock(text) {
   header.className = 'thinking-block-header';
   const label = document.createElement('span');
   label.className = 'thinking-block-label';
-  label.textContent = `⟳ razonando${_thinkingCount > 1 ? ` (${_thinkingCount})` : ''}`;
+  label.textContent = `⟳ ${window.kaoruI18n.t('reasoningActivity')}${_thinkingCount > 1 ? ` (${_thinkingCount})` : ''}`;
   const chevron = document.createElement('span');
   chevron.className = 'thinking-block-chevron';
   chevron.textContent = '▸';
@@ -896,4 +921,5 @@ function finalizeSubagentRun(name, progress) {
 }
 
 // ── Init ────────────────────────────────────────────────────────────────────
-setAgentState('idle', 'Listo');
+setAgentState('idle');
+document.addEventListener('kaoru-language-changed', () => setAgentState(_currentAgentState));

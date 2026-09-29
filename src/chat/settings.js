@@ -5,6 +5,8 @@
 
 const prefsModal = document.getElementById('prefs-modal');
 const onboardingModal = document.getElementById('onboarding-modal');
+const settingsText = (key) => window.kaoruI18n.t(key);
+const settingsFormat = (key, values) => window.kaoruI18n.format(key, values);
 
 let _prefs = null; // config actual (redactada) desde get-config
 
@@ -21,7 +23,7 @@ async function _completeOnboarding() {
   const result = await window.assistant.invoke('set-config', {
     onboarding: { completed: true },
   });
-  if (!result?.ok) throw new Error(result?.error || 'No se pudo guardar el onboarding.');
+  if (!result?.ok) throw new Error(result?.error || settingsText('onboardingSaveFailed'));
   onboardingModal.classList.remove('visible');
 }
 
@@ -61,22 +63,22 @@ async function _loadLlmCredentials() {
     const data = await window.assistant.invoke('get-model-picker');
     const connected = (data.providers || []).filter((provider) => provider.hasKey);
     if (!connected.length) {
-      container.innerHTML = '<div class="llm-credentials-empty">No hay API keys guardadas.</div>';
+      container.innerHTML = `<div class="llm-credentials-empty">${settingsText('noSavedKeys')}</div>`;
       return;
     }
     container.innerHTML = connected
       .map(
         (provider) => `<div class="llm-credential-row" data-provider="${escapeHtml(provider.id)}">
           <strong>${escapeHtml(provider.name || provider.id)}</strong>
-          <input type="password" autocomplete="off" placeholder="Nueva API key" aria-label="Nueva API key para ${escapeHtml(provider.name || provider.id)}" />
-          <button class="btn-save" data-action="replace">Reemplazar</button>
-          <button class="btn-cancel" data-action="remove">Eliminar</button>
+          <input type="password" autocomplete="off" placeholder="${settingsText('newApiKey')}" aria-label="${escapeHtml(settingsFormat('newApiKeyFor', { provider: provider.name || provider.id }))}" />
+          <button class="btn-save" data-action="replace">${settingsText('replace')}</button>
+          <button class="btn-cancel" data-action="remove">${settingsText('delete')}</button>
         </div>`
       )
       .join('');
   } catch (error) {
     container.innerHTML = '';
-    statusEl.textContent = error.message || 'No se pudieron cargar las credenciales.';
+    statusEl.textContent = error.message || settingsText('credentialsLoadFailed');
     statusEl.style.color = '#ef4444';
   }
 }
@@ -87,7 +89,7 @@ async function _replaceLlmKey(row) {
   const statusEl = document.getElementById('prefs-llm-status');
   const apiKey = input.value.trim();
   if (!apiKey) {
-    statusEl.textContent = 'Escribe la nueva API key.';
+    statusEl.textContent = settingsText('enterApiKey');
     statusEl.style.color = '#f59e0b';
     return;
   }
@@ -96,23 +98,23 @@ async function _replaceLlmKey(row) {
     apiKey,
     useKeychain: document.getElementById('use-keychain').checked,
   });
-  if (!saved?.ok) throw new Error(saved?.error || 'No se pudo reemplazar la API key.');
+  if (!saved?.ok) throw new Error(saved?.error || settingsText('keyReplaceFailed'));
   input.value = '';
-  statusEl.textContent = `Clave de ${providerId} reemplazada.`;
+  statusEl.textContent = settingsFormat('keyReplaced', { provider: providerId });
   statusEl.style.color = '#10b981';
   document.dispatchEvent(new CustomEvent('llm-credentials-changed'));
 }
 
 async function _removeLlmKey(row) {
   const providerId = row.dataset.provider;
-  if (!window.confirm(`¿Eliminar la API key guardada de ${providerId}?`)) return;
+  if (!window.confirm(settingsFormat('confirmRemoveKey', { provider: providerId }))) return;
   const statusEl = document.getElementById('prefs-llm-status');
   const result = await window.assistant.invoke('remove-llm-key', { providerId });
   document.dispatchEvent(new CustomEvent('llm-credentials-changed'));
   await _loadLlmCredentials();
   statusEl.textContent = result?.ok
-    ? `Clave de ${providerId} eliminada.`
-    : result?.error || 'No se pudo eliminar la clave.';
+    ? settingsFormat('keyRemoved', { provider: providerId })
+    : result?.error || settingsText('keyRemoveFailed');
   statusEl.style.color = result?.ok ? '#10b981' : '#f59e0b';
 }
 
@@ -122,10 +124,10 @@ async function _loadPinStatus() {
     const st = await window.assistant.invoke('pin-status');
     const clearBtn = document.getElementById('prefs-pin-clear-btn');
     clearBtn.style.display = st.set ? '' : 'none';
-    statusEl.textContent = st.set ? 'PIN configurado.' : 'Sin PIN — la app se abre sin bloqueo.';
+    statusEl.textContent = st.set ? settingsText('pinSet') : settingsText('noPin');
     statusEl.style.color = st.set ? 'var(--text-secondary)' : 'var(--text-secondary)';
   } catch (e) {
-    statusEl.textContent = (e && e.message) || 'Error consultando el PIN.';
+    statusEl.textContent = (e && e.message) || settingsText('pinStatusFailed');
     statusEl.style.color = '#ef4444';
   }
 }
@@ -138,16 +140,18 @@ async function _loadGhStatus() {
   try {
     const st = await window.assistant.invoke('github-status');
     if (st.connected) {
-      statusEl.textContent = st.login ? `Conectado como @${st.login}` : 'Conectado (cuenta oculta)';
+      statusEl.textContent = st.login
+        ? settingsFormat('connectedAs', { login: st.login })
+        : settingsText('connectedHidden');
       logoutBtn.style.display = '';
     } else {
       statusEl.textContent = st.clientIdSet
-        ? 'Sin cuenta. Usá `/github login` para vincularla.'
-        : 'Sin cuenta. Configurá el Client ID con `/github client-id <ID>` y luego `/github login`.';
+        ? settingsText('githubLoginHint')
+        : settingsText('githubClientHint');
       logoutBtn.style.display = 'none';
     }
   } catch (e) {
-    statusEl.textContent = 'No se pudo consultar GitHub.';
+    statusEl.textContent = settingsText('githubStatusFailed');
     errorEl.textContent = (e && e.message) || String(e);
   }
 }
@@ -157,13 +161,13 @@ async function _setAgentPatch(patch) {
   try {
     const res = await window.assistant.invoke('set-config', patch);
     if (res && res.ok === false) {
-      statusEl.textContent = res.error || 'error';
+      statusEl.textContent = res.error || settingsText('errorLabel');
       statusEl.style.color = '#ef4444';
       return;
     }
     statusEl.textContent = '';
   } catch (e) {
-    statusEl.textContent = (e && e.message) || 'error';
+    statusEl.textContent = (e && e.message) || settingsText('errorLabel');
     statusEl.style.color = '#ef4444';
   }
 }
@@ -191,7 +195,7 @@ function attachPrefsEvents() {
       else await _removeLlmKey(row);
     } catch (error) {
       const statusEl = document.getElementById('prefs-llm-status');
-      statusEl.textContent = error.message || 'No se pudo actualizar la credencial.';
+      statusEl.textContent = error.message || settingsText('credentialsUpdateFailed');
       statusEl.style.color = '#ef4444';
     } finally {
       button.disabled = false;
@@ -204,7 +208,7 @@ function attachPrefsEvents() {
       const res = await window.assistant.invoke('set-config', { autonomy: mode });
       if (!res || res.ok === false) {
         const statusEl = document.getElementById('prefs-agent-status');
-        statusEl.textContent = (res && res.error) || 'error';
+        statusEl.textContent = (res && res.error) || settingsText('errorLabel');
         statusEl.style.color = '#ef4444';
         return;
       }
@@ -245,20 +249,20 @@ function attachPrefsEvents() {
     const statusEl = document.getElementById('prefs-pin-status');
     const pin = input.value;
     if (!pin) {
-      statusEl.textContent = 'Escribí un PIN.';
+      statusEl.textContent = settingsText('enterPin');
       statusEl.style.color = '#ef4444';
       return;
     }
     try {
       const res = await window.assistant.invoke('pin-set', pin);
-      statusEl.textContent = res.ok ? 'PIN guardado en el llavero.' : res.error || 'error';
+      statusEl.textContent = res.ok ? settingsText('pinSaved') : res.error || settingsText('errorLabel');
       statusEl.style.color = res.ok ? 'var(--text-secondary)' : '#ef4444';
       if (res.ok) {
         input.value = '';
         document.getElementById('prefs-pin-clear-btn').style.display = '';
       }
     } catch (e) {
-      statusEl.textContent = (e && e.message) || 'error';
+      statusEl.textContent = (e && e.message) || settingsText('errorLabel');
       statusEl.style.color = '#ef4444';
     }
   });
@@ -267,13 +271,13 @@ function attachPrefsEvents() {
     const statusEl = document.getElementById('prefs-pin-status');
     try {
       const res = await window.assistant.invoke('pin-clear');
-      statusEl.textContent = res.ok ? 'PIN eliminado.' : res.error || 'error';
+      statusEl.textContent = res.ok ? settingsText('pinRemoved') : res.error || settingsText('errorLabel');
       statusEl.style.color = res.ok ? 'var(--text-secondary)' : '#ef4444';
       if (res.ok) {
         document.getElementById('prefs-pin-clear-btn').style.display = 'none';
       }
     } catch (e) {
-      statusEl.textContent = (e && e.message) || 'error';
+      statusEl.textContent = (e && e.message) || settingsText('errorLabel');
       statusEl.style.color = '#ef4444';
     }
   });
@@ -281,10 +285,10 @@ function attachPrefsEvents() {
   document.getElementById('prefs-gh-logout-btn').addEventListener('click', async () => {
     const errorEl = document.getElementById('prefs-gh-error');
     try {
-      const res = await window.assistant.runCommand('/github logout');
+      await window.assistant.runCommand('/github logout');
       errorEl.textContent = '';
       _loadGhStatus();
-      document.getElementById('prefs-gh-status').textContent = res || 'Sesión cerrada.';
+      document.getElementById('prefs-gh-status').textContent = settingsText('signedOut');
     } catch (e) {
       errorEl.textContent = (e && e.message) || String(e);
     }
@@ -312,19 +316,19 @@ function attachPrefsEvents() {
 
   document.getElementById('prefs-reset-permissions-btn').addEventListener('click', async () => {
     const status = document.getElementById('prefs-maintenance-status');
-    if (!window.confirm('¿Reiniciar todas las reglas de permisos de Kaoru?')) return;
+    if (!window.confirm(settingsText('confirmResetPermissions'))) return;
     const result = await window.assistant.invoke('maintenance-reset-permissions');
     status.textContent = result?.ok
-      ? `Permisos reiniciados (${result.removed} reglas eliminadas).`
-      : result?.error || 'No se pudieron reiniciar los permisos.';
+      ? settingsFormat('permissionsReset', { count: result.removed })
+      : result?.error || settingsText('permissionsResetFailed');
   });
 
   document.getElementById('prefs-clear-cache-btn').addEventListener('click', async () => {
     const status = document.getElementById('prefs-maintenance-status');
     const result = await window.assistant.invoke('maintenance-clear-cache');
     status.textContent = result?.ok
-      ? 'Cachés y logs eliminados.'
-      : 'La limpieza fue parcial; reinicia Kaoru e inténtalo de nuevo.';
+      ? settingsText('cacheCleared')
+      : settingsText('cachePartiallyCleared');
   });
 
   document.getElementById('prefs-previous-versions-btn').addEventListener('click', async () => {
@@ -335,20 +339,23 @@ function attachPrefsEvents() {
     const status = document.getElementById('prefs-maintenance-status');
     const confirmation = document.getElementById('prefs-factory-confirm').value.trim();
     if (confirmation !== 'BORRAR TODO') {
-      status.textContent = 'Escribe BORRAR TODO para confirmar.';
+      status.textContent = settingsText('confirmEraseText');
       status.style.color = '#ef4444';
       return;
     }
-    if (!window.confirm('Esta acción es irreversible. ¿Borrar todos los datos locales de Kaoru?')) {
+    if (!window.confirm(settingsText('confirmFactoryReset'))) {
       return;
     }
     const result = await window.assistant.invoke('maintenance-factory-reset', { confirmation });
     status.textContent = result?.ok
-      ? 'Reiniciando Kaoru para completar la limpieza…'
-      : result?.error || 'No se pudo iniciar la limpieza.';
+      ? settingsText('restartingAfterReset')
+      : result?.error || settingsText('factoryResetFailed');
   });
 
   _showOnboardingIfNeeded();
+  document.addEventListener('kaoru-language-changed', () => {
+    if (prefsModal.classList.contains('visible')) _loadPrefs();
+  });
 }
 
 if (document.readyState === 'loading') {

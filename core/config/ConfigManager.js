@@ -47,6 +47,13 @@ function _deepClone(value) {
 const SCHEMA = {
   activeModel: { type: 'string', default: 'March 7th' },
   chatTheme: { type: 'string', default: 'dark' },
+  ui: {
+    type: 'object',
+    default: { language: 'system' },
+    schema: {
+      language: { type: 'string', default: 'system', enum: ['system', 'en', 'es', 'ja'] },
+    },
+  },
   autonomy: { type: 'string', default: 'suggest', enum: AUTONOMY_MODES },
   onboarding: {
     type: 'object',

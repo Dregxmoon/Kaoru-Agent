@@ -195,6 +195,22 @@ async function testSetConfigAutonomy() {
   );
 }
 
+async function testSetConfigLanguage() {
+  const ctx = makeCtx();
+  savedConfigs.length = 0;
+  registerConfig(ctx);
+  for (const language of ['fr', '', null]) {
+    const rejected = await mockIpcMain.invokeHandler('set-config', {}, { ui: { language } });
+    assert(rejected.ok === false, `rechaza idioma inválido: ${language}`);
+  }
+  assert(savedConfigs.length === 0, 'idiomas inválidos no escriben configuración');
+  const accepted = await mockIpcMain.invokeHandler('set-config', {}, { ui: { language: 'ja' } });
+  assert(accepted.ok === true, 'acepta japonés');
+  assert(savedConfigs[0].ui.language === 'ja', 'persiste el idioma');
+  assert(savedConfigs[0].agent.autoApprove === false, 'conserva la configuración del agente');
+  assert(savedConfigs[0].mcp.servers.length === 1, 'conserva los servidores MCP');
+}
+
 // ── Test 4: set-config — agent flags ──────────────────────────────────────────
 
 async function testSetConfigAgent() {
@@ -358,6 +374,7 @@ async function main() {
     await testPinLifecycle();
     await testLockAfterReload();
     await testSetConfigAutonomy();
+    await testSetConfigLanguage();
     await testSetConfigAgent();
     await testSetConfigMcpConsent();
     await testBrowserAndLlmCredentials();

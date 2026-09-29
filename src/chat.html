@@ -20,7 +20,7 @@
   base-uri 'none';
 "
     />
-    <title>Asistente personal — Chat</title>
+    <title>Kaoru — Chat</title>
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link
       href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700&display=swap"
@@ -38,9 +38,11 @@
             class="header-btn"
             type="button"
             aria-label="Chats"
+            data-i18n-label="chats"
             aria-expanded="false"
             aria-controls="sessions-modal"
             title="Chats"
+            data-i18n-title="chats"
           >
             <svg
               aria-hidden="true"
@@ -53,7 +55,7 @@
               <path d="M4 6h16M4 12h16M4 18h16" />
             </svg>
           </button>
-          <button class="header-title" id="workspace-title" type="button" title="Cambiar workspace">
+          <button class="header-title" id="workspace-title" type="button" title="Cambiar workspace" data-i18n-title="changeWorkspace">
             ~/workspace
           </button>
           <div class="new-session-anchor">
@@ -62,7 +64,9 @@
               class="header-btn"
               type="button"
               title="Nueva sesión en esta carpeta"
+              data-i18n-title="newSessionHere"
               aria-label="Nueva sesión"
+              data-i18n-label="newSession"
               aria-expanded="false"
               aria-controls="new-session-menu"
               disabled
@@ -70,12 +74,12 @@
               ＋
             </button>
             <div id="new-session-menu" class="new-session-menu" hidden>
-              <button id="new-session-chat" type="button">Nuevo chat</button>
-              <button id="new-session-terminal" type="button">Nueva terminal</button>
+              <button id="new-session-chat" type="button" data-i18n="newChat">Nuevo chat</button>
+              <button id="new-session-terminal" type="button" data-i18n="newTerminal">Nueva terminal</button>
             </div>
           </div>
         </div>
-        <nav class="header-actions" aria-label="Herramientas de Kaoru">
+        <nav class="header-actions" aria-label="Herramientas de Kaoru" data-i18n-label="kaoruTools">
           <button
             id="status-btn"
             class="header-action"
@@ -83,7 +87,7 @@
             aria-expanded="false"
             aria-controls="status-popover"
           >
-            estado
+            <span data-i18n="status">estado</span>
           </button>
           <button id="settings-btn" title="Ajustes" aria-label="Ajustes" class="header-btn">
             <svg
@@ -100,13 +104,15 @@
               />
             </svg>
           </button>
-          <div class="window-controls" role="group" aria-label="Controles de ventana">
+          <div class="window-controls" role="group" aria-label="Controles de ventana" data-i18n-label="windowControls">
             <button
               id="window-minimize"
               class="window-control window-control-minimize"
               type="button"
               title="Minimizar"
               aria-label="Minimizar ventana"
+              data-i18n-title="minimize"
+              data-i18n-label="minimizeWindow"
             >
               <svg viewBox="0 0 20 20" width="14" height="14" aria-hidden="true">
                 <path d="M4 10h12" />
@@ -118,6 +124,8 @@
               type="button"
               title="Maximizar"
               aria-label="Maximizar ventana"
+              data-i18n-title="maximize"
+              data-i18n-label="maximizeWindow"
               aria-pressed="false"
             >
               <svg viewBox="0 0 20 20" width="14" height="14" aria-hidden="true">
@@ -131,6 +139,8 @@
               type="button"
               title="Cerrar y salir"
               aria-label="Cerrar y salir"
+              data-i18n-title="closeAndExit"
+              data-i18n-label="closeAndExit"
             >
               <svg viewBox="0 0 20 20" width="14" height="14" aria-hidden="true">
                 <path d="M5 5l10 10M15 5L5 15" />
@@ -139,14 +149,14 @@
           </div>
         </nav>
         <div id="status-popover" class="status-popover" hidden>
-          <div class="status-row"><span>Modelo</span><span id="status-model">sin modelo</span></div>
+          <div class="status-row"><span data-i18n="model">Modelo</span><span id="status-model">sin modelo</span></div>
           <div class="status-row">
-            <span>Modo</span><span id="agent-mode-badge" class="agent-mode-badge">AUTO</span>
+            <span data-i18n="mode">Modo</span><span id="agent-mode-badge" class="agent-mode-badge">AUTO</span>
           </div>
-          <div class="status-row"><span>Permisos</span><span id="status-permissions">—</span></div>
+          <div class="status-row"><span data-i18n="permissionsShort">Permisos</span><span id="status-permissions">—</span></div>
           <div class="status-links">
-            <button id="perms-btn" type="button">Permisos</button>
-            <button id="commands-btn" type="button">Comandos</button>
+            <button id="perms-btn" type="button" data-i18n="permissionsShort">Permisos</button>
+            <button id="commands-btn" type="button" data-i18n="commands">Comandos</button>
             <button
               id="theme-toggle"
               type="button"
@@ -154,24 +164,26 @@
               aria-checked="false"
               aria-label="Usar tema claro"
               title="Cambiar a tema claro"
+              data-i18n-label="lightTheme"
+              data-i18n-title="lightThemeTitle"
             >
               <span class="theme-toggle-icon" aria-hidden="true"></span
-              ><span class="sr-only">Cambiar tema</span>
+              ><span class="sr-only" data-i18n="changeTheme">Cambiar tema</span>
             </button>
           </div>
         </div>
       </header>
 
-      <aside id="sessions-modal" aria-label="Lista de chats">
+      <aside id="sessions-modal" aria-label="Lista de chats" data-i18n-label="chats">
         <div id="sessions-box">
           <div class="sessions-head">
-            <span>Chats</span>
-            <button id="sessions-close" type="button" title="Cerrar lista de chats">[x]</button>
+            <span data-i18n="chats">Chats</span>
+            <button id="sessions-close" type="button" title="Cerrar lista de chats" data-i18n-title="closeChats">[x]</button>
           </div>
-          <button id="new-workspace-btn" class="sessions-create" type="button">
+          <button id="new-workspace-btn" class="sessions-create" type="button" data-i18n="openChatFolder">
             ＋ Abrir carpeta y crear chat
           </button>
-          <button id="new-workspace-terminal-btn" class="sessions-create" type="button">
+          <button id="new-workspace-terminal-btn" class="sessions-create" type="button" data-i18n="openTerminalFolder">
             ＋ Abrir carpeta y crear terminal
           </button>
           <div id="sessions-error" class="session-error" hidden></div>
@@ -182,7 +194,7 @@
       <section id="chat-panel">
         <!-- FIX QW-1 (UI): banner de memoria no persistente. Lo controla
          el listener 'memory-status' más abajo, vía ipcRenderer. -->
-        <div id="memory-banner">
+        <div id="memory-banner" data-i18n="memoryUnavailable">
           Memoria no persistente — better-sqlite3 no cargó. Lo que hablen hoy se perderá al cerrar
           la app.
         </div>
@@ -192,26 +204,26 @@
         <div id="sandbox-banner"></div>
 
         <div id="keys-banner">
-          <span>Sin API keys — el asistente no puede responder. Configura un proveedor:</span>
-          <button id="open-settings-btn">Elegir modelo</button>
-          <span style="font-size: 9px; opacity: 0.7">o escribe <code>/model</code></span>
+          <span data-i18n="noApiKeys">Sin API keys — el asistente no puede responder. Configura un proveedor:</span>
+          <button id="open-settings-btn" data-i18n="chooseProvider">Elegir modelo</button>
+          <span style="font-size: 9px; opacity: 0.7" data-i18n="orTypeModel">o escribe /model</span>
         </div>
 
         <!-- Banner de auto-update: lo controla el listener 'update-status' en ipc.js -->
         <div id="update-banner">
           <span id="update-text"></span>
           <span id="update-progress"></span>
-          <button id="update-dl-btn" style="display: none">Descargar</button>
-          <button id="update-restart-btn" style="display: none">Reiniciar ahora</button>
-          <button id="update-close-btn">×</button>
+          <button id="update-dl-btn" style="display: none" data-i18n="download">Descargar</button>
+          <button id="update-restart-btn" style="display: none" data-i18n="restartNow">Reiniciar ahora</button>
+          <button id="update-close-btn" aria-label="Cerrar" data-i18n-label="close">×</button>
         </div>
 
-        <div id="copy-toast" class="copy-toast">Copiado</div>
+        <div id="copy-toast" class="copy-toast" data-i18n="copied">Copiado</div>
 
         <div id="app-lock">
           <div id="app-lock-box">
-            <div class="settings-title">Bloqueado</div>
-            <div class="prefs-hint">Introducí tu PIN para desbloquear la ventana.</div>
+            <div class="settings-title" data-i18n="locked">Bloqueado</div>
+            <div class="prefs-hint" data-i18n="unlockHint">Introducí tu PIN para desbloquear la ventana.</div>
             <div class="prefs-pin-row">
               <input
                 type="password"
@@ -220,19 +232,19 @@
                 autocomplete="off"
                 autofocus
               />
-              <button class="btn-save" id="app-lock-btn">Desbloquear</button>
+              <button class="btn-save" id="app-lock-btn" data-i18n="unlock">Desbloquear</button>
             </div>
             <div class="prefs-status" id="app-lock-status"></div>
           </div>
         </div>
 
         <div id="drop-overlay">
-          <span>SOLTAR ARCHIVO</span>
+          <span data-i18n="dropFile">SOLTAR ARCHIVO</span>
         </div>
 
         <div id="terminal-companion-header" hidden>
-          <span>KAORU · TERMINAL</span>
-          <button id="terminal-return" type="button">Ver terminal completa</button>
+              <span data-i18n="kaoruTerminal">KAORU · TERMINAL</span>
+          <button id="terminal-return" type="button" data-i18n="fullTerminal">Ver terminal completa</button>
         </div>
 
         <div id="messages">
@@ -246,7 +258,7 @@
         <div id="terminal-panel" hidden>
           <div class="terminal-toolbar">
             <div class="terminal-toolbar-identity">
-              <span id="terminal-shell">Terminal</span>
+              <span id="terminal-shell" data-i18n="terminal">Terminal</span>
               <span id="terminal-workspace"></span>
             </div>
             <div class="terminal-toolbar-actions">
@@ -254,16 +266,19 @@
                 id="terminal-search-toggle"
                 type="button"
                 aria-label="Buscar en la terminal"
+                data-i18n-label="search"
                 aria-expanded="false"
               >
-                Buscar
+                <span data-i18n="search">Buscar</span>
               </button>
               <div id="terminal-search-controls" role="search" hidden>
                 <input
                   id="terminal-search-input"
                   type="search"
                   aria-label="Buscar texto en la terminal"
+                  data-i18n-label="searchOutput"
                   placeholder="Buscar salida…"
+                  data-i18n-placeholder="searchOutput"
                   maxlength="128"
                 />
                 <span id="terminal-search-status" role="status" aria-live="polite">0/0</span>
@@ -271,6 +286,7 @@
                   id="terminal-search-prev"
                   type="button"
                   aria-label="Coincidencia anterior"
+                  data-i18n-label="previousMatch"
                   disabled
                 >
                   ↑
@@ -279,22 +295,24 @@
                   id="terminal-search-next"
                   type="button"
                   aria-label="Coincidencia siguiente"
+                  data-i18n-label="nextMatch"
                   disabled
                 >
                   ↓
                 </button>
               </div>
-              <button id="terminal-explain-error" type="button" hidden>Explicar error</button>
-              <button id="terminal-attach-output" type="button">Preguntar a Kaoru</button>
-              <button id="terminal-chat-toggle" type="button">Chat</button>
+              <button id="terminal-explain-error" type="button" hidden data-i18n="explainError">Explicar error</button>
+              <button id="terminal-attach-output" type="button" data-i18n="askKaoru">Preguntar a Kaoru</button>
+              <button id="terminal-chat-toggle" type="button" data-i18n="chat">Chat</button>
               <span id="terminal-signal" role="status" aria-live="polite" hidden></span>
               <span class="terminal-indicator" aria-hidden="true"></span>
-              <span id="terminal-status" role="status">Conectando…</span>
-              <button id="terminal-restart" type="button" hidden>Reiniciar shell</button>
+              <span id="terminal-status" role="status" data-i18n="connecting">Conectando…</span>
+              <button id="terminal-restart" type="button" hidden data-i18n="restartShell">Reiniciar shell</button>
               <button
                 id="terminal-appearance-toggle"
                 type="button"
                 aria-label="Apariencia de la terminal"
+                data-i18n-label="appearance"
                 aria-expanded="false"
                 aria-controls="terminal-appearance-menu"
               >
@@ -302,35 +320,35 @@
               </button>
             </div>
             <div id="terminal-appearance-menu" hidden>
-              <span class="terminal-appearance-title">Apariencia</span>
+              <span class="terminal-appearance-title" data-i18n="terminalAppearanceTitle">Apariencia</span>
               <label class="terminal-avatar-control" for="terminal-avatar-view">
-                Vista
-                <select id="terminal-avatar-view" aria-label="Vista del avatar en terminal">
-                  <option value="full">Completa</option>
-                  <option value="half">Cercana</option>
+                <span data-i18n="avatarView">Vista</span>
+                <select id="terminal-avatar-view" aria-label="Vista del avatar en terminal" data-i18n-label="terminalAvatarView">
+                  <option value="full" data-i18n="fullView">Completa</option>
+                  <option value="half" data-i18n="closeView">Cercana</option>
                 </select>
               </label>
               <label class="terminal-avatar-control" for="terminal-avatar-motion">
-                Movimiento
-                <select id="terminal-avatar-motion" aria-label="Movimiento del avatar en terminal">
-                  <option value="subtle">Sutil</option>
-                  <option value="lively">Vivo</option>
-                  <option value="off">Quieto</option>
+                <span data-i18n="avatarMotion">Movimiento</span>
+                <select id="terminal-avatar-motion" aria-label="Movimiento del avatar en terminal" data-i18n-label="terminalAvatarMotion">
+                  <option value="subtle" data-i18n="subtle">Sutil</option>
+                  <option value="lively" data-i18n="lively">Vivo</option>
+                  <option value="off" data-i18n="still">Quieto</option>
                 </select>
               </label>
-              <div class="terminal-font-controls" aria-label="Tamaño de letra de la terminal">
-                <span>Texto</span>
-                <button id="terminal-font-decrease" type="button" aria-label="Reducir texto">
+              <div class="terminal-font-controls" aria-label="Tamaño de letra de la terminal" data-i18n-label="terminalFontSize">
+                <span data-i18n="text">Texto</span>
+                <button id="terminal-font-decrease" type="button" aria-label="Reducir texto" data-i18n-label="decreaseText">
                   −
                 </button>
                 <output id="terminal-font-size" aria-live="polite">13 px</output>
-                <button id="terminal-font-increase" type="button" aria-label="Ampliar texto">
+                <button id="terminal-font-increase" type="button" aria-label="Ampliar texto" data-i18n-label="increaseText">
                   +
                 </button>
               </div>
             </div>
           </div>
-          <div id="terminal-screen" aria-label="Terminal interactiva">
+          <div id="terminal-screen" aria-label="Terminal interactiva" data-i18n-label="interactiveTerminal">
             <div id="terminal-viewport"></div>
           </div>
           <div id="terminal-error" role="status" hidden></div>
@@ -342,22 +360,22 @@
         <div id="input-area">
           <div id="terminal-context-card" hidden>
             <div class="terminal-context-heading">
-              <span id="terminal-context-label">Salida de terminal</span>
-              <button id="terminal-context-remove" type="button" aria-label="Quitar salida adjunta">
+              <span id="terminal-context-label" data-i18n="terminalOutput">Salida de terminal</span>
+              <button id="terminal-context-remove" type="button" aria-label="Quitar salida adjunta" data-i18n-label="removeAttachedOutput">
                 ×
               </button>
             </div>
             <pre id="terminal-context-preview"></pre>
-            <span>Revisa el contenido antes de enviarlo: puede incluir datos privados.</span>
+            <span data-i18n="reviewTerminalOutput">Revisa el contenido antes de enviarlo: puede incluir datos privados.</span>
           </div>
           <div class="composer-toolbar">
-            <button id="attach-btn" type="button" title="Adjuntar archivos">＋ Adjuntar</button>
-            <button id="models-btn" class="header-model-button" type="button" title="Elegir modelo">
+            <button id="attach-btn" type="button" title="Adjuntar archivos" data-i18n-title="attachFiles">＋ <span data-i18n="attach">Adjuntar</span></button>
+            <button id="models-btn" class="header-model-button" type="button" title="Elegir modelo" data-i18n-title="chooseModel">
               <span id="header-model" class="header-model">sin modelo</span
               ><span aria-hidden="true">▾</span>
             </button>
-            <span id="composer-mode" title="Kaoru selecciona automáticamente el modo de ejecución"
-              >Auto</span
+            <span id="composer-mode" title="Kaoru selecciona automáticamente el modo de ejecución" data-i18n-title="autoModeHint"
+              data-i18n="auto">Auto</span
             >
             <span
               id="composer-status"
@@ -365,17 +383,17 @@
               aria-live="polite"
               aria-atomic="true"
               data-state="idle"
-              >Listo</span
+              data-i18n="ready">Listo</span
             >
           </div>
           <div id="model-browser" class="model-browser" style="display: none">
             <div id="model-browser-head">
-              <span>MODELOS</span>
+              <span data-i18n="models">MODELOS</span>
               <span id="model-browser-count" class="model-browser-count"></span>
               <button id="mbr-toggle-all" class="mbr-toggle-all" type="button">
-                ver todos los proveedores
+                <span data-i18n="showAllProviders">ver todos los proveedores</span>
               </button>
-              <span class="model-browser-hint">↑↓ navegar · Enter usar · Esc cerrar</span>
+              <span class="model-browser-hint" data-i18n="modelBrowserHint">↑↓ navegar · Enter usar · Esc cerrar</span>
             </div>
             <div id="model-browser-list"></div>
             <div id="model-browser-status"></div>
@@ -387,26 +405,30 @@
             <textarea
               id="msg-input"
               placeholder="escribe un mensaje · Enter envía · Shift+Enter salto de línea"
+              data-i18n-placeholder="messagePlaceholder"
               disabled
               rows="1"
               aria-label="Mensaje para Kaoru"
+              data-i18n-label="sendMessage"
             ></textarea>
             <span id="input-cursor" class="input-cursor" aria-hidden="true"></span>
             <button
               id="cancel-btn"
               class="input-btn"
               title="Detener generación"
+              data-i18n-title="stop"
               aria-label="Detener generación"
+              data-i18n-label="stop"
               style="display: none"
             >
               <svg viewBox="0 0 24 24" fill="currentColor" width="12" height="12">
                 <rect x="6" y="6" width="12" height="12" />
               </svg>
-              <span>Detener</span>
+              <span data-i18n="stop">Detener</span>
             </button>
           </div>
           <div id="input-info">
-            <span class="input-hint" id="input-hint-text">Cargando...</span>
+            <span class="input-hint" id="input-hint-text" data-i18n="loadingDots">Cargando...</span>
             <span class="input-hint" id="footer-session"></span>
           </div>
         </div>
@@ -422,36 +444,36 @@
 
     <div id="onboarding-modal" aria-modal="true" role="dialog">
       <div id="onboarding-box">
-        <div class="settings-title">Bienvenido a Kaoru</div>
-        <div class="settings-sub">ASISTENTE PERSONAL · AGENTE DE HERRAMIENTAS · CONTROL LOCAL</div>
-        <p class="onboarding-lead">
+        <div class="settings-title" data-i18n="welcome">Bienvenido a Kaoru</div>
+        <div class="settings-sub" data-i18n="welcomeSub">ASISTENTE PERSONAL · AGENTE DE HERRAMIENTAS · CONTROL LOCAL</div>
+        <p class="onboarding-lead" data-i18n="welcomeLead">
           Kaoru conversa contigo y también puede encadenar tareas con archivos, terminal, navegador
           y aplicaciones. Tú decides los permisos y el proveedor de IA.
         </p>
         <div class="onboarding-grid">
           <button id="onboarding-models" class="onboarding-card" type="button">
-            <strong>1. Conecta un modelo</strong>
-            <span>Elige un proveedor, pega tu API key y asigna un modelo para tareas.</span>
+            <strong data-i18n="connectModel">1. Conecta un modelo</strong>
+            <span data-i18n="connectModelHint">Elige un proveedor, pega tu API key y asigna un modelo para tareas.</span>
           </button>
           <button id="onboarding-permissions" class="onboarding-card" type="button">
-            <strong>2. Revisa permisos</strong>
-            <span>Configura navegador, escritorio y qué acciones deben preguntarte.</span>
+            <strong data-i18n="reviewPermissions">2. Revisa permisos</strong>
+            <span data-i18n="reviewPermissionsHint">Configura navegador, escritorio y qué acciones deben preguntarte.</span>
           </button>
           <div class="onboarding-card static">
-            <strong>3. Prueba una tarea</strong>
-            <span>Pídele crear un archivo, abrir una aplicación y verificar el resultado.</span>
+            <strong data-i18n="tryTask">3. Prueba una tarea</strong>
+            <span data-i18n="tryTaskHint">Pídele crear un archivo, abrir una aplicación y verificar el resultado.</span>
           </div>
         </div>
-        <div class="onboarding-privacy">
+        <div class="onboarding-privacy" data-i18n="welcomePrivacy">
           La memoria y configuración se guardan localmente. El contenido enviado al modelo se rige
           por el proveedor que elijas. Puedes borrar todos los datos desde Ajustes.
         </div>
         <div class="settings-actions">
-          <button class="btn-cancel" id="onboarding-later" type="button">Ahora no</button>
-          <button class="btn-cancel" id="onboarding-terminal" type="button">
+          <button class="btn-cancel" id="onboarding-later" type="button" data-i18n="later">Ahora no</button>
+          <button class="btn-cancel" id="onboarding-terminal" type="button" data-i18n="chooseTerminal">
             Elegir carpeta y abrir terminal
           </button>
-          <button class="btn-save" id="onboarding-finish" type="button">Empezar con Kaoru</button>
+          <button class="btn-save" id="onboarding-finish" type="button" data-i18n="startKaoru">Empezar con Kaoru</button>
         </div>
       </div>
     </div>
@@ -460,37 +482,39 @@
     <div id="settings-modal" role="dialog" aria-modal="true" aria-labelledby="picker-title">
       <div id="settings-box" class="picker-box">
         <div class="settings-title-row">
-          <span class="settings-title" id="picker-title">Elegir modelo</span>
+          <span class="settings-title" id="picker-title" data-i18n="chooseModel">Elegir modelo</span>
           <button
             class="modal-x"
             id="picker-close"
             type="button"
             aria-label="Cerrar selector de modelos"
+            data-i18n-label="modelPickerLabel"
           >
             [x]
           </button>
         </div>
-        <div class="settings-sub">TODOS LOS MODELOS DE IA · CONECTA EL PROVIDER AL ELEGIR</div>
+        <div class="settings-sub" data-i18n="allModelsSubtitle">TODOS LOS MODELOS DE IA · CONECTA EL PROVIDER AL ELEGIR</div>
         <input
           id="picker-search"
           class="picker-search"
           type="text"
           aria-label="Buscar un modelo"
+          data-i18n-label="searchModel"
           aria-describedby="picker-instructions"
           placeholder="Buscar modelo... (ej: llama, gpt-5, claude, deepseek)"
+          data-i18n-placeholder="modelSearch"
           autocomplete="off"
           spellcheck="false"
         />
         <div id="picker-status" class="picker-status"></div>
         <div id="picker-list" class="picker-list"></div>
         <div class="picker-foot">
-          <span class="picker-hints" id="picker-instructions"
-            >↑↓ navegar · Enter usar · <kbd>Ctrl+A</kbd> conectar provider ·
-            <kbd>Ctrl+F</kbd> favorito</span
+          <span class="picker-hints" id="picker-instructions" data-i18n="pickerInstructions"
+            >↑↓ navegar · Enter usar · Ctrl+A conectar provider · Ctrl+F favorito</span
           >
           <label class="settings-checkbox picker-keychain">
             <input type="checkbox" id="use-keychain" checked />
-            <span>Guardar keys en el llavero</span>
+            <span data-i18n="keychain">Guardar keys en el llavero</span>
           </label>
         </div>
         <div class="settings-status" id="settings-status"></div>
@@ -500,34 +524,34 @@
     <div id="perms-modal">
       <div id="perms-box">
         <div class="settings-title-row">
-          <span class="settings-title">Permisos de herramientas</span>
-          <button class="modal-x" id="perms-close-x" title="Cerrar">[x]</button>
+          <span class="settings-title" data-i18n="permissions">Permisos de herramientas</span>
+          <button class="modal-x" id="perms-close-x" title="Cerrar" data-i18n-title="close">[x]</button>
         </div>
-        <div class="settings-sub">
+        <div class="settings-sub" data-i18n="permissionsSub">
           DECIDE QUÉ PUEDE HACER CADA HERRAMIENTA · LAS REGLAS SE GUARDAN EN TU PC
         </div>
-        <div class="perms-hint">
+        <div class="perms-hint" data-i18n="permissionHint">
           <code>Preguntar</code> solicita tu confirmación, <code>Permitir</code> ejecuta sin
           preguntar y <code>Bloquear</code> impide la acción. Usa <code>*</code> para aplicar la
           regla a todas las herramientas y deja la carpeta vacía para usarla globalmente.
         </div>
 
-        <div class="desktop-capabilities-title">CAPACIDADES DE ESCRITORIO</div>
+        <div class="desktop-capabilities-title" data-i18n="desktopCapabilities">CAPACIDADES DE ESCRITORIO</div>
         <div id="desktop-capabilities" class="desktop-capabilities"></div>
 
-        <div class="desktop-capabilities-title">NAVEGADOR PARA MULTIMEDIA</div>
+        <div class="desktop-capabilities-title" data-i18n="browserMedia">NAVEGADOR PARA MULTIMEDIA</div>
         <div class="browser-preferences">
           <label>
-            <span>Dónde abrir YouTube</span>
+            <span data-i18n="youtubeBrowser">Dónde abrir YouTube</span>
             <select id="media-browser-control">
-              <option value="external">Mi navegador personal</option>
-              <option value="managed">Chromium administrado por Kaoru</option>
+              <option value="external" data-i18n="externalBrowser">Mi navegador personal</option>
+              <option value="managed" data-i18n="managedBrowser">Chromium administrado por Kaoru</option>
             </select>
           </label>
           <label>
-            <span>Navegador personal</span>
+            <span data-i18n="personalBrowser">Navegador personal</span>
             <select id="media-browser-preferred">
-              <option value="default">Predeterminado del sistema</option>
+              <option value="default" data-i18n="defaultBrowser">Predeterminado del sistema</option>
               <option value="brave">Brave</option>
               <option value="chrome">Chrome</option>
               <option value="chromium">Chromium</option>
@@ -535,7 +559,7 @@
               <option value="firefox">Firefox</option>
             </select>
           </label>
-          <p>
+          <p data-i18n="personalBrowserHint">
             El navegador personal conserva tus sesiones. Kaoru abre el video exacto con autoplay,
             pero YouTube puede exigir que pulses reproducir. El administrado permite comprobar la
             reproducción, aunque algunos sitios pueden limitarlo.
@@ -547,6 +571,7 @@
             id="perms-tool"
             list="perms-tools"
             placeholder="Herramienta (ej: exec, write, git_commit, *)"
+            data-i18n-placeholder="toolPlaceholder"
           />
           <datalist id="perms-tools">
             <option value="exec"></option>
@@ -572,21 +597,21 @@
             <option value="subagent"></option>
             <option value="*"></option>
           </datalist>
-          <input id="perms-path" placeholder="Carpeta (opcional, ej: /home/user/proyecto)" />
+          <input id="perms-path" placeholder="Carpeta (opcional, ej: /home/user/proyecto)" data-i18n-placeholder="pathPlaceholder" />
           <select id="perms-action">
-            <option value="ask">Preguntar</option>
-            <option value="allow">Permitir</option>
-            <option value="deny">Bloquear</option>
+            <option value="ask" data-i18n="ask">Preguntar</option>
+            <option value="allow" data-i18n="allow">Permitir</option>
+            <option value="deny" data-i18n="deny">Bloquear</option>
           </select>
-          <button class="btn-save" id="perms-add-btn">Agregar</button>
+          <button class="btn-save" id="perms-add-btn" data-i18n="add">Agregar</button>
         </div>
         <div class="perms-status" id="perms-status"></div>
         <div id="perms-list"></div>
-        <div class="perms-empty" id="perms-empty-msg" style="display: none">
+        <div class="perms-empty" id="perms-empty-msg" style="display: none" data-i18n="noRules">
           Sin reglas — el default es preguntar en herramientas de alto impacto.
         </div>
         <div class="settings-actions">
-          <button class="btn-cancel" id="close-perms">Cerrar</button>
+          <button class="btn-cancel" id="close-perms" data-i18n="close">Cerrar</button>
         </div>
       </div>
     </div>
@@ -595,26 +620,37 @@
     <div id="prefs-modal">
       <div id="prefs-box">
         <div class="settings-title-row">
-          <span class="settings-title">Ajustes</span>
-          <button class="modal-x" id="prefs-close" title="Cerrar">[x]</button>
+          <span class="settings-title" data-i18n="settings">Ajustes</span>
+          <button class="modal-x" id="prefs-close" title="Cerrar" data-i18n-title="close">[x]</button>
         </div>
-        <div class="settings-sub">AUTONOMÍA · AGENTE · PIN · CUENTA</div>
+        <div class="settings-sub" data-i18n="settingsSub">AUTONOMÍA · AGENTE · PIN · CUENTA</div>
 
         <div class="prefs-section">
-          <div class="prefs-label">Autonomía</div>
-          <div class="prefs-hint">Define cuánta iniciativa puede tomar Kaoru por su cuenta.</div>
+          <label class="prefs-label" for="prefs-language" data-i18n="language">Idioma</label>
+          <select id="prefs-language" aria-label="Idioma" data-i18n-label="language">
+            <option value="system" data-i18n="system">Idioma del sistema</option>
+            <option value="en" data-i18n="english">English</option>
+            <option value="es" data-i18n="spanish">Español</option>
+            <option value="ja" data-i18n="japanese">日本語</option>
+          </select>
+          <div id="prefs-language-status" class="prefs-status" role="status"></div>
+        </div>
+
+        <div class="prefs-section">
+          <div class="prefs-label" data-i18n="autonomy">Autonomía</div>
+          <div class="prefs-hint" data-i18n="autonomyHint">Define cuánta iniciativa puede tomar Kaoru por su cuenta.</div>
           <div class="prefs-segmented" id="prefs-autonomy">
-            <button data-mode="observe" class="prefs-seg" title="Sólo observa">Observar</button>
-            <button data-mode="suggest" class="prefs-seg" title="Propone acciones">Sugerir</button>
-            <button data-mode="act" class="prefs-seg" title="Ejecuta propuestas">Actuar</button>
+            <button data-mode="observe" class="prefs-seg" title="Sólo observa" data-i18n-title="observeTitle" data-i18n="observe">Observar</button>
+            <button data-mode="suggest" class="prefs-seg" title="Propone acciones" data-i18n-title="suggestTitle" data-i18n="suggest">Sugerir</button>
+            <button data-mode="act" class="prefs-seg" title="Ejecuta propuestas" data-i18n-title="actTitle" data-i18n="act">Actuar</button>
           </div>
         </div>
 
         <div class="prefs-section">
-          <div class="prefs-label">Agente</div>
+          <div class="prefs-label" data-i18n="agent">Agente</div>
           <label class="prefs-row">
             <span class="prefs-row-label"
-              >Auto-aprobar acciones<span class="prefs-row-hint"
+              ><span data-i18n="autoApprove">Auto-aprobar acciones</span><span class="prefs-row-hint" data-i18n="autoApproveHint"
                 >No pedir permiso para ejecutar comandos/escrituras</span
               ></span
             >
@@ -622,7 +658,7 @@
           </label>
           <label class="prefs-row">
             <span class="prefs-row-label"
-              >Timeout de aprobación (ms)<span class="prefs-row-hint"
+              ><span data-i18n="approvalTimeout">Timeout de aprobación (ms)</span><span class="prefs-row-hint" data-i18n="approvalTimeHint"
                 >120000 = 2 min para responder el card</span
               ></span
             >
@@ -632,8 +668,8 @@
         </div>
 
         <div class="prefs-section">
-          <div class="prefs-label">Bloqueo con PIN</div>
-          <div class="prefs-hint">
+          <div class="prefs-label" data-i18n="pinLock">Bloqueo con PIN</div>
+          <div class="prefs-hint" data-i18n="pinHint">
             Bloquea la ventana al abrirla. El hash se guarda en el llavero del sistema, nunca en
             config.json.
           </div>
@@ -642,16 +678,17 @@
               type="password"
               id="prefs-pin-input"
               placeholder="PIN (4+ caracteres)"
+              data-i18n-placeholder="pinPlaceholder"
               autocomplete="off"
             />
-            <button class="btn-save" id="prefs-pin-set-btn">Guardar</button>
-            <button class="btn-cancel" id="prefs-pin-clear-btn" style="display: none">
+            <button class="btn-save" id="prefs-pin-set-btn" data-i18n="save">Guardar</button>
+            <button class="btn-cancel" id="prefs-pin-clear-btn" style="display: none" data-i18n="remove">
               Quitar
             </button>
           </div>
           <label class="prefs-row">
             <span class="prefs-row-label"
-              >Re-lock tras inactividad (ms)<span class="prefs-row-hint"
+              ><span data-i18n="pinTimeout">Re-lock tras inactividad (ms)</span><span class="prefs-row-hint" data-i18n="pinTimeoutHint"
                 >0 = desbloquear una sola vez por sesión</span
               ></span
             >
@@ -661,8 +698,8 @@
         </div>
 
         <div class="prefs-section">
-          <div class="prefs-label">Credenciales de modelos</div>
-          <div class="prefs-hint">
+          <div class="prefs-label" data-i18n="modelCredentials">Credenciales de modelos</div>
+          <div class="prefs-hint" data-i18n="credentialHint">
             Reemplaza o elimina una API key sin mostrar el valor guardado. Una clave definida en
             <code>.env</code> debe quitarse desde ese archivo o variable de entorno.
           </div>
@@ -671,13 +708,13 @@
         </div>
 
         <div class="prefs-section">
-          <div class="prefs-label">Cuenta de GitHub</div>
-          <div class="prefs-hint">
+          <div class="prefs-label" data-i18n="githubAccount">Cuenta de GitHub</div>
+          <div class="prefs-hint" data-i18n="githubHint">
             Para <code>git push</code> y las tools de issues/PRs. El token vive en el llavero.
           </div>
           <div class="prefs-pin-row">
             <span id="prefs-gh-status" class="prefs-gh-status">Comprobando...</span>
-            <button class="btn-save" id="prefs-gh-logout-btn" style="display: none">
+            <button class="btn-save" id="prefs-gh-logout-btn" style="display: none" data-i18n="signOut">
               Cerrar sesión
             </button>
           </div>
@@ -685,34 +722,35 @@
         </div>
 
         <div class="prefs-section">
-          <div class="prefs-label">Recuperación y datos locales</div>
-          <div class="prefs-hint">
+          <div class="prefs-label" data-i18n="localData">Recuperación y datos locales</div>
+          <div class="prefs-hint" data-i18n="localDataHint">
             Estas acciones solo afectan datos de Kaoru. Nunca eliminan tus proyectos, Documentos o
             workspaces.
           </div>
           <div class="prefs-maintenance-actions">
-            <button class="btn-cancel" id="prefs-reset-permissions-btn" type="button">
+            <button class="btn-cancel" id="prefs-reset-permissions-btn" type="button" data-i18n="resetPermissions">
               Reiniciar permisos
             </button>
-            <button class="btn-cancel" id="prefs-clear-cache-btn" type="button">
+            <button class="btn-cancel" id="prefs-clear-cache-btn" type="button" data-i18n="clearCache">
               Limpiar cachés y logs
             </button>
-            <button class="btn-cancel" id="prefs-previous-versions-btn" type="button">
+            <button class="btn-cancel" id="prefs-previous-versions-btn" type="button" data-i18n="previousVersions">
               Versiones anteriores
             </button>
           </div>
           <div class="prefs-danger-zone">
-            <strong>Restablecimiento completo</strong>
-            <span
+            <strong data-i18n="factoryReset">Restablecimiento completo</strong>
+            <span data-i18n="factoryResetHint"
               >Borra configuración, memoria, sesiones, permisos, cachés y credenciales de Kaoru, y
               reinicia la aplicación.</span
             >
             <input
               id="prefs-factory-confirm"
               placeholder="Escribe BORRAR TODO"
+              data-i18n-placeholder="factoryConfirmationPlaceholder"
               autocomplete="off"
             />
-            <button class="btn-danger" id="prefs-factory-reset-btn" type="button">
+            <button class="btn-danger" id="prefs-factory-reset-btn" type="button" data-i18n="deleteAll">
               Borrar todos los datos de Kaoru
             </button>
           </div>
@@ -720,7 +758,7 @@
         </div>
 
         <div class="settings-actions">
-          <button class="btn-cancel" id="prefs-done-btn">Listo</button>
+          <button class="btn-cancel" id="prefs-done-btn" data-i18n="done">Listo</button>
         </div>
       </div>
     </div>
@@ -736,6 +774,7 @@
     <script src="../node_modules/@xterm/xterm/lib/xterm.js"></script>
     <script src="../node_modules/@xterm/addon-fit/lib/addon-fit.js"></script>
 
+    <script src="chat/i18n.js"></script>
     <script src="chat/core.js"></script>
     <script src="chat/activityBlock.js"></script>
     <script src="chat/planBlock.js"></script>

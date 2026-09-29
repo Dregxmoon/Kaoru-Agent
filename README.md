@@ -21,7 +21,7 @@
 
 ---
 
-> El español es la fuente canónica. Las demás ediciones ofrecen una portada mantenida y enlazan a la referencia técnica en español cuando todavía no existe una traducción equivalente. Consulta la [política de idiomas](./docs/i18n/README.md).
+> Kaoru prepara la internacionalización de v2.3: inglés será la base del catálogo de interfaz y los comandos nuevos tendrán nombre canónico en inglés con aliases españoles. La documentación técnica detallada aún se mantiene principalmente en español; **v2.3 no está publicado**. Consulta la [política de idiomas](./docs/i18n/README.md) y la [lista de verificación del lanzamiento](./docs/v2.3-release-checklist.md).
 
 Kaoru es un asistente personal de IA que vive en el escritorio. Conversa, conserva contexto y puede acompañarte por texto, voz y presencia Live2D. Cuando necesitas pasar a la acción, trabaja como agente sobre tu proyecto y las herramientas permitidas: planifica, ejecuta y presenta resultados para revisión.
 

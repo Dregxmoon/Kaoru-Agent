@@ -76,12 +76,12 @@ async function loadModel() {
   if (!_modelInfo) _modelInfo = await ipcRenderer.invoke('get-model-info').catch(() => null);
   if (!_modelInfo || !_modelInfo.model3Path) {
     console.error('[chat] no hay modelo Live2D configurado — el panel quedará vacío');
-    _showModelError('No hay modelo Live2D disponible. Configúralo con /cambio-modelo.');
+    _showModelError(window.kaoruI18n.t('noLive2dModel'));
     return;
   }
   if (!(await assistant.existsSync(_modelInfo.model3Path))) {
     console.error('Modelo no encontrado:', _modelInfo.model3Path);
-    _showModelError('Modelo no encontrado: ' + _modelInfo.model3Path);
+    _showModelError(window.kaoruI18n.format('modelNotFound', { path: _modelInfo.model3Path }));
     return;
   }
 
@@ -108,7 +108,7 @@ async function loadModel() {
 
   try {
     if (!window.Live2DCubismCore || !PIXI.live2d || !PIXI.live2d.Live2DModel)
-      throw new Error('Falta el runtime Live2D Cubism en la instalación');
+      throw new Error(window.kaoruI18n.t('live2dRuntimeMissing'));
     PIXI.live2d.Live2DModel.registerTicker(PIXI.Ticker);
     // Se inyectan expresiones/motions no referenciadas en el model3.json (ver
     // core/behavior/ModelAugmenter.js) para que el mini-avatar pueda animar.
@@ -151,7 +151,7 @@ async function loadModel() {
     _observeModelContainer(container);
   } catch (e) {
     console.error('model error:', e);
-    _showModelError('No se pudo cargar el modelo Live2D: ' + ((e && e.message) || e));
+    _showModelError(window.kaoruI18n.format('live2dLoadFailed', { error: (e && e.message) || e }));
   }
 }
 

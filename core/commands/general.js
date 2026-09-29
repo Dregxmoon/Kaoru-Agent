@@ -14,9 +14,10 @@ module.exports = function registerCommands(register) {
   });
 
   register({
-    name: 'mudo',
+    name: 'mute',
+    aliases: ['mudo'],
     description: 'Activa/desactiva la voz (TTS)',
-    usage: '/mudo',
+    usage: '/mute',
     handler: async (args, ctx) => {
       const muted = ctx.isTtsMuted ? ctx.isTtsMuted() : false;
       const next = !muted;
@@ -26,9 +27,10 @@ module.exports = function registerCommands(register) {
   });
 
   register({
-    name: 'contexto',
+    name: 'context',
+    aliases: ['contexto'],
     description: 'Muestra el presupuesto de contexto de la sesion',
-    usage: '/contexto',
+    usage: '/context',
     handler: async (args, ctx) => {
       const history = ctx.sessionHistory || [];
       const chars = history.reduce((acc, m) => acc + String(m.content || '').length, 0);
@@ -47,9 +49,10 @@ module.exports = function registerCommands(register) {
   });
 
   register({
-    name: 'memory',
+    name: 'history',
+    aliases: ['memory'],
     description: 'Muestra el historial reciente de la conversacion',
-    usage: '/memory',
+    usage: '/history',
     handler: async (args, ctx) => {
       const history = ctx.sessionHistory || [];
       if (history.length === 0) return 'No hay mensajes en el historial.';
@@ -86,9 +89,10 @@ module.exports = function registerCommands(register) {
   });
 
   register({
-    name: 'telemetria',
+    name: 'telemetry',
+    aliases: ['telemetria'],
     description: 'Muestra si estamos mejor que el mes pasado (datos locales)',
-    usage: '/telemetria',
+    usage: '/telemetry',
     handler: async (args, ctx) => {
       if (!ctx.ipcRenderer) return 'IPC no disponible.';
       try {
@@ -167,9 +171,10 @@ module.exports = function registerCommands(register) {
   });
 
   register({
-    name: 'olvida',
+    name: 'forget',
+    aliases: ['olvida'],
     description: 'Archiva de la memoria lo que coincida con el texto',
-    usage: '/olvida <texto>',
+    usage: '/forget <text>',
     handler: async (args, ctx) => {
       const text = args.join(' ').trim();
       if (!text)
@@ -193,9 +198,10 @@ module.exports = function registerCommands(register) {
   });
 
   register({
-    name: 'memoria',
+    name: 'memory-graph',
+    aliases: ['memoria'],
     description: 'Muestra el grafo de nodos de memoria en el chat',
-    usage: '/memoria',
+    usage: '/memory-graph',
     handler: async (args, ctx) => {
       if (typeof ctx.openNodes === 'function') {
         ctx.openNodes();
@@ -206,9 +212,10 @@ module.exports = function registerCommands(register) {
   });
 
   register({
-    name: 'sesiones',
+    name: 'sessions',
+    aliases: ['sesiones'],
     description: 'Abre el panel de sesiones pasadas (reanudar conversaciones)',
-    usage: '/sesiones',
+    usage: '/sessions',
     handler: async (args, ctx) => {
       if (typeof ctx.openSessions === 'function') {
         ctx.openSessions();
@@ -219,9 +226,10 @@ module.exports = function registerCommands(register) {
   });
 
   register({
-    name: 'permisos',
+    name: 'permissions',
+    aliases: ['permisos'],
     description: 'Abre el panel de permisos de herramientas (allow/ask/deny)',
-    usage: '/permisos',
+    usage: '/permissions',
     handler: async (args, ctx) => {
       if (typeof ctx.openPerms === 'function') {
         ctx.openPerms();
@@ -232,9 +240,10 @@ module.exports = function registerCommands(register) {
   });
 
   register({
-    name: 'dir',
+    name: 'workspace',
+    aliases: ['dir'],
     description: 'Elige la carpeta del proyecto (workspace)',
-    usage: '/dir',
+    usage: '/workspace',
     handler: async (args, ctx) => {
       if (typeof ctx.pickWorkspace === 'function') {
         await ctx.pickWorkspace();
@@ -245,9 +254,10 @@ module.exports = function registerCommands(register) {
   });
 
   register({
-    name: 'uso',
+    name: 'usage',
+    aliases: ['uso'],
     description: 'Muestra el consumo de LLM: llamadas, tokens y coste estimado',
-    usage: '/uso [recientes|reset]',
+    usage: '/usage [recent|reset]',
     handler: async (args, ctx) => {
       const getTracker =
         (ctx && ctx.LLMProvider && ctx.LLMProvider.getUsageTracker) ||
@@ -263,7 +273,7 @@ module.exports = function registerCommands(register) {
         return 'Contador de uso de LLM reiniciado.';
       }
 
-      if (sub === 'recientes' && typeof tracker.recent === 'function') {
+      if ((sub === 'recientes' || sub === 'recent') && typeof tracker.recent === 'function') {
         const events = tracker.recent(10);
         if (!events.length) return 'No hay eventos de uso recientes.';
         const lines = events

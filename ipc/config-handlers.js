@@ -12,6 +12,7 @@ const MASKED_KEY_VALUE = '***';
 
 function register(ctx) {
   const { Core, loadConfig, loadEffectiveConfig, redactKeys, saveConfig } = ctx;
+  const t = ctx.mainText;
 
   ipcMain.handle('get-config', () => redactKeys(loadEffectiveConfig()));
 
@@ -142,6 +143,18 @@ function register(ctx) {
     const currentCfg = loadConfig();
     const next = { ...currentCfg };
 
+    if (patch.ui !== undefined) {
+      if (
+        !patch.ui ||
+        typeof patch.ui !== 'object' ||
+        Array.isArray(patch.ui) ||
+        !['system', 'en', 'es', 'ja'].includes(patch.ui.language)
+      ) {
+        return { ok: false, error: 'ui.language inválido' };
+      }
+      next.ui = { ...(currentCfg.ui || {}), language: patch.ui.language };
+    }
+
     if (patch.autonomy !== undefined) {
       if (!['observe', 'suggest', 'act'].includes(patch.autonomy)) {
         return { ok: false, error: `autonomía inválida: ${patch.autonomy}` };
@@ -229,6 +242,10 @@ function register(ctx) {
     }
 
     saveConfig(next);
+    if (patch.ui !== undefined && ctx.S?.tray) {
+      ctx.S.tray.setToolTip(t('trayTooltip'));
+      ctx.S.tray.setContextMenu(ctx.buildTrayMenu());
+    }
     if (patch.autonomy !== undefined) {
       Core.setAutonomyMode(patch.autonomy);
       logger.info('config-handlers', `[config] autonomía persistida → ${patch.autonomy}`);
@@ -279,16 +296,15 @@ function register(ctx) {
 
   ipcMain.handle('maintenance-factory-reset', async (event, { confirmation } = {}) => {
     if (confirmation !== 'BORRAR TODO') {
-      return { ok: false, error: 'Escribe BORRAR TODO para confirmar.' };
+      return { ok: false, error: t('resetConfirm') };
     }
     const owner = BrowserWindow.fromWebContents(event.sender);
     const options = {
       type: 'warning',
-      title: 'Restablecer Kaoru',
-      message: '¿Borrar todos los datos locales de Kaoru?',
-      detail:
-        'Se eliminarán configuración, memoria, sesiones, permisos, cachés y credenciales de Kaoru. Tus proyectos y Documentos no se tocarán.',
-      buttons: ['Cancelar', 'Borrar y reiniciar'],
+      title: t('resetKaoru'),
+      message: t('resetQuestion'),
+      detail: t('resetDetail'),
+      buttons: [t('cancel'), t('deleteRestart')],
       defaultId: 0,
       cancelId: 0,
       noLink: true,

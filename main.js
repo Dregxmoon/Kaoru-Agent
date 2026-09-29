@@ -66,6 +66,7 @@ function _activateLaunchRequest(workspace) {
         require('./ipc/chat-handlers.js').hasRendererBusy();
       if (busy) {
         sendToChat('startup-notice', {
+          type: 'workspace_busy',
           message: 'Cancela la tarea actual antes de abrir otro proyecto.',
         });
       } else {
@@ -359,6 +360,196 @@ const configManager = new ConfigManager(CONFIG_PATH);
 
 function loadConfig() {
   return configManager.load();
+}
+
+// Main owns spoken notices when the chat renderer is not visible. Keep the
+// language choice local to main; no credential-bearing config crosses IPC.
+const MAIN_MESSAGES = {
+  en: {
+    startupMissing: 'Kaoru configuration was not found. Open Settings and configure a model.',
+    startupInvalid: 'Kaoru configuration could not be read. Correct config.json and restart.',
+    startupNoKeys: 'No API key is configured. Open the model picker before sending a message.',
+    proactiveSkipped: 'That change was already applied; I did not modify anything.',
+    proactiveFocused:
+      '⚠️ The file was focused in your editor. Reload it before saving to avoid overwriting the patch. Resolve any unsaved-change conflict.',
+    proactiveOpen: '⚠️ The file is open in your editor. Reload it before saving.',
+    proactiveAppliedFile: 'Done, I applied the change to your file{fixed}. ✅',
+    proactiveApplied: 'Done, I applied the change{fixed}. ✅',
+    proactiveFixed: ' — the error should now be resolved',
+    proactiveFailed: 'I could not apply the change automatically: {reason}.',
+    unknownReason: 'unknown reason',
+    trayCloseChat: 'Close chat',
+    trayOpenChat: 'Open chat',
+    trayLock: 'Lock (move overlay)',
+    trayPassClicks: 'Pass clicks through',
+    trayFull: 'Full body',
+    trayHalf: 'Half body',
+    trayHead: 'Head only',
+    trayRandom: 'Random',
+    trayVoice: 'Voice test',
+    trayGreeting: 'Greeting',
+    traySad: 'Sad',
+    trayExcited: 'Excited',
+    trayCorner: 'Return to corner',
+    trayOverlay: 'Show / hide overlay',
+    trayQuit: 'Quit Kaoru',
+    trayTooltip: 'Kaoru assistant',
+    voiceGreeting: 'Hello! I am here to help you!',
+    voiceSad: 'Sorry, something went wrong.',
+    voiceExcited: 'Perfect, everything went well!',
+    deleteTerminal: 'Delete terminal',
+    deleteChat: 'Delete chat',
+    deleteTerminalQuestion: 'Delete this terminal?',
+    deleteChatQuestion: 'Delete this chat?',
+    deleteTerminalDetail:
+      'The shell will close and this terminal will be removed from the list. Project files will not be deleted.',
+    deleteChatDetail:
+      'This chat history will be deleted. Project files and learned memories will not be deleted.',
+    delete: 'Delete',
+    cancel: 'Cancel',
+    correctMemory: 'Correct memory',
+    correctMemoryQuestion: 'Save this correction to Kaoru’s memory?',
+    saveCorrection: 'Save correction',
+    deleteMemory: 'Delete memory',
+    deleteMemoryQuestion: 'Delete this memory and all its versions?',
+    deleteMemoryDetail: 'Evidence not linked to other memories will also be deleted.',
+    deletePermanently: 'Delete permanently',
+    exportMemory: 'Export Kaoru memory',
+    resetKaoru: 'Reset Kaoru',
+    resetQuestion: 'Delete all local Kaoru data?',
+    resetDetail:
+      'Configuration, memory, sessions, permissions, caches and Kaoru credentials will be deleted. Your projects and Documents will not be touched.',
+    deleteRestart: 'Delete and restart',
+    resetConfirm: 'Type BORRAR TODO to confirm.',
+  },
+  es: {
+    startupMissing: 'No se encontró la configuración de Kaoru. Abre Ajustes y configura un modelo.',
+    startupInvalid: 'No se pudo leer la configuración de Kaoru. Corrige config.json y reinicia.',
+    startupNoKeys:
+      'No hay API key configurada. Abre el selector de modelos antes de enviar un mensaje.',
+    proactiveSkipped: 'Ese cambio ya estaba aplicado; no modifiqué nada.',
+    proactiveFocused:
+      '⚠️ El archivo estaba enfocado en tu editor. Recárgalo antes de guardar para no sobrescribir el parche. Resuelve cualquier conflicto con cambios sin guardar.',
+    proactiveOpen: '⚠️ El archivo está abierto en tu editor. Recárgalo antes de guardar.',
+    proactiveAppliedFile: 'Listo, apliqué el cambio en tu archivo{fixed}. ✅',
+    proactiveApplied: 'Listo, apliqué el cambio{fixed}. ✅',
+    proactiveFixed: ' — el error debería estar resuelto',
+    proactiveFailed: 'No pude aplicar el cambio automáticamente: {reason}.',
+    unknownReason: 'motivo desconocido',
+    trayCloseChat: 'Cerrar chat',
+    trayOpenChat: 'Abrir chat',
+    trayLock: 'Bloquear (mover overlay)',
+    trayPassClicks: 'Pasar clics',
+    trayFull: 'Cuerpo completo',
+    trayHalf: 'Medio cuerpo',
+    trayHead: 'Solo cabeza',
+    trayRandom: 'Aleatorio',
+    trayVoice: 'Prueba de voz',
+    trayGreeting: 'Saludo',
+    traySad: 'Triste',
+    trayExcited: 'Emocionada',
+    trayCorner: 'Volver a esquina',
+    trayOverlay: 'Mostrar / ocultar overlay',
+    trayQuit: 'Cerrar todo',
+    trayTooltip: 'Asistente Kaoru',
+    voiceGreeting: '¡Hola! ¡Estoy aquí para ayudarte!',
+    voiceSad: 'Lo siento, hubo un error.',
+    voiceExcited: '¡Perfecto, todo salió bien!',
+    deleteTerminal: 'Eliminar terminal',
+    deleteChat: 'Eliminar chat',
+    deleteTerminalQuestion: '¿Eliminar esta terminal?',
+    deleteChatQuestion: '¿Eliminar este chat?',
+    deleteTerminalDetail:
+      'Se cerrará la shell y se eliminará esta terminal de la lista. Los archivos del proyecto no se borrarán.',
+    deleteChatDetail:
+      'Se eliminará el historial de este chat. Los archivos del proyecto y los recuerdos ya aprendidos no se borrarán.',
+    delete: 'Eliminar',
+    cancel: 'Cancelar',
+    correctMemory: 'Corregir memoria',
+    correctMemoryQuestion: '¿Guardar esta corrección en la memoria de Kaoru?',
+    saveCorrection: 'Guardar corrección',
+    deleteMemory: 'Eliminar memoria',
+    deleteMemoryQuestion: '¿Eliminar esta memoria y todas sus versiones?',
+    deleteMemoryDetail:
+      'También se eliminarán sus evidencias que no estén vinculadas a otros recuerdos.',
+    deletePermanently: 'Eliminar definitivamente',
+    exportMemory: 'Exportar memoria de Kaoru',
+    resetKaoru: 'Restablecer Kaoru',
+    resetQuestion: '¿Borrar todos los datos locales de Kaoru?',
+    resetDetail:
+      'Se eliminarán configuración, memoria, sesiones, permisos, cachés y credenciales de Kaoru. Tus proyectos y Documentos no se tocarán.',
+    deleteRestart: 'Borrar y reiniciar',
+    resetConfirm: 'Escribe BORRAR TODO para confirmar.',
+  },
+  ja: {
+    startupMissing: 'Kaoruの設定が見つかりません。設定を開いてモデルを構成してください。',
+    startupInvalid: 'Kaoruの設定を読み込めませんでした。config.jsonを修正して再起動してください。',
+    startupNoKeys: 'APIキーが設定されていません。メッセージを送る前にモデル選択を開いてください。',
+    proactiveSkipped: 'その変更はすでに適用済みです。何も変更していません。',
+    proactiveFocused:
+      '⚠️ ファイルがエディターで選択されていました。パッチを上書きしないよう、保存前に再読み込みしてください。未保存の変更がある場合は競合を解決してください。',
+    proactiveOpen: '⚠️ ファイルがエディターで開いています。保存前に再読み込みしてください。',
+    proactiveAppliedFile: 'ファイルに変更を適用しました{fixed}。✅',
+    proactiveApplied: '変更を適用しました{fixed}。✅',
+    proactiveFixed: ' — エラーは解消しているはずです',
+    proactiveFailed: '変更を自動適用できませんでした: {reason}。',
+    unknownReason: '理由は不明です',
+    trayCloseChat: 'チャットを閉じる',
+    trayOpenChat: 'チャットを開く',
+    trayLock: '固定を解除（移動）',
+    trayPassClicks: 'クリックを透過',
+    trayFull: '全身',
+    trayHalf: '上半身',
+    trayHead: '顔のみ',
+    trayRandom: 'ランダム',
+    trayVoice: '音声テスト',
+    trayGreeting: 'あいさつ',
+    traySad: '悲しい',
+    trayExcited: 'うれしい',
+    trayCorner: '隅に戻す',
+    trayOverlay: 'オーバーレイの表示切替',
+    trayQuit: 'Kaoruを終了',
+    trayTooltip: 'Kaoruアシスタント',
+    voiceGreeting: 'こんにちは！お手伝いします！',
+    voiceSad: 'すみません、エラーが発生しました。',
+    voiceExcited: 'よかった、うまくいきました！',
+    deleteTerminal: 'ターミナルを削除',
+    deleteChat: 'チャットを削除',
+    deleteTerminalQuestion: 'このターミナルを削除しますか？',
+    deleteChatQuestion: 'このチャットを削除しますか？',
+    deleteTerminalDetail:
+      'シェルを閉じ、このターミナルを一覧から削除します。プロジェクトのファイルは削除されません。',
+    deleteChatDetail:
+      'このチャットの履歴を削除します。プロジェクトのファイルや学習済みの記憶は削除されません。',
+    delete: '削除',
+    cancel: 'キャンセル',
+    correctMemory: '記憶を修正',
+    correctMemoryQuestion: 'この修正をKaoruの記憶に保存しますか？',
+    saveCorrection: '修正を保存',
+    deleteMemory: '記憶を削除',
+    deleteMemoryQuestion: 'この記憶とすべての版を削除しますか？',
+    deleteMemoryDetail: '他の記憶に関連付けられていない証拠も削除されます。',
+    deletePermanently: '完全に削除',
+    exportMemory: 'Kaoruの記憶をエクスポート',
+    resetKaoru: 'Kaoruをリセット',
+    resetQuestion: 'Kaoruのローカルデータをすべて削除しますか？',
+    resetDetail:
+      '設定、記憶、セッション、権限、キャッシュ、Kaoruの認証情報が削除されます。プロジェクトやドキュメントは削除されません。',
+    deleteRestart: '削除して再起動',
+    resetConfirm: '確認するには BORRAR TODO と入力してください。',
+  },
+};
+function mainLanguage() {
+  const preferred = loadConfig()?.ui?.language;
+  const system = String(app.getLocale() || 'en')
+    .split(/[-_]/)[0]
+    .toLowerCase();
+  const language = preferred && preferred !== 'system' ? preferred : system;
+  return MAIN_MESSAGES[language] ? language : 'en';
+}
+function mainText(key, values = {}) {
+  const template = MAIN_MESSAGES[mainLanguage()][key] || MAIN_MESSAGES.en[key] || key;
+  return template.replace(/\{(\w+)\}/g, (_match, name) => String(values[name] ?? ''));
 }
 
 // Valor con el que se sustituyen las API keys cuando se entregan al renderer.
@@ -861,11 +1052,17 @@ function createChatWindow() {
         if (result?.conversation?.type === 'terminal') return;
         // Los avisos de proveedor pertenecen al Chat y no interrumpen Terminal.
         for (const issue of startupConfigState.issues) {
-          sendToChat('startup-notice', { message: issue.message });
+          sendToChat('startup-notice', issue);
           if (S.mainWindow && !S.mainWindow.isDestroyed())
             S.mainWindow.webContents.send(
               'speak',
-              issue.message.replace(/\*\*/g, '').slice(0, 220)
+              mainText(
+                {
+                  missing: 'startupMissing',
+                  invalid_json: 'startupInvalid',
+                  no_keys: 'startupNoKeys',
+                }[issue.type] || 'startupInvalid'
+              )
             );
         }
       })
@@ -910,46 +1107,61 @@ function buildTrayMenu() {
   const chatOpen = S.chatWindow && !S.chatWindow.isDestroyed() && S.chatWindow.isVisible();
   const mode = ctx.getModelViewMode(S.activeModelId);
   return Menu.buildFromTemplate([
-    { label: chatOpen ? 'Cerrar chat' : 'Abrir chat', click: toggleChatWindow },
+    { label: mainText(chatOpen ? 'trayCloseChat' : 'trayOpenChat'), click: toggleChatWindow },
     { type: 'separator' },
     {
-      label: S.isClickThrough ? 'Bloquear (mover overlay)' : 'Pasar clics',
+      label: mainText(S.isClickThrough ? 'trayLock' : 'trayPassClicks'),
       click: () => setClickThrough(!S.isClickThrough),
     },
     { type: 'separator' },
-    { label: `${mode === 'full' ? '> ' : ''}Cuerpo completo`, click: () => applyViewMode('full') },
-    { label: `${mode === 'half' ? '> ' : ''}Medio cuerpo`, click: () => applyViewMode('half') },
-    { label: `${mode === 'head' ? '> ' : ''}Solo cabeza`, click: () => applyViewMode('head') },
-    { label: `${mode === 'random' ? '> ' : ''}Aleatorio`, click: () => applyViewMode('random') },
+    {
+      label: `${mode === 'full' ? '> ' : ''}${mainText('trayFull')}`,
+      click: () => applyViewMode('full'),
+    },
+    {
+      label: `${mode === 'half' ? '> ' : ''}${mainText('trayHalf')}`,
+      click: () => applyViewMode('half'),
+    },
+    {
+      label: `${mode === 'head' ? '> ' : ''}${mainText('trayHead')}`,
+      click: () => applyViewMode('head'),
+    },
+    {
+      label: `${mode === 'random' ? '> ' : ''}${mainText('trayRandom')}`,
+      click: () => applyViewMode('random'),
+    },
     { type: 'separator' },
     {
-      label: 'Prueba de voz',
+      label: mainText('trayVoice'),
       submenu: [
-        { label: 'Saludo', click: () => sendSpeak('Hola! Estoy aqui para ayudarte!') },
-        { label: 'Emocion sad', click: () => sendSpeak('Lo siento, hubo un error.', 'sad') },
-        { label: 'Excited', click: () => sendSpeak('Perfecto, todo salio bien!', 'excited') },
+        { label: mainText('trayGreeting'), click: () => sendSpeak(mainText('voiceGreeting')) },
+        { label: mainText('traySad'), click: () => sendSpeak(mainText('voiceSad'), 'sad') },
+        {
+          label: mainText('trayExcited'),
+          click: () => sendSpeak(mainText('voiceExcited'), 'excited'),
+        },
       ],
     },
     { type: 'separator' },
     {
-      label: 'Volver a esquina',
+      label: mainText('trayCorner'),
       click: () => {
         S.userHasMoved = false;
         S.mainWindow.setBounds(getBottomRightBounds());
       },
     },
     {
-      label: 'Mostrar / ocultar overlay',
+      label: mainText('trayOverlay'),
       click: () => (S.mainWindow.isVisible() ? S.mainWindow.hide() : S.mainWindow.show()),
     },
     { type: 'separator' },
-    { label: 'Cerrar todo', click: () => app.quit() },
+    { label: mainText('trayQuit'), click: () => app.quit() },
   ]);
 }
 
 function createTray() {
   S.tray = new Tray(nativeImage.createEmpty());
-  S.tray.setToolTip('Asistente personal');
+  S.tray.setToolTip(mainText('trayTooltip'));
   S.tray.setContextMenu(buildTrayMenu());
 }
 
@@ -970,6 +1182,7 @@ function applyViewMode(mode, { broadcast = true } = {}) {
 
 // Registrar handlers IPC
 ctx.buildTrayMenu = buildTrayMenu;
+ctx.mainText = mainText;
 ctx.toggleChatWindow = toggleChatWindow;
 ctx.applyViewMode = applyViewMode;
 
@@ -1370,26 +1583,20 @@ app.whenReady().then(async () => {
   Core.getEventBus().on('proposal:executed', (payload = {}) => {
     let text;
     if (payload.ok && payload.skipped) {
-      text = 'Ese cambio ya estaba aplicado, no toqué nada.';
+      text = mainText('proactiveSkipped');
     } else if (payload.ok && payload.appliedWhileOpen) {
       const diffNote =
         payload.diff && payload.diff.length < 1200
           ? `\n\n\`\`\`diff\n${payload.diff.trim()}\n\`\`\``
           : '';
-      const focusWarning = payload.wasFocused
-        ? `⚠️ **Tenías el archivo ENFOCADO en tu editor**: recargalo ANTES de guardar, si no vas a pisar el parche con la versión vieja (y si tenés cambios sin guardar, resolvé el conflicto que te va a ofrecer).`
-        : `⚠️ El archivo está abierto en tu editor: recargalo antes de guardar.`;
-      text = `Listo, apliqué el cambio en tu archivo${
-        payload.type === 'lsp_error' ? ' — el error debería estar resuelto' : ''
-      }. ✅\n\n${focusWarning}${diffNote}`;
+      const focusWarning = mainText(payload.wasFocused ? 'proactiveFocused' : 'proactiveOpen');
+      text = `${mainText('proactiveAppliedFile', { fixed: payload.type === 'lsp_error' ? mainText('proactiveFixed') : '' })}\n\n${focusWarning}${diffNote}`;
     } else if (payload.ok) {
-      text = `Listo, apliqué el cambio${
-        payload.type === 'lsp_error' ? ' — el error debería estar resuelto' : ''
-      }. ✅`;
+      text = mainText('proactiveApplied', {
+        fixed: payload.type === 'lsp_error' ? mainText('proactiveFixed') : '',
+      });
     } else {
-      text = `No pude aplicar el cambio automáticamente: ${
-        payload.detail || 'motivo desconocido'
-      }.`;
+      text = mainText('proactiveFailed', { reason: payload.detail || mainText('unknownReason') });
     }
     logger.info(
       'main',

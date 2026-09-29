@@ -1,74 +1,30 @@
-# Comandos (`core/commands/`)
+# Chat commands
 
-Registro de comandos de chat al estilo `/comando` — el mecanismo para operar al asistente sin depender del
-procesamiento de lenguaje natural.
+Commands run in the chat, not in the integrated terminal. `CommandRegistry.js` registers each canonical English name and its compatibility aliases. `/help` shows the canonical usage, aliases, and descriptions in the selected UI language; the slash command itself is not translated.
 
----
+| Canonical | Existing alias | Purpose |
+| --- | --- | --- |
+| `/help` | — | Show current command help. |
+| `/model` | — | Choose an AI provider/model. |
+| `/memory-graph` | `/memoria` | Open the visual memory explorer. |
+| `/history` | `/memory` | Show recent chat messages. `/memory` keeps its old meaning. |
+| `/mute` | `/mudo` | Toggle speech output. |
+| `/forget <text>` | `/olvida <texto>` | Archive matching memories. |
+| `/sessions` | `/sesiones` | Open previous chats and terminals. |
+| `/permissions` | `/permisos` | Open tool permissions. |
+| `/workspace` | `/dir` | Choose a project folder. |
+| `/usage [recent\|reset]` | `/uso [recientes\|reset]` | Show or reset LLM usage counters. |
+| `/telemetry` | `/telemetria` | Show local activity comparison. |
+| `/avatar-model` | `/cambio-modelo` | Choose the Live2D model. |
+| `/avatar-view` | `/modelo-vistas` | Choose the avatar framing. |
+| `/gestures` | `/gestos` | Inspect or test gestures. |
+| `/revert-task` | `/revertir-tarea` | Inspect/recover a task checkpoint. |
+| `/resume-task` | `/reanudar-tarea` | Resume a pending task. |
+| `/goal-autonomy` | `/autonomia-meta` | Set governance for a goal. |
+| `/tasks` | `/estado` | Inspect pending tasks. |
 
-## `CommandRegistry.js`
+Other active commands are discoverable with `/help`. `/init`, `/review`, `/plan`, `/fix`, `/undo`, and `/code` are deliberately removed from the production index; do not document them as available. Changing the displayed language does not alter command behavior.
 
-Centraliza el registro, búsqueda y ejecución de comandos. Cada comando tiene:
+The chat renderer sends a command through the allowlisted `chat-run-command` IPC channel. Main builds the command context, runs the handler, and returns the result. `FileResolver.js` resolves `@file` references inside the active workspace; it is not a generic filesystem path escape hatch.
 
-| Campo | Descripción |
-|---|---|
-| `id` | Identificador único |
-| `category` | Agrupación en la UI (General, Memoria, Sistema, …) |
-| `usage` | Sintaxis de uso mostrada al usuario |
-| `description` | Qué hace el comando |
-| `handler` | Función ejecutora (IPC + lógica) |
-
-Comandos incluidos:
-
-| Comando | Propósito |
-|---|---|
-| `/help` | Lista de comandos y sintaxis |
-| `/init` | Analiza el **workspace activo** (package.json, extensiones, estructura) y lo guarda en memoria |
-| `/model` | Cambia el proveedor de LLM (Groq / Gemini / OpenAI) |
-| `/cambio-modelo` | Cambia el modelo Live2D (lista los disponibles como botones; matching difuso al escribir) |
-| `/modelo-vistas` | Selecciona el tamaño de vista del modelo: `/modelo-vistas` (menú con botones), `/modelo-vistas full` (cuerpo completo fijo), `/modelo-vistas half`, `/modelo-vistas head`, `/modelo-vistas random` (rota entre las tres). La opción elegida queda como predeterminada del modelo |
-| `/provider` | Gestión de proveedores (`set` / `add` / `remove`) |
-| `/agent` | Ejecuta el bucle agente sobre un mensaje |
-| `/plan` | Crea/ejecuta un plan de pasos |
-| `/code` | Acción de edición de código |
-| `/review` | Revisión de cambios del workspace |
-| `/fix` | Corrige un error señalado (LSP) |
-| `/undo` | Deshace la última mutación |
-| `/memory` | Estado y operaciones de memoria |
-| `/olvida` | Olvida hechos/nodos de memoria |
-| `/stats` | Estado de sesión, sensores y motor proactivo |
-| `/telemetria` | Reporte de métricas de uso |
-| `/export` | Exporta la conversación |
-| `/retry` | Reintenta la última respuesta |
-| `/credenciales` | Gestión de credenciales (keychain) |
-| `/skill` | Lista/carga skills |
-| `/clear` | Limpia el historial visual |
-
-## `FileResolver.js`
-
-Resuelve rutas de archivo referidas en comandos y mensajes, con normalización segura (relativas al
-**workspace activo**, sin escapes de directorio). Provee `listProjectFiles()` para el autocompletado
-de `@archivo` en el chat (al escribir `@` se listan los archivos del proyecto y se filtran al escribir).
-
----
-
-## Integración
-
-`Core` registra los comandos durante `init()`; la UI (`src/chat.html`) detecta mensajes que
-empiezan con `/`, los resuelve en `CommandRegistry` y renderiza el resultado directamente.
-
-Los comandos reciben un contexto con `process.cwd()` apuntando al **workspace activo**
-(`Core.getWorkspace()`), de modo que `/init`, `/open` y las referencias `@` operan sobre el
-proyecto real del usuario y no sobre la carpeta donde corre la app.
-
-```mermaid
-flowchart LR
-    INPUT["Mensaje que empieza con /"] --> DETECT["src/chat.html<br/>detecta comando"]
-    DETECT --> REG["CommandRegistry<br/>busca por id"]
-    REG -->|"handler"| IPC["IPC handler"]
-    IPC --> RESULT["Resultado directo<br/>en el chat"]
-    IPC --> FILES["FileResolver<br/>rutas seguras (workspace)"]
-```
-
-## Verificación
-
-`test_commands` (110 tests) — registro, ejecución, resolución de archivos y contratos IPC.
+Run `ELECTRON_RUN_AS_NODE=1 ./node_modules/.bin/electron tests/test_commands.js` for the command contract. More specific file- and IPC-level tests cover their respective handlers.

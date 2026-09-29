@@ -210,16 +210,16 @@ async function _refreshLlmCache() {
   }
 }
 
-async function _refreshCmdIndex() {
+async function _refreshCmdIndex(locale) {
   try {
-    _cmdIndex = await ipcRenderer.invoke('chat-commands-index');
+    _cmdIndex = await ipcRenderer.invoke('chat-commands-index', locale);
   } catch {
     // mantener el último índice conocido
   }
 }
 
-async function refreshCapabilities() {
-  await Promise.all([_refreshLlmCache(), _refreshCmdIndex()]);
+async function refreshCapabilities(locale) {
+  await Promise.all([_refreshLlmCache(), _refreshCmdIndex(locale)]);
 }
 refreshCapabilities();
 

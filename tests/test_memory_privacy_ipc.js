@@ -73,6 +73,7 @@ async function main() {
   };
   register({
     Core,
+    mainText: (key) => key,
     S: { chatWindow: { webContents: trustedWebContents, isDestroyed: () => false } },
   });
 

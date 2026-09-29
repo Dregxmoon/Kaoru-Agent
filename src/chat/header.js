@@ -9,10 +9,12 @@ async function refreshHeaderStatus() {
   const permissions = document.getElementById('status-permissions');
   if (rules.status === 'fulfilled' && Array.isArray(rules.value)) {
     const custom = rules.value.filter((rule) => !String(rule.tool || '').startsWith('capability:'));
-    permissions.textContent =
-      custom.length === 1 ? '1 regla personalizada' : `${custom.length} reglas personalizadas`;
+    permissions.textContent = window.kaoruI18n.format(
+      custom.length === 1 ? 'customRuleOne' : 'customRuleMany',
+      { count: custom.length }
+    );
   } else {
-    permissions.textContent = 'No disponible';
+    permissions.textContent = window.kaoruI18n.t('unavailable');
   }
 }
 
@@ -48,3 +50,6 @@ document.addEventListener('keydown', (event) => {
 for (const id of ['perms-btn', 'commands-btn', 'theme-toggle']) {
   document.getElementById(id).addEventListener('click', closeHeaderStatus);
 }
+document.addEventListener('kaoru-language-changed', () => {
+  if (!statusPopover.hidden) refreshHeaderStatus();
+});

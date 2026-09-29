@@ -35,7 +35,7 @@ generar las páginas.
 
 ## Principio documental
 
-La implementación y las pruebas tienen prioridad sobre este texto. El español es la fuente canónica; las traducciones resumen la entrada pública sin duplicar todos los READMEs internos. Las afirmaciones dependientes de plataforma, configuración o fallback deben conservar esos calificadores.
+La implementación y las pruebas tienen prioridad sobre este texto. El inglés pasa a ser la base del catálogo de interfaz y los comandos nuevos, pero la documentación técnica detallada existente sigue principalmente en español durante la migración a v2.3. Las traducciones resumen la entrada pública sin duplicar todos los READMEs internos. Las afirmaciones dependientes de plataforma, configuración o fallback deben conservar esos calificadores.
 
 La documentación distingue almacenamiento local de transferencias externas. La memoria, los embeddings y la telemetría se almacenan en el dispositivo; el proveedor LLM configurado y las integraciones que el usuario activa pueden recibir el contenido estrictamente necesario para ejecutar una tarea. Consulta el aviso de privacidad antes de habilitar capturas, integraciones, plugins o servidores MCP de terceros.
 

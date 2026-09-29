@@ -199,10 +199,11 @@ module.exports = function registerCommands(register) {
   });
 
   register({
-    name: 'revertir-tarea',
+    name: 'revert-task',
+    aliases: ['revertir-tarea'],
     description:
       'Deshace SOLO los cambios que hizo la ultima tarea del agente (no toca tu working tree previo)',
-    usage: '/revertir-tarea [id]',
+    usage: '/revert-task [id]',
     handler: async (args) => {
       const {
         getCheckpoint,
@@ -307,9 +308,10 @@ module.exports = function registerCommands(register) {
   }
 
   register({
-    name: 'estado',
+    name: 'tasks',
+    aliases: ['estado'],
     description: 'Muestra las tareas pendientes en vuelo (intenciones activas) y su progreso',
-    usage: '/estado',
+    usage: '/tasks',
     handler: async (args, ctx) => {
       const intentions = await _listActiveIntentions(ctx);
       if (intentions.length === 0) {
@@ -334,9 +336,10 @@ module.exports = function registerCommands(register) {
   });
 
   register({
-    name: 'autonomia-meta',
+    name: 'goal-autonomy',
+    aliases: ['autonomia-meta'],
     description: 'Configura si una meta se ejecuta manualmente, se sugiere o puede actuar',
-    usage: '/autonomia-meta <id> <manual|suggest|act> [prioridad 0-100]',
+    usage: '/goal-autonomy <id> <manual|suggest|act> [priority 0-100]',
     handler: async (args, ctx) => {
       const id = Number(args[0]);
       const autonomy = String(args[1] || '').toLowerCase();
@@ -366,9 +369,10 @@ module.exports = function registerCommands(register) {
   });
 
   register({
-    name: 'reanudar-tarea',
+    name: 'resume-task',
+    aliases: ['reanudar-tarea'],
     description: 'Retoma la tarea pendiente (la mas reciente, o una por id) desde donde quedo',
-    usage: '/reanudar-tarea [id]',
+    usage: '/resume-task [id]',
     handler: async (args, ctx) => {
       const intentions = await _listActiveIntentions(ctx);
       if (intentions.length === 0) {

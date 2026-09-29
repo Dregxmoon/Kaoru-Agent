@@ -43,6 +43,7 @@ async function main() {
     'terminal-error',
     'terminal-restart',
     'terminal-status',
+    'terminal-shell',
     'terminal-workspace',
     'terminal-avatar-motion',
     'terminal-avatar-view',
@@ -135,6 +136,11 @@ async function main() {
   }
   const window = {
     addEventListener: () => {},
+    kaoruI18n: {
+      language: 'es',
+      t: (key) => ({ searching: 'Buscando…', noMatches: 'Sin coincidencias' })[key] || key,
+      format: (key, values) => `${values.count} ${key}`,
+    },
     setTerminalAvatarActivity: () => {},
     confirm: () => false,
     openTerminalDraft: async (draft) => {
@@ -257,6 +263,12 @@ async function main() {
   };
   window.reactTerminalAvatar('sad');
   assert.equal(elements.get('terminal-explain-error').hidden, false);
+  terminalDataHandler('\u0003');
+  assert.equal(
+    elements.get('terminal-explain-error').hidden,
+    false,
+    'Ctrl+C no oculta la acción de explicar el error anterior'
+  );
   await elements.get('terminal-explain-error').handlers.get('click')();
   assert(terminalDraft.output.includes('hello hello world'));
   assert.equal(terminalDraft.workspace, '/tmp/project');
@@ -287,6 +299,7 @@ async function main() {
   );
   resolveOpen({ ok: true, shell: 'bash', scrollback: chunk.repeat(50), seq: 50 });
   await opening;
+  assert.equal(elements.get('terminal-shell').textContent, 'bash');
   assert.equal(window.sendSuggestedTerminalCommand('echo listo', false), true);
   assert.equal(sent.at(-1).channel, 'terminal-write');
   assert.equal(sent.at(-1).payload.id, 7);
@@ -303,6 +316,20 @@ async function main() {
   assert(
     sent.some((event) => event.channel === 'terminal-flow' && !event.payload.paused),
     'el renderer reanuda el PTY al terminar de procesar'
+  );
+  const writtenBeforeReopen = writes.length;
+  const staleOpen = window.activateTerminal({ id: 7, workspace: '/tmp/project' });
+  const resolveStaleOpen = resolveOpen;
+  const latestOpen = window.activateTerminal({ id: 7, workspace: '/tmp/project' });
+  const resolveLatestOpen = resolveOpen;
+  resolveStaleOpen({ ok: true, shell: 'bash', scrollback: 'BANNER VIEJO', seq: 1 });
+  await staleOpen;
+  resolveLatestOpen({ ok: true, shell: 'bash', scrollback: 'BANNER NUEVO', seq: 1 });
+  await latestOpen;
+  assert.equal(
+    writes.slice(writtenBeforeReopen).join(''),
+    'BANNER NUEVO',
+    'una apertura anterior del mismo PTY no duplica el banner ni la salida'
   );
   console.log('Terminal renderer: más de 100 eventos pendientes sin pérdida ni duplicados OK');
 }

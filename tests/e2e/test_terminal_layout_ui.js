@@ -101,6 +101,7 @@ async function main() {
         rows: terminalView.rows,
         workspaceLabel: document.getElementById('terminal-workspace').textContent,
         statusLabel: document.getElementById('terminal-status').textContent,
+        readyLabel: window.kaoruI18n.t('ready'),
         terminalLabel: document.getElementById('terminal-shell').textContent,
         terminalFitsFrame:
           viewportBounds.left > frameBounds.left &&
@@ -127,8 +128,8 @@ async function main() {
     assert(layout.cols > 40 && layout.rows > 5, 'la terminal arranca con dimensiones visibles');
     assert(
       layout.workspaceLabel &&
-        layout.statusLabel === 'Lista' &&
-        layout.terminalLabel === 'Terminal',
+        layout.statusLabel === layout.readyLabel &&
+        Boolean(layout.terminalLabel),
       JSON.stringify(layout)
     );
     await chat.click('#terminal-appearance-toggle');
@@ -147,7 +148,10 @@ async function main() {
       'los controles del avatar actualizan el modo terminal'
     );
     await chat.evaluate(() => window.reactTerminalAvatar('happy'));
-    assert.equal(await chat.textContent('#terminal-signal'), 'Señal positiva');
+    assert.equal(
+      await chat.textContent('#terminal-signal'),
+      await chat.evaluate(() => window.kaoruI18n.t('positiveSignal'))
+    );
     assert.equal(
       await chat.evaluate(
         () => getComputedStyle(document.getElementById('live2d-chat-canvas')).animationName
@@ -164,6 +168,16 @@ async function main() {
       ),
       'terminal-avatar-success',
       'Kaoru reacciona al resultado de la terminal'
+    );
+    assert.equal(
+      await chat.evaluate(() => {
+        const viewport = document.querySelector('#terminal-screen .xterm-viewport');
+        return getComputedStyle(viewport).backgroundColor;
+      }),
+      await chat.evaluate(
+        () => getComputedStyle(document.getElementById('terminal-screen')).backgroundColor
+      ),
+      'la superficie de xterm no deja una franja negra'
     );
     await chat.evaluate(() => terminalView.focus());
     await chat.waitForSelector(
@@ -312,10 +326,11 @@ async function main() {
       null,
       { polling: 100 }
     );
-    await chat.evaluate(() => {
-      document.getElementById('new-chat-btn').click();
-      document.getElementById('new-session-chat').click();
-    });
+    await chat.click('#sessions-btn');
+    assert.equal(await chat.isVisible('#sessions-modal'), true, 'el botón de chats abre el panel');
+    await chat.click('#sessions-btn');
+    await chat.click('#new-chat-btn');
+    await chat.click('#new-session-chat');
     await chat.waitForFunction(
       () => !document.getElementById('app').classList.contains('terminal-mode'),
       null,
@@ -418,7 +433,10 @@ async function main() {
       true,
       'la terminal sigue visible junto al chat'
     );
-    assert.match(await chat.inputValue('#msg-input'), /Explica la causa probable/);
+    assert.equal(
+      await chat.inputValue('#msg-input'),
+      await chat.evaluate(() => window.kaoruI18n.t('explainTerminalPrompt'))
+    );
     assert.equal(
       await chat.evaluate(() => sessionHistory.length),
       0,

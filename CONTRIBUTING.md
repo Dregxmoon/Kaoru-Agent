@@ -50,6 +50,8 @@ Una prueba válida debe distinguir:
 
 ## Pull requests
 
+Para v2.3 se congelan las funciones grandes hasta cerrar la internacionalización y las pruebas de instalación. Si cambias texto visible, añade primero la clave inglesa a `src/chat/i18n.js`, conserva el mismo significado en español y japonés y prueba el cambio de idioma sin reiniciar. Mantén los nombres españoles de comandos existentes como aliases; no cambies el significado de `/memory` ni de `/memoria`. Para textos de permisos, privacidad o errores, revisa los tres idiomas con una persona competente antes de publicar. Consulta la [lista de verificación de v2.3](docs/v2.3-release-checklist.md).
+
 Mantén cada cambio acotado y explica el comportamiento anterior y el nuevo. Incluye los comandos de
 validación realmente ejecutados y sus limitaciones. No presentes una prueba focal como cobertura de
 todo el producto. Las contribuciones se publican bajo la licencia del repositorio; los modelos,

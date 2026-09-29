@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="es">
+<html lang="en">
 <head>
 <meta charset="UTF-8">
 <!-- CSP: Fase 1 — webSecurity:true + libs locales (sin CDN). 'self' cubre
@@ -17,7 +17,7 @@
   object-src 'none';
   base-uri 'none';
 ">
-<title>Asistente personal</title>
+<title>Kaoru — Avatar</title>
 <style>
   * { margin: 0; padding: 0; box-sizing: border-box; }
   html, body {
@@ -155,8 +155,6 @@ const VIEW = {
   half: { f: 0.50, tw: 1.00, crop: true  },
   head: { f: 0.25, tw: 1.00, crop: true  },
 };
-const VIEW_LABELS = { full: 'Cuerpo completo', half: 'Medio cuerpo', head: 'Solo cabeza' };
-
 let modelBounds  = null; // {x,y,width,height} del contenido en px del canvas nativo
 let modelNativeW = 0;
 let modelNativeH = 0;

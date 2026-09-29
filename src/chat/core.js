@@ -255,10 +255,11 @@ function updateSandboxBanner() {
   const disabled = openclawSandbox === false;
   banner.classList.toggle('visible', disabled);
   if (disabled) {
-    const reason = openclawSandboxReason || 'razón desconocida';
-    banner.textContent = `Ejecución de comandos sin aislamiento de proceso — ${reason}`;
+    const reason = openclawSandboxReason || window.kaoruI18n.t('unknownReason');
+    banner.textContent = window.kaoruI18n.format('sandboxUnavailableBanner', { reason });
   }
 }
+document.addEventListener('kaoru-language-changed', updateSandboxBanner);
 
 async function checkOpenClaw() {
   try {
@@ -438,12 +439,12 @@ function _htmlPreviewFrame(html, index, filePath) {
   return (
     '<div class="html-preview">' +
     `<div class="html-preview-head">` +
-    `<span class="html-preview-title">Vista previa</span>` +
+    `<span class="html-preview-title">${window.kaoruI18n.t('preview')}</span>` +
     pathHtml +
     `<span class="html-preview-count">#${index + 1}</span>` +
     `</div>` +
     `<iframe class="html-preview-iframe" sandbox="allow-scripts" srcdoc="${_escapeAttr(html)}"></iframe>` +
-    '<details class="html-preview-code"><summary>Código</summary>' +
+    `<details class="html-preview-code"><summary>${window.kaoruI18n.t('code')}</summary>` +
     `<pre class="html-preview-pre"><code>${esc}</code></pre>` +
     '</details>' +
     '</div>'
@@ -510,12 +511,12 @@ function _decorateMarkdown(html) {
     const pre = code.parentElement;
     if (pre.classList.contains('html-preview-pre')) return;
     const language = [...code.classList].find((name) => name.startsWith('language-'));
-    const label = language ? language.slice(9).slice(0, 32) : 'Código';
+    const label = language ? language.slice(9).slice(0, 32) : window.kaoruI18n.t('code');
     _highlightCode(code, label);
     const lines = (code.textContent || '').replace(/\n$/, '').split('\n').length;
     const frame = document.createElement('section');
     frame.className = 'message-code';
-    frame.setAttribute('aria-label', `Bloque de código: ${label}`);
+    frame.setAttribute('aria-label', window.kaoruI18n.format('codeBlock', { language: label }));
     const header = document.createElement('div');
     header.className = 'message-code-header';
     const title = document.createElement('span');
@@ -523,18 +524,20 @@ function _decorateMarkdown(html) {
     title.textContent = label;
     const count = document.createElement('span');
     count.className = 'message-code-count';
-    count.textContent = `${lines} ${lines === 1 ? 'línea' : 'líneas'}`;
+    count.textContent = window.kaoruI18n.format(lines === 1 ? 'codeLineOne' : 'codeLineMany', {
+      count: lines,
+    });
     header.append(title, count);
     const shellCommand =
       /^(?:bash|sh|zsh|fish|shell|powershell|pwsh|cmd)$/.test(label.toLowerCase()) &&
       !(code.textContent || '').trim().includes('\n');
     for (const [action, text] of [
-      ['wrap', 'Ajustar líneas'],
-      ['copy', 'Copiar'],
+      ['wrap', window.kaoruI18n.t('wrapLines')],
+      ['copy', window.kaoruI18n.t('copy')],
       ...(shellCommand
         ? [
-            ['paste-terminal', 'Pegar en terminal'],
-            ['run-terminal', 'Ejecutar…'],
+            ['paste-terminal', window.kaoruI18n.t('pasteInTerminal')],
+            ['run-terminal', window.kaoruI18n.t('runInTerminal')],
           ]
         : []),
     ]) {
@@ -547,7 +550,7 @@ function _decorateMarkdown(html) {
     }
     pre.replaceWith(frame);
     pre.tabIndex = 0;
-    pre.setAttribute('aria-label', `Código ${label}`);
+    pre.setAttribute('aria-label', window.kaoruI18n.format('codeAria', { language: label }));
     frame.append(header, pre);
   });
   template.content.querySelectorAll('table').forEach((table) => {
@@ -555,12 +558,44 @@ function _decorateMarkdown(html) {
     wrapper.className = 'message-table';
     wrapper.tabIndex = 0;
     wrapper.setAttribute('role', 'region');
-    wrapper.setAttribute('aria-label', 'Tabla del mensaje');
+    wrapper.setAttribute('aria-label', window.kaoruI18n.t('messageTable'));
     table.replaceWith(wrapper);
     wrapper.appendChild(table);
   });
   return template.innerHTML;
 }
+document.addEventListener('kaoru-language-changed', () => {
+  for (const table of document.querySelectorAll('.message-table'))
+    table.setAttribute('aria-label', window.kaoruI18n.t('messageTable'));
+  for (const frame of document.querySelectorAll('.message-code')) {
+    const code = frame.querySelector('pre > code');
+    const language = [...(code?.classList || [])].find((name) => name.startsWith('language-'));
+    const label = language ? language.slice(9).slice(0, 32) : window.kaoruI18n.t('code');
+    frame.setAttribute('aria-label', window.kaoruI18n.format('codeBlock', { language: label }));
+    frame.querySelector('.message-code-language').textContent = label;
+    frame
+      .querySelector('pre')
+      .setAttribute('aria-label', window.kaoruI18n.format('codeAria', { language: label }));
+    const lines = (code?.textContent || '').replace(/\n$/, '').split('\n').length;
+    frame.querySelector('.message-code-count').textContent = window.kaoruI18n.format(
+      lines === 1 ? 'codeLineOne' : 'codeLineMany',
+      { count: lines }
+    );
+    for (const button of frame.querySelectorAll('[data-code-action]')) {
+      const key = {
+        wrap: 'wrapLines',
+        copy: 'copy',
+        'paste-terminal': 'pasteInTerminal',
+        'run-terminal': 'runInTerminal',
+      }[button.dataset.codeAction];
+      if (key) button.textContent = window.kaoruI18n.t(key);
+    }
+  }
+  for (const frame of document.querySelectorAll('.html-preview')) {
+    frame.querySelector('.html-preview-title').textContent = window.kaoruI18n.t('preview');
+    frame.querySelector('.html-preview-code summary').textContent = window.kaoruI18n.t('code');
+  }
+});
 
 function renderMarkdown(md, opts) {
   try {
@@ -612,10 +647,15 @@ function setTheme(t) {
   html.setAttribute('data-theme', theme);
   const isLight = theme === 'light';
   themeToggle.setAttribute('aria-checked', String(isLight));
-  themeToggle.setAttribute('aria-label', isLight ? 'Usar tema oscuro' : 'Usar tema claro');
-  themeToggle.title = isLight ? 'Cambiar a tema oscuro' : 'Cambiar a tema claro';
+  themeToggle.setAttribute('aria-label', window.kaoruI18n.t(isLight ? 'darkTheme' : 'lightTheme'));
+  themeToggle.title = window.kaoruI18n.t(isLight ? 'darkThemeTitle' : 'lightThemeTitle');
   ipcRenderer.send('chat-theme-changed', theme);
 }
+document.addEventListener('kaoru-language-changed', () => {
+  const isLight = html.getAttribute('data-theme') === 'light';
+  themeToggle.setAttribute('aria-label', window.kaoruI18n.t(isLight ? 'darkTheme' : 'lightTheme'));
+  themeToggle.title = window.kaoruI18n.t(isLight ? 'darkThemeTitle' : 'lightThemeTitle');
+});
 themeToggle.addEventListener('click', () =>
   setTheme(html.getAttribute('data-theme') === 'dark' ? 'light' : 'dark')
 );

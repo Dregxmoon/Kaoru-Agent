@@ -57,10 +57,10 @@ function resolveShell(platform = process.platform, env = process.env) {
       ...paths.map((dir) => path.win32.join(dir, 'pwsh.exe')),
       path.win32.join(programFiles, 'PowerShell', '7', 'pwsh.exe'),
     ].find(fs.existsSync);
-    if (pwsh) return { file: pwsh, args: [], label: 'PowerShell 7' };
+    if (pwsh) return { file: pwsh, args: ['-NoLogo'], label: 'PowerShell 7' };
     const win = env.SystemRoot || 'C:\\Windows';
     const classic = path.win32.join(win, 'System32', 'WindowsPowerShell', 'v1.0', 'powershell.exe');
-    if (fs.existsSync(classic)) return { file: classic, args: [], label: 'PowerShell' };
+    if (fs.existsSync(classic)) return { file: classic, args: ['-NoLogo'], label: 'PowerShell' };
     return {
       file: env.ComSpec || path.win32.join(win, 'System32', 'cmd.exe'),
       args: [],

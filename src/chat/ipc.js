@@ -26,12 +26,12 @@ messagesEl.addEventListener('click', async (e) => {
   try {
     const res = await ipcRenderer.invoke('model-set', { id: btn.getAttribute('data-model-set') });
     if (res.error) {
-      addMessage('assistant', `Error al cambiar modelo: ${res.error}`);
+      addMessage('assistant', window.kaoruI18n.format('errorChangingModel', { error: res.error }));
       return;
     }
-    addMessage('assistant', `Modelo cambiado a: **${res.info.name}**`);
+    addMessage('assistant', window.kaoruI18n.format('modelChanged', { name: res.info.name }));
   } catch (e) {
-    addMessage('assistant', `Error al cambiar modelo: ${e.message}`);
+      addMessage('assistant', window.kaoruI18n.format('errorChangingModel', { error: e.message }));
   } finally {
     btn.disabled = false;
   }
@@ -50,7 +50,7 @@ messagesEl.addEventListener('click', async (e) => {
   try {
     const res = await ipcRenderer.invoke('views-set', { mode });
     if (res.error) {
-      addMessage('assistant', `Error: ${res.error}`);
+      addMessage('assistant', window.kaoruI18n.format('genericError', { error: res.error }));
       return;
     }
     viewMode = res.mode;
@@ -58,7 +58,7 @@ messagesEl.addEventListener('click', async (e) => {
       applyView(viewMode, viewMode !== currentView);
     _refreshViewButtons();
   } catch (e) {
-    addMessage('assistant', `Error: ${e.message}`);
+    addMessage('assistant', window.kaoruI18n.format('genericError', { error: e.message }));
   } finally {
     if (activeBtn)
       activeBtn.querySelectorAll('[data-view-mode]').forEach((b) => {
@@ -92,17 +92,21 @@ function updateUnifiedModeBadge(executionMode = null) {
   const routed = executionMode === 'fast' || executionMode === 'smart' ? executionMode : null;
   const badge = document.getElementById('agent-mode-badge');
   if (badge) {
-    badge.textContent = routed ? `Auto ${routed === 'fast' ? 'Fast' : 'Smart'}` : 'Auto';
+    badge.textContent = routed
+      ? `${window.kaoruI18n.t('auto')} ${window.kaoruI18n.t(routed)}`
+      : window.kaoruI18n.t('auto');
     badge.classList.remove('chat');
-    badge.title =
-      'Flujo unificado: Kaoru decide automáticamente si esta solicitud necesita respuesta rápida o ejecución completa.';
+    badge.title = window.kaoruI18n.t('unifiedModeHint');
   }
   document.body.dataset.agentMode = 'agent';
   const composerMode = document.getElementById('composer-mode');
-  if (composerMode) composerMode.textContent = badge?.textContent || 'Auto';
+  if (composerMode) composerMode.textContent = badge?.textContent || window.kaoruI18n.t('auto');
   if (routed) document.body.dataset.executionMode = routed;
 }
 window.updateUnifiedModeBadge = updateUnifiedModeBadge;
+document.addEventListener('kaoru-language-changed', () =>
+  updateUnifiedModeBadge(document.body.dataset.executionMode)
+);
 onAgentMode(() => updateUnifiedModeBadge());
 
 // Agent Loop IPC (Fase 2 → Cambio 1/2 del rediseño: ActivityBlocks + estados)
@@ -119,10 +123,10 @@ ipcRenderer.on('agent-progress', (e, progress) => {
     setAgentState(
       state,
       progress.status === 'error'
-        ? 'Error en la herramienta'
+        ? window.kaoruI18n.t('toolError')
         : /memory|recall|search_facts/.test(progress.tool || '')
-          ? 'Consultando memoria'
-          : 'Ejecutando herramientas'
+          ? window.kaoruI18n.t('consultingMemory')
+          : window.kaoruI18n.t('executingTools')
     );
   if (chatGestureEngine)
     chatGestureEngine.onEvent('agent-progress', { state, status: progress.status });
@@ -274,16 +278,44 @@ function _renderResultChips(meta) {
 
 // Validación temprana de config.json: issues como CARD con acción (solo
 // visual — NO entra al sessionHistory que consume el LLM).
+function startupNoticeText(payload) {
+  if (payload.type === 'workspace_busy') return window.kaoruI18n.t('workspaceBusy');
+  if (payload.type === 'no_keys') return window.kaoruI18n.t('configNoKeys');
+  if (payload.type === 'missing') {
+    const values = { path: payload.path || '' };
+    return [
+      window.kaoruI18n.format('configMissing', values),
+      payload.example
+        ? window.kaoruI18n.format('configCopyExample', { ...values, example: payload.example })
+        : '',
+      window.kaoruI18n.t('configRestartAfterKey'),
+    ]
+      .filter(Boolean)
+      .join(' ');
+  }
+  if (payload.type === 'invalid_json') {
+    if (Number.isInteger(payload.line))
+      return window.kaoruI18n.format('configInvalidJson', {
+        line: payload.line,
+        column: payload.column,
+        reason: payload.reason || '',
+      });
+    return window.kaoruI18n.format('configUnreadable', { reason: payload.reason || '' });
+  }
+  return payload.message;
+}
+const startupNoticePayloads = new WeakMap();
 ipcRenderer.on('startup-notice', (e, payload = {}) => {
   if (!payload || typeof payload.message !== 'string' || !payload.message.trim()) return;
   try {
-    const isNoKeys = /selector de modelos/.test(payload.message);
+    const isNoKeys = payload.type === 'no_keys' || /selector de modelos/.test(payload.message);
     const wrap = document.createElement('div');
     wrap.className = 'startup-card';
+    startupNoticePayloads.set(wrap, payload);
     const close = document.createElement('button');
     close.className = 'startup-card-close';
     close.textContent = '×';
-    close.title = 'Descartar';
+    close.title = window.kaoruI18n.t('dismiss');
     close.addEventListener('click', () => {
       // Salida animada: fade + slide antes de remover (respeta reduced-motion
       // porque .closing sin transition en esa media query es instantáneo).
@@ -292,14 +324,16 @@ ipcRenderer.on('startup-notice', (e, payload = {}) => {
     });
     const body = document.createElement('div');
     body.className = 'startup-card-body';
-    body.innerHTML = renderMarkdown('**[Configuración]** ' + payload.message);
+    body.innerHTML = renderMarkdown(
+      `**[${window.kaoruI18n.t('configuration')}]** ${startupNoticeText(payload)}`
+    );
     body.querySelectorAll('.mermaid').forEach((el) => _renderMermaid(el));
     wrap.appendChild(body);
     if (isNoKeys) {
       const actions = document.createElement('div');
       actions.className = 'startup-card-actions';
       const openPicker = document.createElement('button');
-      openPicker.textContent = 'Abrir selector de modelos';
+      openPicker.textContent = window.kaoruI18n.t('openModelPicker');
       openPicker.addEventListener('click', () => {
         wrap.remove();
         processMessage('/model');
@@ -312,6 +346,18 @@ ipcRenderer.on('startup-notice', (e, payload = {}) => {
     _scrollMessagesToBottom();
   } catch (_) {
     /* la UI nunca debe romperse por un aviso */
+  }
+});
+document.addEventListener('kaoru-language-changed', () => {
+  for (const wrap of document.querySelectorAll('.startup-card')) {
+    const payload = startupNoticePayloads.get(wrap);
+    if (!payload) continue;
+    wrap.querySelector('.startup-card-body').innerHTML = renderMarkdown(
+      `**[${window.kaoruI18n.t('configuration')}]** ${startupNoticeText(payload)}`
+    );
+    wrap.querySelector('.startup-card-close').title = window.kaoruI18n.t('dismiss');
+    const picker = wrap.querySelector('.startup-card-actions button');
+    if (picker) picker.textContent = window.kaoruI18n.t('openModelPicker');
   }
 });
 
@@ -393,10 +439,10 @@ function _renderProposal(proposal, bubble) {
   const accept = document.createElement('button');
   accept.className = 'btn-proposal-accept';
   accept.textContent = isAction
-    ? proposal.title || 'Ejecutar acción'
+    ? proposal.title || window.kaoruI18n.t('runAction')
     : isQuestion
-      ? 'Responder'
-      : 'Conversar sobre esto';
+      ? window.kaoruI18n.t('reply')
+      : window.kaoruI18n.t('discussThis');
   accept.addEventListener('click', () => {
     sendProposalDecision(proposal, isAction ? 'accepted' : 'respond', wrap, accept);
     if (!isAction) document.getElementById('msg-input')?.focus();
@@ -404,7 +450,7 @@ function _renderProposal(proposal, bubble) {
 
   const deny = document.createElement('button');
   deny.className = 'btn-proposal-deny';
-  deny.textContent = isAction ? 'No ejecutar' : 'Ahora no';
+  deny.textContent = window.kaoruI18n.t(isAction ? 'doNotRun' : 'notNow');
   deny.addEventListener('click', () =>
     sendProposalDecision(proposal, isAction ? 'rejected' : 'deferred', wrap, deny)
   );
@@ -414,7 +460,7 @@ function _renderProposal(proposal, bubble) {
   if (proposal.type === 'knowledge_gap') {
     const never = document.createElement('button');
     never.className = 'btn-proposal-deny';
-    never.textContent = 'No me preguntes esto';
+    never.textContent = window.kaoruI18n.t('doNotAskThis');
     never.addEventListener('click', () => sendProposalDecision(proposal, 'never', wrap, never));
     btns.appendChild(never);
   }
@@ -447,14 +493,14 @@ function sendProposalDecision(proposal, decision, wrap, clickedBtn) {
 
   const status = document.createElement('span');
   status.className = decision === 'accepted' ? 'proposal-status ok' : 'proposal-status no';
-  status.textContent =
-    {
-      accepted: 'Acción solicitada — esperando resultado.',
-      rejected: 'No se ejecutará.',
-      respond: 'Te leo. No se ha confirmado ni cambiado ningún recuerdo.',
-      deferred: 'Lo dejamos para otro momento. Tus recuerdos no cambian.',
-      never: 'No volveré a preguntarte este tema. Puedes cambiarlo en Memoria.',
-    }[decision] || '';
+  const statusKey = {
+    accepted: 'proposalAccepted',
+    rejected: 'proposalRejected',
+    respond: 'proposalRespond',
+    deferred: 'proposalDeferred',
+    never: 'proposalNever',
+  }[decision];
+  status.textContent = statusKey ? window.kaoruI18n.t(statusKey) : '';
   wrap.appendChild(status);
   _scrollMessagesToBottom();
 }
@@ -474,10 +520,10 @@ ipcRenderer.on('proposal-result', (e, { proposalId, ok, skipped, detail }) => {
   const status = document.createElement('span');
   status.className = ok ? 'proposal-status ok' : 'proposal-status err';
   status.textContent = skipped
-    ? `↺ ${detail || 'Ya estaba hecho.'}`
+    ? `↺ ${detail || window.kaoruI18n.t('alreadyDone')}`
     : ok
-      ? `✓ ${detail || 'Listo.'}`
-      : `✗ ${detail || 'Algo falló.'}`;
+      ? `✓ ${detail || window.kaoruI18n.t('doneShort')}`
+      : `✗ ${detail || window.kaoruI18n.t('somethingFailed')}`;
   wrap.appendChild(status);
   _scrollMessagesToBottom();
 });
@@ -549,34 +595,35 @@ _updateDlBtn.addEventListener('click', () => ipcRenderer.invoke('update:download
 _updateRestartBtn.addEventListener('click', () => ipcRenderer.invoke('update:install'));
 _updateCloseBtn.addEventListener('click', () => _updateBanner.classList.remove('visible'));
 
-ipcRenderer.on('update-status', (e, st) => {
+let _lastUpdateStatus = null;
+function renderUpdateStatus(st) {
   const cur = st.info && st.info.version ? ` v${st.info.version}` : '';
   switch (st.state) {
     case 'available':
       _showUpdate(st, {
         show: true,
-        text: `Actualización disponible${cur} — reinicia la app para descargarla.`,
+        text: window.kaoruI18n.format('updateAvailable', { version: cur }),
         showDl: true,
       });
       break;
     case 'downloading':
       _showUpdate(st, {
         show: true,
-        text: `Descargando actualización${cur}...`,
+        text: window.kaoruI18n.format('updateDownloading', { version: cur }),
         progress: st.percent != null ? `${st.percent}%` : '',
       });
       break;
     case 'downloaded':
       _showUpdate(st, {
         show: true,
-        text: `Actualización v${st.version || ''} lista para instalar.`,
+        text: window.kaoruI18n.format('updateReady', { version: st.version || '' }),
         showRestart: true,
       });
       break;
     case 'error':
       _showUpdate(st, {
         show: true,
-        text: `Error al actualizar: ${(st.error || '').slice(0, 80)}`,
+        text: window.kaoruI18n.format('updateError', { error: (st.error || '').slice(0, 80) }),
       });
       break;
     case 'postponed':
@@ -585,4 +632,11 @@ ipcRenderer.on('update-status', (e, st) => {
     default:
       _showUpdate(st, { show: false });
   }
+}
+ipcRenderer.on('update-status', (e, st) => {
+  _lastUpdateStatus = st;
+  renderUpdateStatus(st);
+});
+document.addEventListener('kaoru-language-changed', () => {
+  if (_lastUpdateStatus) renderUpdateStatus(_lastUpdateStatus);
 });

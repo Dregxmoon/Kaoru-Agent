@@ -21,7 +21,7 @@
   "badge": "Código abierto · Asistente personal con capacidad de agente",
   "hero": "Tu asistente de IA<br>para código y escritorio.",
   "intro": "Kaoru conversa contigo, recuerda el contexto y te acompaña por texto, voz y presencia Live2D. También puede trabajar como agente: investigar tu proyecto o encadenar resultados en varias aplicaciones de escritorio, con un plan, permisos y comprobaciones visibles.",
-  "note": "La conversación se escribe en el chat; Kaoru puede responder con voz sintetizada.",
+  "note": "La conversación se escribe en el chat; Kaoru puede responder con voz sintetizada. La interfaz multidioma se prepara para v2.3 y aún no está publicada.",
   "caption": "Avatar Live2D de Kaoru. Puedes elegir otro modelo con sus correspondientes permisos de uso.",
   "strip": [
     "Conversación con contexto",
@@ -188,7 +188,7 @@
   "docs": "Referencia técnica",
   "footer": "Kaoru · Código bajo licencia MIT",
   "rights": "Los modelos y personajes de terceros mantienen sus propios derechos. Proyecto independiente, sin afiliación con HoYoverse.",
-  "guideIntro": "Configuración, tareas y criterios de revisión para utilizar Kaoru en tu equipo o en un proyecto de cliente.",
+  "guideIntro": "Configuración, tareas y criterios de revisión para utilizar Kaoru en tu equipo o en un proyecto de cliente. La próxima interfaz multidioma podrá seguir el idioma del sistema o usar inglés, español o japonés; v2.3 aún no está publicada.",
   "manualLink": "Leer el manual completo: chat, terminal, memoria y atajos",
   "manualIntro": "Aprende a usar las funciones de Kaoru paso a paso, con atajos y soluciones a problemas frecuentes.",
   "guideSections": [

@@ -54,7 +54,7 @@ function interruptSpeech(_reason = 'user') {
   } catch {}
   isSpeaking = false;
   if (_finishSpeechPlayback) _finishSpeechPlayback();
-  if (getAgentState() === 'speaking') setAgentState('idle', 'Listo');
+  if (getAgentState() === 'speaking') setAgentState('idle');
 }
 // Limpia el texto para TTS: deja SOLO el mensaje hablado de Kaoru. Elimina
 // bloques de código (fences), código inline, HTML crudo, líneas de actividad
@@ -124,7 +124,7 @@ async function speak(text) {
   if (isSpeaking) return;
   const generation = ++_speechGeneration;
   isSpeaking = true;
-  setAgentState('speaking', 'Hablando');
+  setAgentState('speaking');
   const spokenText = cleanForTTS(text);
   if (chatGestureEngine && chatGestureEngine.enabled)
     chatGestureEngine.setEmotion(chatDetectEmotion(spokenText));
@@ -154,7 +154,7 @@ async function speak(text) {
   } catch {
     if (generation !== _speechGeneration) return;
     const utt = new SpeechSynthesisUtterance(spokenText);
-    utt.lang = 'ja-JP';
+    utt.lang = { en: 'en-US', es: 'es-ES', ja: 'ja-JP' }[window.kaoruI18n.language] || 'en-US';
     utt.pitch = 1.3;
     utt.rate = 1.05;
     await new Promise((r) => {
@@ -171,5 +171,5 @@ async function speak(text) {
   if (generation !== _speechGeneration) return;
   isSpeaking = false;
   // Solo volver a "listo" si nadie más cambió el estado mientras hablaba.
-  if (getAgentState() === 'speaking') setAgentState('idle', 'Listo');
+  if (getAgentState() === 'speaking') setAgentState('idle');
 }

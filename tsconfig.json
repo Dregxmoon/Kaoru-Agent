@@ -15,5 +15,5 @@
     "resolveJsonModule": true,
     "types": ["node"]
   },
-  "include": ["core/**/*.js", "src/**/*.js", "ipc/**/*.js", "openclaw-server.js"]
+  "include": ["core/**/*.js", "src/**/*.js", "src/**/*.d.ts", "ipc/**/*.js", "openclaw-server.js"]
 }

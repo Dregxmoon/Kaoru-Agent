@@ -11,12 +11,19 @@ async function main() {
     const page = await browser.newPage();
     await page.setContent('<textarea id="msg-input"></textarea><main id="cards"></main>');
     await page.evaluate(() => {
+      window.assistant = {
+        invoke: async (channel) =>
+          channel === 'get-config' ? { ui: { language: 'es' } } : { ok: true },
+        refreshCapabilities: async () => {},
+      };
       window.decisions = [];
       window.ipcRenderer = {
         send: (channel, payload) => window.decisions.push({ channel, payload }),
       };
       window._scrollMessagesToBottom = () => {};
     });
+    await page.addScriptTag({ path: path.resolve(__dirname, '../../src/chat/i18n.js') });
+    await page.waitForFunction(() => window.kaoruI18n?.language === 'es');
     const source = fs.readFileSync(path.resolve(__dirname, '../../src/chat/ipc.js'), 'utf8');
     const start = source.indexOf('const _proposalActions = new Map();');
     const end = source.indexOf('// Fase B: resultado real', start);

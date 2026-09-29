@@ -14,6 +14,15 @@ async function main() {
     await page.setContent(
       '<html data-theme="dark"><body><main id="messages"></main></body></html>'
     );
+    await page.evaluate(() => {
+      window.assistant = {
+        invoke: async (channel) =>
+          channel === 'get-config' ? { ui: { language: 'es' } } : { ok: true },
+        refreshCapabilities: async () => {},
+      };
+    });
+    await page.addScriptTag({ path: path.resolve(__dirname, '../../src/chat/i18n.js') });
+    await page.waitForFunction(() => window.kaoruI18n?.language === 'es');
     await page.addStyleTag({ path: path.resolve(__dirname, '../../src/chat.css') });
     await page.evaluate(() => {
       window.messagesEl = document.getElementById('messages');

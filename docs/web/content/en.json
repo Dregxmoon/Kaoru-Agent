@@ -20,7 +20,7 @@
   "badge": "Open source · Personal assistant with agent capabilities",
   "hero": "Your AI assistant<br>for code and desktop.",
   "intro": "Kaoru talks with you, remembers context and stays with you through text, voice and a Live2D presence. It can also work as an agent: investigate your project or chain results across desktop apps, with a visible plan, permissions and checks.",
-  "note": "Write to Kaoru in chat; it can reply with synthesized speech.",
+  "note": "Write to Kaoru in chat; it can reply with synthesized speech. A multilingual app UI is in preparation for v2.3, not yet released.",
   "caption": "Kaoru’s Live2D avatar. You can choose another model with the appropriate usage rights.",
   "strip": [
     "Conversation with context",
@@ -181,7 +181,7 @@
   "docs": "Technical reference",
   "footer": "Kaoru · Source code under the MIT license",
   "rights": "Third-party models and characters retain their own rights. Independent project, not affiliated with HoYoverse.",
-  "guideIntro": "Configuration, tasks and review criteria for using Kaoru on your device or in a client project.",
+  "guideIntro": "Configuration, tasks and review criteria for using Kaoru on your device or in a client project. The upcoming multilingual interface can follow your system language or use English, Spanish or Japanese; v2.3 is not released yet.",
   "manualLink": "Read the full product manual (Spanish)",
   "guideSections": [
     [

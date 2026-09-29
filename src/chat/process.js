@@ -146,7 +146,8 @@ async function processMessage(text, files = []) {
 
   // Ocultar el grafo de memoria inline al enviar un mensaje (no al usar
   // /memoria, que lo reabre).
-  if (!trimmed.startsWith('/memoria') && typeof hideNodes === 'function') hideNodes();
+  if (!/^\/(?:memoria|memory-graph)(?:\s|$)/i.test(trimmed) && typeof hideNodes === 'function')
+    hideNodes();
 
   // Hide landing on first message
   const landing = document.getElementById('landing');
@@ -170,6 +171,7 @@ async function processMessage(text, files = []) {
       gestureConfig: chatGestureConfig || null,
       gestureAvailable: !!chatGestureEngine,
       ttsMuted: isTtsMuted(),
+      uiLanguage: window.kaoruI18n?.language || 'en',
       workspacePath: _workspacePath,
     };
     const cmdResult = await assistant.runCommand(trimmed, pageData);
@@ -226,7 +228,7 @@ async function _processMessageBody(trimmed, files) {
   // seguro entre iteraciones. El mensaje ya quedó visible y en la sesión.
   if (_agentRunActive && getAgentMode() === 'agent') {
     ipcRenderer.send('agent-steer', { text: trimmed });
-    setAgentState('thinking', 'Actualización en cola');
+    setAgentState('thinking', window.kaoruI18n.t('queuedUpdate'));
     return;
   }
 
@@ -336,7 +338,7 @@ async function _processMessageBody(trimmed, files) {
         if (!firstToken) {
           firstToken = true;
           removeThinking();
-          setAgentState('streaming', 'Respondiendo');
+          setAgentState('streaming');
         }
         streamBuf += token;
         // Gestos del LLM en vivo: detectar marcadores (gesto: x) a medida que
@@ -375,7 +377,7 @@ async function _processMessageBody(trimmed, files) {
           bubble.innerHTML = renderMarkdown(partial, { path: window.__lastWritePath || '' });
           _scrollMessagesToBottom();
         }
-        setAgentState('done', 'Cancelado');
+        setAgentState('done', window.kaoruI18n.t('cancelled'));
         attachRunSummary(bubble, result);
         return;
       }
@@ -392,8 +394,7 @@ async function _processMessageBody(trimmed, files) {
 
       if (result.error && !finalText) {
         error = result.error;
-        response =
-          'No pude completar la tarea. Revisa la causa y la actividad antes de reintentar.';
+        response = window.kaoruI18n.t('taskFailedHint');
         pausePlanBlock();
       } else {
         response = finalText || '(sin respuesta)';
@@ -424,7 +425,9 @@ async function _processMessageBody(trimmed, files) {
         _scrollMessagesToBottom();
         setAgentState(
           result.error || result.truncated ? 'error' : 'done',
-          result.error || result.truncated ? 'Respuesta incompleta' : 'Listo'
+          result.error || result.truncated
+            ? window.kaoruI18n.t('incompleteResponse')
+            : window.kaoruI18n.t('ready')
         );
         refreshFooterSession();
         speak(response);
@@ -436,14 +439,14 @@ async function _processMessageBody(trimmed, files) {
       disarmCancel();
       error = e.message;
       response = null;
-      setAgentState('error', 'Error');
+      setAgentState('error', window.kaoruI18n.t('errorLabel'));
       removeThinking();
       pausePlanBlock();
       // Conserva el historial visual de herramientas y usa la misma burbuja
       // para explicar el fallo; una segunda llamada simple perdería el vínculo
       // con el proceso que ya se ejecutó.
       if (agentBubble) {
-        response = 'La ejecución se detuvo antes de generar la respuesta final.';
+        response = window.kaoruI18n.t('executionStopped');
         agentBubble.classList.add('markdown');
         agentBubble.innerHTML = renderMarkdown(response);
         attachErrorRecovery(agentBubble, e.message);
@@ -471,7 +474,7 @@ async function _processMessageBody(trimmed, files) {
         activeProvider: LLMProvider.getActiveProvider(),
       });
       if (!ctx || !ctx.messages || !ctx.systemPrompt) {
-        throw new Error('context inválido');
+        throw new Error(window.kaoruI18n.t('invalidContext'));
       }
 
       const agentPrompt = await AgentManager.getSystemPrompt();
@@ -487,26 +490,26 @@ async function _processMessageBody(trimmed, files) {
       if (llm && llm.aborted) {
         disarmCancel();
         removeThinking();
-        setAgentState('done', 'Cancelado');
+        setAgentState('done', window.kaoruI18n.t('cancelled'));
         return;
       }
       if (llm && llm.error) throw new Error(llm.error);
       response = llm && llm.response ? llm.response : null;
-      if (!response) throw new Error('El proveedor devolvió una respuesta vacía.');
+      if (!response) throw new Error(window.kaoruI18n.t('emptyProviderResponse'));
     } catch (e) {
       disarmCancel();
       console.error('error LLM; revisa el estado del proveedor');
       error = e.message;
       response = LLMProvider.getActiveProvider()
-        ? 'Algo falló al conectar. Revisa tu conexión o la key.'
-        : 'Sin API keys. Usa el boton de configuracion (engranaje) para configurarlas.';
-      setAgentState('error', 'Error');
+        ? window.kaoruI18n.t('connectionFailedHint')
+        : window.kaoruI18n.t('noApiKeyHint');
+      setAgentState('error', window.kaoruI18n.t('errorLabel'));
     }
   }
 
   disarmCancel();
   removeThinking();
-  setAgentState('streaming', 'Respondiendo');
+  setAgentState('streaming', window.kaoruI18n.t('responding'));
 
   // Mostrar respuesta final con revelado progresivo de caracteres y cursor;
   // renderiza markdown en vivo durante la escritura y queda renderizado al
@@ -534,7 +537,7 @@ async function _processMessageBody(trimmed, files) {
   }
   bubble.querySelectorAll('.mermaid').forEach((el) => _renderMermaid(el));
   _scrollMessagesToBottom();
-  setAgentState(error ? 'error' : 'done', error ? 'Error al responder' : 'Listo');
+  setAgentState(error ? 'error' : 'done', error ? window.kaoruI18n.t('responseError') : undefined);
   // Chips de resultado (skills usadas / verificación de artefactos).
   if (typeof _renderResultChips === 'function') _renderResultChips(_takeResultMeta());
   speak(response);
@@ -600,7 +603,7 @@ function _showApprovalCard({ id, tool, params, description, diff, allowAlways = 
   const runsCommand = /^(exec|code_execution)$/i.test(safeTool) || Boolean(safeParams.command);
   const sandboxWarning =
     runsCommand && openclawSandbox === false
-      ? `<div class="approval-sandbox-warn">Ejecución de comandos SIN aislamiento de proceso${openclawSandboxReason ? ` — ${_escapeHtml(openclawSandboxReason)}` : ''}. Esta acción corre con permisos reales del sistema.</div>`
+      ? `<div class="approval-sandbox-warn">${_escapeHtml(window.kaoruI18n.format('sandboxApprovalWarning', { reason: openclawSandboxReason ? ` — ${openclawSandboxReason}` : '' }))}</div>`
       : '';
   // Vista previa de diff: si está disponible se muestra el bloque colapsable
   // del cambio real. Si NO está disponible para una tool que muta archivos, se
@@ -609,11 +612,11 @@ function _showApprovalCard({ id, tool, params, description, diff, allowAlways = 
   if (diff && typeof diff.patch === 'string') {
     previewHtml = renderDiffBlockHtml(diff);
   } else if (_FILE_MUTATOR_RE.test(tool)) {
-    previewHtml = `<div class="approval-no-diff">Vista previa de diff no disponible para esta edición.</div>`;
+    previewHtml = `<div class="approval-no-diff">${window.kaoruI18n.t('diffUnavailable')}</div>`;
   } else {
     previewHtml = _renderPatchPreview(params?.patch);
   }
-  card.innerHTML = `<div class="approval-title">ACCION DE ALTO IMPACTO — APROBACION REQUERIDA</div><div class="approval-cmd">${safeDescription}</div><div style="font-size:10px;color:var(--text-secondary);margin-bottom:10px">Herramienta: <b>${safeTool}</b>${safeParams.command ? ` · <code>${safeParams.command}</code>` : ''}${safeParams.path ? ` · <code>${safeParams.path}</code>` : ''}</div>${sandboxWarning}${previewHtml}<div class="approval-actions"><button class="btn-approve" id="approve-${id}">${tool === 'desktop_mission' ? 'Autorizar misión' : 'Ejecutar'}</button>${allowAlways ? `<button class="btn-always" id="always-${id}">Siempre</button>` : ''}<button class="btn-deny" id="deny-${id}">Cancelar</button></div>`;
+  card.innerHTML = `<div class="approval-title">${window.kaoruI18n.t('approvalRequired')}</div><div class="approval-cmd">${safeDescription}</div><div style="font-size:10px;color:var(--text-secondary);margin-bottom:10px">${window.kaoruI18n.t('toolLabel')}: <b>${safeTool}</b>${safeParams.command ? ` · <code>${safeParams.command}</code>` : ''}${safeParams.path ? ` · <code>${safeParams.path}</code>` : ''}</div>${sandboxWarning}${previewHtml}<div class="approval-actions"><button class="btn-approve" id="approve-${id}">${window.kaoruI18n.t(tool === 'desktop_mission' ? 'authorizeMission' : 'execute')}</button>${allowAlways ? `<button class="btn-always" id="always-${id}">${window.kaoruI18n.t('always')}</button>` : ''}<button class="btn-deny" id="deny-${id}">${window.kaoruI18n.t('cancel')}</button></div>`;
   messagesEl.appendChild(card);
   // Toggle del bloque de diff incrustado en el card (misma interacción que el
   // bloque del feed: clic en el encabezado alterna la clase .open).
@@ -680,7 +683,7 @@ function _expireApprovalCard(id) {
   });
   const note = document.createElement('div');
   note.className = 'approval-expired-note';
-  note.textContent = '⏳ Expirada — no se ejecutó (no hubo respuesta a tiempo).';
+  note.textContent = window.kaoruI18n.t('approvalExpired');
   card.appendChild(note);
   _scrollMessagesToBottom();
 }
@@ -698,7 +701,7 @@ function _cancelApprovalCard(id) {
   });
   const note = document.createElement('div');
   note.className = 'approval-expired-note';
-  note.textContent = 'Cancelada — no se ejecutó la acción pendiente.';
+  note.textContent = window.kaoruI18n.t('approvalCancelled');
   card.appendChild(note);
   _scrollMessagesToBottom();
 }

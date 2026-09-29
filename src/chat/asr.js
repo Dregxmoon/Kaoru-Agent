@@ -20,15 +20,15 @@ function _setMicButton(recording) {
   const btn = _micButton();
   if (btn) {
     btn.classList.toggle('recording', recording);
-    btn.title = recording ? 'Detener y transcribir' : 'Entrada de voz (STT)';
+    btn.title = window.kaoruI18n.t(recording ? 'stopAndTranscribe' : 'voiceInput');
   }
-  setAgentState(recording ? 'listening' : 'idle', recording ? 'Escuchando...' : 'Listo');
+  setAgentState(recording ? 'listening' : 'idle');
 }
 
 async function startMicRecording() {
   if (_recording) return true;
   if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
-    setAgentState('error', 'Micrófono no disponible (getUserMedia)');
+    setAgentState('error', window.kaoruI18n.t('microphoneUnavailable'));
     return false;
   }
   // Barge-in explícito: pulsar el micrófono siempre gana sobre la voz de
@@ -86,13 +86,19 @@ async function stopMicRecording() {
     off += a.length;
   }
   const wav = encodeWavPcm(merged, ctx ? ctx.sampleRate : 16000);
-  setAgentState('working', 'Transcribiendo...');
+  setAgentState('working', window.kaoruI18n.t('transcribing'));
   try {
     const pythonBin = await getPythonBin();
-    if (!pythonBin) throw new Error('No se encontró Python — STT no disponible');
-    return await assistant.asrStream({ pythonBin, wav: new Uint8Array(wav), lang: 'es' });
+    if (!pythonBin) throw new Error(window.kaoruI18n.t('pythonMissingStt'));
+    return await assistant.asrStream({
+      pythonBin,
+      wav: new Uint8Array(wav),
+      // El modelo Vosk instalado actualmente sólo se resuelve desde models/vosk-es/.
+      // No anunciar reconocimiento EN/JA hasta incluir modelos por idioma.
+      lang: 'es',
+    });
   } finally {
-    if (getAgentState() === 'working') setAgentState('idle', 'Listo');
+    if (getAgentState() === 'working') setAgentState('idle');
   }
 }
 
@@ -110,7 +116,7 @@ async function toggleMicRecording() {
     try {
       await startMicRecording();
     } catch {
-      setAgentState('error', 'Sin permiso de micrófono');
+      setAgentState('error', window.kaoruI18n.t('microphoneDenied'));
     }
   }
 }

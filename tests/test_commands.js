@@ -96,7 +96,11 @@ function testHelp() {
   const result = execute('/help', {});
   return result.then((r) => {
     assert(!r.error, 'help sin error');
-    assert(r.result.includes('Comandos disponibles'), 'help lista comandos');
+    assert(r.result.includes('Available commands'), 'help usa inglés canónico');
+    assert(r.result.includes('/avatar-model'), 'help usa nombres canónicos en inglés');
+    assert(r.result.includes('/cambio-modelo'), 'help conserva los aliases anteriores');
+    assert(getHelp('es').includes('Comandos disponibles'), 'help en español');
+    assert(getHelp('ja').includes('利用できるコマンド'), 'help en japonés');
     assert(r.result.includes('/clear'), 'help menciona /clear');
     assert(r.result.includes('/cambio-modelo'), 'help menciona /cambio-modelo');
     assert(r.result.includes('/model'), 'help menciona /model');
@@ -566,7 +570,7 @@ function testEdgeCases() {
     })
     .then((r) => {
       assert(!r.error, 'help con args extra no rompe');
-      assert(r.result.includes('Comandos disponibles'), 'help con args extra funciona');
+      assert(r.result.includes('Available commands'), 'help con args extra funciona');
     })
     .then(() => {
       const r4 = execute('/clear --malicious-option', {

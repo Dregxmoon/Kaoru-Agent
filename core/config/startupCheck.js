@@ -229,16 +229,18 @@ function _hasAnyApiKey(parsed, keychainHasKeys) {
 
 /**
  * @param {{configPath?:string,examplePath?:string|null,keychainHasKeys?:boolean}} [opts]
- * @returns {{ ok: boolean, issues: Array<{ type: 'missing'|'invalid_json'|'no_keys', message: string }> }}
+ * @returns {{ ok: boolean, issues: Array<{ type: 'missing'|'invalid_json'|'no_keys', message: string, path?: string, example?: string|null, line?: number, column?: number, reason?: string }> }}
  */
 function validateStartupConfig({ configPath, examplePath = null, keychainHasKeys = false } = {}) {
-  /** @type {Array<{ type: 'missing'|'invalid_json'|'no_keys', message: string }>} */
+  /** @type {Array<{ type: 'missing'|'invalid_json'|'no_keys', message: string, path?: string, example?: string|null, line?: number, column?: number, reason?: string }>} */
   const issues = [];
 
   // ── Caso 1: no existe ──
   if (!configPath || !fs.existsSync(configPath)) {
     issues.push({
       type: 'missing',
+      path: configPath || '(unresolved path)',
+      example: examplePath,
       message:
         '**Configuración no encontrada.** No existe `config.json` en ' +
         `\`${configPath || '(ruta sin resolver)'}\`. ` +
@@ -257,6 +259,7 @@ function validateStartupConfig({ configPath, examplePath = null, keychainHasKeys
   } catch (e) {
     issues.push({
       type: 'invalid_json',
+      reason: e instanceof Error ? e.message : String(e),
       message: `**config.json no se pudo leer:** ${e instanceof Error ? e.message : String(e)}`,
     });
     return { ok: false, issues };
@@ -272,6 +275,9 @@ function validateStartupConfig({ configPath, examplePath = null, keychainHasKeys
       .slice(0, 140);
     issues.push({
       type: 'invalid_json',
+      line,
+      column,
+      reason,
       message:
         `**config.json es JSON inválido** (línea ${line}, columna ${column}). ` +
         `Motivo: ${reason}\n\nCorregí el archivo y reiniciá la app — ` +

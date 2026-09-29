@@ -2,6 +2,9 @@
 // Input
 const input = document.getElementById('msg-input');
 const hintEl = document.getElementById('input-hint-text');
+const inputText = (key) => window.kaoruI18n.t(key);
+const inputFormat = (key, values) => window.kaoruI18n.format(key, values);
+const inputCount = (count, one, many) => inputFormat(count === 1 ? one : many, { count });
 
 // Cursor de terminal: bloque parpadeante que sigue al caret del textarea
 // (se mueve a la izquierda/arriba al escribir). Se posiciona midiendo el
@@ -84,14 +87,18 @@ function updateLlmHint() {
   const all = LLMProvider.getAvailableProviders();
   const p = all.find((x) => x.id === active);
   if (p) {
-    const cost = p.free ? 'gratis' : 'pago';
+    const cost = inputText(p.free ? 'free' : 'paid');
     hintEl.textContent = `${p.name} · ${cost}`;
   } else {
-    hintEl.textContent = 'sin LLM activo';
+    hintEl.textContent = inputText('noActiveLlm');
   }
   updateHeaderModel();
   refreshFooterSession();
 }
+document.addEventListener('kaoru-language-changed', () => {
+  updateLlmHint();
+  if (modelBrowser.style.display !== 'none') _mbrRender();
+});
 
 let _atSelectedIdx = -1;
 let _atQuery = '';
@@ -234,8 +241,10 @@ function _cmdArgCompletions(cmdName) {
   const cmd = CommandRegistry.getCommand(cmdName);
   if (!cmd) return null;
   if (cmdName === 'skill') return _skillNames.length > 0 ? _skillNames : null;
-  if (cmdName === 'cambio-modelo') return _modelNames.length > 0 ? _modelNames : null;
-  if (cmdName === 'modelo-vistas') return ['full', 'half', 'head', 'all'];
+  if (cmdName === 'cambio-modelo' || cmdName === 'avatar-model')
+    return _modelNames.length > 0 ? _modelNames : null;
+  if (cmdName === 'modelo-vistas' || cmdName === 'avatar-view')
+    return ['full', 'half', 'head', 'all'];
   return cmd.completions || null;
 }
 
@@ -380,9 +389,9 @@ function _mbrKey(m) {
 function _mbrEffortControl(m) {
   if (!Array.isArray(m.effortOptions) || m.effortOptions.length === 0) return '';
   const selected = m.reasoningEffort || 'medium';
-  return `<label class="mbr-effort">Esfuerzo de razonamiento
+  return `<label class="mbr-effort">${inputText('reasoningEffort')}
     <select class="mbr-effort-select">
-      ${m.effortOptions.map((value) => `<option value="${value}"${value === selected ? ' selected' : ''}>${value === 'low' ? 'bajo' : value === 'high' ? 'alto' : 'medio'}</option>`).join('')}
+      ${m.effortOptions.map((value) => `<option value="${value}"${value === selected ? ' selected' : ''}>${inputText(value === 'low' ? 'effortLow' : value === 'high' ? 'effortHigh' : 'effortMedium')}</option>`).join('')}
     </select>
   </label>`;
 }
@@ -392,7 +401,7 @@ function _mbrRowHtml(m, i, byId, favs) {
   const connected = !!p.hasKey;
   const chips = [];
   if (m.tools) chips.push('tools');
-  if (m.reasoning) chips.push('razonamiento');
+  if (m.reasoning) chips.push(inputText('reasoning'));
   const ctx = _mbrCtx(m.context);
   if (ctx) chips.push(ctx);
   const expanded =
@@ -402,17 +411,17 @@ function _mbrRowHtml(m, i, byId, favs) {
   const exp = expanded
     ? `<div class="model-browser-expanded">
         ${_mbrEffortControl(m)}
-        ${p.doc ? `<a class="mbr-doc" href="${escapeHtml(p.doc)}" target="_blank" rel="noreferrer">Docs del provider ↗</a>` : ''}
+        ${p.doc ? `<a class="mbr-doc" href="${escapeHtml(p.doc)}" target="_blank" rel="noreferrer">${inputText('providerDocs')}</a>` : ''}
         ${
           connected
             ? `<div class="mbr-actions">
-               <button class="mbr-btn" data-act="use">Usar este modelo</button>
+               <button class="mbr-btn" data-act="use">${inputText('useThisModel')}</button>
              </div>`
             : p.connectable === false
-              ? '<div style="font-size:10px;color:#f59e0b;font-family:var(--font-mono)">No conectable automáticamente.</div>'
+              ? `<div style="font-size:10px;color:#f59e0b;font-family:var(--font-mono)">${inputText('cannotAutoConnect')}</div>`
               : `<input class="mbr-key" type="password" placeholder="${escapeHtml(p.name)} API key" autocomplete="off" />
              <div class="mbr-actions">
-               <button class="mbr-btn" data-act="connect">Conectar y usar este modelo</button>
+               <button class="mbr-btn" data-act="connect">${inputText('connectAndUse')}</button>
              </div>`
         }
       </div>`
@@ -438,7 +447,7 @@ function _mbrGroupHtml(providerId, p, models, byId, favs) {
     <div class="mbr-group-header" role="button">
       <span class="mbr-group-chevron"></span>
       <span class="mbr-group-name">${escapeHtml(p.name || providerId)}</span>
-      <span class="mbr-group-count">${models.length} ${models.length === 1 ? 'modelo' : 'modelos'}</span>
+      <span class="mbr-group-count">${inputCount(models.length, 'modelOne', 'modelMany')}</span>
     </div>
     <div class="mbr-group-body">${body}</div>
   </div>`;
@@ -511,18 +520,25 @@ function _mbrRender() {
   const hidden = _pickerData.remoteHidden || null;
   const hiddenNote =
     hidden && hidden.providers > 0
-      ? ` (+${hidden.providers} remotos ocultos: ${_pickerData.providers.length} empresas)`
+      ? inputFormat('hiddenRemoteProviders', {
+          count: hidden.providers,
+          total: _pickerData.providers.length,
+        })
       : '';
   const toggleBtn = document.getElementById('mbr-toggle-all');
   toggleBtn.style.display = q ? 'none' : 'inline-block';
-  toggleBtn.textContent = _browserShowAll ? 'ver solo conectados' : 'ver todos los proveedores';
-  const pl = (n, s, p) => `${n} ${n === 1 ? s : p}`;
+  toggleBtn.textContent = inputText(_browserShowAll ? 'showOnlyConnected' : 'showAllProviders');
   if (q) {
-    modelBrowserCount.textContent = `${pl(rows.length, 'modelo', 'modelos')} de ${total} modelos${hiddenNote}`;
+    modelBrowserCount.textContent = inputFormat('modelsOfTotal', {
+      shown: rows.length,
+      total,
+      note: hiddenNote,
+    });
   } else if (_browserShowAll) {
-    modelBrowserCount.textContent = `${pl(total, 'modelo', 'modelos')}${hiddenNote}`;
+    modelBrowserCount.textContent = inputCount(total, 'modelOne', 'modelMany') + hiddenNote;
   } else {
-    modelBrowserCount.textContent = `${pl(connected, 'proveedor conectado', 'proveedores conectados')}${hiddenNote}`;
+    modelBrowserCount.textContent =
+      inputCount(connected, 'providerOne', 'providerMany') + hiddenNote;
   }
   modelBrowserList.innerHTML = groups
     .map((g) => _mbrGroupHtml(g.providerId, byId.get(g.providerId) || {}, g.models, byId, favs))
@@ -530,12 +546,12 @@ function _mbrRender() {
   if (q) {
     modelBrowserStatus.textContent =
       rows.length > _browserRows.length
-        ? `mostrando ${_browserRows.length} de ${rows.length} — escribí para filtrar`
-        : '↑↓ navegar · Enter seleccionar · Esc cerrar';
+        ? inputFormat('resultsLimited', { shown: _browserRows.length, total: rows.length })
+        : inputText('browserNavigateSelect');
   } else if (_browserShowAll) {
-    modelBrowserStatus.textContent = `catálogo completo (${total} modelos) · ↑↓ navegar · Enter usar · Esc cerrar`;
+    modelBrowserStatus.textContent = inputFormat('fullCatalog', { count: total });
   } else {
-    modelBrowserStatus.textContent = `escribí para buscar entre ${total} modelos · ↑↓ navegar · Enter usar · Esc cerrar`;
+    modelBrowserStatus.textContent = inputFormat('browserSearchHint', { count: total });
   }
   modelBrowserStatus.style.color = 'var(--text-secondary)';
 }
@@ -589,12 +605,12 @@ async function _mbrApplyConnected(row) {
     reasoningEffort,
   });
   if (!saved) {
-    modelBrowserStatus.textContent = 'No se pudo guardar el modelo seleccionado.';
+    modelBrowserStatus.textContent = inputText('modelSaveFailed');
     return;
   }
   if (reasoningEffort) row.reasoningEffort = reasoningEffort;
   await loadLLMConfig();
-  modelBrowserStatus.textContent = `✓ ${row.label} activo para todas las solicitudes${row.tools === false ? ' · No admite herramientas' : ''}`;
+  modelBrowserStatus.textContent = `${inputFormat('modelActive', { model: row.label })}${row.tools === false ? ` · ${inputText('noTools')}` : ''}`;
   modelBrowserStatus.style.color = '#10b981';
   input.value = '';
   input.style.height = 'auto';
@@ -606,11 +622,11 @@ async function _mbrConnectAndUse(row) {
   const keyInput = modelBrowserList.querySelector('.mbr-key');
   const apiKey = keyInput ? keyInput.value.trim() : '';
   if (!apiKey) {
-    modelBrowserStatus.textContent = 'Pegá la API key para conectar.';
+    modelBrowserStatus.textContent = inputText('pasteApiKey');
     modelBrowserStatus.style.color = '#f59e0b';
     return;
   }
-  modelBrowserStatus.textContent = 'Conectando...';
+  modelBrowserStatus.textContent = inputText('connectingShort');
   modelBrowserStatus.style.color = 'var(--text-secondary)';
   const res = await ipcRenderer.invoke('connect-llm-provider', {
     providerId: row.providerId,
@@ -620,7 +636,7 @@ async function _mbrConnectAndUse(row) {
     useKeychain: document.getElementById('use-keychain').checked,
   });
   if (!res.ok) {
-    modelBrowserStatus.textContent = 'Error: ' + (res.error || 'no se pudo conectar');
+    modelBrowserStatus.textContent = `${inputText('connectFailed')}: ${res.error || inputText('connectFailed')}`;
     modelBrowserStatus.style.color = '#ef4444';
     return;
   }
@@ -872,10 +888,10 @@ chatPanel.addEventListener('drop', async (e) => {
 async function importModelFromFolder(folderPath) {
   const res = await ipcRenderer.invoke('model-import', { folderPath });
   if (res.error) {
-    addMessage('assistant', `Error al importar modelo: ${res.error}`);
+    addMessage('assistant', inputFormat('errorImportingModel', { error: res.error }));
     return;
   }
-  addMessage('assistant', `Modelo importado y activado: **${res.info.name}**`);
+  addMessage('assistant', inputFormat('modelImported', { name: res.info.name }));
 }
 
 // ── Copiar al seleccionar ───────────────────────────────────────────────────

@@ -29,7 +29,7 @@
 
 const path = require('path');
 const fs = require('fs');
-const { ipcMain } = require('electron');
+const { app, ipcMain } = require('electron');
 
 const logger = require('../core/observability/Logger.js');
 const LLMProvider = require('../core/llm/LLMProvider.js');
@@ -159,6 +159,7 @@ function register(_ctx) {
   /**
    * @typedef {Object} ChatPageCtx
    * @property {Array<{role: string, content: string}>} sessionHistory
+   * @property {string} uiLanguage
    * @property {(role: string, content: string) => void} pushToSession
    * @property {typeof LLMProvider} LLMProvider
    * @property {(channel: string, data?: any) => void} sendIPC
@@ -193,6 +194,7 @@ function register(_ctx) {
     /** @type {ChatPageCtx} */
     const ctx = {
       sessionHistory,
+      uiLanguage: ['en', 'es', 'ja'].includes(pageData.uiLanguage) ? pageData.uiLanguage : 'en',
       pushToSession: (role, content) => {
         ctx.sessionHistory.push({ role, content });
       },
@@ -388,17 +390,23 @@ function register(_ctx) {
   // ── CommandRegistry (autocompletado de /) ─────────────────────────────────
   ipcMain.handle('chat-commands-names', () => CommandRegistry.getNames());
 
-  ipcMain.handle('chat-commands-index', () =>
-    CommandRegistry.getNames().map((name) => {
+  ipcMain.handle('chat-commands-index', (_event, requestedLocale) => {
+    const preference = _ctx.loadConfig?.()?.ui?.language;
+    const locale = ['en', 'es', 'ja'].includes(requestedLocale)
+      ? requestedLocale
+      : preference === 'system' || !preference
+        ? (app.getLocale?.() || 'en').split('-')[0].toLowerCase()
+        : preference;
+    return CommandRegistry.getNames().map((name) => {
       const def = CommandRegistry.getCommand(name);
       return {
         name,
         usage: def && def.usage ? def.usage : `/${name}`,
-        description: def && def.description ? def.description : '',
+        description: CommandRegistry.getDescription(name, locale),
         completions: def && def.completions ? def.completions : null,
       };
-    })
-  );
+    });
+  });
 
   // ── FileResolver (@archivo) ───────────────────────────────────────────────
   // El cwd se contiene contra el workspace activo: un renderer comprometido no

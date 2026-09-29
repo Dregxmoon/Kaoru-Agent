@@ -316,7 +316,7 @@ console.log(C.bold(C.cyan('═════════════════�
       pausePlanBlock();
       result.planShowsPausedFailure =
         dock.querySelector('.plan-block') === resumedPlan &&
-        resumedPlan?.textContent.includes('PLAN PAUSADO');
+        resumedPlan?.textContent.includes(window.kaoruI18n.t('planPaused'));
       renderPlanBlock({
         kind: 'created',
         steps: ['Nuevo análisis', 'Nueva verificación'],
@@ -336,7 +336,7 @@ console.log(C.bold(C.cyan('═════════════════�
       preservePlanBlock();
       result.completedPlanRemainsVisible =
         dock.querySelector('.plan-block') === resumedPlan &&
-        resumedPlan?.textContent.includes('PLAN COMPLETADO · 2/2') &&
+        resumedPlan?.textContent.includes(`${window.kaoruI18n.t('planCompleted')}2/2`) &&
         resumedPlan?.classList.contains('complete');
       activity?.remove();
       resetPlanBlock();
@@ -366,11 +366,12 @@ console.log(C.bold(C.cyan('═════════════════�
     );
     assert(!bannerVisible, 'banner de auto-update NO visible en desarrollo');
     await sleep(150);
-    const contextLabel = await chat.evaluate(() =>
-      document.getElementById('footer-session').textContent.trim()
-    );
+    const { contextLabel, contextPrefix } = await chat.evaluate(() => ({
+      contextLabel: document.getElementById('footer-session').textContent.trim(),
+      contextPrefix: window.kaoruI18n.t('maxContext').split(':')[0],
+    }));
     assert(
-      contextLabel.startsWith('Contexto') && !contextLabel.toLowerCase().includes('sesión'),
+      contextLabel.startsWith(contextPrefix) && !contextLabel.toLowerCase().includes('sesión'),
       'el pie explica el contexto del modelo y no muestra un label de sesión',
       contextLabel
     );
@@ -740,9 +741,12 @@ console.log(C.bold(C.cyan('═════════════════�
         entries.length > 0 &&
         entries.every((entry) => {
           const button = entry.querySelector('.session-delete');
+          const title = entry.querySelector('.session-row-title');
+          const kind = title?.textContent?.startsWith('⌁ ') ? 'deleteTerminal' : 'deleteChat';
           return (
             button?.tagName === 'BUTTON' &&
-            button.getAttribute('aria-label')?.startsWith('Eliminar ')
+            button.getAttribute('aria-label') ===
+              window.kaoruI18n.format(kind, { title: title?.title || '' })
           );
         })
       );
@@ -760,11 +764,21 @@ console.log(C.bold(C.cyan('═════════════════�
     );
     assert(await chat.isVisible('#terminal-panel'), 'la terminal ocupa el panel de chat');
     await chat.evaluate(() => document.getElementById('sessions-btn').click());
-    await chat.waitForSelector('#sessions-list .session-delete[aria-label^="Eliminar terminal:"]');
+    await chat.waitForFunction(() =>
+      [...document.querySelectorAll('#sessions-list .session-delete')].some((button) =>
+        button
+          .getAttribute('aria-label')
+          ?.startsWith(window.kaoruI18n.t('deleteTerminal').split('{title}')[0])
+      )
+    );
     assert(
-      (await chat
-        .locator('#sessions-list .session-delete[aria-label^="Eliminar terminal:"]')
-        .count()) > 0,
+      (await chat.evaluate(() =>
+        [...document.querySelectorAll('#sessions-list .session-delete')].some((button) =>
+          button
+            .getAttribute('aria-label')
+            ?.startsWith(window.kaoruI18n.t('deleteTerminal').split('{title}')[0])
+        )
+      )) === true,
       'las terminales de la lista también muestran una × para eliminar'
     );
     await chat.evaluate(() => document.getElementById('sessions-close').click());
@@ -807,7 +821,7 @@ console.log(C.bold(C.cyan('═════════════════�
     if (overlay) {
       await overlay.waitForSelector('#live2d-canvas', { timeout: 15000 });
       const overlayTitle = await overlay.evaluate(() => document.title);
-      assert(overlayTitle.includes('Asistente'), `overlay con título (${overlayTitle})`);
+      assert(overlayTitle.includes('Kaoru'), `overlay con título (${overlayTitle})`);
       await tryScreenshot(overlay, 'overlay.png');
     }
 

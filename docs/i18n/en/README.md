@@ -16,7 +16,7 @@
 
 Kaoru is a Windows and Linux desktop assistant built with Electron and a Live2D avatar. It combines conversation, local semantic memory, operating-system signals, and a permission-aware tool agent. Sensor-driven initiative is evaluated by a deterministic policy before an LLM writes the message.
 
-> Spanish is the canonical documentation language. This edition mirrors the maintained project overview and links to Spanish technical references where no maintained translation exists.
+> English is the canonical source for the upcoming runtime UI catalog. Detailed technical documentation is still mainly maintained in Spanish during the v2.3 migration; this edition links to it rather than claiming an unfinished translation is complete.
 
 ![Kaoru in action](../../../screenshots/demo.gif)
 

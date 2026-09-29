@@ -61,8 +61,8 @@ function read(relativePath) {
     'Live2D no interpola ni cambia de encuadre autónomamente'
   );
   assert(
-    /\['processes', 'Procesos'\]/.test(permissions) &&
-      /\['camera', 'Cámara'\]/.test(permissions) &&
+    /\['processes', 'capabilityProcesses'\]/.test(permissions) &&
+      /\['camera', 'capabilityCamera'\]/.test(permissions) &&
       /`capability:\$\{button\.dataset\.capability\}`/.test(permissions),
     'permisos expone interruptores de procesos y cámara'
   );

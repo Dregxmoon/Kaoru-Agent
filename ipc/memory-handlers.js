@@ -7,6 +7,7 @@ const { ipcMain, dialog } = require('electron');
 
 function register(ctx) {
   const { Core } = ctx;
+  const t = ctx.mainText;
   const canChangeConversation = () =>
     !require('./openclaw-handlers.js').hasActiveRun() &&
     !require('./chat-handlers.js').hasSimpleRun() &&
@@ -77,12 +78,10 @@ function register(ctx) {
     try {
       const confirmation = await confirmWithNativeDialog({
         type: 'warning',
-        title: terminal ? 'Eliminar terminal' : 'Eliminar chat',
-        message: terminal ? '¿Eliminar esta terminal?' : '¿Eliminar este chat?',
-        detail: terminal
-          ? 'Se cerrará la shell y se eliminará esta terminal de la lista. Los archivos del proyecto no se borrarán.'
-          : 'Se eliminará el historial de este chat. Los archivos del proyecto y los recuerdos ya aprendidos no se borrarán.',
-        buttons: ['Eliminar', 'Cancelar'],
+        title: t(terminal ? 'deleteTerminal' : 'deleteChat'),
+        message: t(terminal ? 'deleteTerminalQuestion' : 'deleteChatQuestion'),
+        detail: t(terminal ? 'deleteTerminalDetail' : 'deleteChatDetail'),
+        buttons: [t('delete'), t('cancel')],
         defaultId: 1,
         cancelId: 1,
         noLink: true,
@@ -225,10 +224,10 @@ function register(ctx) {
     }
     const confirmation = await confirmWithNativeDialog({
       type: 'question',
-      title: 'Corregir memoria',
-      message: '¿Guardar esta corrección en la memoria de Kaoru?',
+      title: t('correctMemory'),
+      message: t('correctMemoryQuestion'),
       detail: content.slice(0, 500),
-      buttons: ['Cancelar', 'Guardar corrección'],
+      buttons: [t('cancel'), t('saveCorrection')],
       defaultId: 0,
       cancelId: 0,
       noLink: true,
@@ -249,10 +248,10 @@ function register(ctx) {
     if (!Number.isInteger(nodeId) || nodeId <= 0) return { ok: false, error: 'invalid_input' };
     const confirmation = await confirmWithNativeDialog({
       type: 'warning',
-      title: 'Eliminar memoria',
-      message: '¿Eliminar esta memoria y todas sus versiones?',
-      detail: 'También se eliminarán sus evidencias que no estén vinculadas a otros recuerdos.',
-      buttons: ['Cancelar', 'Eliminar definitivamente'],
+      title: t('deleteMemory'),
+      message: t('deleteMemoryQuestion'),
+      detail: t('deleteMemoryDetail'),
+      buttons: [t('cancel'), t('deletePermanently')],
       defaultId: 0,
       cancelId: 0,
       noLink: true,
@@ -270,7 +269,7 @@ function register(ctx) {
     if (!trustedSender(event)) return { ok: false, error: 'untrusted_sender' };
     try {
       const chosen = await chooseExportPath({
-        title: 'Exportar memoria de Kaoru',
+        title: t('exportMemory'),
         defaultPath: `memoria-kaoru-${new Date().toISOString().slice(0, 10)}.json`,
         filters: [{ name: 'JSON', extensions: ['json'] }],
         properties: ['createDirectory', 'showOverwriteConfirmation'],

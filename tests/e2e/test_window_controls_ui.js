@@ -19,6 +19,16 @@ async function main() {
       document.querySelector('.header-actions').append(parsed.querySelector('.window-controls'));
       window.controlCalls = [];
       window.controlEvents = {};
+      window.kaoruI18n = {
+        t(key) {
+          return {
+            restoreWindow: 'Restaurar ventana',
+            restore: 'Restaurar',
+            maximizeWindow: 'Maximizar ventana',
+            maximize: 'Maximizar',
+          }[key];
+        },
+      };
       window.ipcRenderer = {
         send(channel, action) {
           window.controlCalls.push({ channel, action });

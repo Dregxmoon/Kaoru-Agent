@@ -5,6 +5,18 @@ const fs = require('node:fs');
 const path = require('node:path');
 const { chromium } = require('playwright');
 
+async function addSpanishI18n(page) {
+  await page.evaluate(() => {
+    window.assistant = {
+      invoke: async (channel) =>
+        channel === 'get-config' ? { ui: { language: 'es' } } : { ok: true },
+      refreshCapabilities: async () => {},
+    };
+  });
+  await page.addScriptTag({ path: path.resolve(__dirname, '../../src/chat/i18n.js') });
+  await page.waitForFunction(() => window.kaoruI18n?.language === 'es');
+}
+
 async function main() {
   const browser = await chromium.launch({ headless: true });
   try {
@@ -12,6 +24,7 @@ async function main() {
     await page.setContent(
       '<html data-theme="dark"><body><main id="messages"><div class="msg assistant"><div class="msg-body"><div class="msg-bubble markdown"></div></div></div></main></body></html>'
     );
+    await addSpanishI18n(page);
     await page.addStyleTag({ path: path.resolve(__dirname, '../../src/chat.css') });
     const chatHtml = fs.readFileSync(path.resolve(__dirname, '../../src/chat.html'), 'utf8');
     await page.evaluate((html) => {
@@ -275,6 +288,7 @@ async function main() {
     await runPage.setContent(
       '<html data-theme="dark"><body><main id="messages"><div id="anchor"></div></main><div id="task-dock" hidden></div></body></html>'
     );
+    await addSpanishI18n(runPage);
     await runPage.addStyleTag({ path: path.resolve(__dirname, '../../src/chat.css') });
     await runPage.addScriptTag({
       path: path.resolve(__dirname, '../../src/chat/activityBlock.js'),

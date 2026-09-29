@@ -187,8 +187,8 @@ async function testCandidateAndNoAuthorization() {
 
     const chatUi = fs.readFileSync(path.join(__dirname, '../src/chat/ipc.js'), 'utf8');
     assert(
-      chatUi.includes("'Responder'") &&
-        chatUi.includes("'Conversar sobre esto'") &&
+      chatUi.includes("'reply'") &&
+        chatUi.includes("'discussThis'") &&
         chatUi.includes("'deferred'") &&
         !chatUi.includes("'Sí, hazlo'"),
       'la UI usa lenguaje de conversación, no de ejecución'

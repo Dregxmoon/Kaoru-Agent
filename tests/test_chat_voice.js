@@ -23,6 +23,7 @@ async function testAsrPreservesSamples() {
   const button = { classList: { toggle() {} }, title: '' };
   const context = {
     console,
+    window: { kaoruI18n: { t: (key) => key, language: 'es' } },
     Uint8Array,
     Float32Array,
     Int16Array,
@@ -85,6 +86,7 @@ async function testTtsInterruptionInvalidatesPendingAudio() {
   let audioCreated = 0;
   const context = {
     console,
+    window: { kaoruI18n: { t: (key) => key, language: 'es' } },
     Blob,
     URL: { createObjectURL: () => 'blob:test', revokeObjectURL() {} },
     localStorage: { getItem: () => null, setItem() {} },

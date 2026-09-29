@@ -5,23 +5,24 @@
 
 const permsModal = document.getElementById('perms-modal');
 const DESKTOP_CAPABILITIES = [
-  ['applications', 'Aplicaciones'],
-  ['browser', 'Navegador y multimedia'],
-  ['screen', 'Pantalla y accesibilidad'],
-  ['pointer', 'Puntero y controles'],
-  ['keyboard', 'Teclado observado'],
-  ['processes', 'Procesos'],
-  ['camera', 'Cámara'],
+  ['applications', 'capabilityApplications'],
+  ['browser', 'capabilityBrowser'],
+  ['screen', 'capabilityScreen'],
+  ['pointer', 'capabilityPointer'],
+  ['keyboard', 'capabilityKeyboard'],
+  ['processes', 'capabilityProcesses'],
+  ['camera', 'capabilityCamera'],
 ];
+const permissionsText = (key) => window.kaoruI18n.t(key);
 
 function renderDesktopCapabilities(rules) {
   const container = document.getElementById('desktop-capabilities');
   if (!container) return;
-  container.innerHTML = DESKTOP_CAPABILITIES.map(([id, label]) => {
+  container.innerHTML = DESKTOP_CAPABILITIES.map(([id, labelKey]) => {
     const rule = rules.find((item) => item.tool === `capability:${id}` && !item.path);
     const enabled = !rule || rule.action !== 'deny';
     return `<button class="desktop-capability ${enabled ? 'enabled' : 'disabled'}" data-capability="${id}" data-enabled="${enabled ? '1' : '0'}" type="button" aria-pressed="${enabled ? 'true' : 'false'}">
-      <span>${escapeHtml(label)}</span><strong>${enabled ? 'ACTIVO' : 'BLOQUEADO'}</strong>
+      <span>${escapeHtml(permissionsText(labelKey))}</span><strong>${permissionsText(enabled ? 'enabled' : 'blocked')}</strong>
     </button>`;
   }).join('');
 }
@@ -53,7 +54,7 @@ async function renderPermsList() {
     document.getElementById('media-browser-preferred').value = browser.preferred || 'default';
   } catch (e) {
     console.error('[perms] error listando reglas:', e.message || e);
-    listEl.innerHTML = '<div class="session-error">No se pudieron cargar los permisos.</div>';
+    listEl.innerHTML = `<div class="session-error">${permissionsText('permissionsLoadFailed')}</div>`;
     return;
   }
   rules = Array.isArray(rules) ? rules : [];
@@ -65,16 +66,20 @@ async function renderPermsList() {
     return;
   }
   emptyEl.style.display = 'none';
-  const actionLabels = { allow: 'Permitir', ask: 'Preguntar', deny: 'Bloquear' };
+  const actionLabels = {
+    allow: permissionsText('allow'),
+    ask: permissionsText('ask'),
+    deny: permissionsText('deny'),
+  };
   listEl.innerHTML = toolRules
     .map(
       (r) => `<div class="perm-row">
         <span class="perm-tool">${escapeHtml(r.tool)}</span>
-        <span class="perm-path">${r.path ? escapeHtml(r.path) : '· todos los paths ·'}</span>
+        <span class="perm-path">${r.path ? escapeHtml(r.path) : permissionsText('allPaths')}</span>
         <span class="perm-action perm-action-${escapeHtml(r.action)}">${escapeHtml(actionLabels[r.action] || r.action)}</span>
         <button class="perm-del" data-tool="${escapeHtml(r.tool)}" data-path="${escapeHtml(
           r.path || ''
-        )}" title="Eliminar regla">×</button>
+        )}" title="${permissionsText('deleteRule')}">×</button>
       </div>`
     )
     .join('');
@@ -103,14 +108,14 @@ function attachPermsEvents() {
       try {
         const res = await window.assistant.invoke('permissions-set', { tool, path, action });
         if (!res.ok) {
-          statusEl.textContent = res.error || 'error';
+          statusEl.textContent = res.error || permissionsText('errorLabel');
           return;
         }
         document.getElementById('perms-tool').value = '';
         document.getElementById('perms-path').value = '';
         renderPermsList();
       } catch (e) {
-        statusEl.textContent = e.message || 'error';
+        statusEl.textContent = e.message || permissionsText('errorLabel');
       }
     });
   }
@@ -146,7 +151,7 @@ function attachPermsEvents() {
         });
         renderPermsList();
       } catch (error) {
-        document.getElementById('perms-status').textContent = error.message || 'error';
+        document.getElementById('perms-status').textContent = error.message || permissionsText('errorLabel');
       }
     });
   }
@@ -162,12 +167,17 @@ function attachPermsEvents() {
       };
       try {
         const result = await window.assistant.invoke('set-config', patch);
-        statusEl.textContent = result?.ok ? 'Preferencia de navegador guardada.' : result?.error;
+        statusEl.textContent = result?.ok
+          ? permissionsText('browserPreferenceSaved')
+          : result?.error || permissionsText('browserPreferenceFailed');
       } catch (error) {
-        statusEl.textContent = error.message || 'No se pudo guardar la preferencia.';
+        statusEl.textContent = error.message || permissionsText('browserPreferenceFailed');
       }
     });
   }
+  document.addEventListener('kaoru-language-changed', () => {
+    if (permsModal.classList.contains('visible')) renderPermsList();
+  });
 }
 
 if (document.readyState === 'loading') {

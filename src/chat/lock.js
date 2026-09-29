@@ -47,11 +47,11 @@ async function _submitPin() {
       lockInput.value = '';
       return;
     }
-    lockStatus.textContent = (res && res.error) || 'PIN incorrecto.';
+    lockStatus.textContent = (res && res.error) || window.kaoruI18n.t('incorrectPin');
     lockStatus.style.color = '#ef4444';
     lockInput.select();
   } catch (e) {
-    lockStatus.textContent = (e && e.message) || 'Error al validar el PIN.';
+    lockStatus.textContent = (e && e.message) || window.kaoruI18n.t('pinValidationFailed');
     lockStatus.style.color = '#ef4444';
   }
 }

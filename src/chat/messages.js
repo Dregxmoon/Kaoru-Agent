@@ -20,6 +20,12 @@ function _scrollMessagesToBottom() {
 }
 
 messagesEl.addEventListener('scroll', _updateStickToBottom, { passive: true });
+document.addEventListener('kaoru-language-changed', () => {
+  for (const name of messagesEl.querySelectorAll('.msg.assistant .msg-name'))
+    name.textContent = window.kaoruI18n.t('assistantName');
+  for (const link of messagesEl.querySelectorAll('.terminal-context-link'))
+    link.textContent = window.kaoruI18n.t('viewTerminalOutput');
+});
 
 // Delegación: también funciona con mensajes cargados y durante el streaming.
 messagesEl.addEventListener('click', async (event) => {
@@ -36,9 +42,7 @@ messagesEl.addEventListener('click', async (event) => {
       command,
       button.dataset.codeAction === 'run-terminal'
     );
-    if (!executed)
-      button.title =
-        'Abre primero el chat vinculado a una terminal y usa un solo comando por bloque.';
+    if (!executed) button.title = window.kaoruI18n.t('terminalLinkNeeded');
     return;
   }
   if (button.dataset.codeAction === 'wrap') {
@@ -52,13 +56,13 @@ messagesEl.addEventListener('click', async (event) => {
   button.disabled = true;
   try {
     await navigator.clipboard.writeText(code.textContent || '');
-    button.textContent = 'Copiado';
+    button.textContent = window.kaoruI18n.t('copiedCode');
   } catch {
-    button.textContent = 'No se pudo copiar';
+    button.textContent = window.kaoruI18n.t('copyFailed');
   } finally {
     button.disabled = false;
     setTimeout(() => {
-      button.textContent = 'Copiar';
+      button.textContent = window.kaoruI18n.t('copy');
     }, 2000);
   }
 });
@@ -73,7 +77,7 @@ function addMessage(role, text, files = []) {
   body.className = 'msg-body';
   const name = document.createElement('div');
   name.className = 'msg-name';
-  name.textContent = role === 'assistant' ? 'Asistente' : '';
+  name.textContent = role === 'assistant' ? window.kaoruI18n.t('assistantName') : '';
   const bubble = document.createElement('div');
   bubble.className = 'msg-bubble';
 
@@ -95,7 +99,7 @@ function addMessage(role, text, files = []) {
     const link = document.createElement('button');
     link.type = 'button';
     link.className = 'terminal-context-link';
-    link.textContent = '↗ Ver salida en terminal';
+    link.textContent = window.kaoruI18n.t('viewTerminalOutput');
     link.addEventListener('click', () => window.revealTerminalAnchor?.(terminalAnchor));
     bubble.appendChild(link);
     if (role === 'user') window.pendingTerminalAnchor = null;
@@ -149,30 +153,28 @@ function attachRetryDraft(bubble, text, files = []) {
   const card = document.createElement('div');
   card.className = 'retry-draft';
   const note = document.createElement('p');
-  note.textContent =
-    'Puedes recuperar este mensaje y sus adjuntos. Si hubo acciones antes del fallo, revisa su resultado antes de volver a enviar.';
+  note.textContent = window.kaoruI18n.t('retryHint');
   const button = document.createElement('button');
   button.type = 'button';
-  button.textContent = 'Preparar reintento';
+  button.textContent = window.kaoruI18n.t('prepareRetry');
   const status = document.createElement('span');
   status.setAttribute('role', 'status');
   button.addEventListener('click', () => {
     const input = document.getElementById('msg-input');
     if (!input) return;
     if (input.value.trim() || pendingFiles.length) {
-      status.textContent =
-        'Hay un borrador en curso. Envíalo o vacíalo antes de recuperar este mensaje.';
+      status.textContent = window.kaoruI18n.t('draftAlreadyOpen');
       return;
     }
     if (['thinking', 'working', 'streaming', 'listening'].includes(getAgentState())) {
-      status.textContent = 'Espera a que termine la ejecución actual o detenla primero.';
+      status.textContent = window.kaoruI18n.t('waitForRun');
       return;
     }
     input.value = text;
     if (files.length) addFiles(files);
     input.dispatchEvent(new Event('input', { bubbles: true }));
     input.focus();
-    status.textContent = 'Mensaje recuperado. Revísalo y pulsa Enter para enviarlo.';
+    status.textContent = window.kaoruI18n.t('messageRestored');
   });
   card.append(note, button, status);
   bubble.appendChild(card);
@@ -185,55 +187,55 @@ function attachErrorRecovery(bubble, error) {
   const problem =
     /(?:401|403|unauthori[sz]ed|invalid.{0,20}(?:api.?key|token)|api.?key.{0,20}invalid)/i.test(raw)
       ? {
-          title: 'La clave del modelo no funciona',
-          help: 'Revisa la clave o conecta otro proveedor. Tu mensaje sigue disponible para reintentarlo.',
+          title: 'keyNotWorking',
+          help: 'keyNotWorkingHint',
           action: 'model',
-          label: 'Elegir modelo',
+          label: 'chooseModel',
         }
       : /(?:429|rate.?limit|quota|insufficient.credits|saldo insuficiente)/i.test(raw)
         ? {
-            title: 'El proveedor alcanzó su límite',
-            help: 'Espera unos minutos o elige otro modelo antes de reintentar.',
+            title: 'providerLimit',
+            help: 'providerLimitHint',
             action: 'model',
-            label: 'Elegir modelo',
+            label: 'chooseModel',
           }
         : /(?:tool.{0,30}(?:not supported|unsupported|unavailable)|no soporta herramientas|function.?call)/i.test(
               raw
             )
           ? {
-              title: 'Este modelo no puede usar herramientas',
-              help: 'Para tareas con archivos o acciones, selecciona un modelo compatible con herramientas.',
+              title: 'modelNoTools',
+              help: 'modelNoToolsHint',
               action: 'model',
-              label: 'Elegir modelo',
+              label: 'chooseModel',
             }
           : /(?:permission|denied|not allowed|permiso|bloquead[oa])/i.test(raw)
             ? {
-                title: 'La acción necesita permiso',
-                help: 'Revisa la regla de la herramienta antes de volver a pedir la tarea.',
+                title: 'actionNeedsPermission',
+                help: 'actionNeedsPermissionHint',
                 action: 'permissions',
-                label: 'Revisar permisos',
+                label: 'reviewPermissionsAction',
               }
             : /(?:timeout|timed out|network|enotfound|econn|fetch failed|sin conexión)/i.test(raw)
               ? {
-                  title: 'No se pudo conectar',
-                  help: 'Comprueba la conexión y vuelve a enviar el mensaje cuando esté disponible.',
+                  title: 'cannotConnect',
+                  help: 'cannotConnectHint',
                 }
               : {
-                  title: 'No se completó la solicitud',
-                  help: 'Revisa la actividad y prepara un reintento. Si hubo acciones, comprueba su resultado primero.',
+                  title: 'requestIncomplete',
+                  help: 'requestIncompleteHint',
                 };
   const card = document.createElement('section');
   card.className = 'error-recovery';
   card.setAttribute('role', 'alert');
   const title = document.createElement('strong');
-  title.textContent = problem.title;
+  title.textContent = window.kaoruI18n.t(problem.title);
   const help = document.createElement('p');
-  help.textContent = problem.help;
+  help.textContent = window.kaoruI18n.t(problem.help);
   card.append(title, help);
   if (problem.action) {
     const button = document.createElement('button');
     button.type = 'button';
-    button.textContent = problem.label;
+    button.textContent = window.kaoruI18n.t(problem.label);
     button.addEventListener('click', () => {
       if (problem.action === 'model') openPicker();
       if (problem.action === 'permissions') openPermsModal();
@@ -249,7 +251,7 @@ function attachRunSummary(bubble, result) {
   const details = document.createElement('details');
   details.className = 'run-summary';
   const title = document.createElement('summary');
-  title.textContent = `Resumen de ejecución · ${tools.length} operaciones${result.cancelled ? ' · cancelada' : result.error || result.truncated ? ' · incompleta' : ''}`;
+  title.textContent = `${window.kaoruI18n.format('runSummary', { count: tools.length })}${result.cancelled ? window.kaoruI18n.t('runCancelled') : result.error || result.truncated ? window.kaoruI18n.t('runIncomplete') : ''}`;
   const list = document.createElement('ul');
   const add = (text) => {
     const item = document.createElement('li');
@@ -263,9 +265,10 @@ function attachRunSummary(bubble, result) {
   );
   for (const item of mutations.slice(0, 40)) {
     const params = item._action?.params || {};
-    const target = params.path || params.file_path || params.file || 'archivo sin ruta reportada';
+    const target =
+      params.path || params.file_path || params.file || window.kaoruI18n.t('pathNotReported');
     add(
-      `${item._action?.tool || item.tool} · ${String(target)} · ${item.skipped ? 'omitida' : item.ok === true ? 'herramienta informó éxito' : 'no confirmada'}`
+      `${item._action?.tool || item.tool} · ${String(target)} · ${window.kaoruI18n.t(item.skipped ? 'skipped' : item.ok === true ? 'toolReportedSuccess' : 'notConfirmed')}`
     );
   }
   const commands = tools.filter((item) =>
@@ -273,35 +276,31 @@ function attachRunSummary(bubble, result) {
   );
   for (const item of commands.slice(0, 20)) {
     const command =
-      item._action?.params?.command || item._action?.params?.cmd || 'comando sin detalle';
+      item._action?.params?.command ||
+      item._action?.params?.cmd ||
+      window.kaoruI18n.t('commandNotReported');
     add(
-      `Comando: ${String(command).slice(0, 500)} · ${item.ok === true ? 'herramienta informó éxito' : 'fallido o sin confirmar'}`
+      `${window.kaoruI18n.t('commandLabel')}: ${String(command).slice(0, 500)} · ${window.kaoruI18n.t(item.ok === true ? 'toolReportedSuccess' : 'failedOrUnconfirmed')}`
     );
   }
-  if (!mutations.length)
-    add(
-      'No se reportaron operaciones directas de edición de archivos. Los comandos u otras herramientas pueden tener efectos adicionales.'
-    );
+  if (!mutations.length) add(window.kaoruI18n.t('noDirectEdits'));
   const verify = result.verify;
   add(
     verify?.status
-      ? `Verificación reportada: ${String(verify.status)}${verify.command ? ` · ${String(verify.command).slice(0, 500)}` : ''}`
-      : 'Sin verificación automática reportada: no se puede afirmar que las pruebas pasaron.'
+      ? `${window.kaoruI18n.format('verificationReported', { status: String(verify.status) })}${verify.command ? ` · ${String(verify.command).slice(0, 500)}` : ''}`
+      : window.kaoruI18n.t('noAutomaticVerification')
   );
-  if (result.checkpoint?.rolledBack)
-    add('Se reportó una reversión: los cambios anteriores no deben considerarse vigentes.');
+  if (result.checkpoint?.rolledBack) add(window.kaoruI18n.t('rollbackReported'));
   const failures = tools.filter((item) => item?.ok !== true).length;
-  if (failures)
-    add(`${failures} operaciones fallidas o sin confirmar. Revisa su detalle en la actividad.`);
-  if (mutations.length > 40 || commands.length > 20)
-    add('Resumen abreviado. El resto permanece en la actividad del agente.');
+  if (failures) add(window.kaoruI18n.format('failuresReported', { count: failures }));
+  if (mutations.length > 40 || commands.length > 20) add(window.kaoruI18n.t('summaryShortened'));
   details.append(title, list);
   bubble.appendChild(details);
 }
 
 function showThinking() {
   // El estado vive en el compositor; no añade un mensaje al historial.
-  setAgentState('thinking', 'Pensando');
+  setAgentState('thinking', window.kaoruI18n.t('thinking'));
 }
 function removeThinking() {
   const t = document.getElementById('thinking-msg');
@@ -330,8 +329,10 @@ function _applyWorkspaceUI(fullPath) {
   }
   const title = document.getElementById('workspace-title');
   if (title) {
-    title.textContent = fullPath ? '~/' + _workspaceName(fullPath) : 'Elegir carpeta';
-    title.title = fullPath ? `${fullPath} — cambiar workspace` : 'Cambiar workspace';
+    title.textContent = fullPath ? '~/' + _workspaceName(fullPath) : window.kaoruI18n.t('chooseFolder');
+    title.title = fullPath
+      ? `${fullPath} — ${window.kaoruI18n.t('changeWorkspace')}`
+      : window.kaoruI18n.t('changeWorkspace');
   }
 }
 
@@ -378,8 +379,8 @@ function updateHeaderModel() {
   if (!el) return;
   const active = LLMProvider.getActiveProvider();
   if (!active) {
-    el.textContent = 'sin modelo';
-    document.getElementById('status-model').textContent = 'sin modelo';
+    el.textContent = window.kaoruI18n.t('noModel');
+    document.getElementById('status-model').textContent = window.kaoruI18n.t('noModel');
     return;
   }
   const p = LLMProvider.getAvailableProviders().find((x) => x.id === active);
@@ -392,7 +393,7 @@ function updateHeaderModel() {
         .join(' ')
     : p?.name || active;
   el.textContent = label;
-  el.title = `${p?.name || active} · ${model} · ${p?.free ? 'gratis' : 'pago'}`;
+  el.title = `${p?.name || active} · ${model} · ${window.kaoruI18n.t(p?.free ? 'free' : 'paid')}`;
   document.getElementById('status-model').textContent = label;
 }
 
@@ -410,17 +411,26 @@ async function refreshFooterSession() {
     };
     if (status?.promptTokens != null && status.maxContext > 0) {
       const pct = Math.min(100, Math.round((status.promptTokens / status.maxContext) * 100));
-      el.textContent = `Contexto de la última solicitud: ${formatTokens(status.promptTokens)} / ${formatTokens(status.maxContext)} tokens (${pct}%)`;
-      el.title = `Uso informado por ${status.provider} para ${status.model}`;
+      el.textContent = window.kaoruI18n.format('latestContext', {
+        used: formatTokens(status.promptTokens),
+        max: formatTokens(status.maxContext),
+        percent: pct,
+      });
+      el.title = window.kaoruI18n.format('contextReportedBy', {
+        provider: status.provider,
+        model: status.model,
+      });
     } else if (status?.maxContext > 0) {
-      el.textContent = `Contexto máximo del modelo: ${formatTokens(status.maxContext)} tokens`;
-      el.title = 'El proveedor todavía no informó el uso de una solicitud en esta ejecución.';
+      el.textContent = window.kaoruI18n.format('maxContext', {
+        max: formatTokens(status.maxContext),
+      });
+      el.title = window.kaoruI18n.t('contextNotYetReported');
     } else {
-      el.textContent = 'Contexto del modelo: sin datos del proveedor';
+      el.textContent = window.kaoruI18n.t('noContextData');
       el.title = '';
     }
   } catch {
-    el.textContent = 'Contexto del modelo: no disponible';
+    el.textContent = window.kaoruI18n.t('contextUnavailable');
   }
 }
 
@@ -434,8 +444,10 @@ ipcRenderer.on('memory-status', (e, { usingFallback, reason }) => {
   if (!banner) return;
   banner.classList.toggle('visible', !!usingFallback);
   if (usingFallback) {
-    const cause = reason ? String(reason).split('\n')[0].slice(0, 120) : 'motivo desconocido';
-    banner.textContent = `Memoria no persistente — ${cause}. Lo que hablen hoy se perderá al cerrar la app.`;
+    const cause = reason
+      ? String(reason).split('\n')[0].slice(0, 120)
+      : window.kaoruI18n.t('unknownReason');
+    banner.textContent = window.kaoruI18n.format('memoryUnavailableReason', { reason: cause });
     console.warn('[asistente] memoria no persistente:', cause);
   }
 });
@@ -485,7 +497,7 @@ function _fmtCtx(n) {
 
 function _fmtCost(cIn, cOut) {
   if (!cIn && !cOut) return '';
-  return `$${cIn}/${cOut} por M`;
+  return window.kaoruI18n.format('costPerMillion', { cost: `$${cIn}/${cOut}` });
 }
 
 function _modelKey(m) {
@@ -503,12 +515,12 @@ function _expandedPanel() {
   if (mode === 'providers') {
     if (p.hasKey) return '';
     return `<div class="picker-expanded">
-      ${p.doc ? `<a class="picker-doc" href="${escapeHtml(p.doc)}" target="_blank" rel="noreferrer">Docs del provider ↗</a>` : ''}
+      ${p.doc ? `<a class="picker-doc" href="${escapeHtml(p.doc)}" target="_blank" rel="noreferrer">${window.kaoruI18n.t('providerDocs')}</a>` : ''}
       ${
         p.connectable === false
-          ? `<div class="picker-warn">No conectable automáticamente.</div>`
+          ? `<div class="picker-warn">${window.kaoruI18n.t('cannotAutoConnect')}</div>`
           : `<input class="picker-key-input" type="password" placeholder="${escapeHtml(p.name)} API key" autocomplete="off" />
-           <div class="picker-exp-actions"><button class="picker-btn" data-act="connect-provider">Conectar provider</button></div>`
+           <div class="picker-exp-actions"><button class="picker-btn" data-act="connect-provider">${window.kaoruI18n.t('connectProvider')}</button></div>`
       }
     </div>`;
   }
@@ -517,9 +529,9 @@ function _expandedPanel() {
   const isFav = (_picker.data.favorites || []).includes(_modelKey(m));
   const effortControl =
     Array.isArray(m.effortOptions) && m.effortOptions.length > 0
-      ? `<label class="picker-effort">Esfuerzo de razonamiento
+      ? `<label class="picker-effort">${window.kaoruI18n.t('reasoningEffort')}
           <select class="picker-effort-select">
-            ${m.effortOptions.map((value) => `<option value="${value}"${value === (m.reasoningEffort || 'medium') ? ' selected' : ''}>${value === 'low' ? 'bajo' : value === 'high' ? 'alto' : 'medio'}</option>`).join('')}
+            ${m.effortOptions.map((value) => `<option value="${value}"${value === (m.reasoningEffort || 'medium') ? ' selected' : ''}>${window.kaoruI18n.t(value === 'low' ? 'effortLow' : value === 'high' ? 'effortHigh' : 'effortMedium')}</option>`).join('')}
           </select>
         </label>`
       : '';
@@ -527,21 +539,21 @@ function _expandedPanel() {
     return `<div class="picker-expanded">
       ${effortControl}
       <div class="picker-exp-actions">
-        <button class="picker-btn" data-act="use">Usar este modelo</button>
-        <button class="picker-btn ghost" data-act="fav">${isFav ? '★ Quitar favorito' : '☆ Favorito'}</button>
+        <button class="picker-btn" data-act="use">${window.kaoruI18n.t('useThisModel')}</button>
+        <button class="picker-btn ghost" data-act="fav">${window.kaoruI18n.t(isFav ? 'removeFavorite' : 'favorite')}</button>
       </div>
     </div>`;
   }
   const env = (p.env && p.env[0]) || 'API key';
   return `<div class="picker-expanded">
     ${effortControl}
-    ${p.doc ? `<a class="picker-doc" href="${escapeHtml(p.doc)}" target="_blank" rel="noreferrer">Docs del provider ↗</a>` : ''}
+    ${p.doc ? `<a class="picker-doc" href="${escapeHtml(p.doc)}" target="_blank" rel="noreferrer">${window.kaoruI18n.t('providerDocs')}</a>` : ''}
     ${
       p.connectable === false
-        ? `<div class="picker-warn">No conectable automáticamente. Usá /provider add.</div>`
+        ? `<div class="picker-warn">${window.kaoruI18n.t('cannotAutoConnectAdd')}</div>`
         : `<input class="picker-key-input" type="password" placeholder="${escapeHtml(p.name)} ${escapeHtml(env)}" autocomplete="off" />
          <div class="picker-exp-actions">
-           <button class="picker-btn" data-act="connect">Conectar y usar este modelo</button>
+           <button class="picker-btn" data-act="connect">${window.kaoruI18n.t('connectAndUse')}</button>
          </div>`
     }
   </div>`;
@@ -556,23 +568,24 @@ function _renderPickerList() {
     const rest = _picker.view.filter((m) => !favs.has(_modelKey(m)));
     const order = [...favRows, ...rest].slice(0, 80);
     _picker.view = order;
-    if (favRows.length) rows.push('<div class="picker-group">FAVORITOS</div>');
+    if (favRows.length)
+      rows.push(`<div class="picker-group">${window.kaoruI18n.t('favorites')}</div>`);
     order.forEach((m, i) => {
       const p = _providerMap().get(m.providerId) || {};
       const key = _modelKey(m);
       const fav = favs.has(key) ? '★' : '☆';
       const chips = [];
       if (m.tools) chips.push('tools');
-      if (m.vision) chips.push('visión');
-      if (m.reasoning) chips.push('razonamiento');
+      if (m.vision) chips.push(window.kaoruI18n.t('vision'));
+      if (m.reasoning) chips.push(window.kaoruI18n.t('reasoning'));
       const ctx = _fmtCtx(m.context);
       if (ctx) chips.push(ctx);
       const cost = _fmtCost(m.costIn, m.costOut);
       if (cost) chips.push(cost);
       const active = _picker.selected === i ? ' active' : '';
       const dot = p.hasKey
-        ? '<span class="picker-dot on" title="conectado"></span>'
-        : '<span class="picker-dot" title="sin conectar"></span>';
+        ? `<span class="picker-dot on" title="${window.kaoruI18n.t('connected')}"></span>`
+        : `<span class="picker-dot" title="${window.kaoruI18n.t('notConnected')}"></span>`;
       const expanded =
         _picker.expanded && _modelKey(_picker.expanded) === key ? _expandedPanel() : '';
       rows.push(`<div class="picker-row${active}" data-i="${i}">
@@ -583,16 +596,18 @@ function _renderPickerList() {
       </div>${expanded}`);
     });
     if (!order.length)
-      rows.push('<div class="picker-empty">Sin resultados — probá otro término.</div>');
+      rows.push(`<div class="picker-empty">${window.kaoruI18n.t('noModelResults')}</div>`);
   } else {
     const order = _picker.view.slice(0, 60);
     order.forEach((p, i) => {
       const active = _picker.selected === i ? ' active' : '';
       const dot = p.hasKey
-        ? '<span class="picker-dot on" title="conectado"></span>'
-        : '<span class="picker-dot" title="sin conectar"></span>';
+        ? `<span class="picker-dot on" title="${window.kaoruI18n.t('connected')}"></span>`
+        : `<span class="picker-dot" title="${window.kaoruI18n.t('notConnected')}"></span>`;
       const note =
-        p.connectable === false ? ' <span class="picker-chip warn">no conectable</span>' : '';
+        p.connectable === false
+          ? ` <span class="picker-chip warn">${window.kaoruI18n.t('notConnectable')}</span>`
+          : '';
       const expanded =
         _picker.expanded && _picker.expanded.providerId === p.id ? _expandedPanel() : '';
       rows.push(`<div class="picker-row picker-provider${active}" data-i="${i}">
@@ -602,12 +617,12 @@ function _renderPickerList() {
       </div>${expanded}`);
     });
     if (!order.length) {
-      rows.push('<div class="picker-empty">Sin providers — probá otro término.</div>');
+      rows.push(`<div class="picker-empty">${window.kaoruI18n.t('noProviderResults')}</div>`);
       // Catálogo remoto acotado: si la búsqueda local no da nada, ofrece UNA
       // búsqueda explícita (máx 12, nunca miles) con el mismo UI de conexión.
       if (_picker.remoteQuery) {
         rows.push(
-          `<div class="picker-row" data-remote-search="${escapeHtml(_picker.remoteQuery)}"><span class="picker-model">＋ Buscar '${escapeHtml(_picker.remoteQuery)}' en catálogo remoto</span></div>`
+          `<div class="picker-row" data-remote-search="${escapeHtml(_picker.remoteQuery)}"><span class="picker-model">${escapeHtml(window.kaoruI18n.format('remoteSearchOffer', { query: _picker.remoteQuery }))}</span></div>`
         );
       }
     }
@@ -620,12 +635,12 @@ function _renderPickerList() {
 }
 
 async function _searchRemote(query) {
-  pickerStatus.textContent = 'Buscando en catálogo remoto...';
+  pickerStatus.textContent = window.kaoruI18n.t('searchingRemote');
   pickerStatus.style.color = 'var(--text-secondary)';
   try {
     const found = await ipcRenderer.invoke('search-remote-providers', { query, limit: 12 });
     if (!Array.isArray(found) || !found.length) {
-      pickerStatus.textContent = 'Sin resultados remotos — probá otro término.';
+      pickerStatus.textContent = window.kaoruI18n.t('noRemoteResults');
       return;
     }
     const known = new Set((_picker.data.providers || []).map((p) => p.id));
@@ -644,9 +659,11 @@ async function _searchRemote(query) {
     }
     _picker.remoteQuery = null;
     _applyFilter();
-    pickerStatus.textContent = `${found.length} remotos — elegí uno para conectar.`;
+    pickerStatus.textContent = window.kaoruI18n.format('remoteFound', { count: found.length });
   } catch (e) {
-    pickerStatus.textContent = 'Error buscando remoto: ' + ((e && e.message) || e);
+    pickerStatus.textContent = window.kaoruI18n.format('remoteSearchFailed', {
+      error: (e && e.message) || e,
+    });
     pickerStatus.style.color = '#ef4444';
   }
 }
@@ -742,12 +759,12 @@ async function _useModel(m) {
       reasoningEffort,
     });
     if (!saved) {
-      pickerStatus.textContent = 'No se pudo guardar el modelo seleccionado.';
+      pickerStatus.textContent = window.kaoruI18n.t('modelSaveFailed');
       return;
     }
     if (reasoningEffort) m.reasoningEffort = reasoningEffort;
     await loadLLMConfig();
-    pickerStatus.textContent = `✓ ${m.label} activo para todas las solicitudes${m.tools === false ? ' · No admite herramientas' : ''}`;
+    pickerStatus.textContent = `${window.kaoruI18n.format('modelActive', { model: m.label })}${m.tools === false ? ` · ${window.kaoruI18n.t('noTools')}` : ''}`;
     pickerStatus.style.color = '#10b981';
     setTimeout(closePicker, 700);
     return;
@@ -755,11 +772,11 @@ async function _useModel(m) {
   const input = pickerList.querySelector('.picker-key-input');
   const apiKey = input ? input.value.trim() : '';
   if (!apiKey) {
-    pickerStatus.textContent = 'Pegá la API key para conectar.';
+    pickerStatus.textContent = window.kaoruI18n.t('pasteApiKey');
     pickerStatus.style.color = '#f59e0b';
     return;
   }
-  pickerStatus.textContent = 'Conectando...';
+  pickerStatus.textContent = window.kaoruI18n.t('connectingShort');
   pickerStatus.style.color = 'var(--text-secondary)';
   const res = await ipcRenderer.invoke('connect-llm-provider', {
     providerId: m.providerId,
@@ -769,7 +786,7 @@ async function _useModel(m) {
     useKeychain: document.getElementById('use-keychain').checked,
   });
   if (!res.ok) {
-    pickerStatus.textContent = 'Error: ' + (res.error || 'no se pudo conectar');
+    pickerStatus.textContent = `${window.kaoruI18n.t('connectFailed')}: ${res.error || window.kaoruI18n.t('connectFailed')}`;
     pickerStatus.style.color = '#ef4444';
     return;
   }
@@ -783,7 +800,7 @@ async function _useModel(m) {
     m.reasoningEffort = reasoningEffort;
   }
   await loadLLMConfig();
-  pickerStatus.textContent = `✓ ${m.label} conectado y activo para todas las solicitudes`;
+  pickerStatus.textContent = window.kaoruI18n.format('modelConnectedActive', { model: m.label });
   pickerStatus.style.color = '#10b981';
   setTimeout(closePicker, 700);
 }
@@ -792,11 +809,11 @@ async function _connectProvider(p) {
   const input = pickerList.querySelector('.picker-key-input');
   const apiKey = input ? input.value.trim() : '';
   if (!apiKey) {
-    pickerStatus.textContent = 'Pegá la API key para conectar.';
+    pickerStatus.textContent = window.kaoruI18n.t('pasteApiKey');
     pickerStatus.style.color = '#f59e0b';
     return;
   }
-  pickerStatus.textContent = 'Conectando...';
+  pickerStatus.textContent = window.kaoruI18n.t('connectingShort');
   pickerStatus.style.color = 'var(--text-secondary)';
   const res = await ipcRenderer.invoke('connect-llm-provider', {
     providerId: p.id,
@@ -804,7 +821,7 @@ async function _connectProvider(p) {
     useKeychain: document.getElementById('use-keychain').checked,
   });
   if (!res.ok) {
-    pickerStatus.textContent = 'Error: ' + (res.error || 'no se pudo conectar');
+    pickerStatus.textContent = `${window.kaoruI18n.t('connectFailed')}: ${res.error || window.kaoruI18n.t('connectFailed')}`;
     pickerStatus.style.color = '#ef4444';
     return;
   }
@@ -815,7 +832,9 @@ async function _connectProvider(p) {
   pickerSearch.value = p.name;
   _applyFilter();
   pickerSearch.focus();
-  pickerStatus.textContent = `✓ ${p.name} conectado. Elegí un modelo.`;
+  pickerStatus.textContent = window.kaoruI18n.format('providerConnectedChooseModel', {
+    provider: p.name,
+  });
   pickerStatus.style.color = '#10b981';
 }
 
@@ -836,7 +855,7 @@ function _openProvidersMode() {
   _picker.selected = -1;
   pickerSearch.value = '';
   _applyFilter();
-  pickerStatus.textContent = 'Elegí un provider para conectarlo (Ctrl+A cierra este panel).';
+  pickerStatus.textContent = window.kaoruI18n.t('chooseProviderToConnect');
   pickerStatus.style.color = 'var(--text-secondary)';
 }
 
@@ -845,7 +864,7 @@ function openPicker() {
   _picker.mode = 'models';
   _picker.expanded = null;
   _picker.selected = -1;
-  pickerStatus.textContent = 'Cargando modelos…';
+  pickerStatus.textContent = window.kaoruI18n.t('loadingModels');
   pickerModal.classList.add('visible');
   pickerSearch.focus();
   ipcRenderer
@@ -857,7 +876,9 @@ function openPicker() {
       pickerSearch.focus();
     })
     .catch((e) => {
-      pickerStatus.textContent = 'Error cargando modelos: ' + ((e && e.message) || e);
+      pickerStatus.textContent = window.kaoruI18n.format('modelLoadFailed', {
+        error: (e && e.message) || e,
+      });
       pickerStatus.style.color = '#ef4444';
     });
 }

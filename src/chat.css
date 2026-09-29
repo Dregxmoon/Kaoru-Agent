@@ -16,6 +16,7 @@
 }
 
 [data-theme='dark'] {
+  --terminal-highlight: #a993d8;
   --term-bg: #101010;
   --term-panel: #141414;
   --term-input: #1a1a1a;
@@ -49,6 +50,7 @@
 }
 [data-theme='sakura'],
 [data-theme='light'] {
+  --terminal-highlight: #8066a0;
   --term-bg: #e9e6df;
   --term-panel: #f5f2eb;
   --term-input: #ece9e2;
@@ -5068,6 +5070,16 @@ button.onboarding-card:hover {
   min-height: 16px;
   color: var(--text-secondary);
 }
+#prefs-language {
+  width: min(100%, 230px);
+  margin-top: 8px;
+  padding: 7px 9px;
+  border: 1px solid var(--border-accent);
+  border-radius: var(--radius);
+  background: var(--bg-input);
+  color: var(--text-primary);
+  font: inherit;
+}
 .llm-credential-row {
   display: grid;
   grid-template-columns: minmax(90px, 0.7fr) minmax(130px, 1fr) auto auto;
@@ -6209,6 +6221,9 @@ summary:focus-visible {
   visibility: hidden;
 }
 #sessions-btn {
+  -webkit-app-region: no-drag;
+  position: relative;
+  z-index: 1;
   width: 34px;
   height: 34px;
   flex: 0 0 34px;
@@ -6222,6 +6237,12 @@ summary:focus-visible {
 .new-session-anchor {
   position: relative;
   display: flex;
+  -webkit-app-region: no-drag;
+  z-index: 2;
+}
+#new-chat-btn,
+.new-session-menu,
+.new-session-menu button {
   -webkit-app-region: no-drag;
 }
 .new-session-menu {
@@ -6747,14 +6768,23 @@ summary:focus-visible {
   position: relative;
   margin: 0 16px 16px;
   padding: 13px;
-  border: 1px solid var(--border);
+  border: 1px solid var(--border-accent);
   border-radius: var(--radius);
   background: var(--bg-panel);
   overflow: hidden;
   transition: border-color 180ms ease;
 }
+#app:is(.terminal-mode, .terminal-companion) #terminal-screen::before {
+  content: '';
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: 2px;
+  background: var(--terminal-highlight);
+  opacity: 0.8;
+  pointer-events: none;
+}
 #app:is(.terminal-mode, .terminal-companion) #terminal-screen:focus-within {
-  border-color: var(--border-accent);
+  border-color: var(--terminal-highlight);
 }
 #app:is(.terminal-mode, .terminal-companion) #terminal-error:not([hidden]) {
   margin: 0 16px 16px;
@@ -6765,8 +6795,10 @@ summary:focus-visible {
 #terminal-viewport .xterm {
   height: 100%;
   width: 100%;
+  background: var(--bg-panel);
 }
-#terminal-screen .xterm-viewport {
+#terminal-screen .xterm .xterm-viewport {
+  background-color: var(--bg-panel);
   scrollbar-width: thin;
   scrollbar-color: var(--border-accent) transparent;
 }

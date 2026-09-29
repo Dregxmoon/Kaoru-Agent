@@ -3,9 +3,10 @@
 
 module.exports = function registerCommands(register) {
   register({
-    name: 'cambio-modelo',
+    name: 'avatar-model',
+    aliases: ['cambio-modelo'],
     description: 'Cambia el modelo Live2D del asistente',
-    usage: '/cambio-modelo [nombre]',
+    usage: '/avatar-model [name]',
     handler: async (args, ctx) => {
       if (!ctx.ipcRenderer) return 'IPC no disponible.';
       try {
@@ -58,10 +59,11 @@ module.exports = function registerCommands(register) {
   });
 
   register({
-    name: 'modelo-vistas',
+    name: 'avatar-view',
+    aliases: ['modelo-vistas'],
     description:
       'Selecciona el tamano de vista del modelo (cuerpo completo, medio cuerpo, solo cabeza o aleatorio)',
-    usage: '/modelo-vistas [full|half|head|random]',
+    usage: '/avatar-view [full|half|head|random]',
     handler: async (args, ctx) => {
       if (!ctx.ipcRenderer) return 'IPC no disponible.';
       const MODES = ['full', 'half', 'head', 'random'];
@@ -107,10 +109,11 @@ module.exports = function registerCommands(register) {
   });
 
   register({
-    name: 'gestos',
+    name: 'gestures',
+    aliases: ['gestos'],
     description:
       'Muestra los gestos (expresiones y animaciones) disponibles del modelo Live2D activo y permite probarlos',
-    usage: '/gestos [test <gesto|emocion> | mapa [mood <gesto>|off] | <emocion>]',
+    usage: '/gestures [test <gesture|emotion> | map [mood <gesture>|off] | <emotion>]',
     handler: async (args, ctx) => {
       if (!ctx.ipcRenderer) return 'IPC no disponible.';
 

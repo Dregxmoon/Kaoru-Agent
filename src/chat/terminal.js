@@ -4,6 +4,7 @@
 let terminalView = null;
 let terminalFit = null;
 let terminalViewId = null;
+let terminalActivation = 0;
 let terminalSeq = 0;
 let terminalReady = false;
 const terminalPending = new Map();
@@ -35,6 +36,8 @@ const terminalSearchStatus = document.getElementById('terminal-search-status');
 const terminalSearchPrev = document.getElementById('terminal-search-prev');
 const terminalSearchNext = document.getElementById('terminal-search-next');
 const terminalSignal = document.getElementById('terminal-signal');
+const terminalLabel = (key, fallback) => window.kaoruI18n?.t(key) || fallback;
+let terminalExitCode = null;
 let terminalActivityTimer = null;
 let terminalTypingTimer = null;
 let terminalReactionTimer = null;
@@ -160,7 +163,9 @@ function reactTerminalAvatar(mood) {
   if (terminalReactionTimer) clearTimeout(terminalReactionTimer);
   setTerminalVisualActivity(activity);
   terminalSignal.dataset.kind = activity;
-  terminalSignal.textContent = activity === 'error' ? 'Posible error' : 'Señal positiva';
+  terminalSignal.textContent = window.kaoruI18n.t(
+    activity === 'error' ? 'possibleError' : 'positiveSignal'
+  );
   terminalSignal.hidden = false;
   if (activity === 'error') terminalExplainError.hidden = false;
   terminalReactionTimer = setTimeout(() => {
@@ -178,7 +183,7 @@ function terminalContextSnapshot() {
     return {
       output: selected.slice(-6000).trim(),
       row: terminalView.getSelectionPosition?.()?.end?.y ?? null,
-      label: 'Selección',
+      label: window.kaoruI18n.t('selection'),
     };
   }
   const buffer = terminalView.buffer.active;
@@ -191,18 +196,18 @@ function terminalContextSnapshot() {
   return {
     output: lines.join('\n').slice(-6000).trim(),
     row: lastContentIndex < 0 ? null : start + lastContentIndex,
-    label: 'Salida reciente',
+    label: window.kaoruI18n.t('recentOutput'),
   };
 }
 
-terminalExplainError.title = 'Abrir un borrador en el chat para revisar antes de enviarlo';
+terminalExplainError.title = terminalLabel('explainDraft', 'Abrir un borrador en el chat');
 terminalExplainError.addEventListener('click', async () => {
   const context = terminalContextSnapshot();
   if (!context?.output || !window.openTerminalDraft) return;
   const workspace = terminalWorkspace.title || displayedWorkspace;
   if (
     await window.openTerminalDraft({
-      text: 'Explica la causa probable de este error y cómo comprobarla sin ejecutar nada.',
+      text: window.kaoruI18n.t('explainTerminalPrompt'),
       workspace,
       terminalId: terminalViewId,
       ...context,
@@ -214,7 +219,7 @@ terminalAttachOutput.addEventListener('click', async () => {
   const context = terminalContextSnapshot();
   if (!context?.output || !window.openTerminalDraft) return;
   await window.openTerminalDraft({
-    text: '¿Qué significa esta salida de la terminal?',
+    text: window.kaoruI18n.t('askTerminalPrompt'),
     workspace: terminalWorkspace.title || displayedWorkspace,
     terminalId: terminalViewId,
     ...context,
@@ -268,10 +273,7 @@ window.sendSuggestedTerminalCommand = (command, execute = false) => {
     )
   )
     return false;
-  if (
-    execute &&
-    !window.confirm(`¿Ejecutar este comando en la terminal del workspace actual?\n\n${command}`)
-  )
+  if (execute && !window.confirm(window.kaoruI18n.format('confirmRunCommand', { command })))
     return false;
   ipcRenderer.send('terminal-write', { id: terminalViewId, data: command + (execute ? '\r' : '') });
   terminalView.focus();
@@ -280,8 +282,32 @@ window.sendSuggestedTerminalCommand = (command, execute = false) => {
 
 function setTerminalState(state, label) {
   terminalPanel.dataset.state = state;
-  terminalStatus.textContent = label;
+  if (state === 'exited') {
+    terminalStatus.textContent = terminalLabel('shellClosed', window.kaoruI18n.t('shellClosed')).replace(
+      '{code}',
+      String(terminalExitCode)
+    );
+  } else {
+    terminalStatus.textContent = terminalLabel(
+      { connecting: 'connecting', ready: 'ready', error: 'unavailable' }[state],
+      label
+    );
+  }
 }
+document.addEventListener('kaoru-language-changed', () => {
+  terminalExplainError.title = terminalLabel('explainDraft', window.kaoruI18n.t('openDraft'));
+  terminalChatToggle.textContent = terminalLabel(
+    document.getElementById('app').classList.contains('terminal-companion') ? 'closeChat' : 'chat',
+    window.kaoruI18n.t('chat')
+  );
+  if (terminalPanel.dataset.state)
+    setTerminalState(terminalPanel.dataset.state, terminalStatus.textContent);
+  renderTerminalSearchStatus();
+  if (!terminalSignal.hidden)
+    terminalSignal.textContent = window.kaoruI18n.t(
+      terminalSignal.dataset.kind === 'error' ? 'possibleError' : 'positiveSignal'
+    );
+});
 
 function markTerminalActivity() {
   if (terminalActivityTimer) clearTimeout(terminalActivityTimer);
@@ -330,22 +356,22 @@ function terminalTheme() {
         brightWhite: '#242321',
       }
     : {
-        black: '#4a4a4a',
-        red: '#b69a96',
-        green: '#a1afa0',
-        yellow: '#b8ad96',
-        blue: '#9aabb5',
-        magenta: '#ad9faf',
-        cyan: '#9db4b0',
-        white: '#d4d1cb',
-        brightBlack: '#77736f',
-        brightRed: '#c5aaa5',
-        brightGreen: '#b3c0af',
-        brightYellow: '#c8bba0',
-        brightBlue: '#adbdc5',
-        brightMagenta: '#c0b1c0',
-        brightCyan: '#aec3bf',
-        brightWhite: '#e8e6e1',
+        black: '#514c5b',
+        red: '#ef8189',
+        green: '#83d6ae',
+        yellow: '#edc780',
+        blue: '#91b9f4',
+        magenta: '#d5a5ea',
+        cyan: '#83d6dd',
+        white: '#e8e4ef',
+        brightBlack: '#938b9f',
+        brightRed: '#ff9ca3',
+        brightGreen: '#a1e9be',
+        brightYellow: '#ffda9b',
+        brightBlue: '#aecbff',
+        brightMagenta: '#e6b9f6',
+        brightCyan: '#a1eaf0',
+        brightWhite: '#ffffff',
       };
   return {
     ...ansi,
@@ -425,7 +451,9 @@ function collectTerminalSearchMatches() {
 function renderTerminalSearchStatus() {
   const total = terminalSearchMatches.length;
   terminalSearchStatus.textContent = `${terminalSearchIndex < 0 ? 0 : terminalSearchIndex + 1}/${total}`;
-  terminalSearchStatus.title = total ? `${total} coincidencias` : 'Sin coincidencias';
+  terminalSearchStatus.title = total
+    ? window.kaoruI18n.format('matches', { count: total })
+    : window.kaoruI18n.t('noMatches');
   terminalSearchPrev.disabled = total === 0;
   terminalSearchNext.disabled = total === 0;
 }
@@ -503,7 +531,7 @@ terminalSearchInput.addEventListener('input', () => {
   terminalSearchMatches = [];
   terminalSearchScannedVersion = -1;
   if (terminalView?.buffer.active.length > 1000 && terminalSearchInput.value.trim()) {
-    terminalSearchStatus.textContent = 'Buscando…';
+    terminalSearchStatus.textContent = window.kaoruI18n.t('searching');
     terminalSearchPrev.disabled = true;
     terminalSearchNext.disabled = true;
     terminalSearchInputTimer = setTimeout(() => {
@@ -514,6 +542,7 @@ terminalSearchInput.addEventListener('input', () => {
 });
 
 function disposeTerminalView() {
+  terminalActivation++;
   if (terminalFlowPaused && terminalViewId != null)
     ipcRenderer.send('terminal-flow', { id: terminalViewId, paused: false });
   terminalFlowPaused = false;
@@ -566,8 +595,10 @@ function fitTerminal() {
 
 async function activateTerminal(conversation) {
   disposeTerminalView();
+  const activation = terminalActivation;
   terminalPanel.hidden = false;
-  setTerminalState('connecting', 'Conectando…');
+  terminalExitCode = null;
+  setTerminalState('connecting', window.kaoruI18n.t('connecting'));
   terminalError.hidden = true;
   terminalRestart.hidden = true;
   if (conversation.workspace) {
@@ -575,17 +606,16 @@ async function activateTerminal(conversation) {
     terminalWorkspace.title = conversation.workspace;
   }
   if (!window.Terminal || !window.FitAddon?.FitAddon) {
-    terminalError.textContent = 'No se pudo cargar el renderer de la terminal.';
+    terminalError.textContent = window.kaoruI18n.t('terminalRendererFailed');
     terminalError.hidden = false;
-    setTerminalState('error', 'No disponible');
+    setTerminalState('error', window.kaoruI18n.t('noUnavailable'));
     return;
   }
   terminalViewId = conversation.id;
-  terminalChatToggle.textContent = document
-    .getElementById('app')
-    .classList.contains('terminal-companion')
-    ? 'Cerrar chat'
-    : 'Chat';
+  terminalChatToggle.textContent = terminalLabel(
+    document.getElementById('app').classList.contains('terminal-companion') ? 'closeChat' : 'chat',
+    window.kaoruI18n.t('chat')
+  );
   ipcRenderer.send('terminal-flow', { id: conversation.id, paused: false });
   terminalView = new window.Terminal({
     cursorBlink: true,
@@ -603,7 +633,6 @@ async function activateTerminal(conversation) {
   terminalView.open(terminalViewport);
   terminalView.onData((data) => {
     if (terminalViewId === conversation.id) {
-      terminalExplainError.hidden = true;
       markTerminalTyping();
       ipcRenderer.send('terminal-write', { id: conversation.id, data });
     }
@@ -639,17 +668,19 @@ async function activateTerminal(conversation) {
     cols: terminalView.cols,
     rows: terminalView.rows,
   });
-  if (terminalViewId !== conversation.id) return;
+  if (terminalActivation !== activation || terminalView !== view) return;
   if (!result?.ok) {
-    terminalError.textContent = result?.error || 'No se pudo abrir la terminal.';
+    terminalError.textContent = result?.error || window.kaoruI18n.t('terminalOpenFailed');
     terminalError.hidden = false;
     terminalRestart.hidden = false;
-    setTerminalState('error', 'No disponible');
+    setTerminalState('error', window.kaoruI18n.t('noUnavailable'));
     if (result?.error === 'Terminal no autorizada')
       window.terminalCompanionFailed?.(conversation.id);
     return;
   }
-  setTerminalState('ready', 'Lista');
+  setTerminalState('ready', window.kaoruI18n.t('shellReady'));
+  document.getElementById('terminal-shell').textContent =
+    result.shell || window.kaoruI18n.t('terminal');
   if (result.scrollback) writeTerminalData(terminalView, result.scrollback);
   terminalSeq = result.seq || 0;
   terminalReady = true;
@@ -697,7 +728,8 @@ ipcRenderer.on('terminal-data', (_event, payload) => {
 
 ipcRenderer.on('terminal-exit', (_event, payload) => {
   if (payload?.id !== terminalViewId) return;
-  setTerminalState('exited', `Shell cerrada (${payload.exitCode})`);
+  terminalExitCode = payload.exitCode;
+  setTerminalState('exited', window.kaoruI18n.format('shellClosed', { code: payload.exitCode }));
   terminalRestart.hidden = false;
 });
 

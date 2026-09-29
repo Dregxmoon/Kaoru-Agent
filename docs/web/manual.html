@@ -85,7 +85,11 @@
                 Abre Kaoru. En el primer uso, elige un proveedor y un modelo de IA desde
                 <strong>Elegir modelo</strong> si quieres conversar o pedirle tareas. Necesitarás
                 una clave válida o un endpoint local compatible, según el proveedor. La terminal
-                integrada puede abrirse sin clave de IA.
+                integrada puede abrirse sin clave de IA. En la próxima v2.3,
+                <strong>Ajustes → Idioma</strong> permitirá dejar
+                <strong>Idioma del sistema</strong> o elegir inglés, español o japonés. El cambio se
+                guardará para el siguiente inicio. Esta opción todavía no forma parte del instalador
+                v2.2 publicado.
               </li>
               <li>
                 Selecciona una carpeta de trabajo desde
@@ -165,7 +169,7 @@
                 <tbody>
                   <tr>
                     <td><code>/help</code></td>
-                    <td>Consultar la lista actual de comandos.</td>
+                    <td>Consultar la lista actual de comandos en el idioma elegido.</td>
                   </tr>
                   <tr>
                     <td><code>/model</code></td>
@@ -174,18 +178,28 @@
                     </td>
                   </tr>
                   <tr>
-                    <td><code>/init</code></td>
+                    <td><code>/memoria</code></td>
                     <td>
-                      Analizar el proyecto activo y guardar información del proyecto en memoria.
+                      Abrir el explorador de memoria. En v2.3 se añade <code>/memory-graph</code>.
                     </td>
                   </tr>
                   <tr>
-                    <td><code>/memoria</code></td>
-                    <td>Abrir el explorador de memoria.</td>
+                    <td><code>/memory</code></td>
+                    <td>
+                      Mostrar mensajes recientes del chat. En v2.3 se añade <code>/history</code>.
+                    </td>
                   </tr>
                   <tr>
                     <td><code>/mudo</code></td>
-                    <td>Activar o silenciar la voz de salida.</td>
+                    <td>
+                      Activar o silenciar la voz de salida. En v2.3 se añade <code>/mute</code>.
+                    </td>
+                  </tr>
+                  <tr>
+                    <td><code>/permisos</code></td>
+                    <td>
+                      Abrir permisos de herramientas. En v2.3 se añade <code>/permissions</code>.
+                    </td>
                   </tr>
                   <tr>
                     <td><code>/stats</code></td>
@@ -193,7 +207,9 @@
                   </tr>
                   <tr>
                     <td><code>/telemetria</code></td>
-                    <td>Ver la comparación de actividad local entre meses, si hay datos.</td>
+                    <td>
+                      Ver actividad local entre meses. En v2.3 se añade <code>/telemetry</code>.
+                    </td>
                   </tr>
                 </tbody>
               </table>
@@ -271,11 +287,11 @@
           <section id="5-consultar-y-controlar-la-memoria">
             <h2>5. Consultar y controlar la memoria</h2>
             <p>
-              Escribe <code>/memoria</code> en el chat. El explorador tiene tres vistas:
-              <strong>Grafo</strong> para relaciones, <strong>Lista</strong> para localizar
-              recuerdos concretos y <strong>Línea temporal</strong> para verlos por fecha. Puedes
-              buscar, filtrar por tipo y por relación, centrar el grafo, ampliarlo o abrirlo en
-              pantalla completa.
+              Escribe <code>/memoria</code> en el chat (en v2.3 también <code>/memory-graph</code>).
+              El explorador tiene tres vistas: <strong>Grafo</strong> para relaciones,
+              <strong>Lista</strong> para localizar recuerdos concretos y
+              <strong>Línea temporal</strong> para verlos por fecha. Puedes buscar, filtrar por tipo
+              y por relación, centrar el grafo, ampliarlo o abrirlo en pantalla completa.
             </p>
             <p>
               Al seleccionar un recuerdo, el panel de detalle muestra contenido, tipo, confianza,
@@ -304,12 +320,12 @@
               automáticamente en locales la voz, navegación u otras integraciones.
             </p>
             <p>
-              La voz de salida puede silenciarse con <code>/mudo</code>; la síntesis Edge TTS
-              utiliza un servicio de Microsoft y requiere conexión. La interfaz actual no ofrece
-              entrada de voz por micrófono. El avatar Live2D admite otros modelos compatibles;
-              <code>/cambio-modelo</code> muestra los disponibles y permite cambiarlo. Los derechos
-              de personajes y modelos de terceros son independientes de la licencia del código de
-              Kaoru.
+              La voz de salida puede silenciarse con <code>/mudo</code> (en v2.3 también
+              <code>/mute</code>); la síntesis Edge TTS utiliza un servicio de Microsoft y requiere
+              conexión. La interfaz actual no ofrece entrada de voz por micrófono. El avatar Live2D
+              admite otros modelos compatibles; <code>/cambio-modelo</code> muestra los disponibles
+              y permite cambiarlo. Los derechos de personajes y modelos de terceros son
+              independientes de la licencia del código de Kaoru.
             </p>
             <p>
               En <strong>Ajustes</strong> puedes elegir el grado de iniciativa
@@ -442,6 +458,37 @@
                       Abre <strong>Elegir modelo</strong>, configura el proveedor/clave o endpoint y
                       comprueba la conexión. La terminal puede funcionar aunque el chat con IA no
                       esté configurado.
+                    </td>
+                  </tr>
+                  <tr>
+                    <td>API key inválida o proveedor caído</td>
+                    <td>
+                      Revisa que la clave corresponda al proveedor elegido y que el servicio esté
+                      disponible. Una clave válida no arregla una interrupción del proveedor.
+                    </td>
+                  </tr>
+                  <tr>
+                    <td>Sin conexión a Internet</td>
+                    <td>
+                      Los modelos remotos y Edge TTS pueden fallar. La terminal local sigue
+                      disponible; un endpoint local requiere que su propio servicio esté iniciado.
+                    </td>
+                  </tr>
+                  <tr>
+                    <td>Aviso de AppContainer en Windows</td>
+                    <td>
+                      El aislamiento de las herramientas de Kaoru no arrancó. No depende de la API
+                      key ni impide por sí mismo abrir PowerShell en la terminal integrada. No
+                      desactives el aviso como solución; registra el mensaje y la versión de Windows
+                      para diagnóstico.
+                    </td>
+                  </tr>
+                  <tr>
+                    <td>Permiso rechazado o MCP no disponible</td>
+                    <td>
+                      Revisa la regla de permisos y si el servidor MCP está conectado. Rechazar una
+                      operación no debería borrar tu workspace; vuelve a intentar solo tras revisar
+                      la acción.
                     </td>
                   </tr>
                   <tr>

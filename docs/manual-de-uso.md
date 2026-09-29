@@ -21,6 +21,9 @@ operativo, el proveedor de IA y los permisos configurados.
 1. Abre Kaoru. En el primer uso, elige un proveedor y un modelo de IA desde **Elegir modelo** si
    quieres conversar o pedirle tareas. Necesitarás una clave válida o un endpoint local compatible,
    según el proveedor. La terminal integrada puede abrirse sin clave de IA.
+   En la próxima v2.3, **Ajustes → Idioma** permitirá dejar **Idioma del sistema** o elegir inglés,
+   español o japonés. El cambio se guardará para el siguiente inicio. Esta opción todavía no forma
+   parte del instalador v2.2 publicado.
 2. Selecciona una carpeta de trabajo desde **Chats → Abrir carpeta y crear chat**. Esa carpeta es el
    _workspace_: el proyecto en el que Kaoru interpreta `@archivo`, lee archivos y, si lo autorizas,
    ejecuta herramientas. No es necesario mover el proyecto a la carpeta de Kaoru.
@@ -66,15 +69,16 @@ quieres que cambie algo, especifica el resultado esperado.
 
 Comandos útiles en el cuadro del chat:
 
-| Escribe       | Para qué sirve                                                                |
-| ------------- | ----------------------------------------------------------------------------- |
-| `/help`       | Consultar la lista actual de comandos.                                        |
-| `/model`      | Ver proveedores/modelos y elegir uno; también puedes usar el selector visual. |
-| `/init`       | Analizar el proyecto activo y guardar información del proyecto en memoria.    |
-| `/memoria`    | Abrir el explorador de memoria.                                               |
-| `/mudo`       | Activar o silenciar la voz de salida.                                         |
-| `/stats`      | Consultar estadísticas de uso de herramientas, si están disponibles.          |
-| `/telemetria` | Ver la comparación de actividad local entre meses, si hay datos.              |
+| Escribe                       | Para qué sirve                                                                |
+| ----------------------------- | ----------------------------------------------------------------------------- |
+| `/help`                       | Consultar la lista actual de comandos en el idioma elegido.                  |
+| `/model`                      | Ver proveedores/modelos y elegir uno; también puedes usar el selector visual. |
+| `/memoria`                    | Abrir el explorador de memoria. En v2.3 se añade `/memory-graph`.             |
+| `/memory`                     | Mostrar mensajes recientes del chat. En v2.3 se añade `/history`.            |
+| `/mudo`                       | Activar o silenciar la voz de salida. En v2.3 se añade `/mute`.               |
+| `/permisos`                   | Abrir permisos de herramientas. En v2.3 se añade `/permissions`.             |
+| `/stats`                      | Consultar estadísticas de uso de herramientas, si están disponibles.          |
+| `/telemetria`                 | Ver actividad local entre meses. En v2.3 se añade `/telemetry`.               |
 
 Usa `/help` como referencia vigente: algunos comandos adicionales dependen de la configuración o
 integraciones activas. **Comandos del chat** y **comandos de la terminal** no son lo mismo; por ejemplo,
@@ -117,7 +121,7 @@ y envías el mensaje. Antes de hacerlo, busca claves, tokens, rutas privadas u o
 
 ## 5. Consultar y controlar la memoria
 
-Escribe `/memoria` en el chat. El explorador tiene tres vistas: **Grafo** para relaciones, **Lista**
+Escribe `/memoria` en el chat (en v2.3 también `/memory-graph`). El explorador tiene tres vistas: **Grafo** para relaciones, **Lista**
 para localizar recuerdos concretos y **Línea temporal** para verlos por fecha. Puedes buscar, filtrar
 por tipo y por relación, centrar el grafo, ampliarlo o abrirlo en pantalla completa.
 
@@ -138,7 +142,7 @@ Elige el modelo de IA desde **Elegir modelo** o con `/model`. La disponibilidad 
 herramientas, velocidad, coste y contexto depende del proveedor y modelo elegidos. Un endpoint local
 para el modelo no convierte automáticamente en locales la voz, navegación u otras integraciones.
 
-La voz de salida puede silenciarse con `/mudo`; la síntesis Edge TTS utiliza un servicio de Microsoft y
+La voz de salida puede silenciarse con `/mudo` (en v2.3 también `/mute`); la síntesis Edge TTS utiliza un servicio de Microsoft y
 requiere conexión. La interfaz actual no ofrece entrada de voz por micrófono. El avatar Live2D admite
 otros modelos compatibles; `/cambio-modelo` muestra los disponibles y permite cambiarlo. Los derechos
 de personajes y modelos de terceros son independientes de la licencia del código de Kaoru.
@@ -189,6 +193,10 @@ usa **Cerrar y salir** en la ventana o **Cerrar todo** en el menú del avatar.
 | Síntoma                                    | Qué revisar                                                                                                                                                     |
 | ------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | «Sin API keys» o Kaoru no responde         | Abre **Elegir modelo**, configura el proveedor/clave o endpoint y comprueba la conexión. La terminal puede funcionar aunque el chat con IA no esté configurado. |
+| API key inválida o proveedor caído         | Revisa que la clave corresponda al proveedor elegido y que el servicio esté disponible. Una clave válida no arregla una interrupción del proveedor.        |
+| Sin conexión a Internet                    | Los modelos remotos y Edge TTS pueden fallar. La terminal local sigue disponible; un endpoint local requiere que su propio servicio esté iniciado.          |
+| Aviso de AppContainer en Windows           | El aislamiento de las herramientas de Kaoru no arrancó. No depende de la API key ni impide por sí mismo abrir PowerShell en la terminal integrada. No desactives el aviso como solución; registra el mensaje y la versión de Windows para diagnóstico. |
+| Permiso rechazado o MCP no disponible      | Revisa la regla de permisos y si el servidor MCP está conectado. Rechazar una operación no debería borrar tu workspace; vuelve a intentar solo tras revisar la acción. |
 | Un chat pide elegir carpeta                | Su workspace anterior ya no está disponible. Selecciona la carpeta correcta; no asumas que Kaoru encontró automáticamente el proyecto movido.                   |
 | La terminal no muestra el proceso anterior | Al cerrar Kaoru terminan las shells. La sesión conserva la carpeta, pero no restaura el proceso ni el estado interactivo.                                       |
 | `Tab` no completa en terminal              | La expansión depende de la shell y del programa que está recibiendo las teclas; comprueba que la terminal tenga el foco.                                        |

@@ -103,13 +103,13 @@ function renderPlanBlock(payload) {
     const label =
       payload.kind === 'mission'
         ? payload.status === 'paused' || payload.status === 'cancelled'
-          ? 'MISIÓN PAUSADA · '
+          ? window.kaoruI18n.t('missionPaused')
           : done >= steps.length
-            ? 'MISIÓN COMPLETADA · '
-            : 'MISIÓN DE ESCRITORIO · '
+            ? window.kaoruI18n.t('missionCompleted')
+            : window.kaoruI18n.t('desktopMission')
         : done >= steps.length
-          ? 'PLAN COMPLETADO · '
-          : 'PLAN DE EJECUCIÓN · ';
+          ? window.kaoruI18n.t('planCompleted')
+          : window.kaoruI18n.t('executionPlan');
     header.textContent = label + done + '/' + steps.length;
   }
   _planEl.classList.toggle('complete', done >= steps.length);
@@ -156,7 +156,7 @@ function preservePlanBlock() {
   if (done >= _lastPlan.steps.length) return;
   const header = _planEl.querySelector('.plan-block-header');
   if (header)
-    header.textContent = `${_lastPlan.kind === 'mission' ? 'MISIÓN' : 'PLAN'} PENDIENTE · ${done}/${_lastPlan.steps.length}`;
+    header.textContent = `${window.kaoruI18n.t(_lastPlan.kind === 'mission' ? 'missionPending' : 'planPending')} · ${done}/${_lastPlan.steps.length}`;
   _planEl.classList.add('paused');
 }
 
@@ -167,7 +167,7 @@ function pausePlanBlock() {
   if (done >= _lastPlan.steps.length) return;
   const header = _planEl.querySelector('.plan-block-header');
   if (header)
-    header.textContent = `${_lastPlan.kind === 'mission' ? 'MISIÓN PAUSADA' : 'PLAN PAUSADO'} · ${done}/${_lastPlan.steps.length}`;
+    header.textContent = `${window.kaoruI18n.t(_lastPlan.kind === 'mission' ? 'missionPausedShort' : 'planPaused')} · ${done}/${_lastPlan.steps.length}`;
   _planEl.classList.add('paused');
 }
 

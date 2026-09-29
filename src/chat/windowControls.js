@@ -18,8 +18,17 @@ for (const [id, action] of [
 }
 ipcRenderer.on('chat-window-maximized', (_event, maximized) => {
   const button = document.getElementById('window-maximize');
-  const nextLabel = maximized ? 'Restaurar ventana' : 'Maximizar ventana';
+  const nextLabel = window.kaoruI18n.t(maximized ? 'restoreWindow' : 'maximizeWindow');
   button.setAttribute('aria-pressed', String(Boolean(maximized)));
   button.setAttribute('aria-label', nextLabel);
-  button.title = maximized ? 'Restaurar' : 'Maximizar';
+  button.title = window.kaoruI18n.t(maximized ? 'restore' : 'maximize');
+});
+document.addEventListener('kaoru-language-changed', () => {
+  const button = document.getElementById('window-maximize');
+  const maximized = button.getAttribute('aria-pressed') === 'true';
+  button.setAttribute(
+    'aria-label',
+    window.kaoruI18n.t(maximized ? 'restoreWindow' : 'maximizeWindow')
+  );
+  button.title = window.kaoruI18n.t(maximized ? 'restore' : 'maximize');
 });
