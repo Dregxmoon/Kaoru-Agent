@@ -367,7 +367,9 @@ async function chooseWorkspace() {
 
 async function changeConversation(channel, input = {}) {
   if (conversationBusy) {
-    showConversationError(sessionText('waitForKaoru', 'Espera a que termine Kaoru o cancela la tarea'));
+    showConversationError(
+      sessionText('waitForKaoru', 'Espera a que termine Kaoru o cancela la tarea')
+    );
     return false;
   }
   if (conversationLoading) return false;

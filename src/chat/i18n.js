@@ -597,8 +597,7 @@
       modelNotFound: 'Model not found: {path}',
       live2dLoadFailed: 'Could not load the Live2D model: {error}',
       openDraft: 'Open a draft in the chat',
-      taskFailedHint:
-        'Could not complete the task. Review the cause and activity before retrying.',
+      taskFailedHint: 'Could not complete the task. Review the cause and activity before retrying.',
       toolBash: 'Bash',
       toolRead: 'Read',
       toolWrite: 'Write',
@@ -1874,7 +1873,8 @@
       modelNotFound: 'モデルが見つかりません: {path}',
       live2dLoadFailed: 'Live2Dモデルを読み込めませんでした: {error}',
       openDraft: 'チャットで下書きを開く',
-      taskFailedHint: 'タスクを完了できませんでした。原因とアクティビティを確認してから再試行してください。',
+      taskFailedHint:
+        'タスクを完了できませんでした。原因とアクティビティを確認してから再試行してください。',
       toolBash: 'Bash',
       toolRead: 'Read',
       toolWrite: 'Write',

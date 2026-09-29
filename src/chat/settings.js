@@ -255,7 +255,9 @@ function attachPrefsEvents() {
     }
     try {
       const res = await window.assistant.invoke('pin-set', pin);
-      statusEl.textContent = res.ok ? settingsText('pinSaved') : res.error || settingsText('errorLabel');
+      statusEl.textContent = res.ok
+        ? settingsText('pinSaved')
+        : res.error || settingsText('errorLabel');
       statusEl.style.color = res.ok ? 'var(--text-secondary)' : '#ef4444';
       if (res.ok) {
         input.value = '';
@@ -271,7 +273,9 @@ function attachPrefsEvents() {
     const statusEl = document.getElementById('prefs-pin-status');
     try {
       const res = await window.assistant.invoke('pin-clear');
-      statusEl.textContent = res.ok ? settingsText('pinRemoved') : res.error || settingsText('errorLabel');
+      statusEl.textContent = res.ok
+        ? settingsText('pinRemoved')
+        : res.error || settingsText('errorLabel');
       statusEl.style.color = res.ok ? 'var(--text-secondary)' : '#ef4444';
       if (res.ok) {
         document.getElementById('prefs-pin-clear-btn').style.display = 'none';

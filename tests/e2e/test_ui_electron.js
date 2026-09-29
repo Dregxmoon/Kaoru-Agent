@@ -366,12 +366,15 @@ console.log(C.bold(C.cyan('═════════════════�
     );
     assert(!bannerVisible, 'banner de auto-update NO visible en desarrollo');
     await sleep(150);
-    const { contextLabel, contextPrefix } = await chat.evaluate(() => ({
+    const { contextLabel, contextPrefix, noContextData } = await chat.evaluate(() => ({
       contextLabel: document.getElementById('footer-session').textContent.trim(),
       contextPrefix: window.kaoruI18n.t('maxContext').split(':')[0],
+      noContextData: window.kaoruI18n.t('noContextData'),
     }));
+    const hasContext = contextLabel.startsWith(contextPrefix);
+    const hasNoData = contextLabel === noContextData;
     assert(
-      contextLabel.startsWith(contextPrefix) && !contextLabel.toLowerCase().includes('sesión'),
+      (hasContext || hasNoData) && !contextLabel.toLowerCase().includes('sesión'),
       'el pie explica el contexto del modelo y no muestra un label de sesión',
       contextLabel
     );

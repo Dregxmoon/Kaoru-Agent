@@ -329,7 +329,9 @@ function _applyWorkspaceUI(fullPath) {
   }
   const title = document.getElementById('workspace-title');
   if (title) {
-    title.textContent = fullPath ? '~/' + _workspaceName(fullPath) : window.kaoruI18n.t('chooseFolder');
+    title.textContent = fullPath
+      ? '~/' + _workspaceName(fullPath)
+      : window.kaoruI18n.t('chooseFolder');
     title.title = fullPath
       ? `${fullPath} — ${window.kaoruI18n.t('changeWorkspace')}`
       : window.kaoruI18n.t('changeWorkspace');

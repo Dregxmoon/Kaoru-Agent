@@ -31,7 +31,7 @@ messagesEl.addEventListener('click', async (e) => {
     }
     addMessage('assistant', window.kaoruI18n.format('modelChanged', { name: res.info.name }));
   } catch (e) {
-      addMessage('assistant', window.kaoruI18n.format('errorChangingModel', { error: e.message }));
+    addMessage('assistant', window.kaoruI18n.format('errorChangingModel', { error: e.message }));
   } finally {
     btn.disabled = false;
   }

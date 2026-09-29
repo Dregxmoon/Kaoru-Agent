@@ -283,10 +283,10 @@ window.sendSuggestedTerminalCommand = (command, execute = false) => {
 function setTerminalState(state, label) {
   terminalPanel.dataset.state = state;
   if (state === 'exited') {
-    terminalStatus.textContent = terminalLabel('shellClosed', window.kaoruI18n.t('shellClosed')).replace(
-      '{code}',
-      String(terminalExitCode)
-    );
+    terminalStatus.textContent = terminalLabel(
+      'shellClosed',
+      window.kaoruI18n.t('shellClosed')
+    ).replace('{code}', String(terminalExitCode));
   } else {
     terminalStatus.textContent = terminalLabel(
       { connecting: 'connecting', ready: 'ready', error: 'unavailable' }[state],

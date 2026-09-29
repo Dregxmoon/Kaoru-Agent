@@ -151,7 +151,8 @@ function attachPermsEvents() {
         });
         renderPermsList();
       } catch (error) {
-        document.getElementById('perms-status').textContent = error.message || permissionsText('errorLabel');
+        document.getElementById('perms-status').textContent =
+          error.message || permissionsText('errorLabel');
       }
     });
   }
