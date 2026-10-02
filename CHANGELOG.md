@@ -1,5 +1,17 @@
 # Changelog
 
+## [2.3.1] — 2026-10-02
+
+### Correcciones de Windows
+
+- El sandbox AppContainer ahora degrada a ejecución directa cuando no puede inicializarse (servicio AppX desactivado, Windows Home, entornos restringidos): la app ya no se bloquea y el gate de permisos de Kaoru sigue aplicando.
+- La importación de modelos Live2D por arrastrar y soltar copia a `userData/models/` en lugar del `models/` del release (solo lectura dentro de `app.asar` en instalaciones empaquetadas).
+
+### Página web
+
+- La sección de instalación descarga directamente el instalador por sistema operativo (Windows .exe instalador/portable, Linux .deb/AppImage, macOS DMG Intel/Apple Silicon) sin pasar por la página de releases; la versión se resuelve desde `package.json`.
+- Textos de la web actualizados a post-v2.3 (interfaz multidioma ES/EN/JA ya publicada, manual e idioma en presente).
+
 ## [2.3.0] — 2026-09-29
 
 ### Terminal integrada
