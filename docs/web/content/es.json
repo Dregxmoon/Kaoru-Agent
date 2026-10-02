@@ -3,7 +3,13 @@
   "name": "Español",
   "title": "Kaoru — Asistente personal de IA con capacidad de agente",
   "description": "Conversa, conserva contexto y delega tareas de código y escritorio con Kaoru, un asistente personal de IA con herramientas, memoria, voz y presencia Live2D.",
-  "nav": ["Qué puede hacer", "Cómo trabaja", "Seguridad", "Requisitos", "Guía de uso"],
+  "nav": [
+    "Qué puede hacer",
+    "Cómo trabaja",
+    "Seguridad",
+    "Requisitos",
+    "Guía de uso"
+  ],
   "pages": {
     "index": "Inicio",
     "guide": "Guía de uso",
@@ -21,7 +27,7 @@
   "badge": "Código abierto · Asistente personal con capacidad de agente",
   "hero": "Tu asistente de IA<br>para código y escritorio.",
   "intro": "Kaoru conversa contigo, recuerda el contexto y te acompaña por texto, voz y presencia Live2D. También puede trabajar como agente: investigar tu proyecto o encadenar resultados en varias aplicaciones de escritorio, con un plan, permisos y comprobaciones visibles.",
-  "note": "La conversación se escribe en el chat; Kaoru puede responder con voz sintetizada. La interfaz multidioma se prepara para v2.3 y aún no está publicada.",
+  "note": "La conversación se escribe en el chat; Kaoru puede responder con voz sintetizada. La interfaz está disponible en español, inglés y japonés desde v2.3.",
   "caption": "Avatar Live2D de Kaoru. Puedes elegir otro modelo con sus correspondientes permisos de uso.",
   "strip": [
     "Conversación con contexto",
@@ -31,15 +37,31 @@
   ],
   "requirementsTitle": "Qué necesita tu equipo",
   "requirementsIntro": "Mínimos provisionales para usar un proveedor de IA remoto. Son una referencia inicial basada en una medición local de Linux x64; todavía falta validarla en más equipos y plataformas.",
-  "requirementsHeaders": ["Recurso", "Mínimo", "Recomendado"],
+  "requirementsHeaders": [
+    "Recurso",
+    "Mínimo",
+    "Recomendado"
+  ],
   "requirementsModes": [
     {
       "title": "Agente y chat por terminal",
       "description": "Sin ventanas, voz ni avatar. Instalación desde el código fuente.",
       "rows": [
-        ["RAM", "4 GB", "8 GB"],
-        ["CPU", "2 núcleos", "4 núcleos"],
-        ["Disco libre", "2 GB", "4 GB"]
+        [
+          "RAM",
+          "4 GB",
+          "8 GB"
+        ],
+        [
+          "CPU",
+          "2 núcleos",
+          "4 núcleos"
+        ],
+        [
+          "Disco libre",
+          "2 GB",
+          "4 GB"
+        ]
       ],
       "gpu": "GPU dedicada: no se requiere con un proveedor remoto."
     },
@@ -47,9 +69,21 @@
       "title": "Escritorio con Live2D",
       "description": "Chat, memoria y avatar; voz opcional.",
       "rows": [
-        ["RAM", "8 GB", "16 GB"],
-        ["CPU", "2 núcleos", "4 núcleos"],
-        ["Disco libre", "3 GB", "5 GB"]
+        [
+          "RAM",
+          "8 GB",
+          "16 GB"
+        ],
+        [
+          "CPU",
+          "2 núcleos",
+          "4 núcleos"
+        ],
+        [
+          "Disco libre",
+          "3 GB",
+          "5 GB"
+        ]
       ],
       "gpu": "GPU dedicada: no obligatoria; la aceleración gráfica mejora el avatar."
     }
@@ -125,7 +159,10 @@
       "Autorizar",
       "La misión de escritorio pide autorización inicial; las acciones fuera de su alcance requieren su propio permiso."
     ],
-    ["Ejecutar", "Utiliza herramientas y conserva sus resultados como evidencia del trabajo."],
+    [
+      "Ejecutar",
+      "Utiliza herramientas y conserva sus resultados como evidencia del trabajo."
+    ],
     [
       "Verificar",
       "Comprueba cada resultado en el entorno; si falta evidencia, la misión se pausa con un paso pendiente."
@@ -177,7 +214,10 @@
   ],
   "galleryTitle": "El producto en tu escritorio",
   "galleryIntro": "Capturas reales del proyecto. La apariencia puede variar según el modelo y la configuración.",
-  "gallery": ["Pantalla de bienvenida de Kaoru", "Propuesta de ayuda en Kaoru"],
+  "gallery": [
+    "Pantalla de bienvenida de Kaoru",
+    "Propuesta de ayuda en Kaoru"
+  ],
   "quickTitle": "Empieza conversando. Delega cuando lo necesites.",
   "quickIntro": "Elige un proveedor y un proyecto. Puedes comenzar con una pregunta o pedir un resultado pequeño que puedas comprobar. La guía incluye instalación, permisos y límites por plataforma.",
   "quickSteps": [
@@ -188,14 +228,14 @@
   "docs": "Referencia técnica",
   "footer": "Kaoru · Código bajo licencia MIT",
   "rights": "Los modelos y personajes de terceros mantienen sus propios derechos. Proyecto independiente, sin afiliación con HoYoverse.",
-  "guideIntro": "Configuración, tareas y criterios de revisión para utilizar Kaoru en tu equipo o en un proyecto de cliente. La próxima interfaz multidioma podrá seguir el idioma del sistema o usar inglés, español o japonés; v2.3 aún no está publicada.",
+  "guideIntro": "Configuración, tareas y criterios de revisión para utilizar Kaoru en tu equipo o en un proyecto de cliente. Desde v2.3, la interfaz puede seguir el idioma del sistema o usar inglés, español o japonés.",
   "manualLink": "Leer el manual completo: chat, terminal, memoria y atajos",
   "manualIntro": "Aprende a usar las funciones de Kaoru paso a paso, con atajos y soluciones a problemas frecuentes.",
   "guideSections": [
     [
       "install",
       "Instalación y primer arranque",
-      "Necesitas Git, Node.js ≥ 18 y npm ≥ 9 para instalar desde el código. Los módulos nativos se reconstruyen para Electron; según el sistema puedes necesitar herramientas de compilación. Consulta la documentación de instalación si falla una dependencia."
+      "Descarga Kaoru para tu sistema operativo. Al pulsar el botón, la descarga empieza de inmediato, sin pasar por otras páginas. Después abre el instalador y sigue la guía de primer arranque."
     ],
     [
       "provider",
@@ -244,6 +284,25 @@
     ]
   ],
   "installNote": "Ejecuta estos comandos dentro de tu entorno de desarrollo. Después consulta la referencia del repositorio para la configuración inicial, voz y dependencias específicas de tu sistema.",
+  "downloadTitle": "Descarga Kaoru",
+  "downloadIntro": "Elige tu sistema operativo. La descarga empieza al pulsar (versión {version}).",
+  "osWindows": "Windows",
+  "osLinux": "Linux",
+  "osMac": "macOS",
+  "dlWinSetup": "Instalador",
+  "dlWinSetupHint": "Recomendado · .exe",
+  "dlWinPortable": "Portable",
+  "dlWinPortableHint": "Sin instalación · .exe",
+  "dlLinuxDeb": ".deb",
+  "dlLinuxDebHint": "Debian, Ubuntu y derivados",
+  "dlLinuxAppImage": "AppImage",
+  "dlLinuxAppImageHint": "Universal · dale permiso de ejecución",
+  "dlLinuxNote": "AppImage: clic derecho → Propiedades → permitir ejecutar como programa, o bien chmod +x en la terminal.",
+  "dlMacIntel": "Intel",
+  "dlMacIntelHint": "DMG · procesadores Intel",
+  "dlMacArm": "Apple Silicon",
+  "dlMacArmHint": "DMG · M1, M2 y posteriores",
+  "sourceTitle": "Instalar desde el código (desarrolladores)",
   "release": "Consultar versiones publicadas",
   "installDocs": "Instrucciones completas de instalación",
   "requirementsLink": "Requisitos provisionales de RAM, CPU y disco",

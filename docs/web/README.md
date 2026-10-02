@@ -8,8 +8,7 @@ modifica. La implementación publicada no necesita Tailwind, fuentes ni iconos d
 
 Cada idioma tiene portada, guía, privacidad y términos. El manual completo se publica en
 `manual.html` solo en español; las guías inglesa y japonesa lo enlazan indicando el idioma.
-Por ello, la web todavía no cumple el criterio de paridad documental de v2.3; la [lista de
-verificación del lanzamiento](../v2.3-release-checklist.md) mantiene ese trabajo pendiente.
+Si se exige paridad documental total, ese manual pendiente de traducción es el trabajo restante.
 Español usa la raíz; inglés `en/` y japonés `ja/`. Los enlaces de idioma conservan la página y su
 fragmento donde existe traducción. Las páginas son HTML estático: el contenido y los enlaces
 siguen disponibles sin JavaScript.

@@ -3,7 +3,13 @@
   "name": "English",
   "title": "Kaoru — Personal AI assistant with agent capabilities",
   "description": "Talk, keep context and delegate coding and desktop tasks with Kaoru, a personal AI assistant with tools, memory, voice and a Live2D presence.",
-  "nav": ["What it can do", "Workflow", "Security", "Requirements", "User guide"],
+  "nav": [
+    "What it can do",
+    "Workflow",
+    "Security",
+    "Requirements",
+    "User guide"
+  ],
   "pages": {
     "index": "Home",
     "guide": "User guide",
@@ -20,7 +26,7 @@
   "badge": "Open source · Personal assistant with agent capabilities",
   "hero": "Your AI assistant<br>for code and desktop.",
   "intro": "Kaoru talks with you, remembers context and stays with you through text, voice and a Live2D presence. It can also work as an agent: investigate your project or chain results across desktop apps, with a visible plan, permissions and checks.",
-  "note": "Write to Kaoru in chat; it can reply with synthesized speech. A multilingual app UI is in preparation for v2.3, not yet released.",
+  "note": "Write to Kaoru in chat; it can reply with synthesized speech. The interface is available in English, Spanish and Japanese since v2.3.",
   "caption": "Kaoru’s Live2D avatar. You can choose another model with the appropriate usage rights.",
   "strip": [
     "Conversation with context",
@@ -30,15 +36,31 @@
   ],
   "requirementsTitle": "What your device needs",
   "requirementsIntro": "Provisional minimums for using a remote AI provider. This starting point comes from one Linux x64 measurement and still needs validation on more devices and platforms.",
-  "requirementsHeaders": ["Resource", "Minimum", "Recommended"],
+  "requirementsHeaders": [
+    "Resource",
+    "Minimum",
+    "Recommended"
+  ],
   "requirementsModes": [
     {
       "title": "Terminal agent and chat",
       "description": "No windows, voice or avatar. Installed from source.",
       "rows": [
-        ["RAM", "4 GB", "8 GB"],
-        ["CPU", "2 cores", "4 cores"],
-        ["Free disk", "2 GB", "4 GB"]
+        [
+          "RAM",
+          "4 GB",
+          "8 GB"
+        ],
+        [
+          "CPU",
+          "2 cores",
+          "4 cores"
+        ],
+        [
+          "Free disk",
+          "2 GB",
+          "4 GB"
+        ]
       ],
       "gpu": "Dedicated GPU: not required with a remote provider."
     },
@@ -46,9 +68,21 @@
       "title": "Desktop with Live2D",
       "description": "Chat, memory and avatar; voice optional.",
       "rows": [
-        ["RAM", "8 GB", "16 GB"],
-        ["CPU", "2 cores", "4 cores"],
-        ["Free disk", "3 GB", "5 GB"]
+        [
+          "RAM",
+          "8 GB",
+          "16 GB"
+        ],
+        [
+          "CPU",
+          "2 cores",
+          "4 cores"
+        ],
+        [
+          "Free disk",
+          "3 GB",
+          "5 GB"
+        ]
       ],
       "gpu": "Dedicated GPU: optional; graphics acceleration improves the avatar."
     }
@@ -112,13 +146,22 @@
   "flowTitle": "From conversation to results",
   "flowIntro": "Ask for guidance, continue a conversation or delegate several results in a desktop mission. Kaoru interprets the request with your chosen model and shows its plan and tool activity in chat; permission and verification are decided outside the model.",
   "flow": [
-    ["Inspect", "Examine the workspace, find relevant paths and consult available symbols."],
-    ["Plan", "Break the objective into observable results and review whether any are missing."],
+    [
+      "Inspect",
+      "Examine the workspace, find relevant paths and consult available symbols."
+    ],
+    [
+      "Plan",
+      "Break the objective into observable results and review whether any are missing."
+    ],
     [
       "Authorize",
       "A desktop mission asks for initial authorization; out-of-scope actions require their own permission."
     ],
-    ["Execute", "Use tools and retain their results as evidence of the work."],
+    [
+      "Execute",
+      "Use tools and retain their results as evidence of the work."
+    ],
     [
       "Verify",
       "Check each result in the environment; missing evidence pauses the mission with a pending step."
@@ -170,7 +213,10 @@
   ],
   "galleryTitle": "On your desktop",
   "galleryIntro": "Actual project screenshots. Appearance varies with your model and configuration.",
-  "gallery": ["Kaoru welcome screen", "A suggestion from Kaoru"],
+  "gallery": [
+    "Kaoru welcome screen",
+    "A suggestion from Kaoru"
+  ],
   "quickTitle": "Start with a conversation. Delegate when you need to.",
   "quickIntro": "Choose a provider and a project. You can begin with a question or request a small result you can check. The guide covers installation, permissions and platform limits.",
   "quickSteps": [
@@ -181,13 +227,13 @@
   "docs": "Technical reference",
   "footer": "Kaoru · Source code under the MIT license",
   "rights": "Third-party models and characters retain their own rights. Independent project, not affiliated with HoYoverse.",
-  "guideIntro": "Configuration, tasks and review criteria for using Kaoru on your device or in a client project. The upcoming multilingual interface can follow your system language or use English, Spanish or Japanese; v2.3 is not released yet.",
+  "guideIntro": "Configuration, tasks and review criteria for using Kaoru on your device or in a client project. Since v2.3, the interface can follow your system language or use English, Spanish or Japanese.",
   "manualLink": "Read the full product manual (Spanish)",
   "guideSections": [
     [
       "install",
       "Installation and first launch",
-      "To install from source, you need Git, Node.js ≥ 18 and npm ≥ 9. Native modules are rebuilt for Electron; your system may also need build tools. Check the installation reference if a dependency fails."
+      "Download Kaoru for your operating system. Clicking a button starts the download immediately, with no intermediate pages. Then open the installer and follow the first-launch guide."
     ],
     [
       "provider",
@@ -236,6 +282,25 @@
     ]
   ],
   "installNote": "Run these commands in your development environment. Then consult the repository reference for initial configuration, voice and system-specific dependencies.",
+  "downloadTitle": "Download Kaoru",
+  "downloadIntro": "Pick your operating system. The download starts when you click (version {version}).",
+  "osWindows": "Windows",
+  "osLinux": "Linux",
+  "osMac": "macOS",
+  "dlWinSetup": "Installer",
+  "dlWinSetupHint": "Recommended · .exe",
+  "dlWinPortable": "Portable",
+  "dlWinPortableHint": "No install · .exe",
+  "dlLinuxDeb": ".deb",
+  "dlLinuxDebHint": "Debian, Ubuntu and derivatives",
+  "dlLinuxAppImage": "AppImage",
+  "dlLinuxAppImageHint": "Universal · make it executable",
+  "dlLinuxNote": "AppImage: right-click → Properties → allow executing as a program, or run chmod +x in the terminal.",
+  "dlMacIntel": "Intel",
+  "dlMacIntelHint": "DMG · Intel processors",
+  "dlMacArm": "Apple Silicon",
+  "dlMacArmHint": "DMG · M1, M2 and later",
+  "sourceTitle": "Install from source (developers)",
   "release": "Browse published releases",
   "installDocs": "Full installation instructions",
   "requirementsLink": "Provisional RAM, CPU and disk requirements (Spanish)",

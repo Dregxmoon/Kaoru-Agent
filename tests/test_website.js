@@ -204,6 +204,21 @@ async function main() {
     await noJs.close();
     await context.grantPermissions(['clipboard-read', 'clipboard-write']);
     await page.goto(`${base}/guide.html`);
+    const cards = page.locator('#install .dl-card');
+    check((await cards.count()) === 3, 'download cards for Windows, Linux and macOS');
+    const links = page.locator('#install .dl-btn');
+    check((await links.count()) === 6, 'two download options per OS');
+    for (const href of await links.evaluateAll((nodes) => nodes.map((n) => n.href))) {
+      check(
+        href.includes('/releases/download/v') && !href.endsWith('/releases'),
+        `direct download link: ${href}`
+      );
+    }
+    check(
+      (await page.locator('#install a[href$="/releases"]').count()) === 0,
+      'install section never links to the releases page'
+    );
+    await page.locator('details.source-install summary').click();
     await page.locator('[data-copy]').click();
     await page.waitForFunction(
       () => document.querySelector('.copy-status')?.textContent === 'Copiado'

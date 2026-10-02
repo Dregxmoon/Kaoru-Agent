@@ -8,6 +8,16 @@ const { marked } = require('marked');
 const root = path.resolve(__dirname, '../docs/web');
 const languages = ['es', 'en', 'ja'];
 const repo = 'https://github.com/Dregxmoon/Kaoru-Agent';
+const appVersion = require('../package.json').version;
+const releaseBase = `${repo}/releases/download/v${appVersion}/`;
+const releaseFiles = {
+  winSetup: `Asistente.Personal.Setup.${appVersion}.exe`,
+  winPortable: `Asistente.Personal.${appVersion}.exe`,
+  linuxDeb: `asistente-personal_${appVersion}_amd64.deb`,
+  linuxApp: `Asistente.Personal-${appVersion}.AppImage`,
+  macIntel: `Asistente.Personal-${appVersion}.dmg`,
+  macArm: `Asistente.Personal-${appVersion}-arm64.dmg`,
+};
 const escape = (value) =>
   String(value).replace(
     /[&<>"']/g,
@@ -86,10 +96,38 @@ function home(c) {
   <section class="section sec-dark" id="quickstart"><div class="container quickstart fade-up"><span class="eyebrow">KAORU / ${c.pages.guide}</span><h2>${c.quickTitle}</h2><p>${c.quickIntro}</p><ol>${c.quickSteps.map((x) => `<li>${x}</li>`).join('')}</ol><div class="hero-btns"><a class="btn-dark" href="guide.html">${c.start} <span aria-hidden="true">↗</span></a><a class="btn-outline" href="${repo}/blob/produccion/docs/README.md">${c.docs}</a></div></div></section>`;
 }
 
+const icons = {
+  windows:
+    '<svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M3 5.5 10.5 4.4v7.1H3zM11.6 4.2 21 3v8.5h-9.4zM3 12.5h7.5v7.1L3 18.5zM11.6 12.5H21V21l-9.4-1.2z"/></svg>',
+  linux:
+    '<svg viewBox="0 0 24 24" aria-hidden="true"><ellipse cx="12" cy="13.5" rx="6.5" ry="8" fill="currentColor"/><ellipse cx="12" cy="15.5" rx="3.8" ry="4.6" fill="#fff" opacity=".92"/><circle cx="10" cy="8.6" r="1.1" fill="#fff"/><circle cx="14" cy="8.6" r="1.1" fill="#fff"/><circle cx="10" cy="8.6" r=".45" fill="#222"/><circle cx="14" cy="8.6" r=".45" fill="#222"/><path d="M12 10.4l-1.6 1.8 1.6 1.8 1.6-1.8z" fill="#e8a33d"/><ellipse cx="8.3" cy="21" rx="2" ry="1" fill="#e8a33d"/><ellipse cx="15.7" cy="21" rx="2" ry="1" fill="#e8a33d"/></svg>',
+  mac: '<svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M16.7 12.9c0-2.4 2-3.6 2.1-3.7-1.1-1.7-2.9-1.9-3.5-1.9-1.5-.2-2.9.9-3.7.9-.8 0-1.9-.9-3.2-.9-1.6 0-3.1 1-4 2.4-1.7 2.9-.4 7.3 1.2 9.7.6.9 1.3 1.9 2.3 1.8 1-.4 1.3-1.2 2.5-1.2s1.5.8 2.5.8c1 0 1.7-.9 2.3-1.8.7-1.1 1-2.1 1-2.2-.1 0-2-1.1-2.1-2.9zM14.2 5.4c.7-.8 1.1-1.9 1-3-1 0-2.1.6-2.8 1.4-.6.7-1.2 1.9-1 3 1.1.1 2.1-.6 2.8-1.4z"/></svg>',
+};
+
+function downloads(c) {
+  const card = (icon, os, options, note = '') =>
+    `<article class="dl-card fade-up"><span class="dl-icon">${icons[icon]}</span><h4>${escape(os)}</h4><div class="dl-actions">${options
+      .map(
+        ([file, label, hint]) =>
+          `<a class="dl-btn" href="${releaseBase}${file}" download><span class="dl-file">${escape(label)}</span><span class="dl-hint">${escape(hint)}</span></a>`
+      )
+      .join('')}</div>${note ? `<p class="dl-note">${escape(note)}</p>` : ''}</article>`;
+  return `<h3>${escape(c.downloadTitle)}</h3><p>${escape(c.downloadIntro.replace('{version}', appVersion))}</p><div class="dl-grid">${card('windows', c.osWindows, [
+    [releaseFiles.winSetup, c.dlWinSetup, c.dlWinSetupHint],
+    [releaseFiles.winPortable, c.dlWinPortable, c.dlWinPortableHint],
+  ])}${card('linux', c.osLinux, [
+    [releaseFiles.linuxDeb, c.dlLinuxDeb, c.dlLinuxDebHint],
+    [releaseFiles.linuxApp, c.dlLinuxAppImage, c.dlLinuxAppImageHint],
+  ], c.dlLinuxNote)}${card('mac', c.osMac, [
+    [releaseFiles.macIntel, c.dlMacIntel, c.dlMacIntelHint],
+    [releaseFiles.macArm, c.dlMacArm, c.dlMacArmHint],
+  ])}</div>`;
+}
+
 function guide(c) {
   const manualHref = c.lang === 'es' ? 'manual.html' : '../manual.html';
   const toc = `<aside class="toc"><nav aria-label="${c.contents}"><strong>${c.contents}</strong>${c.guideSections.map(([id, title]) => `<a href="#${id}">${title}</a>`).join('')}</nav></aside>`;
-  return `<header class="page-heading container"><span class="eyebrow">KAORU / ${c.pages.guide}</span><h1>${c.pages.guide}</h1><p>${c.guideIntro}</p><p><a href="${manualHref}">${escape(c.manualLink)} →</a></p></header><div class="container document-layout">${toc}<article class="prose">${c.guideSections.map(([id, title, text], i) => `<section id="${id}"><h2>${i + 1}. ${title}</h2><p>${text}</p>${id === 'install' ? `<div class="code-block"><div class="code-heading"><span>Git / npm</span><button type="button" class="copy-button" data-copy="install-commands" data-copied="${c.copied}" data-error="${c.copyError}">${c.copy}</button></div><pre><code id="install-commands">${escape(commands)}</code></pre></div><p class="copy-status" role="status" aria-live="polite"></p><p>${c.installNote}</p><p class="inline-links"><a href="${repo}/blob/produccion/README.md">${c.installDocs} ↗</a><a href="${repo}/blob/produccion/docs/requisitos.md">${c.requirementsLink} ↗</a><a href="${repo}/releases">${c.release} ↗</a></p>` : ''}</section>`).join('')}<p class="note"><a href="privacy.html">${c.pages.privacy}</a> · <a href="terms.html">${c.pages.terms}</a></p></article></div>`;
+  return `<header class="page-heading container"><span class="eyebrow">KAORU / ${c.pages.guide}</span><h1>${c.pages.guide}</h1><p>${c.guideIntro}</p><p><a href="${manualHref}">${escape(c.manualLink)} →</a></p></header><div class="container document-layout">${toc}<article class="prose">${c.guideSections.map(([id, title, text], i) => `<section id="${id}"><h2>${i + 1}. ${title}</h2><p>${text}</p>${id === 'install' ? `${downloads(c)}<details class="source-install"><summary>${escape(c.sourceTitle)}</summary><div class="code-block"><div class="code-heading"><span>Git / npm</span><button type="button" class="copy-button" data-copy="install-commands" data-copied="${c.copied}" data-error="${c.copyError}">${c.copy}</button></div><pre><code id="install-commands">${escape(commands)}</code></pre></div><p class="copy-status" role="status" aria-live="polite"></p><p>${c.installNote}</p></details><p class="inline-links"><a href="${repo}/blob/produccion/README.md">${c.installDocs} ↗</a><a href="${repo}/blob/produccion/docs/requisitos.md">${c.requirementsLink} ↗</a></p>` : ''}</section>`).join('')}<p class="note"><a href="privacy.html">${c.pages.privacy}</a> · <a href="terms.html">${c.pages.terms}</a></p></article></div>`;
 }
 
 function manual(c, source) {

@@ -21,9 +21,8 @@ operativo, el proveedor de IA y los permisos configurados.
 1. Abre Kaoru. En el primer uso, elige un proveedor y un modelo de IA desde **Elegir modelo** si
    quieres conversar o pedirle tareas. Necesitarás una clave válida o un endpoint local compatible,
    según el proveedor. La terminal integrada puede abrirse sin clave de IA.
-   En la próxima v2.3, **Ajustes → Idioma** permitirá dejar **Idioma del sistema** o elegir inglés,
-   español o japonés. El cambio se guardará para el siguiente inicio. Esta opción todavía no forma
-   parte del instalador v2.2 publicado.
+   Desde v2.3, **Ajustes → Idioma** permite dejar **Idioma del sistema** o elegir inglés,
+   español o japonés. El cambio se guardará para el siguiente inicio.
 2. Selecciona una carpeta de trabajo desde **Chats → Abrir carpeta y crear chat**. Esa carpeta es el
    _workspace_: el proyecto en el que Kaoru interpreta `@archivo`, lee archivos y, si lo autorizas,
    ejecuta herramientas. No es necesario mover el proyecto a la carpeta de Kaoru.

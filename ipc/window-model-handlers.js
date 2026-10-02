@@ -64,27 +64,81 @@ function register(ctx) {
   });
 
   // IPC: modelo Live2D
-  const MODELS_DIR = path.join(__dirname, '..', 'models');
+  //
+  // Dos orígenes de modelos:
+  //  - BUNDLED_MODELS_DIR: modelos incluidos en el release. En builds empaquetados
+  //    vive dentro de app.asar → SOLO LECTURA (nunca se escribe ahí).
+  //  - userData/models: modelos importados por el usuario. Es escribible, no
+  //    depende de la ruta de instalación (Program Files) y sobrevive a updates.
+  const BUNDLED_MODELS_DIR = path.join(__dirname, '..', 'models');
+  const MODEL3_MAX_DEPTH = 2;
+
+  // Resuelta de forma perezosa: `app.getPath` puede no existir en mocks de tests.
+  function getUserModelsDir() {
+    try {
+      return path.join(app.getPath('userData'), 'models');
+    } catch {
+      return null;
+    }
+  }
+
+  // Busca un *.model3.json hasta MODEL3_MAX_DEPTH niveles. Prioriza los archivos
+  // del nivel actual antes de bajar a subcarpetas (p. ej. `runtime/`). Es la ÚNICA
+  // búsqueda usada por listModels() y por model-import, para que ambos coincidan.
+  function findModel3(dir, depth = 0) {
+    if (depth > MODEL3_MAX_DEPTH) return null;
+    let entries;
+    try {
+      entries = fs.readdirSync(dir, { withFileTypes: true });
+    } catch {
+      return null;
+    }
+    const file = entries.find((e) => e.isFile() && e.name.endsWith('.model3.json'));
+    if (file) return path.join(dir, file.name);
+    for (const e of entries) {
+      if (!e.isDirectory()) continue;
+      const found = findModel3(path.join(dir, e.name), depth + 1);
+      if (found) return found;
+    }
+    return null;
+  }
+
+  // Limpieza best-effort: un fallo al borrar nunca debe escapar del handler IPC.
+  function removeQuietly(target) {
+    try {
+      fs.rmSync(target, { recursive: true, force: true });
+    } catch {}
+  }
+
+  function listModelsIn(root, imported, seen, out) {
+    if (!root || !fs.existsSync(root)) return;
+    let entries;
+    try {
+      entries = fs.readdirSync(root, { withFileTypes: true });
+    } catch {
+      return;
+    }
+    for (const entry of entries) {
+      if (!entry.isDirectory() || seen.has(entry.name)) continue;
+      const model3Path = findModel3(path.join(root, entry.name));
+      if (!model3Path) continue;
+      seen.add(entry.name);
+      out.push({
+        id: entry.name,
+        name: entry.name,
+        model3Path,
+        imported,
+        active: entry.name === S.activeModelId,
+      });
+    }
+  }
 
   function listModels() {
     const models = [];
-    if (!fs.existsSync(MODELS_DIR)) return models;
-    for (const entry of fs.readdirSync(MODELS_DIR, { withFileTypes: true })) {
-      if (!entry.isDirectory()) continue;
-      const folder = path.join(MODELS_DIR, entry.name);
-      let model3 = null;
-      try {
-        model3 = fs.readdirSync(folder).find((f) => f.endsWith('.model3.json')) || null;
-      } catch {}
-      if (model3) {
-        models.push({
-          id: entry.name,
-          name: entry.name,
-          model3Path: path.join(folder, model3),
-          active: entry.name === S.activeModelId,
-        });
-      }
-    }
+    const seen = new Set();
+    // Los importados van primero: si comparten id con uno incluido, ganan.
+    listModelsIn(getUserModelsDir(), true, seen, models);
+    listModelsIn(BUNDLED_MODELS_DIR, false, seen, models);
     return models;
   }
 
@@ -123,34 +177,53 @@ function register(ctx) {
 
   ipcMain.handle('model-import', (e, { folderPath } = {}) => {
     if (!folderPath || typeof folderPath !== 'string') return { error: 'Ruta inválida.' };
-    if (!fs.existsSync(folderPath)) return { error: 'La ruta no existe: ' + folderPath };
-
-    let model3Rel = null;
-    const walk = (dir, depth) => {
-      if (depth > 2 || model3Rel) return;
-      let entries;
-      try {
-        entries = fs.readdirSync(dir, { withFileTypes: true });
-      } catch {
-        return;
-      }
-      for (const entry of entries) {
-        if (model3Rel) return;
-        if (entry.isDirectory()) walk(path.join(dir, entry.name), depth + 1);
-        else if (entry.name.endsWith('.model3.json')) model3Rel = path.join(dir, entry.name);
-      }
-    };
-    walk(folderPath, 0);
-    if (!model3Rel) return { error: 'No se encontró un archivo .model3.json en la carpeta.' };
-
-    const id = path.basename(folderPath);
-    const dest = path.join(MODELS_DIR, id);
+    const src = path.resolve(folderPath);
+    let stat;
     try {
-      fs.cpSync(folderPath, dest, { recursive: true });
-    } catch (e) {
-      return { error: 'No se pudo copiar el modelo: ' + e.message };
+      stat = fs.statSync(src);
+    } catch {
+      return { error: 'La ruta no existe: ' + folderPath };
     }
-    if (!setActiveModel(id)) return { error: 'No se pudo activar el modelo importado.' };
+    if (!stat.isDirectory()) return { error: 'La ruta no es una carpeta: ' + folderPath };
+
+    const id = path.basename(src);
+    // Raíz de unidad (C:\) o similar: basename vacío → no hay nombre de modelo.
+    // Se valida antes de buscar para no recorrer una unidad entera.
+    if (!id || src === path.parse(src).root) {
+      return { error: 'Elige la carpeta del modelo, no la raíz de una unidad.' };
+    }
+
+    if (!findModel3(src)) {
+      return { error: 'No se encontró un archivo .model3.json en la carpeta.' };
+    }
+
+    const userDir = getUserModelsDir();
+    if (!userDir) return { error: 'No se pudo resolver la carpeta de datos de la app.' };
+    const dest = path.join(userDir, id);
+
+    // Ya es el modelo importado: solo se activa. Copiar una carpeta sobre sí
+    // misma (o dentro de sí misma) fallaría o duplicaría datos.
+    const isSelf = src === dest;
+    if (!isSelf && (dest.startsWith(src + path.sep) || userDir.startsWith(src + path.sep))) {
+      return { error: 'La carpeta contiene el directorio de datos de la app; elige otra.' };
+    }
+
+    const existed = fs.existsSync(dest);
+    if (!isSelf) {
+      try {
+        fs.mkdirSync(userDir, { recursive: true });
+        fs.cpSync(src, dest, { recursive: true, force: true });
+      } catch (err) {
+        if (!existed) removeQuietly(dest);
+        return { error: 'No se pudo copiar el modelo: ' + err.message };
+      }
+    }
+
+    if (!setActiveModel(id)) {
+      // No dejar una carpeta huérfana si la importación no llegó a activarse.
+      if (!existed && !isSelf) removeQuietly(dest);
+      return { error: 'No se pudo activar el modelo importado.' };
+    }
     broadcastModelChanged();
     return { ok: true, info: getActiveModel() };
   });
